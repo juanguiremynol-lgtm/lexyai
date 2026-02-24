@@ -42,6 +42,14 @@ import {
 
 import { parseCpnuSujetos } from '../partyNormalization.ts';
 
+import {
+  checkSnapshotFreshness,
+  extractMaxActDate,
+  buildIngestionMetadata,
+  type FreshnessCheckResult,
+  type IngestionMetadata,
+} from '../cpnuFreshnessGate.ts';
+
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
@@ -254,7 +262,14 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
   // If forceRefresh, skip stale /snapshot cache and go directly to /buscar scraping
   if (options.forceRefresh) {
     console.log(`[cpnuAdapter] forceRefresh=true, bypassing /snapshot, triggering /buscar scraping...`);
-    return await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime);
+    const result = await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime);
+    result.cpnuIngestionMeta = {
+      source_mode: 'BUSCAR',
+      snapshot_max_act_date: null,
+      stale_reason: 'FORCE_REFRESH',
+      force_refresh: true,
+    };
+    return result;
   }
 
   // STEP 1: Try /snapshot
@@ -341,6 +356,42 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       redactPII: options.redactPII,
     });
 
+    // ═══ FRESHNESS GATE: Check if snapshot data is stale ═══
+    const snapshotMaxActDate = extractMaxActDate(normalized);
+    const freshnessCheck = checkSnapshotFreshness({
+      snapshotMaxActDate,
+      dbMaxActDate: options.dbMaxActDate || null,
+      snapshotRecordCount: normalized.length,
+      historicalRecordCount: options.historicalRecordCount,
+      forceRefresh: false, // Already handled above
+    });
+
+    if (freshnessCheck.isStale) {
+      console.warn(
+        `[cpnuAdapter] ⚠️ SNAPSHOT STALE DETECTED: ${freshnessCheck.explanation}`,
+        `reason=${freshnessCheck.reason}, snapshotMax=${snapshotMaxActDate}, dbMax=${options.dbMaxActDate}`,
+      );
+      // Log metric event for monitoring
+      console.log(`[cpnu.snapshot_stale_detected] reason=${freshnessCheck.reason} radicado=${radicado.slice(0,4)}*** snapshotMax=${snapshotMaxActDate}`);
+
+      // Fallback to /buscar
+      const buscarResult = await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime);
+      buscarResult.cpnuIngestionMeta = {
+        source_mode: 'BUSCAR',
+        snapshot_max_act_date: snapshotMaxActDate,
+        stale_reason: freshnessCheck.reason,
+        force_refresh: false,
+      };
+
+      // If buscar also returned data, use it. If buscar failed/empty, fall back to snapshot data.
+      if (buscarResult.status === 'SUCCESS' && buscarResult.actuaciones.length > 0) {
+        return buscarResult;
+      }
+
+      // Buscar failed — return snapshot data anyway (stale > nothing)
+      console.warn(`[cpnuAdapter] /buscar fallback failed or empty, returning stale snapshot data as fallback`);
+    }
+
     const parties = options.includeParties
       ? extractParties(sujetos, resumenBusqueda?.sujetosProcesalesResumen as string | undefined, options.redactPII)
       : null;
@@ -362,6 +413,12 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       parties,
       durationMs: Date.now() - startTime,
       httpStatus: snapshotResponse.status,
+      cpnuIngestionMeta: {
+        source_mode: freshnessCheck.isStale ? 'BUSCAR' : 'SNAPSHOT',
+        snapshot_max_act_date: snapshotMaxActDate,
+        stale_reason: freshnessCheck.reason,
+        force_refresh: false,
+      },
     };
 
   } catch (err) {

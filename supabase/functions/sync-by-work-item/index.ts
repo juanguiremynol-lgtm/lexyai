@@ -34,6 +34,14 @@ import {
   aggregateLegacyResults,
   type LegacyFetchResult,
 } from "../_shared/providerAdapters.ts";
+import {
+  getDbMaxActDate,
+  getHistoricalRecordCount,
+  persistIngestionMetadata,
+  markNeedsCpnuRefresh,
+  buildIngestionMetadata,
+  type IngestionMetadata,
+} from "../_shared/cpnuFreshnessGate.ts";
 
 // ═══════════════════════════════════════════
 // SHARED PROVIDER ADAPTERS (Step 3.2)
@@ -940,13 +948,28 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
   };
 }
 
-async function fetchFromCpnu(radicado: string, forceRefresh?: boolean): Promise<FetchResult> {
+async function fetchFromCpnu(
+  radicado: string,
+  forceRefresh?: boolean,
+  freshnessContext?: { dbMaxActDate?: string | null; historicalRecordCount?: number },
+): Promise<FetchResult> {
   const result = await sharedFetchFromCpnu({
     radicado,
     mode: 'monitoring',
     includeParties: true,
     forceRefresh,
+    dbMaxActDate: freshnessContext?.dbMaxActDate,
+    historicalRecordCount: freshnessContext?.historicalRecordCount,
   });
+  // Log CPNU ingestion metadata for observability
+  if (result.cpnuIngestionMeta) {
+    console.log(
+      `[cpnu.ingestion_meta] source_mode=${result.cpnuIngestionMeta.source_mode}`,
+      `snapshot_max=${result.cpnuIngestionMeta.snapshot_max_act_date}`,
+      `stale_reason=${result.cpnuIngestionMeta.stale_reason}`,
+      `force_refresh=${result.cpnuIngestionMeta.force_refresh}`,
+    );
+  }
   return sharedResultToFetchResult(result);
 }
 
@@ -1034,6 +1057,11 @@ async function executeViaOrchestrator(
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+  // Fetch freshness context for CPNU snapshot staleness detection
+  const dbMaxActDate = await getDbMaxActDate(supabase, workItem.id);
+  const historicalRecordCount = await getHistoricalRecordCount(supabase, workItem.id);
+  const freshnessContext = { dbMaxActDate, historicalRecordCount };
+
   // Build provider fetch registry using existing inline functions as adapters
   const normalizedRadicado = workItem.radicado ? normalizeRadicado(workItem.radicado) : "";
   const hasTutelaCode = workItem.tutela_code && isValidTutelaCode(workItem.tutela_code);
@@ -1042,7 +1070,7 @@ async function executeViaOrchestrator(
     {
       key: "CPNU",
       fetchFn: createLegacyAdapter(
-        (radicado: string) => fetchFromCpnu(radicado, force_refresh),
+        (radicado: string) => fetchFromCpnu(radicado, force_refresh, freshnessContext),
       ),
     },
     {
@@ -1363,7 +1391,14 @@ Deno.serve(async (req) => {
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
     const useOrchestrator = await shouldUseOrchestrator(supabase, workItem.organization_id);
-    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}`);
+
+    // Fetch CPNU freshness context for snapshot staleness detection (used by both paths)
+    const cpnuFreshnessCtx = {
+      dbMaxActDate: await getDbMaxActDate(supabase, work_item_id),
+      historicalRecordCount: await getHistoricalRecordCount(supabase, work_item_id),
+    };
+
+    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
 
     const result: SyncResult = {
       ok: false,
@@ -1590,7 +1625,7 @@ Deno.serve(async (req) => {
       const providerLabels: string[] = [];
       
       if (hasRadicado) {
-        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh));
+        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx));
         providerLabels.push('cpnu');
         providerPromises.push(fetchFromSamai(normalizedRadicado));
         providerLabels.push('samai');
@@ -1899,7 +1934,7 @@ Deno.serve(async (req) => {
       console.log(`[sync-by-work-item] Note: Publicaciones sync is handled by sync-publicaciones-by-work-item`);
       
       // Fetch from CPNU for actuaciones
-      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
+      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
       
       result.provider_attempts.push({
         provider: 'cpnu',
@@ -2048,7 +2083,7 @@ Deno.serve(async (req) => {
           console.log(`[sync-by-work-item] SAMAI failed/empty (no scraping), trying CPNU fallback`);
           result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
           
-          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
+          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
           
           result.provider_attempts.push({
             provider: 'cpnu',
@@ -2098,7 +2133,7 @@ Deno.serve(async (req) => {
           },
         });
         
-        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
+        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
         
         // Log PROVIDER_RESPONSE trace step
         await logTrace(supabase, {

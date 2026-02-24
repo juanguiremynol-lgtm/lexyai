@@ -141,6 +141,13 @@ export type Database = {
             foreignKeyName: "actuaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "actuaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -623,6 +630,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1014,6 +1028,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1178,6 +1199,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1218,6 +1246,13 @@ export type Database = {
           work_item_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
           {
             foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
             columns: ["work_item_id"]
@@ -1284,6 +1319,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "atenia_assistant_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
@@ -1364,6 +1406,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
@@ -1537,6 +1586,13 @@ export type Database = {
             foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1592,6 +1648,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
@@ -1671,6 +1734,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "atenia_e2e_test_registry"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
@@ -2680,6 +2750,13 @@ export type Database = {
             foreignKeyName: "cgp_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -2742,6 +2819,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
@@ -3055,6 +3139,13 @@ export type Database = {
             foreignKeyName: "cgp_milestones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3164,6 +3255,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "cgp_milestones"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "cgp_term_instances_work_item_id_fkey"
@@ -4569,6 +4667,13 @@ export type Database = {
             foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
             columns: ["linked_work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
+            columns: ["linked_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -5375,6 +5480,13 @@ export type Database = {
             foreignKeyName: "email_outbox_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -5844,6 +5956,9 @@ export type Database = {
       }
       external_sync_runs: {
         Row: {
+          cpnu_force_refresh: boolean | null
+          cpnu_snapshot_max_date: string | null
+          cpnu_source_mode: string | null
           created_at: string
           duration_ms: number | null
           error_code: string | null
@@ -5865,6 +5980,9 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          cpnu_force_refresh?: boolean | null
+          cpnu_snapshot_max_date?: string | null
+          cpnu_source_mode?: string | null
           created_at?: string
           duration_ms?: number | null
           error_code?: string | null
@@ -5886,6 +6004,9 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          cpnu_force_refresh?: boolean | null
+          cpnu_snapshot_max_date?: string | null
+          cpnu_source_mode?: string | null
           created_at?: string
           duration_ms?: number | null
           error_code?: string | null
@@ -5913,6 +6034,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_sync_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "external_sync_runs_work_item_id_fkey"
@@ -6098,6 +6226,13 @@ export type Database = {
             foreignKeyName: "generated_documents_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "generated_documents_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -6244,6 +6379,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
@@ -6759,6 +6901,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "hearings_work_item_id_fkey"
@@ -9441,6 +9590,13 @@ export type Database = {
             foreignKeyName: "process_events_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "process_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -10974,6 +11130,13 @@ export type Database = {
             foreignKeyName: "support_bundles_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "support_bundles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -11060,6 +11223,13 @@ export type Database = {
             foreignKeyName: "sync_audit_log_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_audit_log_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -11112,6 +11282,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
@@ -11187,6 +11364,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "sync_retry_queue_work_item_id_fkey"
@@ -11274,6 +11458,13 @@ export type Database = {
             foreignKeyName: "sync_traces_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -11329,6 +11520,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_watches_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "sync_watches_work_item_id_fkey"
@@ -11965,6 +12163,13 @@ export type Database = {
             foreignKeyName: "user_data_alerts_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "user_data_alerts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12401,6 +12606,13 @@ export type Database = {
             foreignKeyName: "work_item_acts_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12459,6 +12671,13 @@ export type Database = {
           workflow?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
           {
             foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
             columns: ["work_item_id"]
@@ -12538,6 +12757,13 @@ export type Database = {
             foreignKeyName: "work_item_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12585,6 +12811,13 @@ export type Database = {
             foreignKeyName: "work_item_email_events_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12628,6 +12861,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "work_item_external_links_work_item_id_fkey"
@@ -12743,6 +12983,13 @@ export type Database = {
             foreignKeyName: "work_item_hearings_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12837,6 +13084,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_parties_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "work_item_parties_work_item_id_fkey"
@@ -13012,6 +13266,13 @@ export type Database = {
             foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13077,6 +13338,13 @@ export type Database = {
             foreignKeyName: "work_item_reminders_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13129,6 +13397,13 @@ export type Database = {
           work_item_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
           {
             foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
             columns: ["work_item_id"]
@@ -13203,6 +13478,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
@@ -13296,6 +13578,13 @@ export type Database = {
             foreignKeyName: "work_item_sources_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13370,6 +13659,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "work_item_stage_suggestions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
@@ -13452,6 +13748,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
           },
           {
             foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
@@ -13556,6 +13859,13 @@ export type Database = {
             foreignKeyName: "work_item_tasks_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13631,6 +13941,7 @@ export type Database = {
           last_action_description: string | null
           last_attempted_sync_at: string | null
           last_checked_at: string | null
+          last_cpnu_buscar_at: string | null
           last_crawled_at: string | null
           last_error_at: string | null
           last_error_code: string | null
@@ -13670,6 +13981,7 @@ export type Database = {
           monitoring_suspended_at: string | null
           monitoring_suspended_reason: string | null
           naturaleza_proceso: string | null
+          needs_cpnu_refresh: boolean
           notes: string | null
           notification_effective_date: string | null
           notification_substatus: string | null
@@ -13797,6 +14109,7 @@ export type Database = {
           last_action_description?: string | null
           last_attempted_sync_at?: string | null
           last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
           last_crawled_at?: string | null
           last_error_at?: string | null
           last_error_code?: string | null
@@ -13836,6 +14149,7 @@ export type Database = {
           monitoring_suspended_at?: string | null
           monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
@@ -13963,6 +14277,7 @@ export type Database = {
           last_action_description?: string | null
           last_attempted_sync_at?: string | null
           last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
           last_crawled_at?: string | null
           last_error_at?: string | null
           last_error_code?: string | null
@@ -14002,6 +14317,7 @@ export type Database = {
           monitoring_suspended_at?: string | null
           monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
@@ -14100,6 +14416,31 @@ export type Database = {
       }
     }
     Views: {
+      cpnu_freshness_overview: {
+        Row: {
+          db_max_act_date: string | null
+          last_cpnu_buscar_at: string | null
+          last_crawled_at: string | null
+          last_snapshot_max_date: string | null
+          last_source_mode: string | null
+          last_sync_at: string | null
+          last_sync_status: string | null
+          needs_cpnu_refresh: boolean | null
+          organization_id: string | null
+          radicado: string | null
+          work_item_id: string | null
+          workflow_type: Database["public"]["Enums"]["workflow_type"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       demo_events_daily_stats: {
         Row: {
           avg_latency_ms: number | null
