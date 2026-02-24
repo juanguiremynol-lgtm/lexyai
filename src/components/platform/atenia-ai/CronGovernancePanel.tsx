@@ -194,6 +194,28 @@ export function CronGovernancePanel() {
     refetchInterval: 60_000,
   });
 
+  // Fetch recent cron traces from atenia_cron_runs
+  const { data: cronTraces } = useQuery({
+    queryKey: ["cron-traces"],
+    queryFn: async () => {
+      const { data } = await (supabase
+        .from("atenia_cron_runs") as any)
+        .select("id, job_name, status, started_at, finished_at, details, scheduled_for")
+        .order("started_at", { ascending: false })
+        .limit(50);
+      return (data ?? []) as Array<{
+        id: string;
+        job_name: string;
+        status: string;
+        started_at: string;
+        finished_at: string | null;
+        details: any;
+        scheduled_for: string;
+      }>;
+    },
+    refetchInterval: 60_000,
+  });
+
   const triggerDryRun = async () => {
     setDryRunning(true);
     setDryRunResult(null);
@@ -270,9 +292,10 @@ export function CronGovernancePanel() {
 
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex-wrap">
             <TabsTrigger value="governance">Registro</TabsTrigger>
             <TabsTrigger value="wiring">Wiring Map</TabsTrigger>
+            <TabsTrigger value="traces">Traces</TabsTrigger>
             <TabsTrigger value="providers">Proveedores</TabsTrigger>
             <TabsTrigger value="health">Salud</TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -410,6 +433,120 @@ export function CronGovernancePanel() {
                     </div>
                   );
                 })}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          {/* ── Tab: Traces (NEW) ── */}
+          <TabsContent value="traces">
+            <ScrollArea className="h-[500px]">
+              <div className="space-y-2">
+                {(cronTraces ?? []).map((trace) => {
+                  const d = trace.details ?? {};
+                  const durationMs = d.duration_ms ?? (trace.finished_at && trace.started_at
+                    ? new Date(trace.finished_at).getTime() - new Date(trace.started_at).getTime()
+                    : null);
+                  const isError = trace.status === "ERROR";
+                  const isPartial = trace.status === "PARTIAL";
+                  const registryEntry = CRON_REGISTRY_MAP.get(trace.job_name);
+                  
+                  return (
+                    <div key={trace.id} className={`p-3 rounded-lg border ${isError ? "border-destructive/30 bg-destructive/5" : isPartial ? "border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20" : "bg-card"}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={isError ? "destructive" : isPartial ? "outline" : "outline"}
+                            className={`text-xs ${!isError && !isPartial ? "text-green-600" : isPartial ? "text-amber-600" : ""}`}
+                          >
+                            {trace.status}
+                          </Badge>
+                          <span className="text-sm font-medium">
+                            {registryEntry?.label ?? trace.job_name}
+                          </span>
+                          {d.run_mode && (
+                            <Badge variant="secondary" className="text-xs font-mono">
+                              {d.run_mode}
+                            </Badge>
+                          )}
+                          {d.chain_id && (
+                            <span className="text-xs text-muted-foreground font-mono">
+                              chain:{d.chain_id.slice(0, 8)}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {trace.started_at ? format(new Date(trace.started_at), "HH:mm:ss") : "—"}
+                          {durationMs != null && ` (${(durationMs / 1000).toFixed(1)}s)`}
+                        </span>
+                      </div>
+
+                      {/* Key metrics row */}
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        {d.work_items_scanned != null && (
+                          <span>📋 Scanned: <strong>{d.work_items_scanned}</strong></span>
+                        )}
+                        {d.total_synced != null && (
+                          <span className="text-green-600">✅ Synced: <strong>{d.total_synced}</strong></span>
+                        )}
+                        {d.total_errors != null && d.total_errors > 0 && (
+                          <span className="text-destructive">❌ Errors: <strong>{d.total_errors}</strong></span>
+                        )}
+                        {d.total_dead_lettered != null && d.total_dead_lettered > 0 && (
+                          <span className="text-destructive">💀 Dead-lettered: <strong>{d.total_dead_lettered}</strong></span>
+                        )}
+                        {d.total_timeouts != null && d.total_timeouts > 0 && (
+                          <span className="text-amber-600">⏱ Timeouts: <strong>{d.total_timeouts}</strong></span>
+                        )}
+                        {/* Queue stats */}
+                        {d.queue_stats && (
+                          <>
+                            <span>📥 Queue: <strong>{d.queue_stats.processed ?? 0}</strong> processed</span>
+                            {d.queue_stats.succeeded != null && (
+                              <span className="text-green-600">✅ {d.queue_stats.succeeded}</span>
+                            )}
+                            {d.queue_stats.rescheduled != null && d.queue_stats.rescheduled > 0 && (
+                              <span className="text-amber-600">🔄 {d.queue_stats.rescheduled} rescheduled</span>
+                            )}
+                            {d.queue_stats.exhausted != null && d.queue_stats.exhausted > 0 && (
+                              <span className="text-destructive">💀 {d.queue_stats.exhausted} exhausted</span>
+                            )}
+                          </>
+                        )}
+                        {/* Continuation info */}
+                        {d.continuation_count != null && d.continuation_count > 0 && (
+                          <span className="text-muted-foreground">🔗 Continuation #{d.continuation_count}</span>
+                        )}
+                      </div>
+
+                      {/* Provider calls */}
+                      {d.provider_calls && Object.keys(d.provider_calls).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {Object.entries(d.provider_calls).map(([name, stats]: [string, any]) => (
+                            <Badge key={name} variant="outline" className="text-xs font-mono">
+                              {name}: {stats.count}
+                              {stats.inserted > 0 && <span className="text-green-600 ml-1">+{stats.inserted}</span>}
+                              {stats.errors > 0 && <span className="text-destructive ml-1">✗{stats.errors}</span>}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Errors */}
+                      {d.errors && d.errors.length > 0 && (
+                        <div className="mt-1.5 text-xs text-destructive">
+                          {d.errors.map((e: any, i: number) => (
+                            <p key={i}>{e.code}: {e.message}{e.count > 1 ? ` (×${e.count})` : ""}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {(cronTraces ?? []).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    Sin traces recientes. Los traces aparecerán después de la próxima ejecución de cron.
+                  </p>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
