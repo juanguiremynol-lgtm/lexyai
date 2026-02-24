@@ -11,14 +11,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { getColombiaDayBoundsUTC } from '@/lib/colombia-date-utils';
+import { getColombiaDayBoundsUTC, getColombiaToday } from '@/lib/colombia-date-utils';
 
 export function useHoyCounts() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
 
-  const todayBounds = getColombiaDayBoundsUTC(0);
-  const today = todayBounds.dateStr;
+  const today = getColombiaToday();
 
   const { data: estadosCount = 0 } = useQuery({
     queryKey: ['hoy-count-estados', orgId, today],

@@ -107,53 +107,14 @@ Deno.serve(async (req) => {
       .eq('is_archived', false);
 
     const insertedCount = syncResult?.inserted_count || 0;
-    let notificationResult: { dispatched: boolean; reason: string; recipients?: string[] } = { dispatched: false, reason: 'no_new_items' };
-
-    // If new items were inserted, trigger email dispatch immediately
-    // (DB trigger already created alert_instances with type ACTUACION_NEW on INSERT)
-    if (insertedCount > 0) {
-      // Look up who will receive the notification (owner + watchers)
-      const recipientEmails: string[] = [];
-      try {
-        const { data: ownerProfile } = await supabase
-          .from('profiles')
-          .select('alert_email, email')
-          .eq('id', workItem.owner_id)
-          .maybeSingle();
-        const ownerEmail = ownerProfile?.alert_email || ownerProfile?.email;
-        if (ownerEmail) recipientEmails.push(ownerEmail);
-      } catch (_) { /* non-critical */ }
-
-      try {
-        const dispatchResp = await fetch(
-          `${supabaseUrl}/functions/v1/dispatch-update-emails`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ source: 'resync-actuaciones', work_item_id }),
-          }
-        );
-        const dispatchData = await dispatchResp.json().catch(() => null);
-        notificationResult = {
-          dispatched: true,
-          reason: `dispatch triggered: ${dispatchData?.emailsEnqueued || 0} emails enqueued`,
-          recipients: recipientEmails.length > 0 ? recipientEmails : undefined,
-        };
-        console.log(`[resync-actuaciones] Dispatch result:`, dispatchData);
-      } catch (dispatchErr) {
-        console.error('[resync-actuaciones] Failed to trigger dispatch:', dispatchErr);
-        notificationResult = {
-          dispatched: false,
-          reason: `dispatch error: ${dispatchErr instanceof Error ? dispatchErr.message : 'unknown'}`,
-          recipients: recipientEmails.length > 0 ? recipientEmails : undefined,
-        };
-      }
-    } else {
-      console.log('[resync-actuaciones] No new items inserted, skipping dispatch');
-    }
+    // Backfill/resync should NOT trigger email notifications.
+    // Historical items are not "new today" — only CRON-discovered fresh items should notify.
+    const notificationResult = {
+      dispatched: false,
+      reason: insertedCount > 0
+        ? 'backfill_no_notify: historical items inserted, no email sent'
+        : 'no_new_items',
+    };
 
     return new Response(JSON.stringify({
       ok: true,
