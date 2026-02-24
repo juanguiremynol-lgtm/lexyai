@@ -23,15 +23,6 @@ import {
   BUSCAR_CONCURRENCY_LIMIT,
   markNeedsCpnuRefresh,
 } from "../_shared/cpnuFreshnessGate.ts";
-import {
-  selectEligibleWorkItems,
-  type EligibleWorkItem,
-} from "../_shared/sync-eligibility.ts";
-import {
-  startHeartbeat,
-  finishHeartbeat,
-  type HeartbeatHandle,
-} from "../_shared/platformJobHeartbeat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,7 +69,7 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-  } catch { /* not JSON, proceed normally */ }
+  } catch (_healthErr) { /* not JSON, proceed normally */ }
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
@@ -105,7 +96,7 @@ Deno.serve(async (req) => {
     if (req.method === "POST") {
       bodyParams = await req.json().catch(() => ({}));
     }
-  } catch { /* no body */ }
+  } catch (_bodyErr) { /* no body */ }
 
   const isContinuation = bodyParams.is_continuation === true;
   const isOverflow = bodyParams.is_overflow === true;
@@ -242,7 +233,7 @@ Deno.serve(async (req) => {
         .update({ status: "FAILED" as any, finished_at: new Date().toISOString(), failure_reason: "TIMEOUT_STUCK_RUNNING" })
         .eq("status", "RUNNING")
         .lt("run_date", todayStr);
-    } catch { /* non-blocking cleanup */ }
+    } catch (_cleanupErr) { /* non-blocking cleanup */ }
 
     // ── Clean up same-day stuck RUNNING entries (> 30 min without heartbeat) ──
     try {
@@ -253,7 +244,7 @@ Deno.serve(async (req) => {
         .eq("status", "RUNNING")
         .eq("run_date", todayStr)
         .lt("last_heartbeat_at", stuckCutoff);
-    } catch { /* non-blocking cleanup */ }
+    } catch (_stuckErr) { /* non-blocking cleanup */ }
 
     // Determine which orgs to process
     let orgIds: string[];
@@ -321,7 +312,7 @@ Deno.serve(async (req) => {
         processed_count: totalSynced,
         metadata: { run_id: runId, chain_id: chainId, continuation_count: continuationCount, is_overflow: isOverflow, results: allResults.slice(0, 20) },
       });
-    } catch { /* non-blocking */ }
+    } catch (_logErr) { /* non-blocking */ }
 
     // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL/BUDGET_EXHAUSTED runs ──
     const partialOrgs = allResults.filter(r =>
@@ -1027,7 +1018,7 @@ async function syncSingleItem(
           },
           { onConflict: "work_item_id,kind" },
         );
-      } catch { /* non-blocking */ }
+      } catch (_retryErr) { /* non-blocking */ }
     } else {
       if ((item.total_actuaciones || 0) >= 100) {
         await new Promise((r) => setTimeout(r, 2000));
@@ -1036,7 +1027,7 @@ async function syncSingleItem(
         await supabase.functions.invoke("sync-publicaciones-by-work-item", {
           body: { work_item_id: item.id, _scheduled: true },
         });
-      } catch {
+      } catch (_pubErr) {
         // Pub errors don't count as item failure
       }
     }
@@ -1111,7 +1102,7 @@ async function resetItemFailures(supabase: any, workItemId: string): Promise<voi
         })
         .eq("work_item_id", workItemId);
     }
-  } catch { /* non-blocking */ }
+  } catch (_nbErr) { /* non-blocking */ }
 }
 
 // ─── Ledger update helper ───
@@ -1239,7 +1230,7 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
             last_error_code: "DEMONITORED",
           })
           .eq("work_item_id", id);
-      } catch { /* non-blocking */ }
+      } catch (_nbErr2) { /* non-blocking */ }
     }
 
     for (const item of toDemonitor.slice(0, 10)) {
@@ -1255,7 +1246,7 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
           action_result: "SUCCESS",
           evidence: buildAuditEvidence({ item, retryRowPresent: false, threshold }),
         });
-      } catch { /* non-blocking */ }
+      } catch (_nbErr3) { /* non-blocking */ }
     }
 
     console.log(`[daily-sync] Auto-demonitor: ${toDemonitor.length} items (incl. ${ghostOnlyIds.length} ghost items)`);

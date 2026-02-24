@@ -650,20 +650,26 @@ Deno.serve(async (req) => {
     // Catches regression: last_synced_at advancing while zero data present
     // ================================================================
     try {
-      const { data: suspiciousItems } = await admin.rpc("execute_readonly_query" as any, {
-        query_text: `
-          SELECT wi.id, wi.workflow_type, wi.last_synced_at::text,
-            (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id)::int as act_count,
-            (SELECT COUNT(*) FROM work_item_publicaciones WHERE work_item_id = wi.id)::int as pub_count
-          FROM work_items wi
-          WHERE wi.monitoring_enabled = true
-            AND wi.last_synced_at > NOW() - INTERVAL '48 hours'
-            AND wi.created_at < NOW() - INTERVAL '24 hours'
-            AND wi.deleted_at IS NULL
-            AND (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id) = 0
-          LIMIT 50
-        `.trim(),
-      }).catch(() => ({ data: null }));
+      let suspiciousItems: any[] | null = null;
+      try {
+        const rpcResult = await admin.rpc("execute_readonly_query" as any, {
+          query_text: `
+            SELECT wi.id, wi.workflow_type, wi.last_synced_at::text,
+              (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id)::int as act_count,
+              (SELECT COUNT(*) FROM work_item_publicaciones WHERE work_item_id = wi.id)::int as pub_count
+            FROM work_items wi
+            WHERE wi.monitoring_enabled = true
+              AND wi.last_synced_at > NOW() - INTERVAL '48 hours'
+              AND wi.created_at < NOW() - INTERVAL '24 hours'
+              AND wi.deleted_at IS NULL
+              AND (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id) = 0
+            LIMIT 50
+          `.trim(),
+        });
+        suspiciousItems = rpcResult.data;
+      } catch (_rpcErr) {
+        console.warn("[watchdog] execute_readonly_query RPC unavailable, using fallback");
+      }
 
       // Fallback: use direct query if RPC not available
       let freshnessViolations: any[] = [];

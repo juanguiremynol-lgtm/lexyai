@@ -31,13 +31,12 @@ const corsHeaders = {
 
 // ============= TYPES =============
 
-interface SyncRequest {
+type SyncRequest = {
   work_item_id: string;
-  // Optional: bypass auth for scheduled jobs (service role only)
   _scheduled?: boolean;
-}
+};
 
-interface InsertedPublication {
+type InsertedPublication = {
   id: string;
   title: string;
   pdf_url: string | null;
@@ -46,9 +45,9 @@ interface InsertedPublication {
   fecha_desfijacion: string | null;
   tipo_publicacion: string | null;
   terminos_inician: string | null;
-}
+};
 
-interface SyncResult {
+type SyncResult = {
   ok: boolean;
   work_item_id: string;
   inserted_count: number;
@@ -57,16 +56,12 @@ interface SyncResult {
   newest_publication_date: string | null;
   warnings: string[];
   errors: string[];
-  // Extended: Include inserted items for scheduled job alert generation
   inserted: InsertedPublication[];
-  // Status for UI
   status?: 'SUCCESS' | 'EMPTY' | 'ERROR';
-  // Provider diagnostics
   provider_latency_ms?: number;
-}
+};
 
-// v3 API response structure
-interface PublicacionV3 {
+type PublicacionV3 = {
   key: string;
   tipo: string;
   asset_id?: string;
@@ -82,16 +77,16 @@ interface PublicacionV3 {
     prioridad?: number;
     es_descargable?: boolean;
   };
-}
+};
 
-interface FetchResultV3 {
+type FetchResultV3 = {
   ok: boolean;
   publicaciones: PublicacionV3[];
   error?: string;
   latencyMs: number;
   httpStatus?: number;
   found?: boolean;
-}
+};
 
 // ============= HELPERS =============
 
@@ -414,7 +409,7 @@ async function fetchPublicaciones(
         const latencyMs = Date.now() - startTime;
         console.log(`[sync-pub] Success from ${url}: found=${data.found}, totalResultados=${data.totalResultados}`);
         return extractPublicacionesFromResponse(data, latencyMs);
-      } catch {
+      } catch (_jsonErr) {
         console.warn(`[sync-pub] Invalid JSON from ${url}`);
         continue;
       }
@@ -508,13 +503,14 @@ Deno.serve(async (req) => {
   // Health check short-circuit
   try {
     const cloned = req.clone();
-    const maybeBody = await cloned.json().catch(() => null);
+    let maybeBody: any = null;
+    try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
       return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-  } catch { /* not JSON, proceed normally */ }
+  } catch (_healthErr) { /* not JSON, proceed normally */ }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -540,7 +536,7 @@ Deno.serve(async (req) => {
     let payload: SyncRequest;
     try {
       payload = await req.json();
-    } catch {
+    } catch (_parseErr) {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
     }
 
@@ -714,7 +710,7 @@ Deno.serve(async (req) => {
       try {
         const { error: gapError } = await supabase.rpc('upsert_coverage_gap' as any, {} as any);
         // rpc not available, use raw upsert
-      } catch {}
+      } catch (_gapRpcErr) {}
 
       // Direct upsert to work_item_coverage_gaps
       try {
@@ -1035,7 +1031,7 @@ Deno.serve(async (req) => {
                 error_message: `${missingFps.length} inserts silently failed for work_item ${work_item_id}`,
                 work_item_id,
               });
-            } catch { /* best-effort */ }
+            } catch (_logErr) { /* best-effort */ }
           } else {
             console.log(`[VERIFY_OK] All ${attemptedPubFingerprints.length} pub inserts verified persisted`);
           }
@@ -1055,7 +1051,7 @@ Deno.serve(async (req) => {
         .update({ pubs_initial_sync_completed_at: new Date().toISOString() } as any)
         .eq('id', work_item_id)
         .is('pubs_initial_sync_completed_at' as any, null);
-    } catch { /* best-effort */ }
+    } catch (_markerErr) { /* best-effort */ }
 
     console.log(`[sync-pub] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
 
@@ -1181,7 +1177,7 @@ Deno.serve(async (req) => {
         total_skipped_pubs: result.skipped_count,
         error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
       });
-    } catch { /* best-effort */ }
+    } catch (_traceErr) { /* best-effort */ }
 
     return jsonResponse(result);
 
