@@ -187,6 +187,8 @@ export interface AdapterOptions {
   redactPII?: boolean;
   /** Force a fresh scrape bypassing cached /snapshot (for manual resync) */
   forceRefresh?: boolean;
+  /** When false, adapter must NOT call /buscar even if snapshot is stale (cron cap) */
+  allowBuscar?: boolean;
   /** DB's last known max act_date for freshness comparison (YYYY-MM-DD) */
   dbMaxActDate?: string | null;
   /** Historical record count for freshness heuristic */
@@ -232,6 +234,8 @@ export interface ProviderAdapterResult {
     snapshot_max_act_date: string | null;
     stale_reason: string | null;
     force_refresh: boolean;
+    /** True when buscar was needed but not allowed (cron cap) */
+    buscar_deferred?: boolean;
   };
 }
 

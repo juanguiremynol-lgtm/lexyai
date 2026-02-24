@@ -18,6 +18,20 @@ import {
   finishHeartbeat,
   type HeartbeatHandle,
 } from "../_shared/platformJobHeartbeat.ts";
+import {
+  MAX_BUSCAR_PER_CRON_CYCLE,
+  BUSCAR_CONCURRENCY_LIMIT,
+  markNeedsCpnuRefresh,
+} from "../_shared/cpnuFreshnessGate.ts";
+import {
+  selectEligibleWorkItems,
+  type EligibleWorkItem,
+} from "../_shared/sync-eligibility.ts";
+import {
+  startHeartbeat,
+  finishHeartbeat,
+  type HeartbeatHandle,
+} from "../_shared/platformJobHeartbeat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -267,6 +281,9 @@ Deno.serve(async (req) => {
       item_timeout_counts?: Record<string, number>;
     }> = [];
 
+    /** Shared buscar budget tracker across all orgs in this cron run */
+    const buscarBudget = { used: 0, cap: MAX_BUSCAR_PER_CRON_CYCLE };
+
     for (const orgId of orgIds) {
       if (Date.now() - startTime > HARD_BUDGET_MS) {
         console.warn(`[daily-sync] Global budget exhausted before org ${orgId}`);
@@ -278,6 +295,7 @@ Deno.serve(async (req) => {
           isContinuation ? resumeAfterId : undefined,
           isContinuation, continuationOf, runCutoffTime, chainId,
           triggerSource, manualInitiatorUserId, isOverflow, inheritedTimeoutCounts,
+          buscarBudget,
         );
         allResults.push(result);
       } catch (orgError: any) {
@@ -469,6 +487,7 @@ async function syncOrganization(
   manualInitiatorUserId: string | null = null,
   isOverflow: boolean = false,
   inheritedTimeoutCounts: Record<string, number> = {},
+  buscarBudget: { used: number; cap: number } = { used: 0, cap: MAX_BUSCAR_PER_CRON_CYCLE },
 ): Promise<{
   org_id: string; status: string; synced: number; errors: number;
   dead_lettered: number; timeouts: number; ledger_id?: string;
@@ -659,7 +678,23 @@ async function syncOrganization(
         }
 
         try {
-          await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS);
+          const allowBuscar = buscarBudget.used < buscarBudget.cap;
+          const syncResponse = await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS, allowBuscar);
+          
+          // Track buscar usage from response
+          if (syncResponse?.cpnu_buscar_used) {
+            buscarBudget.used++;
+            console.log(`[daily-sync] buscar used for ${item.radicado?.slice(0,10)}, budget=${buscarBudget.used}/${buscarBudget.cap}`);
+          }
+          // If buscar was deferred (stale but cap reached), mark for next run
+          if (syncResponse?.cpnu_buscar_deferred) {
+            await markNeedsCpnuRefresh(supabase, item.id, true);
+            console.log(`[daily-sync] needs_cpnu_refresh=true for ${item.radicado?.slice(0,10)} (buscar cap reached)`);
+          } else if (syncResponse?.cpnu_buscar_used) {
+            // Buscar was used successfully — clear the flag
+            await markNeedsCpnuRefresh(supabase, item.id, false);
+          }
+          
           itemsSucceeded++;
           // Reset failure counter on success
           await resetItemFailures(supabase, item.id);
@@ -760,7 +795,14 @@ async function syncOrganization(
             if (retryAttemptNum > MAX_ITEM_ATTEMPTS_PER_CHAIN) continue;
 
             try {
-              await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS);
+              const retryAllowBuscar = buscarBudget.used < buscarBudget.cap;
+              const retrySyncResponse = await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS, retryAllowBuscar);
+              if (retrySyncResponse?.cpnu_buscar_used) buscarBudget.used++;
+              if (retrySyncResponse?.cpnu_buscar_deferred) {
+                await markNeedsCpnuRefresh(supabase, item.id, true);
+              } else if (retrySyncResponse?.cpnu_buscar_used) {
+                await markNeedsCpnuRefresh(supabase, item.id, false);
+              }
               // Retry succeeded! Fix counts
               itemsSucceeded++;
               itemsFailed--; // Undo the earlier failure count
@@ -853,6 +895,9 @@ async function syncOrganization(
       skipped_radicados: skippedRadicados.slice(0, 50),
       skipped_reasons: skippedReasons,
       timeout_items: [...new Set(timeoutItems)].slice(0, 50),
+      // CPNU buscar budget tracking
+      cpnu_buscar_used: buscarBudget.used,
+      cpnu_buscar_cap: buscarBudget.cap,
     };
 
     // Final ledger update
@@ -901,12 +946,19 @@ async function syncOrganization(
 
 // ─── Item 5: Sync a single work item with timeout ───
 
-async function syncSingleItemWithTimeout(supabase: any, item: EligibleWorkItem, orgId: string, timeoutMs: number): Promise<void> {
+interface SyncItemResponse {
+  cpnu_buscar_used?: boolean;
+  cpnu_buscar_deferred?: boolean;
+}
+
+async function syncSingleItemWithTimeout(
+  supabase: any, item: EligibleWorkItem, orgId: string, timeoutMs: number, allowBuscar: boolean = true,
+): Promise<SyncItemResponse | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    await syncSingleItem(supabase, item, orgId, controller.signal);
+    return await syncSingleItem(supabase, item, orgId, controller.signal, allowBuscar);
   } catch (err: any) {
     if (err.name === "AbortError" || controller.signal.aborted) {
       throw new Error(`ITEM_TIMEOUT: sync for ${item.id.slice(0, 8)} exceeded ${timeoutMs}ms`);
@@ -919,11 +971,13 @@ async function syncSingleItemWithTimeout(supabase: any, item: EligibleWorkItem, 
 
 // ─── Sync a single work item (acts + pubs) ───
 
-async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: string, signal?: AbortSignal): Promise<void> {
+async function syncSingleItem(
+  supabase: any, item: EligibleWorkItem, orgId: string, signal?: AbortSignal, allowBuscar: boolean = true,
+): Promise<SyncItemResponse | null> {
   // Sync actuaciones
   const { data: syncResult, error: syncError } = await supabase.functions.invoke(
     "sync-by-work-item",
-    { body: { work_item_id: item.id, _scheduled: true } },
+    { body: { work_item_id: item.id, _scheduled: true, allow_buscar: allowBuscar } },
   );
   
   // Check abort between calls
@@ -994,6 +1048,12 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
       throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
     }
   }
+
+  // Return CPNU buscar metadata for caller to track budget
+  return {
+    cpnu_buscar_used: syncResult?.cpnu_buscar_used ?? false,
+    cpnu_buscar_deferred: syncResult?.cpnu_buscar_deferred ?? false,
+  };
 }
 
 // ─── Per-item failure tracking ───

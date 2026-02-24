@@ -257,7 +257,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     headers['x-api-key'] = apiKeyInfo.value;
   }
 
-  console.log(`[cpnuAdapter] monitoring mode: auth=${apiKeyInfo.source}, radicado=${radicado.slice(0,4)}***, forceRefresh=${!!options.forceRefresh}`);
+  const allowBuscar = options.allowBuscar !== false; // default true
+  console.log(`[cpnuAdapter] monitoring mode: auth=${apiKeyInfo.source}, radicado=${radicado.slice(0,4)}***, forceRefresh=${!!options.forceRefresh}, allowBuscar=${allowBuscar}`);
 
   // If forceRefresh, skip stale /snapshot cache and go directly to /buscar scraping
   if (options.forceRefresh) {
@@ -373,6 +374,32 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       );
       // Log metric event for monitoring
       console.log(`[cpnu.snapshot_stale_detected] reason=${freshnessCheck.reason} radicado=${radicado.slice(0,4)}*** snapshotMax=${snapshotMaxActDate}`);
+
+      // If buscar is not allowed (cron cap reached), return snapshot with deferred flag
+      if (!allowBuscar) {
+        console.log(`[cpnuAdapter] allowBuscar=false, returning stale snapshot with buscar_deferred=true`);
+        const parties = options.includeParties
+          ? extractParties(sujetos, resumenBusqueda?.sujetosProcesalesResumen as string | undefined, options.redactPII)
+          : null;
+        const departamento = (resumenBusqueda?.departamento || detalle?.departamento || nestedData?.departamento) as string | undefined;
+        return {
+          provider: PROVIDER_KEY,
+          status: 'SUCCESS',
+          actuaciones: normalized,
+          publicaciones: [],
+          metadata: { despacho: despacho || null, departamento: departamento || null, tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null },
+          parties,
+          durationMs: Date.now() - startTime,
+          httpStatus: snapshotResponse.status,
+          cpnuIngestionMeta: {
+            source_mode: 'SNAPSHOT',
+            snapshot_max_act_date: snapshotMaxActDate,
+            stale_reason: freshnessCheck.reason,
+            force_refresh: false,
+            buscar_deferred: true,
+          },
+        };
+      }
 
       // Fallback to /buscar
       const buscarResult = await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime);
