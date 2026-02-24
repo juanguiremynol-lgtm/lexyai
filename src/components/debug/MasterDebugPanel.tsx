@@ -802,6 +802,287 @@ function SyncTestTab({ radicado, workflowType, resolvedConnectors }: {
   );
 }
 
+// ============= Orchestrator Debug Tab (Phase 3 — Real orchestrator) =============
+
+interface OrchestratorDebugResult {
+  run_id: string;
+  radicado: string;
+  work_item_id: string;
+  workflow_type: string;
+  status: string;
+  duration_ms: number;
+  found_status: string;
+  provider_results: Array<{
+    provider: string;
+    data_kind: string;
+    role: string;
+    status: string;
+    http_code: number | null;
+    latency_ms: number;
+    inserted_count: number;
+    skipped_count: number;
+    error_code: string | null;
+    error_message: string | null;
+  }>;
+  coverage_plan: {
+    workflow_type: string;
+    actuaciones: { execution_mode: string; providers: Array<{ key: string; role: string; enabled: boolean }> };
+    estados: { execution_mode: string; providers: Array<{ key: string; role: string; enabled: boolean }> };
+  };
+  freshness_gate: Record<string, unknown>;
+  db_state: { actuaciones_count: number; publicaciones_count: number; source_breakdown: Record<string, number> };
+  totals: { inserted_acts: number; skipped_acts: number; inserted_pubs: number; skipped_pubs: number };
+  payloads_recorded: number;
+  dry_run: boolean;
+  force_refresh: boolean;
+}
+
+function OrchestratorDebugTab({ radicado }: { radicado: string }) {
+  const [loading, setLoading] = useState(false);
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
+  const [result, setResult] = useState<OrchestratorDebugResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [payloads, setPayloads] = useState<any[]>([]);
+  const [showPayloads, setShowPayloads] = useState(false);
+
+  const run = async () => {
+    const normalized = radicado.replace(/\D/g, "");
+    if (normalized.length !== 23) { toast.error("Radicado debe ser 23 dígitos"); return; }
+
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    setPayloads([]);
+
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("orchestrator-debug-run", {
+        body: { radicado: normalized, force_refresh: forceRefresh, dry_run: dryRun },
+      });
+
+      if (fnErr) throw fnErr;
+      if (data?.error) throw new Error(data.error);
+
+      setResult(data as OrchestratorDebugResult);
+      toast.success(`Debug run ${data.status} — run_id: ${data.run_id?.slice(0, 8)}…`);
+
+      // Load debug payloads if available
+      if (data.run_id && data.payloads_recorded > 0) {
+        const { data: payloadRows } = await (supabase.from("external_sync_run_payloads") as any)
+          .select("provider_name, stage, payload_json, created_at")
+          .eq("sync_run_id", data.run_id)
+          .order("created_at");
+        setPayloads(payloadRows || []);
+      }
+    } catch (err: any) {
+      setError(err.message || String(err));
+      toast.error("Orchestrator debug failed: " + (err.message || "unknown"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadJson = () => {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify({ result, payloads }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `debug-run-${result.run_id?.slice(0, 8)}-${result.radicado}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs">
+            <Checkbox checked={forceRefresh} onCheckedChange={(v) => setForceRefresh(!!v)} />
+            <span>force_refresh</span>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs">
+            <Checkbox checked={dryRun} onCheckedChange={(v) => setDryRun(!!v)} />
+            <span>dry_run (sin escrituras)</span>
+          </label>
+        </div>
+        <Button variant="default" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
+          {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Zap className="h-4 w-4 mr-1.5" />}
+          Ejecutar Orchestrator Debug
+        </Button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          <XCircle className="h-4 w-4 inline mr-1.5" />{error}
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-3">
+          {/* Header summary */}
+          <div className={cn(
+            "rounded-lg border p-3 space-y-2",
+            result.status === "SUCCESS" ? "border-emerald-500/30 bg-emerald-500/5" :
+            result.status === "PARTIAL" ? "border-yellow-500/30 bg-yellow-500/5" :
+            "border-destructive/30 bg-destructive/5"
+          )}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Badge variant={result.status === "SUCCESS" ? "secondary" : result.status === "PARTIAL" ? "outline" : "destructive"}>
+                  {result.status}
+                </Badge>
+                <Badge variant="outline">{result.found_status}</Badge>
+                <span className="text-xs font-mono text-muted-foreground">run: {result.run_id?.slice(0, 12)}…</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">
+                  <Clock className="h-3 w-3 mr-0.5" />{result.duration_ms}ms
+                </Badge>
+                {result.dry_run && <Badge variant="secondary" className="text-[10px]">DRY RUN</Badge>}
+                {result.force_refresh && <Badge variant="secondary" className="text-[10px]">FORCED</Badge>}
+                <Button variant="ghost" size="sm" onClick={downloadJson} className="h-6 px-2 text-[10px]">
+                  <Copy className="h-3 w-3 mr-1" />JSON
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-2 text-xs flex-wrap">
+              <span>Acts: <strong className="text-emerald-500">+{result.totals.inserted_acts}</strong> / <span className="text-muted-foreground">⏭{result.totals.skipped_acts}</span></span>
+              <span>Pubs: <strong className="text-emerald-500">+{result.totals.inserted_pubs}</strong> / <span className="text-muted-foreground">⏭{result.totals.skipped_pubs}</span></span>
+              <span>Payloads: {result.payloads_recorded}</span>
+            </div>
+          </div>
+
+          {/* Coverage Plan */}
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <ChevronRight className="h-3 w-3" />
+              Coverage Plan ({result.coverage_plan.workflow_type})
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-1">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="border rounded p-2">
+                  <p className="font-medium mb-1">Actuaciones ({result.coverage_plan.actuaciones.execution_mode})</p>
+                  {result.coverage_plan.actuaciones.providers.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <Badge variant={p.enabled ? "secondary" : "outline"} className="text-[9px]">{p.enabled ? "ON" : "OFF"}</Badge>
+                      <span className="font-mono">{p.key}</span>
+                      <span className="text-muted-foreground">({p.role})</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="border rounded p-2">
+                  <p className="font-medium mb-1">Estados ({result.coverage_plan.estados.execution_mode})</p>
+                  {result.coverage_plan.estados.providers.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <Badge variant={p.enabled ? "secondary" : "outline"} className="text-[9px]">{p.enabled ? "ON" : "OFF"}</Badge>
+                      <span className="font-mono">{p.key}</span>
+                      <span className="text-muted-foreground">({p.role})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Freshness Gate */}
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <ChevronRight className="h-3 w-3" />
+              CPNU Freshness Gate
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-1">
+              <pre className="text-[10px] font-mono bg-muted/50 rounded p-2 max-h-32 overflow-auto">
+                {JSON.stringify(result.freshness_gate, null, 2)}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Provider Results Timeline */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Provider Results</p>
+            {result.provider_results.map((pr, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "flex items-center justify-between p-2 rounded text-xs",
+                  pr.status === "SUCCESS" ? "bg-emerald-500/10" :
+                  pr.status === "SKIPPED" ? "bg-muted/50" :
+                  "bg-destructive/10"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {pr.status === "SUCCESS" ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> :
+                   pr.status === "SKIPPED" ? <Clock className="h-3.5 w-3.5 text-muted-foreground" /> :
+                   <XCircle className="h-3.5 w-3.5 text-destructive" />}
+                  <span className="font-mono font-medium">{pr.provider}</span>
+                  <Badge variant="outline" className="text-[9px]">{pr.data_kind}</Badge>
+                  <Badge variant="secondary" className="text-[9px]">{pr.role}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pr.http_code && <span className="text-muted-foreground">HTTP {pr.http_code}</span>}
+                  <span><Clock className="h-3 w-3 inline mr-0.5" />{pr.latency_ms}ms</span>
+                  <span className="text-emerald-500">+{pr.inserted_count}</span>
+                  <span className="text-muted-foreground">⏭{pr.skipped_count}</span>
+                  {pr.error_message && (
+                    <span className="text-destructive truncate max-w-[200px]" title={pr.error_message}>
+                      ⚠ {pr.error_code || pr.error_message}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* DB State */}
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <ChevronRight className="h-3 w-3" />
+              DB State
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-1">
+              <div className="text-xs space-y-1">
+                <p>Actuaciones: <strong>{result.db_state.actuaciones_count}</strong> | Publicaciones: <strong>{result.db_state.publicaciones_count}</strong></p>
+                <div className="flex gap-2 flex-wrap">
+                  {Object.entries(result.db_state.source_breakdown).map(([src, count]) => (
+                    <Badge key={src} variant="outline" className="text-[9px] font-mono">{src}: {count}</Badge>
+                  ))}
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Debug Payloads */}
+          {payloads.length > 0 && (
+            <Collapsible open={showPayloads} onOpenChange={setShowPayloads}>
+              <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+                {showPayloads ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Debug Payloads ({payloads.length} records)
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1 space-y-1.5">
+                {payloads.map((p: any, i: number) => (
+                  <Collapsible key={i}>
+                    <CollapsibleTrigger className="flex items-center gap-1.5 w-full text-left text-[10px] font-mono hover:bg-muted/30 rounded px-1.5 py-1">
+                      <ChevronRight className="h-2.5 w-2.5" />
+                      <Badge variant="outline" className="text-[8px]">{p.provider_name}</Badge>
+                      <Badge variant="secondary" className="text-[8px]">{p.stage}</Badge>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <pre className="text-[9px] font-mono bg-muted/50 rounded p-2 max-h-48 overflow-auto ml-4">
+                        {JSON.stringify(p.payload_json, null, 2)}
+                      </pre>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============= Atenia AI E2E Tab =============
 
 function AteniaE2ETab({ radicado }: { radicado: string }) {
@@ -1103,8 +1384,12 @@ export function MasterDebugPanel() {
         <Separator />
 
         {/* Tabs */}
-        <Tabs defaultValue="secrets" className="w-full">
-          <TabsList className="grid w-full grid-cols-6">
+        <Tabs defaultValue="orchestrator" className="w-full">
+          <TabsList className="grid w-full grid-cols-7">
+            <TabsTrigger value="orchestrator" className="text-xs">
+              <Zap className="h-3.5 w-3.5 mr-1" />
+              Orchestrator
+            </TabsTrigger>
             <TabsTrigger value="secrets" className="text-xs">
               <Shield className="h-3.5 w-3.5 mr-1" />
               Secretos
@@ -1130,6 +1415,10 @@ export function MasterDebugPanel() {
               Proveedores
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="orchestrator" className="mt-4">
+            <OrchestratorDebugTab radicado={radicado} />
+          </TabsContent>
 
           <TabsContent value="secrets" className="mt-4">
             <SecretReadinessTab />

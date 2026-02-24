@@ -29,16 +29,13 @@ import {
   createFetchRegistry,
   recordDebugPayload,
   type SyncRunContext,
-  type ProviderFetchFn,
 } from "../_shared/syncOrchestrator.ts";
 import {
-  getProviderCoverage,
-  getProviderCoverageWithOverrides,
   loadCoverageOverrides,
+  getProviderCoverageWithOverrides,
 } from "../_shared/providerCoverageMatrix.ts";
 import {
   createLegacyAdapter,
-  type LegacyFetchResult,
 } from "../_shared/providerAdapters.ts";
 import {
   fetchFromCpnu,
@@ -219,7 +216,8 @@ Deno.serve(async (req) => {
       {
         key: "CPNU",
         fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromCpnu(rad, {
+          const result = await fetchFromCpnu({
+            radicado: rad,
             baseUrl: cpnuBaseUrl,
             apiKey: externalApiKey,
             workItemId,
@@ -232,7 +230,8 @@ Deno.serve(async (req) => {
       {
         key: "SAMAI",
         fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromSamai(rad, {
+          const result = await fetchFromSamai({
+            radicado: rad,
             baseUrl: samaiBaseUrl,
             apiKey: externalApiKey,
             workItemId,
@@ -244,7 +243,8 @@ Deno.serve(async (req) => {
       {
         key: "TUTELAS",
         fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromTutelas(rad, {
+          const result = await fetchFromTutelas({
+            radicado: rad,
             baseUrl: tutelasBaseUrl,
             apiKey: externalApiKey,
             workItemId,
@@ -256,7 +256,8 @@ Deno.serve(async (req) => {
       {
         key: "PUBLICACIONES",
         fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromPublicaciones(rad, {
+          const result = await fetchFromPublicaciones({
+            radicado: rad,
             baseUrl: pubBaseUrl,
             apiKey: externalApiKey,
             workItemId,
@@ -268,7 +269,8 @@ Deno.serve(async (req) => {
       {
         key: "SAMAI_ESTADOS",
         fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromSamaiEstados(rad, {
+          const result = await fetchFromSamaiEstados({
+            radicado: rad,
             baseUrl: samaiEstadosBaseUrl,
             apiKey: externalApiKey,
             workItemId,
