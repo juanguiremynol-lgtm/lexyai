@@ -10,6 +10,12 @@ import {
   DEFAULT_STALENESS_GUARD_DAYS,
 } from "../_shared/syncPolicy.ts";
 import {
+  createTraceContext,
+  writeTraceRecord,
+  type TraceContext,
+  type TraceDetails,
+} from "../_shared/traceContext.ts";
+import {
   selectEligibleWorkItems,
   type EligibleWorkItem,
 } from "../_shared/sync-eligibility.ts";
@@ -451,6 +457,39 @@ Deno.serve(async (req) => {
       } catch (hbErr) {
         console.error("[daily-sync] CRITICAL: finishHeartbeat failed:", hbErr);
       }
+    }
+
+    // ── Trace record: write structured cron trace to atenia_cron_runs ──
+    try {
+      const traceRunMode = isOverflow ? "OVERFLOW" as const
+        : isContinuation ? "CONTINUATION" as const
+        : triggerSource === "MANUAL" ? "MANUAL" as const
+        : "CRON" as const;
+      const trace = createTraceContext("scheduled-daily-sync", traceRunMode, {
+        cron_run_id: runId,
+        org_id: bodyParams.org_id,
+        chain_id: chainId,
+      });
+      const traceStatus = topLevelError ? "ERROR" as const
+        : totalErrors > 0 ? "PARTIAL" as const
+        : "OK" as const;
+      const traceDetails: TraceDetails = {
+        work_items_scanned: totalSynced + totalErrors,
+        continuation_count: continuationCount,
+        is_continuation: isContinuation,
+        is_overflow: isOverflow,
+        preflight_decision: preflightDecision ?? null,
+        total_synced: totalSynced,
+        total_errors: totalErrors,
+        total_dead_lettered: totalDeadLettered,
+        total_timeouts: totalTimeouts,
+      };
+      if (topLevelError) {
+        traceDetails.errors = [{ code: "FATAL", message: topLevelError.message, count: 1 }];
+      }
+      await writeTraceRecord(supabase, trace, traceStatus, traceDetails, new Date(startTime));
+    } catch (_traceErr) {
+      console.warn("[daily-sync] Trace record write failed (non-blocking)");
     }
   }
 

@@ -16,6 +16,10 @@ import {
   retryJitterMs,
   SCRAPING_STUCK,
 } from "../_shared/syncPolicy.ts";
+import {
+  createTraceContext,
+  writeTraceRecord,
+} from "../_shared/traceContext.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -280,6 +284,21 @@ Deno.serve(async (req) => {
 
     const durationMs = Date.now() - startTime;
     console.log(`[process-retry-queue] Done in ${durationMs}ms: processed=${processed}, succeeded=${succeeded}, rescheduled=${rescheduled}, exhausted=${exhausted}, failed=${failed}`);
+
+    // Write trace record to atenia_cron_runs
+    try {
+      const trace = createTraceContext("process-retry-queue", "CRON");
+      await writeTraceRecord(supabase, trace, failed > 0 ? "PARTIAL" : "OK", {
+        queue_stats: {
+          depth_before: tasks.length,
+          processed,
+          succeeded,
+          rescheduled,
+          exhausted,
+          failed,
+        },
+      }, new Date(startTime));
+    } catch (_traceErr) { /* non-blocking */ }
 
     return new Response(JSON.stringify({
       ok: true,
