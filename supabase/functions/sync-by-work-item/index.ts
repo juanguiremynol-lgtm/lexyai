@@ -940,11 +940,12 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
   };
 }
 
-async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
+async function fetchFromCpnu(radicado: string, forceRefresh?: boolean): Promise<FetchResult> {
   const result = await sharedFetchFromCpnu({
     radicado,
     mode: 'monitoring',
     includeParties: true,
+    forceRefresh,
   });
   return sharedResultToFetchResult(result);
 }
@@ -1028,6 +1029,7 @@ async function executeViaOrchestrator(
   traceId: string,
   isScheduled: boolean,
   releaseGate?: { force_empty_provider?: string; force_empty_once?: boolean },
+  force_refresh?: boolean,
 ): Promise<OrchestratorExecResult> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1040,7 +1042,7 @@ async function executeViaOrchestrator(
     {
       key: "CPNU",
       fetchFn: createLegacyAdapter(
-        (radicado: string) => fetchFromCpnu(radicado),
+        (radicado: string) => fetchFromCpnu(radicado, force_refresh),
       ),
     },
     {
@@ -1208,7 +1210,7 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
-    const { work_item_id, _scheduled, release_gate } = payload;
+    const { work_item_id, _scheduled, release_gate, force_refresh } = payload;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
@@ -1407,7 +1409,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate);
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh);
 
       // Transfer orchestrator results into SyncResult
       result.provider_attempts = orchExec.providerAttempts;
@@ -1588,7 +1590,7 @@ Deno.serve(async (req) => {
       const providerLabels: string[] = [];
       
       if (hasRadicado) {
-        providerPromises.push(fetchFromCpnu(normalizedRadicado));
+        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh));
         providerLabels.push('cpnu');
         providerPromises.push(fetchFromSamai(normalizedRadicado));
         providerLabels.push('samai');
@@ -1897,7 +1899,7 @@ Deno.serve(async (req) => {
       console.log(`[sync-by-work-item] Note: Publicaciones sync is handled by sync-publicaciones-by-work-item`);
       
       // Fetch from CPNU for actuaciones
-      fetchResult = await fetchFromCpnu(normalizedRadicado);
+      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
       
       result.provider_attempts.push({
         provider: 'cpnu',
@@ -2046,7 +2048,7 @@ Deno.serve(async (req) => {
           console.log(`[sync-by-work-item] SAMAI failed/empty (no scraping), trying CPNU fallback`);
           result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
           
-          const cpnuResult = await fetchFromCpnu(normalizedRadicado);
+          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
           
           result.provider_attempts.push({
             provider: 'cpnu',
@@ -2096,7 +2098,7 @@ Deno.serve(async (req) => {
           },
         });
         
-        fetchResult = await fetchFromCpnu(normalizedRadicado);
+        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh);
         
         // Log PROVIDER_RESPONSE trace step
         await logTrace(supabase, {

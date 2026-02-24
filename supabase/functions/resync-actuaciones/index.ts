@@ -80,9 +80,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Call sync-by-work-item (which now has the fixed dedup logic)
+    // Call sync-by-work-item with force_refresh to bypass stale CPNU /snapshot cache
     const { data: syncResult, error: syncError } = await supabase.functions.invoke('sync-by-work-item', {
-      body: { work_item_id },
+      body: { work_item_id, force_refresh: true },
       headers: {
         Authorization: authHeader,
         'X-Trace-Id': `resync-${work_item_id.slice(0, 8)}-${Date.now()}`,
