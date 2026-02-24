@@ -642,46 +642,48 @@ Deno.serve(async (req) => {
     const PUB_SAFETY_TIMEOUT_MS = 110_000; // 110s — leave 40s buffer for DB writes + response
     const functionStartTime = Date.now();
 
-    const fetchResult = await Promise.race([
-      fetchPublicaciones(normalizedRadicado, baseUrl, apiKey),
-      new Promise<FetchResultV3>((_, reject) => 
-        setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
-      ),
-    ]).catch((err): FetchResultV3 => {
+    let fetchResult: FetchResultV3;
+    try {
+      fetchResult = await Promise.race([
+        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey),
+        new Promise<FetchResultV3>((_, reject) => 
+          setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (raceErr: unknown) {
       const elapsed = Date.now() - functionStartTime;
-      console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${err.message}`);
+      const errMsg = raceErr instanceof Error ? raceErr.message : String(raceErr);
+      console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${errMsg}`);
       
       // Enqueue a PUB_RETRY so process-retry-queue can finish the job later
-      // (fire-and-forget; errors here are non-fatal)
-      supabase
-        .from('sync_retry_queue' as any)
-        .upsert({
-          work_item_id: work_item_id,
-          organization_id: workItem.organization_id,
-          radicado: workItem.radicado,
-          workflow_type: workItem.workflow_type,
-          kind: 'PUB_RETRY',
-          provider: 'publicaciones',
-          attempt: 1,
-          max_attempts: 3,
-          next_run_at: new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString(),
-          last_error_code: 'PUB_SAFETY_TIMEOUT',
-          last_error_message: `Timed out after ${elapsed}ms, retry enqueued`,
-        }, { onConflict: 'work_item_id,kind' });
       try {
-        await upsertResult;
+        await supabase
+          .from('sync_retry_queue' as any)
+          .upsert({
+            work_item_id: work_item_id,
+            organization_id: workItem.organization_id,
+            radicado: workItem.radicado,
+            workflow_type: workItem.workflow_type,
+            kind: 'PUB_RETRY',
+            provider: 'publicaciones',
+            attempt: 1,
+            max_attempts: 3,
+            next_run_at: new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString(),
+            last_error_code: 'PUB_SAFETY_TIMEOUT',
+            last_error_message: `Timed out after ${elapsed}ms, retry enqueued`,
+          }, { onConflict: 'work_item_id,kind' });
         console.log(`[sync-pub] PUB_RETRY enqueued for ${work_item_id}`);
-      } catch (e: unknown) {
-        console.warn(`[sync-pub] Failed to enqueue PUB_RETRY:`, e);
+      } catch (retryErr: unknown) {
+        console.warn(`[sync-pub] Failed to enqueue PUB_RETRY:`, retryErr);
       }
 
-      return {
+      fetchResult = {
         ok: false,
         publicaciones: [],
         error: `Safety timeout after ${elapsed}ms — retry scheduled`,
         latencyMs: elapsed,
       };
-    });
+    }
     result.provider_latency_ms = fetchResult.latencyMs;
 
     // Handle error response
