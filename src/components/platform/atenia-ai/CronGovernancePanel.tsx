@@ -126,6 +126,7 @@ export function CronGovernancePanel() {
   const [activeTab, setActiveTab] = useState("governance");
   const [dryRunning, setDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any>(null);
+  const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
 
   // Fetch health snapshots
   const { data: snapshots, isLoading, refetch } = useQuery({
@@ -453,7 +454,11 @@ export function CronGovernancePanel() {
                   const registryEntry = CRON_REGISTRY_MAP.get(trace.job_name);
                   
                   return (
-                    <div key={trace.id} className={`p-3 rounded-lg border ${isError ? "border-destructive/30 bg-destructive/5" : isPartial ? "border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20" : "bg-card"}`}>
+                    <div
+                      key={trace.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${isError ? "border-destructive/30 bg-destructive/5" : isPartial ? "border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20" : "bg-card hover:bg-muted/30"}`}
+                      onClick={() => setExpandedTraceId(expandedTraceId === trace.id ? null : trace.id)}
+                    >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
                           <Badge
@@ -472,14 +477,17 @@ export function CronGovernancePanel() {
                           )}
                           {d.chain_id && (
                             <span className="text-xs text-muted-foreground font-mono">
-                              chain:{d.chain_id.slice(0, 8)}
+                              chain:{String(d.chain_id).slice(0, 8)}
                             </span>
                           )}
                         </div>
-                        <span className="text-xs text-muted-foreground">
-                          {trace.started_at ? format(new Date(trace.started_at), "HH:mm:ss") : "—"}
-                          {durationMs != null && ` (${(durationMs / 1000).toFixed(1)}s)`}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {trace.started_at ? format(new Date(trace.started_at), "MMM dd HH:mm:ss") : "—"}
+                            {durationMs != null && ` (${(durationMs / 1000).toFixed(1)}s)`}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{expandedTraceId === trace.id ? "▾" : "▸"}</span>
+                        </div>
                       </div>
 
                       {/* Key metrics row */}
@@ -499,7 +507,6 @@ export function CronGovernancePanel() {
                         {d.total_timeouts != null && d.total_timeouts > 0 && (
                           <span className="text-amber-600">⏱ Timeouts: <strong>{d.total_timeouts}</strong></span>
                         )}
-                        {/* Queue stats */}
                         {d.queue_stats && (
                           <>
                             <span>📥 Queue: <strong>{d.queue_stats.processed ?? 0}</strong> processed</span>
@@ -514,13 +521,24 @@ export function CronGovernancePanel() {
                             )}
                           </>
                         )}
-                        {/* Continuation info */}
+                        {/* Email stats */}
+                        {d.email_stats && (
+                          <>
+                            <span>📧 Alerts: <strong>{d.email_stats.pending_alerts ?? 0}</strong></span>
+                            {d.email_stats.emails_sent != null && d.email_stats.emails_sent > 0 && (
+                              <span className="text-green-600">✉ {d.email_stats.emails_sent} sent</span>
+                            )}
+                            {d.email_stats.emails_failed != null && d.email_stats.emails_failed > 0 && (
+                              <span className="text-destructive">✗ {d.email_stats.emails_failed} failed</span>
+                            )}
+                          </>
+                        )}
                         {d.continuation_count != null && d.continuation_count > 0 && (
                           <span className="text-muted-foreground">🔗 Continuation #{d.continuation_count}</span>
                         )}
                       </div>
 
-                      {/* Provider calls */}
+                      {/* Provider calls summary */}
                       {d.provider_calls && Object.keys(d.provider_calls).length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                           {Object.entries(d.provider_calls).map(([name, stats]: [string, any]) => (
@@ -533,11 +551,88 @@ export function CronGovernancePanel() {
                         </div>
                       )}
 
-                      {/* Errors */}
-                      {d.errors && d.errors.length > 0 && (
+                      {/* Expanded details */}
+                      {expandedTraceId === trace.id && (
+                        <div className="mt-2 pt-2 border-t space-y-2 text-xs" onClick={(e) => e.stopPropagation()}>
+                          {/* Correlation IDs */}
+                          <div className="flex flex-wrap gap-3 text-muted-foreground">
+                            <span>ID: <code>{trace.id.slice(0, 12)}</code></span>
+                            {d.org_id && <span>Org: <code>{String(d.org_id).slice(0, 8)}</code></span>}
+                            {d.preflight_decision && <span>Preflight: <strong>{d.preflight_decision}</strong></span>}
+                            {d.is_continuation && <span>Continuation: #{d.continuation_count ?? 0}</span>}
+                            {d.is_overflow && <Badge variant="outline" className="text-xs text-amber-600">OVERFLOW</Badge>}
+                          </div>
+
+                          {/* Provider call details (expanded) */}
+                          {d.provider_calls && Object.keys(d.provider_calls).length > 0 && (
+                            <div>
+                              <p className="font-medium mb-1">Provider breakdown:</p>
+                              <div className="space-y-1">
+                                {Object.entries(d.provider_calls).map(([name, stats]: [string, any]) => (
+                                  <div key={name} className="flex items-center gap-3 p-1.5 rounded bg-muted/50">
+                                    <span className="font-mono font-medium w-28">{PROVIDER_LABELS[name] ?? name}</span>
+                                    <span>Calls: {stats.count}</span>
+                                    <span className="text-green-600">Inserted: {stats.inserted}</span>
+                                    <span className="text-muted-foreground">Skipped: {stats.skipped}</span>
+                                    {stats.errors > 0 && <span className="text-destructive">Errors: {stats.errors}</span>}
+                                    {stats.avg_latency_ms && <span className="text-muted-foreground">Avg: {stats.avg_latency_ms}ms</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Queue stats details */}
+                          {d.queue_stats && (
+                            <div>
+                              <p className="font-medium mb-1">Queue details:</p>
+                              <div className="grid grid-cols-3 gap-2 p-1.5 rounded bg-muted/50">
+                                {d.queue_stats.depth_before != null && <span>Depth before: {d.queue_stats.depth_before}</span>}
+                                {d.queue_stats.depth_after != null && <span>Depth after: {d.queue_stats.depth_after}</span>}
+                                {d.queue_stats.processed != null && <span>Processed: {d.queue_stats.processed}</span>}
+                                {d.queue_stats.succeeded != null && <span>Succeeded: {d.queue_stats.succeeded}</span>}
+                                {d.queue_stats.rescheduled != null && <span>Rescheduled: {d.queue_stats.rescheduled}</span>}
+                                {d.queue_stats.exhausted != null && <span>Exhausted: {d.queue_stats.exhausted}</span>}
+                                {d.queue_stats.failed != null && <span>Failed: {d.queue_stats.failed}</span>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Errors expanded */}
+                          {d.errors && d.errors.length > 0 && (
+                            <div>
+                              <p className="font-medium text-destructive mb-1">Errors:</p>
+                              {d.errors.map((e: any, i: number) => (
+                                <p key={i} className="text-destructive p-1 rounded bg-destructive/5">
+                                  <strong>{e.code}</strong>: {e.message}{e.count > 1 ? ` (×${e.count})` : ""}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Alert-specific stats */}
+                          {(d.hearings_evaluated != null || d.tasks_evaluated != null) && (
+                            <div className="flex flex-wrap gap-3">
+                              {d.hearings_evaluated != null && <span>🏛 Hearings: {d.hearings_evaluated} → {d.hearing_alerts_created ?? 0} alerts</span>}
+                              {d.tasks_evaluated != null && <span>📝 Tasks: {d.tasks_evaluated} → {d.task_alerts_created ?? 0} alerts</span>}
+                            </div>
+                          )}
+
+                          {/* Raw JSON fallback */}
+                          <details className="text-muted-foreground">
+                            <summary className="cursor-pointer hover:text-foreground">Raw details JSON</summary>
+                            <pre className="mt-1 p-2 rounded bg-muted overflow-auto max-h-40 text-[10px]">
+                              {JSON.stringify(d, null, 2)}
+                            </pre>
+                          </details>
+                        </div>
+                      )}
+
+                      {/* Inline errors (when not expanded) */}
+                      {expandedTraceId !== trace.id && d.errors && d.errors.length > 0 && (
                         <div className="mt-1.5 text-xs text-destructive">
-                          {d.errors.map((e: any, i: number) => (
-                            <p key={i}>{e.code}: {e.message}{e.count > 1 ? ` (×${e.count})` : ""}</p>
+                          {d.errors.slice(0, 2).map((e: any, i: number) => (
+                            <p key={i}>{e.code}: {e.message?.slice(0, 80)}{e.count > 1 ? ` (×${e.count})` : ""}</p>
                           ))}
                         </div>
                       )}
@@ -738,33 +833,129 @@ export function CronGovernancePanel() {
                     {dryRunResult.error ? "❌ Dry-Run Fallido" : "✅ Dry-Run Verification OK"}
                   </p>
                   {!dryRunResult.error && (
-                    <div className="space-y-2 text-xs">
+                    <div className="space-y-3 text-xs">
+                      {/* Summary metrics */}
                       <div className="flex flex-wrap gap-4">
                         <span>🏢 Orgs: <strong>{dryRunResult.orgs_found ?? 0}</strong></span>
-                        <span>📋 Items: <strong>{dryRunResult.org_summaries?.reduce((s: number, o: any) => s + o.eligible_count, 0) ?? 0}</strong></span>
+                        <span>📋 Monitored: <strong>{dryRunResult.enqueue_diagnostics?.total_monitored ?? "?"}</strong></span>
+                        <span className="text-green-600">✅ Would enqueue: <strong>{dryRunResult.enqueue_diagnostics?.would_enqueue ?? "?"}</strong></span>
+                        {(dryRunResult.enqueue_diagnostics?.excluded ?? 0) > 0 && (
+                          <span className="text-amber-600">⚠ Excluded: <strong>{dryRunResult.enqueue_diagnostics.excluded}</strong></span>
+                        )}
                         <span>📥 Queue: <strong>{dryRunResult.queue_depth ?? 0}</strong></span>
+                        <span>🔄 Retry queue: <strong>{dryRunResult.retry_queue_depth ?? 0}</strong></span>
                         <span>⏱ {dryRunResult.duration_ms}ms</span>
                       </div>
-                      {/* Preflight */}
+
+                      {/* Exclusion reasons */}
+                      {dryRunResult.enqueue_diagnostics?.exclusion_reasons && Object.keys(dryRunResult.enqueue_diagnostics.exclusion_reasons).length > 0 && (
+                        <div className="p-2 rounded border bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+                          <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">📊 Exclusion reasons:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(dryRunResult.enqueue_diagnostics.exclusion_reasons).map(([reason, count]: [string, any]) => (
+                              <Badge key={reason} variant="outline" className="text-xs">
+                                {reason.replace(/_/g, " ")}: <strong className="ml-1">{count}</strong>
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Actionable preflight details */}
                       {dryRunResult.preflight && (
-                        <div className="flex items-center gap-2">
-                          <span>🛡 Preflight:</span>
-                          <Badge variant={dryRunResult.preflight.overall === "ALL_PASSED" ? "outline" : "destructive"} className="text-xs">
-                            {dryRunResult.preflight.overall ?? dryRunResult.preflight.error ?? "—"}
-                          </Badge>
-                          {dryRunResult.preflight.decision && (
-                            <span className="text-muted-foreground">→ {dryRunResult.preflight.decision}</span>
+                        <div className={`p-2 rounded border ${dryRunResult.preflight.overall === "ALL_PASS" ? "bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800" : "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"}`}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="font-medium">🛡 Preflight:</span>
+                            <Badge variant={dryRunResult.preflight.overall === "ALL_PASS" ? "outline" : "destructive"} className="text-xs">
+                              {dryRunResult.preflight.overall ?? dryRunResult.preflight.error ?? "—"}
+                            </Badge>
+                            {dryRunResult.preflight.decision && (
+                              <span className="text-muted-foreground">→ {dryRunResult.preflight.decision}</span>
+                            )}
+                          </div>
+                          {/* Per-provider preflight results */}
+                          {dryRunResult.preflight.results?.length > 0 && (
+                            <div className="space-y-1.5 mt-2">
+                              {dryRunResult.preflight.results.map((pr: any, i: number) => {
+                                const isFailed = pr.overall === "FAIL";
+                                const isWarn = pr.overall === "WARN";
+                                return (
+                                  <div key={i} className={`p-1.5 rounded text-xs ${isFailed ? "bg-destructive/10" : isWarn ? "bg-amber-100/50 dark:bg-amber-900/20" : "bg-green-100/50 dark:bg-green-900/20"}`}>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`font-mono font-medium ${isFailed ? "text-destructive" : isWarn ? "text-amber-600" : "text-green-600"}`}>
+                                        {isFailed ? "✗" : isWarn ? "⚠" : "✓"} {pr.provider}
+                                      </span>
+                                      <Badge variant="outline" className="text-[10px]">{pr.provider_type}</Badge>
+                                      {pr.checks?.response_time && (
+                                        <span className="text-muted-foreground">
+                                          {pr.checks.response_time.latency_ms}ms / {pr.checks.response_time.threshold_ms}ms threshold
+                                        </span>
+                                      )}
+                                    </div>
+                                    {(isFailed || isWarn) && (
+                                      <div className="mt-1 ml-4 space-y-0.5">
+                                        {pr.failure_reason && (
+                                          <p className="text-destructive">{pr.failure_reason}</p>
+                                        )}
+                                        {/* Individual check details */}
+                                        {Object.entries(pr.checks ?? {}).map(([checkName, check]: [string, any]) => {
+                                          if (check.ok) return null;
+                                          return (
+                                            <p key={checkName} className="text-muted-foreground">
+                                              <span className="font-medium">{checkName}:</span> {check.error ?? "failed"}
+                                              {check.status_code && ` (HTTP ${check.status_code})`}
+                                              {check.latency_ms > 0 && ` — waited ${check.latency_ms}ms`}
+                                            </p>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {/* Retry button for failed providers */}
+                              {dryRunResult.preflight.results.some((pr: any) => pr.overall === "FAIL") && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="mt-1.5"
+                                  onClick={async () => {
+                                    toast.info("Re-running preflight check...");
+                                    try {
+                                      const { data, error } = await supabase.functions.invoke("atenia-preflight-check", {
+                                        body: { trigger: "MANUAL_RETRY" },
+                                      });
+                                      if (error) throw error;
+                                      setDryRunResult((prev: any) => ({ ...prev, preflight: data }));
+                                      toast.success(`Preflight: ${data?.overall ?? "?"} — ${data?.results?.filter((r: any) => r.overall === "PASS").length}/${data?.results?.length} passed`);
+                                    } catch (err: any) {
+                                      toast.error("Preflight retry failed: " + err.message);
+                                    }
+                                  }}
+                                >
+                                  <RefreshCw className="h-3 w-3 mr-1" />
+                                  Retry preflight
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
-                      {/* Org summaries */}
+
+                      {/* Org summaries with exclusion details */}
                       {dryRunResult.org_summaries?.length > 0 && (
                         <div>
-                          <p className="font-medium mb-1">Muestra de orgs:</p>
+                          <p className="font-medium mb-1">Orgs:</p>
                           {dryRunResult.org_summaries.map((o: any, i: number) => (
-                            <div key={i} className="flex gap-2 text-muted-foreground">
+                            <div key={i} className="flex gap-2 text-muted-foreground items-center">
                               <span className="font-mono">{o.org_id.slice(0, 8)}</span>
-                              <span>{o.eligible_count} items</span>
+                              <span>{o.eligible_count} monitored</span>
+                              <span className="text-green-600">{o.would_enqueue_count ?? o.eligible_count} eligible</span>
+                              {o.exclusion_reasons && Object.keys(o.exclusion_reasons).length > 0 && (
+                                <span className="text-amber-600">
+                                  ({Object.entries(o.exclusion_reasons).map(([k, v]: [string, any]) => `${v} ${k.replace(/_/g, " ")}`).join(", ")})
+                                </span>
+                              )}
                               {o.sample_radicados?.length > 0 && (
                                 <span className="font-mono">({o.sample_radicados.slice(0, 2).join(", ")})</span>
                               )}
@@ -772,6 +963,25 @@ export function CronGovernancePanel() {
                           ))}
                         </div>
                       )}
+
+                      {/* Queue depth interpretation */}
+                      <div className="p-2 rounded border bg-muted/50">
+                        <p className="font-medium mb-1">📥 Queue health:</p>
+                        <div className="text-muted-foreground">
+                          {(dryRunResult.queue_depth ?? 0) === 0 && (dryRunResult.retry_queue_depth ?? 0) === 0 && (
+                            dryRunResult.today_ledger?.length > 0
+                              ? <span>Queue empty — last run drained all items ✓</span>
+                              : <span className="text-amber-600">Queue empty — no runs today. Enqueue step may not have run yet.</span>
+                          )}
+                          {(dryRunResult.queue_depth ?? 0) > 0 && (
+                            <span>{dryRunResult.queue_depth} pending remediation items</span>
+                          )}
+                          {(dryRunResult.retry_queue_depth ?? 0) > 0 && (
+                            <span className="ml-2">• {dryRunResult.retry_queue_depth} retry tasks queued</span>
+                          )}
+                        </div>
+                      </div>
+
                       {/* Today's ledger */}
                       {dryRunResult.today_ledger?.length > 0 && (
                         <div>
