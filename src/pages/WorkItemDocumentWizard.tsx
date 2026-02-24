@@ -67,6 +67,8 @@ import { IdentityTypeSelector, getIdTypeLabel } from "@/components/documents/Ide
 import { DocumentSourceSelector, type DocumentSourceType } from "@/components/documents/DocumentSourceSelector";
 import type { IdType } from "@/hooks/use-document-configuration";
 import { useClientContractQuota } from "@/hooks/use-client-contract-quota";
+import { useWizardDraft } from "@/hooks/use-wizard-draft";
+import { DraftRestoredBanner, AutosaveIndicator } from "@/components/documents/DraftRestoredBanner";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -447,6 +449,42 @@ export default function WorkItemDocumentWizard() {
   // Super Admin profile gate
   const { isPlatformAdmin } = usePlatformAdmin();
   const [showAdminProfileGate, setShowAdminProfileGate] = useState(false);
+
+  // ── Wizard draft autosave (localStorage) ──
+  const draftState = useMemo(() => ({
+    step, docType, variables, poderdanteType, poderdantes, entityData,
+    courtHeader, honorariosData, serviceObject, selectedDefendants,
+    autoAdmisorioDate, includeAttorneyAcceptance, clientIdType, lawyerIdType,
+    showRadicado, sourceType,
+  }), [step, docType, variables, poderdanteType, poderdantes, entityData,
+    courtHeader, honorariosData, serviceObject, selectedDefendants,
+    autoAdmisorioDate, includeAttorneyAcceptance, clientIdType, lawyerIdType,
+    showRadicado, sourceType]);
+
+  const { hasRestoredDraft, clearDraft, discardDraft, lastSavedAt } = useWizardDraft({
+    storageKey: `wizard-draft-${workItemId || "new"}`,
+    currentState: draftState,
+    onRestore: (draft) => {
+      if (draft.step) setStep(draft.step);
+      if (draft.docType) setDocType(draft.docType);
+      if (draft.poderdanteType) setPoderdanteType(draft.poderdanteType);
+      if (draft.poderdantes) setPoderdantes(draft.poderdantes);
+      if (draft.entityData) setEntityData(draft.entityData);
+      if (draft.courtHeader) setCourtHeader(draft.courtHeader);
+      if (draft.honorariosData) setHonorariosData(draft.honorariosData);
+      if (draft.serviceObject) setServiceObject(draft.serviceObject);
+      if (draft.selectedDefendants) setSelectedDefendants(draft.selectedDefendants);
+      if (draft.autoAdmisorioDate) setAutoAdmisorioDate(draft.autoAdmisorioDate);
+      if (draft.includeAttorneyAcceptance !== undefined) setIncludeAttorneyAcceptance(draft.includeAttorneyAcceptance);
+      if (draft.clientIdType) setClientIdType(draft.clientIdType);
+      if (draft.lawyerIdType) setLawyerIdType(draft.lawyerIdType);
+      if (draft.showRadicado !== undefined) setShowRadicado(draft.showRadicado);
+      if (draft.sourceType) setSourceType(draft.sourceType);
+      // Note: variables are auto-populated from data hooks, so we don't restore them
+      // They'll be rebuilt from the restored docType + work item data
+    },
+    enabled: !!workItemId,
+  });
 
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
@@ -917,6 +955,7 @@ export default function WorkItemDocumentWizard() {
 
       if (error) throw error;
       toast.success("Documento guardado como borrador");
+      clearDraft();
       navigate(`/app/work-items/${workItem.id}`);
     } catch (err) {
       toast.error("Error al guardar: " + (err as Error).message);
@@ -1108,6 +1147,7 @@ export default function WorkItemDocumentWizard() {
           toast.error("No se generaron notificaciones");
         }
 
+        clearDraft();
         navigate(`/app/work-items/${workItem.id}`);
         return;
       }
@@ -1325,6 +1365,7 @@ export default function WorkItemDocumentWizard() {
 
   const handleCloseModal = () => {
     setSharingModalOpen(false);
+    clearDraft();
     if (savedDocId && workItem) {
       navigate(`/app/work-items/${workItem.id}/documents/${savedDocId}`);
     }
@@ -1352,6 +1393,11 @@ export default function WorkItemDocumentWizard() {
           </p>
         </div>
       </div>
+
+      {/* Draft restored banner */}
+      {hasRestoredDraft && (
+        <DraftRestoredBanner lastSavedAt={lastSavedAt} onDiscard={discardDraft} />
+      )}
 
       {/* Step Indicator */}
       <div className="flex items-center gap-4">

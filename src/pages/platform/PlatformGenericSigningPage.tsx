@@ -35,6 +35,8 @@ import { toast } from "sonner";
 import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { GenericSigningBrandingPanel, BrandingConfig, DEFAULT_BRANDING } from "@/components/platform/GenericSigningBrandingPanel";
+import { useWizardDraft } from "@/hooks/use-wizard-draft";
+import { DraftRestoredBanner } from "@/components/documents/DraftRestoredBanner";
 
 // ── Helpers ──
 
@@ -107,6 +109,24 @@ export default function PlatformGenericSigningPage() {
   // Saved doc
   const [savedDocId, setSavedDocId] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+
+  // ── Wizard draft autosave (localStorage) ──
+  const genericDraftState = useMemo(() => ({
+    step, counterparty, confirmUnsigned, branding, deliveryMethod,
+  }), [step, counterparty, confirmUnsigned, branding, deliveryMethod]);
+
+  const { hasRestoredDraft, clearDraft, discardDraft, lastSavedAt } = useWizardDraft({
+    storageKey: `generic-signing-draft-${documentId}`,
+    currentState: genericDraftState,
+    onRestore: (draft) => {
+      if (draft.counterparty) setCounterparty(draft.counterparty);
+      if (draft.confirmUnsigned !== undefined) setConfirmUnsigned(draft.confirmUnsigned);
+      if (draft.branding) setBranding(draft.branding);
+      if (draft.deliveryMethod) setDeliveryMethod(draft.deliveryMethod);
+      // Don't restore step — uploaded PDF won't persist in localStorage
+    },
+    enabled: true,
+  });
 
   // ── Fetch lawyer profile ──
   const { data: profile } = useQuery({
@@ -339,6 +359,7 @@ export default function PlatformGenericSigningPage() {
               expiresAt: sigRecord.expires_at,
             });
           }
+          clearDraft();
           setStep(5);
           toast.success("Invitación enviada por email");
           return;
@@ -376,6 +397,7 @@ export default function PlatformGenericSigningPage() {
         emailSent: sigResult.email_sent,
         expiresAt: sigResult.expires_at,
       });
+      clearDraft();
       setStep(5);
       toast.success(deliveryMethod === "email" ? "Invitación enviada por email" : "Enlace de firma generado");
     } catch (err: any) {
@@ -416,6 +438,11 @@ export default function PlatformGenericSigningPage() {
           Super Admin
         </Badge>
       </div>
+
+      {/* Draft restored banner */}
+      {hasRestoredDraft && (
+        <DraftRestoredBanner lastSavedAt={lastSavedAt} onDiscard={discardDraft} />
+      )}
 
       {/* Step indicator */}
       <div className="flex items-center gap-1 overflow-x-auto pb-2">
