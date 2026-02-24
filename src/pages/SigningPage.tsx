@@ -17,6 +17,7 @@ import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, 
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import { SigningProgressTracker, type SigningStepKey, type SigningStepState } from "@/components/signing/SigningProgressTracker";
+import { NetworkRetryBanner, useNetworkRetry } from "@/components/signing/NetworkRetryBanner";
 import { toast } from "sonner";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -71,6 +72,7 @@ export default function SigningPage() {
   const [identityVerifying, setIdentityVerifying] = useState(false);
   const [identityError, setIdentityError] = useState("");
   const [resumeInfo, setResumeInfo] = useState<string | null>(null);
+  const { networkError, wrapAsync, clearError } = useNetworkRetry();
 
   // Step 1: Validate link
   useEffect(() => {
@@ -333,6 +335,11 @@ export default function SigningPage() {
               <p className="text-emerald-700">{resumeInfo}</p>
             </div>
           </div>
+        )}
+
+        {/* Network retry banner */}
+        {networkError && (
+          <NetworkRetryBanner onRetry={clearError} />
         )}
 
         {/* Identity Step */}
