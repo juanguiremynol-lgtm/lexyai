@@ -495,14 +495,41 @@ async function handleScrapingFallback(
     if (pollResult.ok && pollResult.data) {
       const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
       const nestedResultData = (resultData.data || {}) as Record<string, unknown>;
-      const polledActs = (resultData.actuaciones || nestedResultData.actuaciones || []) as Record<string, unknown>[];
+      let polledActs = (resultData.actuaciones || nestedResultData.actuaciones || []) as Record<string, unknown>[];
       const polledSujetos = (resultData.sujetos || nestedResultData.sujetos || []) as Record<string, unknown>[];
 
       if (polledActs.length === 0) {
         return makeEmptyResult('Scraping completed but no actuaciones', startTime, 200);
       }
 
-      const despacho = String(resultData.despacho || '');
+      const despacho = String(resultData.despacho || nestedResultData.despacho || '');
+
+      // ═══ PAGINATION: /buscar results may also be paginated (same as /snapshot) ═══
+      const buscarPagination = (nestedResultData?.paginacionActuaciones || resultData.paginacionActuaciones) as Record<string, unknown> | undefined;
+      const buscarTotalPages = buscarPagination ? parseInt(String(buscarPagination.totalPaginas || '1')) : 1;
+
+      if (buscarTotalPages > 1) {
+        console.log(`[cpnuAdapter] /buscar result has ${buscarTotalPages} pages, fetching remaining ${buscarTotalPages - 1} pages via /snapshot...`);
+        // After /buscar completes, /snapshot should be updated — fetch remaining pages from there
+        for (let page = 2; page <= buscarTotalPages; page++) {
+          try {
+            const pageUrl = joinUrl(baseUrl, pathPrefix, `/snapshot?numero_radicacion=${radicado}&pagina=${page}`);
+            const pageResponse = await fetch(pageUrl, { method: 'GET', headers });
+            if (pageResponse.ok) {
+              const pageData = await pageResponse.json();
+              const pageNested = pageData.data as Record<string, unknown> | undefined;
+              const pageActs = (pageNested?.actuaciones || pageData.actuaciones || []) as Record<string, unknown>[];
+              polledActs = [...polledActs, ...pageActs];
+              console.log(`[cpnuAdapter] /buscar page ${page}: +${pageActs.length} actuaciones (total: ${polledActs.length})`);
+            }
+          } catch (e) {
+            console.warn(`[cpnuAdapter] /buscar pagination page ${page} error:`, e);
+          }
+        }
+      }
+
+      console.log(`[cpnuAdapter] /buscar total actuaciones after pagination: ${polledActs.length}`);
+
       const normalized = normalizeActuaciones(polledActs, radicado, despacho, {
         workItemId: options.workItemId,
         crossProviderDedup: options.crossProviderDedup,
