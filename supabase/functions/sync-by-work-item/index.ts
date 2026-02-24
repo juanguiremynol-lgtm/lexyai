@@ -2330,6 +2330,18 @@ Deno.serve(async (req) => {
     }
     } // end else (legacy inline path)
 
+    // BUG FIX 2.2: Intercept "isEmpty" results BEFORE the failure handler.
+    // When a provider (e.g. CPNU) returns ok:false + isEmpty:true, it means the scraper
+    // ran successfully but found zero actuaciones. This is NOT a failure — it's a valid
+    // empty result (common for newly filed cases or intermittent scraper gaps).
+    // Redirect to the empty-handling path (line ~2470) by normalizing the fetchResult.
+    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && !fetchResult.scrapingInitiated) {
+      console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned isEmpty=true — treating as valid empty result, not error`);
+      // Normalize: set ok=true so it falls through to the empty actuaciones handler below
+      fetchResult.ok = true;
+      fetchResult.actuaciones = fetchResult.actuaciones || [];
+    }
+
     // Handle fetch failure - with enhanced diagnostics and auto-scraping
     if (!fetchResult || !fetchResult.ok) {
       const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : 'PROVIDER_ERROR';
