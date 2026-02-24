@@ -6,11 +6,12 @@
  */
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,9 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Scale, Search, Filter } from "lucide-react";
+import { Scale, Search, Filter, RefreshCw } from "lucide-react";
 import { SyncStatusBadge } from "@/components/work-items/SyncStatusBadge";
 import { ActuacionDiffView } from "@/components/work-items/ActuacionDiffView";
+import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
@@ -34,6 +36,27 @@ interface ActsTabProps {
 export function ActsTab({ workItem }: ActsTabProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSource, setFilterSource] = useState<string>("all");
+  const queryClient = useQueryClient();
+
+  const resyncMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
+        body: { work_item_id: workItem.id },
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Error en resync");
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || "Resync completado");
+      queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
+    },
+    onError: (err) => {
+      toast.error("Error al resincronizar", {
+        description: err instanceof Error ? err.message : "Error desconocido",
+      });
+    },
+  });
 
   const { data: acts, isLoading } = useQuery({
     queryKey: ["work-item-actuaciones", workItem.id],
@@ -50,12 +73,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
       if (error) throw error;
 
-      // Sort with fallback: act_date DESC, then created_at DESC
+      // Sort: act_date DESC, fecha_registro_source DESC, hash_fingerprint (deterministic tie-breaker)
       const sorted = (data || []).sort((a, b) => {
-        if (a.act_date && b.act_date) return b.act_date.localeCompare(a.act_date);
+        if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        // Secondary: fecha_registro_source DESC
+        const regA = (a as any).fecha_registro_source || '';
+        const regB = (b as any).fecha_registro_source || '';
+        if (regA !== regB) return regB.localeCompare(regA);
+        // Tertiary: deterministic tie-breaker by hash_fingerprint
+        return (a.hash_fingerprint || '').localeCompare(b.hash_fingerprint || '');
       });
 
       return sorted as WorkItemAct[];
@@ -155,11 +183,24 @@ export function ActsTab({ workItem }: ActsTabProps) {
                 scrapeStatus={workItem.scrape_status}
               />
             </div>
-            {summary.newestDate && (
-              <span className="text-xs text-muted-foreground">
-                Más reciente: {new Date(summary.newestDate + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {summary.newestDate && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  Más reciente: {new Date(summary.newestDate + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => resyncMutation.mutate()}
+                disabled={resyncMutation.isPending}
+                className="h-7 text-xs gap-1.5"
+                title="Re-sincronizar actuaciones desde CPNU"
+              >
+                <RefreshCw className={`h-3 w-3 ${resyncMutation.isPending ? 'animate-spin' : ''}`} />
+                {resyncMutation.isPending ? "Sincronizando..." : "Re-sync"}
+              </Button>
+            </div>
           </div>
 
           {/* Category summary chips */}

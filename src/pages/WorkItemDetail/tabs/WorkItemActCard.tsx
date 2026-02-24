@@ -33,6 +33,9 @@ export interface WorkItemAct {
   raw_data?: Record<string, unknown> | null;
   detected_at?: string | null;
   changed_at?: string | null;
+  instancia?: string | null;
+  fecha_registro_source?: string | null;
+  inicia_termino?: string | null;
 }
 
 // ─── Category classification ─────────────────────────────────────────────────
@@ -344,7 +347,31 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
         </p>
       )}
 
-      {/* Row 4: Metadata footer */}
+      {/* Row 4: Extra fields — Instancia, Fecha Registro, Inicia Término */}
+      {(act.instancia || act.fecha_registro_source || act.inicia_termino || act.raw_data?.instancia || act.raw_data?.fecha_registro) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
+          {(act.instancia || act.raw_data?.instancia) && (
+            <span>
+              <span className="font-medium text-foreground/70">Instancia:</span>{" "}
+              {String(act.instancia || act.raw_data?.instancia)}
+            </span>
+          )}
+          {(act.fecha_registro_source || act.raw_data?.fecha_registro) && (
+            <span>
+              <span className="font-medium text-foreground/70">F. Registro:</span>{" "}
+              {formatActDate(String(act.fecha_registro_source || act.raw_data?.fecha_registro))}
+            </span>
+          )}
+          {(act.inicia_termino || act.raw_data?.fecha_inicia_termino) && (
+            <span>
+              <span className="font-medium text-foreground/70">Inicia término:</span>{" "}
+              {formatActDate(String(act.inicia_termino || act.raw_data?.fecha_inicia_termino))}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Row 5: Metadata footer */}
       <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
           <SourceBadges source={act.source} sources={act.sources} />

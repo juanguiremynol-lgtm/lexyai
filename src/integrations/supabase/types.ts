@@ -12246,8 +12246,11 @@ export type Database = {
           event_date: string | null
           event_summary: string | null
           event_type_normalized: string | null
+          fecha_registro_source: string | null
           hash_fingerprint: string
           id: string
+          inicia_termino: string | null
+          instancia: string | null
           is_archived: boolean | null
           is_canonical: boolean | null
           is_notifiable: boolean | null
@@ -12296,8 +12299,11 @@ export type Database = {
           event_date?: string | null
           event_summary?: string | null
           event_type_normalized?: string | null
+          fecha_registro_source?: string | null
           hash_fingerprint: string
           id?: string
+          inicia_termino?: string | null
+          instancia?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null
@@ -12346,8 +12352,11 @@ export type Database = {
           event_date?: string | null
           event_summary?: string | null
           event_type_normalized?: string | null
+          fecha_registro_source?: string | null
           hash_fingerprint?: string
           id?: string
+          inicia_termino?: string | null
+          instancia?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null

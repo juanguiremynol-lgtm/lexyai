@@ -856,12 +856,18 @@ function generateFingerprint(
   text: string,
   indice?: string,
   source?: string,
-  crossProviderDedup = false
+  crossProviderDedup = false,
+  fechaRegistro?: string,
+  anotacion?: string,
+  instancia?: string,
 ): string {
   // FANOUT mode: exclude source to enable cross-provider dedup at DB level
   const sourcePart = source && !crossProviderDedup ? `|${source}` : '';
   const indexPart = indice ? `|${indice}` : '';
-  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}${sourcePart}`;
+  // Robust composite key: includes fecha_registro, anotacion, instancia
+  // to prevent collisions between distinct actuaciones sharing date+title
+  const normAnotacion = (anotacion || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 200);
+  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}|${fechaRegistro || ''}|${normAnotacion}|${instancia || ''}${indexPart}${sourcePart}`;
   let hash = 0;
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
@@ -2453,18 +2459,20 @@ Deno.serve(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     const { data: existingActsForDedup } = await supabase
       .from('work_item_acts')
-      .select('act_date, description')
+      .select('act_date, description, fecha_registro_source')
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
     const existingSemanticSet = new Set(
       (existingActsForDedup || []).map(a => {
-        // Extract just the actuacion part (before " - " annotation separator)
+        // Robust semantic key: date + actuacion title + fecha_registro
+        // This prevents dropping distinct records that share date+title but differ in registration date
         const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
-        return `${a.act_date || ''}|${descOnly}`;
+        const fechaReg = (a as any).fecha_registro_source || '';
+        return `${a.act_date || ''}|${descOnly}|${fechaReg}`;
       })
     );
-    console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc) pairs for semantic dedup`);
+    console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc+fechaReg) tuples for semantic dedup`);
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
@@ -2481,7 +2489,7 @@ Deno.serve(async (req) => {
       const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
       // FANOUT/TUTELA: exclude source from fingerprint for cross-provider dedup
       const isFanoutWorkflow = workItem.workflow_type === 'TUTELA';
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow);
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia);
 
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
@@ -2496,11 +2504,13 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // ============= SEMANTIC DEDUP: Check date + normalized description =============
+      // ============= SEMANTIC DEDUP: Check date + normalized description + fecha_registro =============
       // Catches SAMAI variants where annotation text differs slightly
-      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}`;
+      // BUT preserves records with same date+title when fecha_registro differs
+      const fechaRegistroVal = act.fecha_registro || '';
+      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}`;
       if (existingSemanticSet.has(semanticKey)) {
-        console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} (already exists with different fingerprint)`);
+        console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
         result.skipped_count++;
         continue;
       }
@@ -2540,6 +2550,9 @@ Deno.serve(async (req) => {
         anexos: act.anexos,
         indice: act.indice,
         documentos: act.documentos,
+        instancia: act.instancia,
+        fecha_inicia_termino: act.fecha_inicia_termino,
+        fecha_finaliza_termino: act.fecha_finaliza_termino,
       };
       
       // Embed cross-provider data if this is a consolidated TUTELA record
@@ -2580,6 +2593,9 @@ Deno.serve(async (req) => {
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
+          instancia: act.instancia || null,
+          fecha_registro_source: act.fecha_registro || null,
+          inicia_termino: act.fecha_inicia_termino || null,
           raw_data: rawDataPayload,
         }]),
       });

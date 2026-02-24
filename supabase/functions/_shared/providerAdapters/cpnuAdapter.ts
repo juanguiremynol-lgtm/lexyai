@@ -66,7 +66,9 @@ const CPNU_HEADERS: Record<string, string> = {
 
 /**
  * Compute a dedup fingerprint for a CPNU actuación.
- * Uses date + actuacion title + despacho for uniqueness.
+ * Uses a robust composite key: date + actuacion title + fecha_registro + anotacion + despacho.
+ * This prevents dropping distinct records that share the same date+title but differ
+ * in registration date, annotation, or instance.
  */
 function computeCpnuFingerprint(
   radicado: string,
@@ -75,11 +77,17 @@ function computeCpnuFingerprint(
   despacho: string,
   workItemId?: string,
   crossProviderDedup?: boolean,
+  fechaRegistro?: string,
+  anotacion?: string,
+  instancia?: string,
 ): string {
   // When cross-provider dedup is enabled, use a provider-agnostic prefix
   const prefix = crossProviderDedup ? 'ACT' : 'cpnu';
   const itemKey = workItemId || radicado;
-  const data = `${prefix}|${itemKey}|${fecha}|${actuacion}|${despacho}`;
+  // Normalize anotacion: trim, collapse whitespace, lowercase, cap at 200 chars
+  const normAnnotation = (anotacion || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 200);
+  const normActuacion = (actuacion || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const data = `${prefix}|${itemKey}|${fecha}|${normActuacion}|${fechaRegistro || ''}|${normAnnotation}|${instancia || ''}|${despacho}`;
   let hash1 = 0, hash2 = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -115,9 +123,12 @@ function normalizeActuaciones(
       anotacion = redactPII(anotacion);
     }
 
+    const fechaRegistro = normalizeDate(String(act.fechaRegistro || act.fecha_registro || ''));
+    const instanciaVal = String(act.instancia || act.consInstancia || '');
     const hash = computeCpnuFingerprint(
       radicado, fecha, actuacionTitle, despacho,
       opts?.workItemId, opts?.crossProviderDedup,
+      fechaRegistro, anotacion, instanciaVal,
     );
 
     const normalized: NormalizedActuacion = {
@@ -128,6 +139,7 @@ function normalizeActuaciones(
       source_platform: PROVIDER_KEY,
       sources: [PROVIDER_KEY],
       nombre_despacho: despacho || undefined,
+      instancia: instanciaVal || undefined,
     };
 
     // Optional fields
@@ -137,8 +149,8 @@ function normalizeActuaciones(
     const fechaFinal = act.fechaFinal || act.fecha_finaliza_termino;
     if (fechaFinal) normalized.fecha_finaliza_termino = normalizeDate(String(fechaFinal));
 
-    const fechaRegistro = act.fechaRegistro || act.fecha_registro;
-    if (fechaRegistro) normalized.fecha_registro = normalizeDate(String(fechaRegistro));
+    const fechaRegistroRaw = act.fechaRegistro || act.fecha_registro;
+    if (fechaRegistroRaw) normalized.fecha_registro = normalizeDate(String(fechaRegistroRaw));
 
     const consActuacion = act.consActuacion || act.idRegActuacion;
     normalized.indice = consActuacion ? String(consActuacion) : String(idx + 1);
