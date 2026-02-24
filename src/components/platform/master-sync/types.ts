@@ -13,7 +13,7 @@ export interface ItemSyncResult {
   workflow_type: string;
   stage: string | null;
 
-  act_status: "pending" | "running" | "success" | "error" | "skipped";
+  act_status: "pending" | "running" | "success" | "empty" | "error" | "skipped";
   act_ok: boolean | null;
   act_inserted: number;
   act_skipped: number;
@@ -24,7 +24,7 @@ export interface ItemSyncResult {
   act_provider_attempts: any[];
   act_raw_response: any;
 
-  pub_status: "pending" | "running" | "success" | "error" | "skipped" | "not_applicable";
+  pub_status: "pending" | "running" | "success" | "error" | "skipped" | "not_applicable" | "partial_error";
   pub_ok: boolean | null;
   pub_inserted: number;
   pub_skipped: number;

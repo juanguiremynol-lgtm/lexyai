@@ -53,7 +53,9 @@ async function syncItem(
     });
     const actData = actResult.data;
     results[idx].act_ok = actData?.ok === true;
-    results[idx].act_status = actData?.ok ? "success" : "error";
+    results[idx].act_status = actData?.ok 
+      ? (actData?.code === 'PROVIDER_EMPTY_RESULT' ? "empty" : "success") 
+      : "error";
     results[idx].act_inserted = actData?.inserted_count || 0;
     results[idx].act_skipped = actData?.skipped_count || 0;
     results[idx].act_provider = actData?.provider_used || null;
@@ -73,7 +75,16 @@ async function syncItem(
       );
       const pubData = pubResult.data;
       results[idx].pub_ok = pubData?.ok === true;
-      results[idx].pub_status = pubData?.ok ? "success" : "error";
+      // Classify pub status: check for errors array even if ok=true
+      const pubErrors = pubData?.errors || [];
+      const hasErrors = pubErrors.length > 0 && pubErrors.some((e: string) => e.length > 0);
+      if (hasErrors && !pubData?.ok) {
+        results[idx].pub_status = "partial_error";
+      } else if (hasErrors && pubData?.ok) {
+        results[idx].pub_status = "success"; // Some errors but ok=true means partial success
+      } else {
+        results[idx].pub_status = pubData?.ok ? "success" : "error";
+      }
       results[idx].pub_inserted = pubData?.inserted_count || 0;
       results[idx].pub_skipped = pubData?.skipped_count || 0;
       results[idx].pub_latency_ms = Date.now() - pubStart;
@@ -236,7 +247,9 @@ export function useMasterSync() {
         });
         const actData = actResult.data;
         results[idx].act_ok = actData?.ok === true;
-        results[idx].act_status = actData?.ok ? "success" : "error";
+        results[idx].act_status = actData?.ok 
+          ? (actData?.code === 'PROVIDER_EMPTY_RESULT' ? "empty" : "success") 
+          : "error";
         results[idx].act_inserted = actData?.inserted_count || 0;
         results[idx].act_skipped = actData?.skipped_count || 0;
         results[idx].act_provider = actData?.provider_used || null;
@@ -260,7 +273,15 @@ export function useMasterSync() {
           );
           const pubData = pubResult.data;
           results[idx].pub_ok = pubData?.ok === true;
-          results[idx].pub_status = pubData?.ok ? "success" : "error";
+          const pubErrors = pubData?.errors || [];
+          const hasErrors = pubErrors.length > 0 && pubErrors.some((e: string) => e.length > 0);
+          if (hasErrors && !pubData?.ok) {
+            results[idx].pub_status = "partial_error";
+          } else if (hasErrors && pubData?.ok) {
+            results[idx].pub_status = "success";
+          } else {
+            results[idx].pub_status = pubData?.ok ? "success" : "error";
+          }
           results[idx].pub_inserted = pubData?.inserted_count || 0;
           results[idx].pub_skipped = pubData?.skipped_count || 0;
           results[idx].pub_latency_ms = Date.now() - pubStart;
@@ -363,7 +384,7 @@ export function useMasterSync() {
     totalItems: number,
   ) {
     const completed = results.filter(
-      (r) => r.act_status === "success" || r.act_status === "error",
+      (r) => r.act_status === "success" || r.act_status === "error" || r.act_status === "empty",
     );
     setState((prev) => ({
       ...prev,
