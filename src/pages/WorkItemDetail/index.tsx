@@ -10,6 +10,7 @@
 
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useCallback } from "react";
+import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
 import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2, Users } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { WorkItemAtAGlance } from "@/components/work-items/WorkItemAtAGlance";
@@ -52,6 +53,7 @@ export default function WorkItemDetail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const [memorialOpen, setMemorialOpen] = useState(false);
   
   const {
     workItem,
@@ -239,7 +241,9 @@ export default function WorkItemDetail() {
           <NewDocumentDropdown
             variant="outline"
             onSelect={(type) => navigate(`/app/work-items/${workItem.id}/documents/new?type=${type}`)}
+            onMemorialClick={() => setMemorialOpen(true)}
           />
+          <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={extendedWorkItem} />
 
           {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />

@@ -3,7 +3,7 @@
  * with create buttons, status badges, delete, resume actions, and navigation to detail/wizard.
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,12 +19,13 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail, Trash2, Play } from "lucide-react";
+import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail, Trash2, Play, PenLine } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { SigningProgressTracker } from "@/components/signing/SigningProgressTracker";
 import type { WorkItem } from "@/types/work-item";
+import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
 
 interface Props {
   workItem: WorkItem & { _source?: string };
@@ -60,6 +61,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [memorialOpen, setMemorialOpen] = useState(false);
 
   const { data: documents, isLoading } = useQuery({
     queryKey: ["work-item-generated-docs", workItem.id],
@@ -174,8 +176,13 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
     <div className="space-y-4">
       {/* Header with create button */}
       <div className="flex items-center justify-between">
-        <NewDocumentDropdown onSelect={goToWizard} hasRadicado={!!workItem.radicado?.trim()} />
+        <NewDocumentDropdown
+          onSelect={goToWizard}
+          hasRadicado={!!workItem.radicado?.trim()}
+          onMemorialClick={() => setMemorialOpen(true)}
+        />
       </div>
+      <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={workItem} />
 
       {/* Document list */}
       <div className="space-y-3">
@@ -292,10 +299,11 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
 }
 
 /** Reusable dropdown for creating new documents */
-export function NewDocumentDropdown({ onSelect, variant = "default", hasRadicado = false }: {
+export function NewDocumentDropdown({ onSelect, variant = "default", hasRadicado = false, onMemorialClick }: {
   onSelect: (type: string) => void;
   variant?: "default" | "outline" | "ghost";
   hasRadicado?: boolean;
+  onMemorialClick?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -328,6 +336,15 @@ export function NewDocumentDropdown({ onSelect, variant = "default", hasRadicado
           <Mail className="h-4 w-4 mr-2" />
           Notificación por Aviso (Art. 292)
         </DropdownMenuItem>
+        {onMemorialClick && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onMemorialClick}>
+              <PenLine className="h-4 w-4 mr-2" />
+              Memorial de Impulso Procesal
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -7788,6 +7788,64 @@ export type Database = {
           },
         ]
       }
+      memorial_history: {
+        Row: {
+          ai_used: boolean | null
+          created_at: string
+          created_by: string
+          generated_text: string
+          id: string
+          memorial_type: string
+          organization_id: string
+          variables: Json | null
+          work_item_id: string
+        }
+        Insert: {
+          ai_used?: boolean | null
+          created_at?: string
+          created_by: string
+          generated_text: string
+          id?: string
+          memorial_type: string
+          organization_id: string
+          variables?: Json | null
+          work_item_id: string
+        }
+        Update: {
+          ai_used?: boolean | null
+          created_at?: string
+          created_by?: string
+          generated_text?: string
+          id?: string
+          memorial_type?: string
+          organization_id?: string
+          variables?: Json | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memorial_history_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "memorial_history_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "memorial_history_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_links: {
         Row: {
           created_at: string
