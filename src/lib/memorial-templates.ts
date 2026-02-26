@@ -20,6 +20,7 @@ export type MemorialType =
   | "notificacion_demandado"
   | "decreto_pruebas"
   | "solicitud_sentencia"
+  | "solicitud_radicado_expediente"
   | "personalizado";
 
 export interface MemorialTypeOption {
@@ -37,6 +38,7 @@ export const MEMORIAL_TYPE_OPTIONS: MemorialTypeOption[] = [
   { value: "notificacion_demandado", label: "Solicitud de notificación al demandado", description: "Solicitar que se perfeccione la notificación al demandado" },
   { value: "decreto_pruebas", label: "Solicitud de decreto y práctica de pruebas", description: "Solicitar que se decreten y practiquen las pruebas solicitadas" },
   { value: "solicitud_sentencia", label: "Solicitud de sentencia", description: "Solicitar que se profiera la sentencia correspondiente" },
+  { value: "solicitud_radicado_expediente", label: "Solicitud de radicado y acceso al expediente electrónico", description: "Solicitar número de radicado y acceso al expediente digital" },
   { value: "personalizado", label: "Personalizado (redacción libre)", description: "Solo encabezado y pie — usted redacta el cuerpo del memorial" },
 ];
 
@@ -330,6 +332,14 @@ Lo anterior, de conformidad con los artículos 164 y siguientes del Código Gene
   solicitud_sentencia: `{{lawyer_full_name}}, identificado(a) con cédula de ciudadanía No. {{lawyer_cedula}}, portador(a) de la Tarjeta Profesional No. {{lawyer_tarjeta_profesional}}, actuando como apoderado(a) judicial de la parte {{represented_side}} en el proceso de la referencia, respetuosamente me permito solicitar a su Despacho se sirva proferir la sentencia correspondiente, toda vez que el proceso se encuentra en estado de dictar fallo, habiéndose agotado las etapas procesales previas.
 
 Lo anterior, de conformidad con el artículo 121 del Código General del Proceso, que establece el deber del juez de dictar sentencia dentro de los términos legales.`,
+
+  solicitud_radicado_expediente: `{{lawyer_full_name}}, identificado(a) con cédula de ciudadanía No. {{lawyer_cedula}}, portador(a) de la Tarjeta Profesional No. {{lawyer_tarjeta_profesional}}, actuando como apoderado(a) judicial de la parte {{represented_side}} en el proceso de la referencia, respetuosamente me permito solicitar a su Despacho:
+
+1. Se sirva informar el número de radicación asignado al presente proceso, toda vez que a la fecha no se ha puesto en conocimiento de esta parte dicha información, la cual resulta indispensable para el seguimiento del trámite procesal.
+
+2. Se sirva habilitar el acceso al expediente electrónico del proceso a través de la plataforma digital correspondiente, de conformidad con lo establecido en el artículo 186 del Código General del Proceso y el Plan de Justicia Digital adoptado por el Consejo Superior de la Judicatura, que establece el deber de los despachos judiciales de gestionar los expedientes a través de medios electrónicos y garantizar el acceso de las partes a los mismos.
+
+Lo anterior, en atención a los principios de publicidad y acceso a la justicia consagrados en los artículos 3, 4 y 103 del Código General del Proceso, y en concordancia con la Ley 2213 de 2022 que establece la virtualidad como regla general en las actuaciones judiciales.`,
 
   personalizado: `[Redacte aquí el cuerpo del memorial]`,
 };

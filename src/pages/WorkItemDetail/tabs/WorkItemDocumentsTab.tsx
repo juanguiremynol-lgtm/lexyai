@@ -29,6 +29,7 @@ import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
 
 interface Props {
   workItem: WorkItem & { _source?: string };
+  onMemorialClick?: () => void;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "warning" | "success" }> = {
@@ -57,11 +58,13 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   notificacion_por_aviso: "Notificación por Aviso",
 };
 
-export function WorkItemDocumentsTab({ workItem }: Props) {
+export function WorkItemDocumentsTab({ workItem, onMemorialClick: externalMemorialClick }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [memorialOpen, setMemorialOpen] = useState(false);
+  
+  const handleMemorialClick = externalMemorialClick || (() => setMemorialOpen(true));
 
   const { data: documents, isLoading } = useQuery({
     queryKey: ["work-item-generated-docs", workItem.id],
@@ -149,19 +152,15 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
                 <Plus className="h-4 w-4 mr-2" />
                 Generar Contrato
               </Button>
-              <Button variant="outline" onClick={() => goToWizard("paz_y_salvo")}>
-                <Plus className="h-4 w-4 mr-2" />
-                Generar Paz y Salvo
+              <Button variant="outline" onClick={handleMemorialClick}>
+                <PenLine className="h-4 w-4 mr-2" />
+                Memorial de Impulso
               </Button>
               {workItem.radicado && (
                 <>
                   <Button variant="outline" onClick={() => goToWizard("notificacion_personal")}>
                     <Mail className="h-4 w-4 mr-2" />
                     Notificación Personal
-                  </Button>
-                  <Button variant="outline" onClick={() => goToWizard("notificacion_por_aviso")}>
-                    <Mail className="h-4 w-4 mr-2" />
-                    Notificación por Aviso
                   </Button>
                 </>
               )}
@@ -179,10 +178,12 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
         <NewDocumentDropdown
           onSelect={goToWizard}
           hasRadicado={!!workItem.radicado?.trim()}
-          onMemorialClick={() => setMemorialOpen(true)}
+          onMemorialClick={handleMemorialClick}
         />
       </div>
-      <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={workItem} />
+      {!externalMemorialClick && (
+        <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={workItem} />
+      )}
 
       {/* Document list */}
       <div className="space-y-3">

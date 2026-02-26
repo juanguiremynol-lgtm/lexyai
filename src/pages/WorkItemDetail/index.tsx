@@ -38,6 +38,7 @@ import { HearingsTab } from "@/components/hearings/HearingsTab";
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
+import agreeColBadge from "@/assets/agree-colombia-badge.png";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { WorkItemMonitoringControls } from "@/components/work-items/WorkItemMonitoringControls";
 
@@ -248,6 +249,9 @@ export default function WorkItemDetail() {
           {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />
 
+          {/* Powered by AgreeColombia badge */}
+          <img src={agreeColBadge} alt="Powered by AgreeColombia" className="h-10 object-contain" />
+
           {/* Soft Delete Button */}
           <SoftDeleteButton
             workItemId={workItem.id}
@@ -339,9 +343,9 @@ export default function WorkItemDetail() {
                 <Newspaper className="h-4 w-4" />
                 Estados
               </TabsTrigger>
-              <TabsTrigger value="partes" className="gap-2">
-                <Users className="h-4 w-4" />
-                Partes
+              <TabsTrigger value="documentos" className="gap-2">
+                <FileText className="h-4 w-4" />
+                Documentos
               </TabsTrigger>
               <TabsTrigger value="alertas" className="gap-2">
                 <Bell className="h-4 w-4" />
@@ -355,10 +359,6 @@ export default function WorkItemDetail() {
                 <Scale className="h-4 w-4" />
                 Audiencias
               </TabsTrigger>
-              <TabsTrigger value="documentos" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Documentos
-              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="actuaciones" className="mt-4">
@@ -367,10 +367,6 @@ export default function WorkItemDetail() {
 
             <TabsContent value="estados" className="mt-4">
               <EstadosTab workItem={extendedWorkItem} />
-            </TabsContent>
-
-            <TabsContent value="partes" className="mt-4">
-              <PartiesTab workItem={extendedWorkItem} />
             </TabsContent>
 
             <TabsContent value="alertas" className="mt-4">
@@ -382,7 +378,7 @@ export default function WorkItemDetail() {
             </TabsContent>
 
             <TabsContent value="documentos" className="mt-4">
-              <WorkItemDocumentsTab workItem={extendedWorkItem} />
+              <WorkItemDocumentsTab workItem={extendedWorkItem} onMemorialClick={() => setMemorialOpen(true)} />
             </TabsContent>
 
             <TabsContent value="audiencias" className="mt-4">
