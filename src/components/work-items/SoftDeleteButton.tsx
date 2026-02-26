@@ -101,14 +101,14 @@ export function SoftDeleteButton({
         ) : (
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             className={cn(
               "text-destructive hover:bg-destructive hover:text-destructive-foreground",
               className
             )}
+            title="Eliminar asunto"
           >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Eliminar asunto
+            <Trash2 className="h-4 w-4" />
           </Button>
         )}
       </AlertDialogTrigger>

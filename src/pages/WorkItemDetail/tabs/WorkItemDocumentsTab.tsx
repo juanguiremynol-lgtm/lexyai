@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { SigningProgressTracker } from "@/components/signing/SigningProgressTracker";
 import type { WorkItem } from "@/types/work-item";
 import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
+import agreeColBadge from "@/assets/agree-colombia-badge.png";
 
 interface Props {
   workItem: WorkItem & { _source?: string };
@@ -173,13 +174,16 @@ export function WorkItemDocumentsTab({ workItem, onMemorialClick: externalMemori
 
   return (
     <div className="space-y-4">
-      {/* Header with create button */}
+      {/* Header with create button + badge */}
       <div className="flex items-center justify-between">
-        <NewDocumentDropdown
-          onSelect={goToWizard}
-          hasRadicado={!!workItem.radicado?.trim()}
-          onMemorialClick={handleMemorialClick}
-        />
+        <div className="flex items-center gap-2">
+          <NewDocumentDropdown
+            onSelect={goToWizard}
+            hasRadicado={!!workItem.radicado?.trim()}
+            onMemorialClick={handleMemorialClick}
+          />
+          <img src={agreeColBadge} alt="Powered by AgreeColombia" className="h-12 object-contain" />
+        </div>
       </div>
       {!externalMemorialClick && (
         <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={workItem} />

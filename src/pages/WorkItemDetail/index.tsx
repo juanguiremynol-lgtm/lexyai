@@ -238,19 +238,17 @@ export default function WorkItemDetail() {
           </Button>
           
 
-          {/* Generate Document dropdown */}
+          {/* Generate Document dropdown + AgreeColombia badge */}
           <NewDocumentDropdown
             variant="outline"
             onSelect={(type) => navigate(`/app/work-items/${workItem.id}/documents/new?type=${type}`)}
             onMemorialClick={() => setMemorialOpen(true)}
           />
+          <img src={agreeColBadge} alt="Powered by AgreeColombia" className="h-12 object-contain" />
           <MemorialGenerator open={memorialOpen} onOpenChange={setMemorialOpen} workItem={extendedWorkItem} />
 
-          {/* Electronic File Button - single source of truth for expediente link */}
+          {/* Electronic File Button */}
           <ElectronicFileButton workItem={extendedWorkItem} />
-
-          {/* Powered by AgreeColombia badge */}
-          <img src={agreeColBadge} alt="Powered by AgreeColombia" className="h-10 object-contain" />
 
           {/* Soft Delete Button */}
           <SoftDeleteButton
