@@ -3,9 +3,14 @@
  *
  * Badge counts for "Estados de Hoy" and "Actuaciones de Hoy" sidebar.
  * 
- * Counts are based on DETECTION dates (detected_at, changed_at),
- * showing items that were newly discovered or modified today,
- * regardless of their court event date.
+ * CANONICAL LOGIC (v2 — aligned with email alerts):
+ * Counts are based on DETECTION timestamps (detected_at) within today's
+ * COT (America/Bogota) window. This matches the alert_instances trigger
+ * logic used by dispatch-update-emails, ensuring sidebar badges and
+ * email alerts always show the same items.
+ * 
+ * Previously filtered by legal dates (act_date, fecha_fijacion) which
+ * caused divergence from email alerts when items had backdated legal dates.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -18,19 +23,21 @@ export function useHoyCounts() {
   const orgId = organization?.id;
 
   const today = getColombiaToday();
+  const { startUTC, endUTC } = getColombiaDayBoundsUTC(0);
 
   const { data: estadosCount = 0 } = useQuery({
     queryKey: ['hoy-count-estados', orgId, today],
     queryFn: async () => {
       if (!orgId) return 0;
 
-      // Count estados whose court date (fecha_fijacion) is today (COT)
+      // Count estados detected today (COT) — matches email alert trigger
       const { count, error } = await supabase
         .from('work_item_publicaciones')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .eq('is_archived', false)
-        .eq('fecha_fijacion', today);
+        .gte('detected_at', startUTC)
+        .lte('detected_at', endUTC);
 
       if (error) console.error('[hoy-counts] estados error:', error);
       return count ?? 0;
@@ -45,13 +52,14 @@ export function useHoyCounts() {
     queryFn: async () => {
       if (!orgId) return 0;
 
-      // Count actuaciones whose event date (act_date) is today (COT)
+      // Count actuaciones detected today (COT) — matches email alert trigger
       const { count, error } = await supabase
         .from('work_item_acts')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .eq('is_archived', false)
-        .eq('act_date', today);
+        .gte('detected_at', startUTC)
+        .lte('detected_at', endUTC);
 
       if (error) console.error('[hoy-counts] actuaciones error:', error);
       return count ?? 0;

@@ -117,17 +117,17 @@ export async function getActuacionesHoy(
   let modifiedCount = 0;
 
   if (mode === 'detected') {
-    // MODE: "Fecha actuación" — items whose act_date falls within the COT window
-    // This prevents backfilled historical items from appearing as "today"
+    // MODE: "Detectadas" — items whose detected_at falls within the COT time window
+    // This matches the email alert trigger behavior (alert_instances use detected_at)
+    // ensuring sidebar counts and email alerts always show the same items.
     const { data, error } = await supabase
       .from('work_item_acts')
       .select(SELECT_FIELDS)
       .eq('work_items.organization_id', organizationId)
       .eq('is_archived', false)
-      .gte('act_date', bounds.date_start)
-      .lte('act_date', bounds.date_end)
-      .not('act_date', 'is', null)
-      .order('act_date', { ascending: false })
+      .gte('detected_at', bounds.created_start)
+      .lte('detected_at', bounds.created_end)
+      .order('detected_at', { ascending: false })
       .limit(500);
 
     if (error) console.error('[actuaciones-hoy] detected query error:', error);
