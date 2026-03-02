@@ -23,6 +23,7 @@ export const DEMONITOR_ELIGIBLE_ERROR_CODES = [
   'PROVIDER_NOT_FOUND',
   'UPSTREAM_ROUTE_MISSING',
   'SCRAPING_STUCK',       // Terminal: max retries exhausted, no data ever retrieved
+  'OMITIDO',              // CPNU returns "omitido" — case skipped/excluded by provider
 ] as const;
 
 /**
@@ -58,6 +59,7 @@ export function normalizeProviderErrorCode(
     'UPSTREAM_ROUTE_MISSING': 'UPSTREAM_ROUTE_MISSING',
     'PROVIDER_ROUTE_NOT_FOUND': 'UPSTREAM_ROUTE_MISSING',
     'ROUTE_NOT_FOUND': 'UPSTREAM_ROUTE_MISSING',
+    'OMITIDO': 'OMITIDO',
   };
   if (STRICT_404_MAP[upper]) return STRICT_404_MAP[upper];
 

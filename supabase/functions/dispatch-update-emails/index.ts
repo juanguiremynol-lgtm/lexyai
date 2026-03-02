@@ -171,6 +171,68 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── Enrich alert payloads with full actuación/estado details from DB ──
+    const actIds = alerts
+      .filter(a => a.alert_type?.startsWith("ACTUACION") && (a.payload as any)?.act_id)
+      .map(a => (a.payload as any).act_id);
+    const pubIds = alerts
+      .filter(a => a.alert_type?.startsWith("PUBLICACION") && (a.payload as any)?.pub_id)
+      .map(a => (a.payload as any).pub_id);
+
+    const actDetailMap = new Map<string, any>();
+    const pubDetailMap = new Map<string, any>();
+
+    if (actIds.length > 0) {
+      const { data: actDetails } = await supabase
+        .from("work_item_acts")
+        .select("id, act_date, act_type, description, annotation, source, despacho, fecha_registro, inicia_termino, medio")
+        .in("id", actIds);
+      for (const act of actDetails || []) {
+        actDetailMap.set(act.id, act);
+      }
+    }
+
+    if (pubIds.length > 0) {
+      const { data: pubDetails } = await supabase
+        .from("work_item_publicaciones")
+        .select("id, title, published_at, source, pdf_url, fecha_fijacion, observacion, instancia")
+        .in("id", pubIds);
+      for (const pub of pubDetails || []) {
+        pubDetailMap.set(pub.id, pub);
+      }
+    }
+
+    // Merge enriched data back into alert payloads
+    for (const alert of alerts) {
+      const payload = alert.payload as Record<string, unknown> | null;
+      if (!payload) continue;
+
+      if (alert.alert_type?.startsWith("ACTUACION") && payload.act_id) {
+        const detail = actDetailMap.get(payload.act_id as string);
+        if (detail) {
+          payload.description = payload.description || detail.description || detail.act_type || "";
+          payload.annotation = payload.annotation || detail.annotation || "";
+          payload.source = payload.source || detail.source || "";
+          payload.act_date = payload.act_date || detail.act_date || detail.fecha_registro || "";
+          payload.despacho = payload.despacho || detail.despacho || "";
+          payload.inicia_termino = detail.inicia_termino || "";
+          payload.medio = detail.medio || "";
+        }
+      }
+
+      if (alert.alert_type?.startsWith("PUBLICACION") && payload.pub_id) {
+        const detail = pubDetailMap.get(payload.pub_id as string);
+        if (detail) {
+          payload.title = payload.title || detail.title || "";
+          payload.description = payload.description || detail.title || "";
+          payload.fecha_fijacion = payload.fecha_fijacion || detail.fecha_fijacion || detail.published_at || "";
+          payload.observacion = payload.observacion || detail.observacion || "";
+          payload.source = payload.source || detail.source || "";
+          payload.pdf_url = detail.pdf_url || "";
+        }
+      }
+    }
+
     // Group alerts by owner_id (recipient)
     const byOwner = new Map<string, typeof alerts>();
     for (const alert of alerts) {
@@ -221,11 +283,24 @@ Deno.serve(async (req) => {
         const actCount = ownerAlerts.filter(a => a.alert_type?.startsWith("ACTUACION")).length;
         const estCount = ownerAlerts.filter(a => a.alert_type?.startsWith("PUBLICACION")).length;
 
-        // Build subject
+        // Build subject — contextually specific
         const parts: string[] = [];
         if (estCount > 0) parts.push(`${estCount} estado${estCount > 1 ? 's' : ''}`);
         if (actCount > 0) parts.push(`${actCount} actuaci${actCount > 1 ? 'ones' : 'ón'}`);
-        const subject = `⚖️ ${parts.join(' y ')} nueva${ownerAlerts.length > 1 ? 's' : ''} detectada${ownerAlerts.length > 1 ? 's' : ''}`;
+        
+        // If single work item, include radicado in subject
+        const uniqueWiIds = [...new Set(ownerAlerts.map(a => a.entity_id))];
+        let subject: string;
+        if (uniqueWiIds.length === 1) {
+          const wi = workItemMap.get(uniqueWiIds[0]);
+          const rad = wi?.radicado ? ` en ${wi.radicado}` : '';
+          const firstAlert = ownerAlerts[0];
+          const firstPayload = firstAlert?.payload as Record<string, unknown> | null;
+          const actType = (firstPayload?.description || firstPayload?.title || firstAlert?.message || '').toString().substring(0, 60);
+          subject = `⚖️ ${parts.join(' y ')}${rad}${actType ? `: ${actType}` : ''}`;
+        } else {
+          subject = `⚖️ ${parts.join(' y ')} nueva${ownerAlerts.length > 1 ? 's' : ''} en ${uniqueWiIds.length} procesos`;
+        }
 
         const html = buildDigestHtml(ownerAlerts, workItemMap, profile?.full_name || null);
 

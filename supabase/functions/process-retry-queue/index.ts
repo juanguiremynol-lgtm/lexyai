@@ -45,6 +45,32 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // === STALE LEASE DETECTION: Reset tasks stuck in RUNNING > 60 min ===
+    const STALE_LEASE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
+    const staleLeaseCutoff = new Date(Date.now() - STALE_LEASE_THRESHOLD_MS).toISOString();
+    try {
+      const { data: staleTasks } = await (supabase.from('sync_retry_queue') as any)
+        .select('id, work_item_id, radicado, kind, attempt, max_attempts, claimed_at')
+        .not('claimed_at', 'is', null)
+        .lt('claimed_at', staleLeaseCutoff);
+
+      if (staleTasks && staleTasks.length > 0) {
+        console.warn(`[process-retry-queue] Found ${staleTasks.length} stale-lease tasks (RUNNING > 60min), resetting to PENDING`);
+        for (const stale of staleTasks) {
+          await (supabase.from('sync_retry_queue') as any)
+            .update({
+              claimed_at: null,
+              last_error_code: 'STALE_LEASE_RECLAIMED',
+              last_error_message: `Auto-reclaimed by process-retry-queue: claimed_at=${stale.claimed_at}, stuck > 60min`,
+            })
+            .eq('id', stale.id);
+          console.log(`[process-retry-queue] Reclaimed stale task: ${stale.radicado} (${stale.kind}, attempt ${stale.attempt}/${stale.max_attempts})`);
+        }
+      }
+    } catch (staleErr) {
+      console.warn('[process-retry-queue] Stale lease cleanup error:', staleErr);
+    }
+
     // === ZOMBIE CLEANUP: Dead-letter stuck retry rows ===
     const zombieCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     try {
