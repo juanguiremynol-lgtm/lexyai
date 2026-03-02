@@ -48,29 +48,35 @@ export async function persistHeartbeatToConversations(
   if (providerDegraded.length > 0) {
     const providers = providerDegraded.flatMap(o => {
       const data = o.data;
-      if (Array.isArray(data)) return data.map((d: any) => d.provider);
+      if (Array.isArray(data)) return data.map((d: any) => d.provider).filter((p: any) => p && p !== 'none' && p !== 'null' && p !== 'undefined');
       return [];
     });
-    const severity = providerDegraded.some(o => o.severity === 'critical') ? 'CRITICAL' : 'WARNING';
+    
+    // Only fire degradation alert if actual provider names exist
+    if (providers.length === 0) {
+      console.warn('[conv-wiring] Provider degradation detected but no valid provider names found — suppressing alert');
+    } else {
+      const severity = providerDegraded.some(o => o.severity === 'critical') ? 'CRITICAL' : 'WARNING';
 
-    const incident: IncidentData = {
-      orgId,
-      channel: 'HEARTBEAT',
-      severity: severity as any,
-      title: `Proveedor(es) degradado(s): ${providers.join(', ') || 'detectado(s)'}`,
-      providers,
-    };
+      const incident: IncidentData = {
+        orgId,
+        channel: 'HEARTBEAT',
+        severity: severity as any,
+        title: `Proveedor(es) degradado(s): ${providers.join(', ')}`,
+        providers,
+      };
 
-    try {
-      const convId = await findOrCreateConversation(incident);
-      if (convId) {
-        await addObservation(convId, orgId, 'PROVIDER_DEGRADED_WIRING', severity, incident.title, {
-          providers,
-          observations: providerDegraded.map(o => o.message),
-        });
+      try {
+        const convId = await findOrCreateConversation(incident);
+        if (convId) {
+          await addObservation(convId, orgId, 'PROVIDER_DEGRADED_WIRING', severity, incident.title, {
+            providers,
+            observations: providerDegraded.map(o => o.message),
+          });
+        }
+      } catch (err) {
+        console.warn('[conv-wiring] Provider degradation conv error:', err);
       }
-    } catch (err) {
-      console.warn('[conv-wiring] Provider degradation conv error:', err);
     }
   }
 
