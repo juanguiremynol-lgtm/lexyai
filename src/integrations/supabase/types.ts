@@ -5697,6 +5697,60 @@ export type Database = {
           },
         ]
       }
+      estado_attachment_queue: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          downloaded_at: string | null
+          filename: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_retry_at: string | null
+          organization_id: string
+          publicacion_id: string
+          remote_url: string
+          status: string
+          storage_path: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          downloaded_at?: string | null
+          filename?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          organization_id: string
+          publicacion_id: string
+          remote_url: string
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          downloaded_at?: string | null
+          filename?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          organization_id?: string
+          publicacion_id?: string
+          remote_url?: string
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       estados_import_runs: {
         Row: {
           created_at: string

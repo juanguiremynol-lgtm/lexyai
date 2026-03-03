@@ -686,6 +686,114 @@ Deno.serve(async (req) => {
     }
     result.provider_latency_ms = fetchResult.latencyMs;
 
+    // ============= CPACA WORKFLOW: SAMAI ESTADOS ENRICHMENT =============
+    // For CPACA, SAMAI Estados is PRIMARY for estados data. If publicaciones
+    // returned results, we still merge SAMAI Estados to catch records that only
+    // exist there (e.g., MemorialWeb PDFs). If publicaciones is empty, SAMAI
+    // Estados becomes the sole source.
+    if (workItem.workflow_type === 'CPACA') {
+      const samaiEstadosBaseUrl = Deno.env.get('SAMAI_ESTADOS_BASE_URL');
+      if (samaiEstadosBaseUrl) {
+        console.log(`[sync-pub] CPACA workflow: calling SAMAI Estados as primary source`);
+        const samaiStart = Date.now();
+        try {
+          // Dynamic import to avoid breaking non-CPACA flows if adapter unavailable
+          const samaiHeaders: Record<string, string> = { 'Accept': 'application/json' };
+          const samaiApiKey = Deno.env.get('SAMAI_ESTADOS_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
+          if (samaiApiKey) samaiHeaders['x-api-key'] = samaiApiKey;
+
+          // Format radicado for SAMAI: XX-XXX-XX-XX-XXX-XXXX-XXXXX-XX
+          const digits = normalizedRadicado.replace(/\D/g, '');
+          const formattedForSamai = digits.length === 23
+            ? `${digits.slice(0,2)}-${digits.slice(2,5)}-${digits.slice(5,7)}-${digits.slice(7,9)}-${digits.slice(9,12)}-${digits.slice(12,16)}-${digits.slice(16,21)}-${digits.slice(21,23)}`
+            : normalizedRadicado;
+
+          const cleanSamaiBase = samaiEstadosBaseUrl.replace(/\/+$/, '');
+          const samaiEndpoints = [
+            `${cleanSamaiBase}/snapshot?radicado=${encodeURIComponent(formattedForSamai)}`,
+            `${cleanSamaiBase}/buscar?radicado=${encodeURIComponent(formattedForSamai)}`,
+          ];
+
+          let samaiEstados: any[] = [];
+          for (const samaiUrl of samaiEndpoints) {
+            try {
+              console.log(`[sync-pub] SAMAI Estados GET ${samaiUrl}`);
+              const controller = new AbortController();
+              const tid = setTimeout(() => controller.abort(), 60_000);
+              const samaiResp = await fetch(samaiUrl, { method: 'GET', headers: samaiHeaders, signal: controller.signal });
+              clearTimeout(tid);
+
+              if (samaiResp.ok) {
+                const samaiData = await samaiResp.json();
+                // Extract estados from response (handles result.estados or estados at top level)
+                const resultado = samaiData?.result || samaiData;
+                const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
+                console.log(`[sync-pub] SAMAI Estados returned ${rawEstados.length} estados`);
+
+                if (rawEstados.length > 0) {
+                  // Convert SAMAI estados to PublicacionV3 format for unified ingestion
+                  for (const e of rawEstados) {
+                    const fecha = e['Fecha Providencia'] ?? e['Fecha Estado'] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? '';
+                    const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
+                    const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? '');
+                    const docUrl = e.pdf_url || e.pdfUrl || e.url_descarga || e.url_pdf || e.documento_url || e.documentUrl || e.Documento || e.url || '';
+
+                    // Generate a synthetic PublicacionV3
+                    samaiEstados.push({
+                      key: `samai_estado_${fecha}_${actuacion.slice(0, 30)}`,
+                      tipo: actuacion || 'Estado',
+                      titulo: actuacion || anotacion || 'Estado SAMAI',
+                      fecha_publicacion: fecha,
+                      pdf_url: (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https')) ? docUrl : undefined,
+                      tipo_evento: 'Estado Electrónico',
+                      asset_id: `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
+                      clasificacion: {
+                        categoria: 'Estado Electrónico',
+                        descripcion: anotacion || actuacion,
+                        es_descargable: !!(docUrl && typeof docUrl === 'string' && docUrl.includes('.pdf')),
+                      },
+                      _source_provider: 'samai_estados',
+                    });
+                  }
+                  break; // Got data from first working endpoint
+                }
+              }
+            } catch (samaiEndpointErr: any) {
+              console.warn(`[sync-pub] SAMAI endpoint error: ${samaiEndpointErr?.message}`);
+            }
+          }
+
+          if (samaiEstados.length > 0) {
+            console.log(`[sync-pub] CPACA: merging ${samaiEstados.length} SAMAI estados with ${fetchResult.publicaciones.length} publicaciones`);
+            // Deduplicate: don't add SAMAI estados that already exist in publicaciones (by date+title overlap)
+            const existingKeys = new Set(fetchResult.publicaciones.map(p => {
+              const pFecha = p.fecha_publicacion || '';
+              const pTitle = (p.titulo || '').slice(0, 30).toLowerCase();
+              return `${pFecha}|${pTitle}`;
+            }));
+
+            for (const se of samaiEstados) {
+              const seKey = `${se.fecha_publicacion || ''}|${(se.titulo || '').slice(0, 30).toLowerCase()}`;
+              if (!existingKeys.has(seKey)) {
+                fetchResult.publicaciones.push(se as PublicacionV3);
+                existingKeys.add(seKey);
+              }
+            }
+            fetchResult.found = true;
+            fetchResult.ok = true;
+            console.log(`[sync-pub] CPACA: total after merge = ${fetchResult.publicaciones.length}`);
+          }
+
+          const samaiDuration = Date.now() - samaiStart;
+          console.log(`[sync-pub] SAMAI Estados call completed in ${samaiDuration}ms`);
+        } catch (samaiErr: any) {
+          console.warn(`[sync-pub] SAMAI Estados enrichment failed (non-blocking): ${samaiErr?.message}`);
+        }
+      } else {
+        console.log(`[sync-pub] SAMAI_ESTADOS_BASE_URL not configured, skipping SAMAI Estados for CPACA`);
+      }
+    }
+
     // Handle error response
     if (!fetchResult.ok) {
       console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
@@ -960,6 +1068,28 @@ Deno.serve(async (req) => {
             console.log(`[sync-pub] Created alert for: ${pub.titulo}`);
           } catch (alertErr) {
             console.warn('[sync-pub] Failed to create alert:', alertErr);
+          }
+
+          // ============= QUEUE ATTACHMENT DOWNLOAD (DURABLE) =============
+          // Persist estado even without PDF. Queue PDF download as separate job.
+          if (pub.pdf_url && typeof pub.pdf_url === 'string' && pub.pdf_url.startsWith('https')) {
+            try {
+              const filename = pub.pdf_url.split('/').pop() || pub.titulo || 'attachment.pdf';
+              await supabase.from('estado_attachment_queue').upsert({
+                work_item_id,
+                publicacion_id: 'rpc-inserted', // Will be resolved by fingerprint
+                organization_id: workItem.organization_id,
+                remote_url: pub.pdf_url,
+                filename: filename.slice(0, 255),
+                status: 'pending',
+                attempt_count: 0,
+                max_attempts: 5,
+                next_retry_at: new Date().toISOString(),
+              }, { onConflict: 'publicacion_id,remote_url' } as any);
+              console.log(`[sync-pub] 📎 Queued attachment download: ${filename.slice(0, 60)}`);
+            } catch (attachErr: any) {
+              console.warn(`[sync-pub] Failed to queue attachment (non-blocking): ${attachErr?.message}`);
+            }
           }
         } else if (counts.updated_count > 0) {
           console.log(`[sync-pub] ♻️ Provenance merged for: ${pub.titulo}`);

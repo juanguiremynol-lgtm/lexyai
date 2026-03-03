@@ -120,6 +120,39 @@ export function validateRadicado(
 }
 
 // ═══════════════════════════════════════════
+// DESPACHO NORMALIZATION
+// ═══════════════════════════════════════════
+
+/**
+ * Normalize a despacho (court) name for robust matching:
+ * - Uppercase
+ * - Remove diacritics (á→a, ñ→n, etc.)
+ * - Collapse whitespace
+ * - Normalize numeric court index: "010" ↔ "10" equivalence
+ * - Remove prepositions "DE ", "DEL "
+ */
+export function normalizeDespacho(despacho: string): string {
+  if (!despacho) return '';
+  let s = despacho.trim().toUpperCase();
+  // Remove diacritics
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Collapse whitespace
+  s = s.replace(/\s+/g, ' ').trim();
+  // Normalize numeric court index: "JUZGADO 010" → "JUZGADO 10"
+  s = s.replace(/\bJUZGADO\s+0*(\d+)\b/g, 'JUZGADO $1');
+  // Remove prepositions for matching
+  s = s.replace(/\bDE\s+/g, '').replace(/\bDEL\s+/g, '');
+  return s;
+}
+
+/**
+ * Check if two despacho strings match after normalization.
+ */
+export function matchDespacho(a: string, b: string): boolean {
+  return normalizeDespacho(a) === normalizeDespacho(b);
+}
+
+// ═══════════════════════════════════════════
 // DATE PARSING
 // ═══════════════════════════════════════════
 

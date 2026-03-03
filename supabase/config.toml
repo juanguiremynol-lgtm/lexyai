@@ -365,3 +365,6 @@ verify_jwt = false
 
 [functions.merge-signed-pdf]
 verify_jwt = false
+
+[functions.admin-diagnose-estados]
+verify_jwt = false
