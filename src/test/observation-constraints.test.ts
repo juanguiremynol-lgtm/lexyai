@@ -62,7 +62,7 @@ describe("Observation kind constants (single source of truth)", () => {
 
   it("total kind count matches DB ENUM (drift detection)", () => {
     // If this number changes, a migration + constants update is required
-    expect(ALLOWED_OBSERVATION_KINDS.length).toBe(18);
+    expect(ALLOWED_OBSERVATION_KINDS.length).toBe(21);
   });
 });
 

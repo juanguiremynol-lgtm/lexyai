@@ -368,3 +368,6 @@ verify_jwt = false
 
 [functions.admin-diagnose-estados]
 verify_jwt = false
+
+[functions.process-estado-attachments-queue]
+verify_jwt = false
