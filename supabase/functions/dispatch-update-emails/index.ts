@@ -1,20 +1,33 @@
 /**
  * Dispatch Update Emails — Enqueues "new/modified movements" notifications into email_outbox.
- * 
- * Runs on a 5-minute cron schedule. Finds unsent alert_instances of types
- * ACTUACION_NEW, ACTUACION_MODIFIED, PUBLICACION_NEW, PUBLICACION_MODIFIED,
- * groups by recipient → work item, builds a structured digest email with
- * Icarus-style tables grouped per work item, and inserts into email_outbox.
- * 
+ *
+ * Runs on a 5-minute cron schedule. Finds unsent alert_instances of judicial
+ * movement types, groups by recipient → work item, builds a structured digest
+ * email with tables grouped per work item, and inserts into email_outbox.
+ *
  * Does NOT send directly — uses queue-first architecture via process-email-outbox.
- * 
- * EMAIL TABLE LAYOUT (v2 — structured like Icarus):
- * Each alert row now shows explicit labeled columns:
+ *
+ * HARDENING (v3):
+ * - Alert type strings come from shared alertTypeConstants.ts (single source of truth).
+ * - Runtime drift detection: warns if DB contains unknown alert_type values.
+ * - Payload completeness validation: warns (but doesn't block) on missing fields.
+ *
+ * EMAIL TABLE LAYOUT (v2 — structured):
+ * Each alert row shows explicit labeled columns:
  *   Detectado el | Despacho | Radicado (linked) | Partes | Fecha | Actuación | Anotación | Fuente
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
+import {
+  JUDICIAL_ALERT_TYPES,
+  JUDICIAL_TYPE_LABELS as TYPE_LABELS,
+  JUDICIAL_TYPE_ICONS as TYPE_ICONS,
+  isActuacionType,
+  isEstadoType,
+  isKnownJudicialType,
+  validateAlertPayload,
+} from "../_shared/alertTypeConstants.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -25,24 +38,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ALERT_TYPES = [
-  "ACTUACION_NUEVA", "ACTUACION_MODIFIED",
-  "ESTADO_NUEVO", "ESTADO_MODIFIED",
-];
-
-const TYPE_LABELS: Record<string, string> = {
-  ACTUACION_NUEVA: "Nueva actuación",
-  ACTUACION_MODIFIED: "Actuación modificada",
-  ESTADO_NUEVO: "Nuevo estado",
-  ESTADO_MODIFIED: "Estado modificado",
-};
-
-const TYPE_ICONS: Record<string, string> = {
-  ACTUACION_NUEVA: "🆕",
-  ACTUACION_MODIFIED: "✏️",
-  ESTADO_NUEVO: "📋",
-  ESTADO_MODIFIED: "✏️",
-};
+// Use shared constants — NO local redefinition allowed
+const ALERT_TYPES = [...JUDICIAL_ALERT_TYPES];
 
 interface WorkItemInfo {
   id: string;
@@ -130,6 +127,41 @@ Deno.serve(async (req) => {
 
     console.log(`[dispatch-update-emails] Found ${alerts.length} unsent alerts`);
 
+    // ── HARDENING: Drift detection ──
+    // Warn if any alert_type in the batch is not in our shared constants.
+    // This catches the exact class of bug where triggers produce types we don't handle.
+    const unknownTypes = new Set<string>();
+    for (const a of alerts) {
+      if (a.alert_type && !isKnownJudicialType(a.alert_type)) {
+        unknownTypes.add(a.alert_type);
+      }
+    }
+    if (unknownTypes.size > 0) {
+      const driftMsg = `DRIFT DETECTED: DB contains unknown alert_type(s): ${[...unknownTypes].join(", ")}. ` +
+        `These will NOT be dispatched. Update alertTypeConstants.ts or fix the trigger.`;
+      console.error(`[dispatch-update-emails] ⚠️ ${driftMsg}`);
+      result.errors.push(driftMsg);
+    }
+
+    // ── HARDENING: Payload completeness validation ──
+    // Log warnings per alert for missing fields (does NOT block dispatch).
+    let payloadWarningCount = 0;
+    for (const a of alerts) {
+      const { warnings } = validateAlertPayload(
+        a.alert_type || "",
+        a.payload as Record<string, unknown> | null,
+      );
+      if (warnings.length > 0) {
+        payloadWarningCount++;
+        if (payloadWarningCount <= 5) {
+          console.warn(`[dispatch-update-emails] Payload issue for alert ${a.id}: ${warnings.join("; ")}`);
+        }
+      }
+    }
+    if (payloadWarningCount > 0) {
+      console.warn(`[dispatch-update-emails] ${payloadWarningCount}/${alerts.length} alerts have incomplete payloads`);
+    }
+
     // Collect unique work item IDs and fetch their details (including parties)
     const workItemIds = [...new Set(alerts.map(a => a.entity_id).filter(Boolean))];
     result.workItemsCount = workItemIds.length;
@@ -175,10 +207,10 @@ Deno.serve(async (req) => {
     // Some alerts have act_id/pub_id in payload, others don't (legacy triggers).
     // For those without, we look up by work_item_id + proximity to fired_at.
     const actIds = alerts
-      .filter(a => a.alert_type?.startsWith("ACTUACION") && (a.payload as any)?.act_id)
+      .filter(a => isActuacionType(a.alert_type) && (a.payload as any)?.act_id)
       .map(a => (a.payload as any).act_id);
     const pubIds = alerts
-      .filter(a => a.alert_type?.startsWith("ESTADO") && (a.payload as any)?.pub_id)
+      .filter(a => isEstadoType(a.alert_type) && (a.payload as any)?.pub_id)
       .map(a => (a.payload as any).pub_id);
 
     const actDetailMap = new Map<string, any>();
@@ -207,10 +239,10 @@ Deno.serve(async (req) => {
     // ── Fallback enrichment: for alerts WITHOUT act_id/pub_id in payload,
     // fetch the most recent act/pub for the work_item_id near the fired_at time ──
     const needsActFallback = alerts.filter(
-      a => a.alert_type?.startsWith("ACTUACION") && !(a.payload as any)?.act_id
+      a => isActuacionType(a.alert_type) && !(a.payload as any)?.act_id
     );
     const needsPubFallback = alerts.filter(
-      a => a.alert_type?.startsWith("ESTADO") && !(a.payload as any)?.pub_id
+      a => isEstadoType(a.alert_type) && !(a.payload as any)?.pub_id
     );
 
     // Build a map of work_item_id -> latest act details for fallback
@@ -300,7 +332,7 @@ Deno.serve(async (req) => {
       const payload = alert.payload as Record<string, unknown> | null;
       if (!payload) continue;
 
-      if (alert.alert_type?.startsWith("ACTUACION") && payload.act_id) {
+      if (isActuacionType(alert.alert_type) && payload.act_id) {
         const detail = actDetailMap.get(payload.act_id as string);
         if (detail) {
           payload.description = payload.description || detail.description || detail.act_type || "";
@@ -313,7 +345,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (alert.alert_type?.startsWith("ESTADO") && payload.pub_id) {
+      if (isEstadoType(alert.alert_type) && payload.pub_id) {
         const detail = pubDetailMap.get(payload.pub_id as string);
         if (detail) {
           payload.title = payload.title || detail.title || "";
@@ -373,8 +405,8 @@ Deno.serve(async (req) => {
         const orgId = ownerAlerts[0]?.organization_id || null;
 
         // Count by type
-        const actCount = ownerAlerts.filter(a => a.alert_type?.startsWith("ACTUACION")).length;
-        const estCount = ownerAlerts.filter(a => a.alert_type?.startsWith("ESTADO")).length;
+        const actCount = ownerAlerts.filter(a => isActuacionType(a.alert_type)).length;
+        const estCount = ownerAlerts.filter(a => isEstadoType(a.alert_type)).length;
 
         // Build subject — contextually specific
         const parts: string[] = [];
@@ -501,8 +533,8 @@ function buildDigestHtml(
   }
 
   // Count totals
-  const totalEstados = alerts.filter(a => a.alert_type?.startsWith("ESTADO")).length;
-  const totalActuaciones = alerts.filter(a => a.alert_type?.startsWith("ACTUACION")).length;
+  const totalEstados = alerts.filter(a => isEstadoType(a.alert_type)).length;
+  const totalActuaciones = alerts.filter(a => isActuacionType(a.alert_type)).length;
 
   let workItemSections = "";
   for (const [wiId, wiAlerts] of byWorkItem) {
@@ -518,8 +550,8 @@ function buildDigestHtml(
     wiAlerts.sort((a: any, b: any) => new Date(b.fired_at).getTime() - new Date(a.fired_at).getTime());
 
     // Separate estados and actuaciones
-    const estados = wiAlerts.filter((a: any) => a.alert_type?.startsWith("ESTADO"));
-    const actuaciones = wiAlerts.filter((a: any) => a.alert_type?.startsWith("ACTUACION"));
+    const estados = wiAlerts.filter((a: any) => isEstadoType(a.alert_type));
+    const actuaciones = wiAlerts.filter((a: any) => isActuacionType(a.alert_type));
 
     let sectionBody = "";
 
