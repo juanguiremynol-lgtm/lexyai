@@ -26,22 +26,22 @@ const corsHeaders = {
 };
 
 const ALERT_TYPES = [
-  "ACTUACION_NEW", "ACTUACION_MODIFIED",
-  "PUBLICACION_NEW", "PUBLICACION_MODIFIED",
+  "ACTUACION_NUEVA", "ACTUACION_MODIFIED",
+  "ESTADO_NUEVO", "ESTADO_MODIFIED",
 ];
 
 const TYPE_LABELS: Record<string, string> = {
-  ACTUACION_NEW: "Nueva actuación",
+  ACTUACION_NUEVA: "Nueva actuación",
   ACTUACION_MODIFIED: "Actuación modificada",
-  PUBLICACION_NEW: "Nuevo estado",
-  PUBLICACION_MODIFIED: "Estado modificado",
+  ESTADO_NUEVO: "Nuevo estado",
+  ESTADO_MODIFIED: "Estado modificado",
 };
 
 const TYPE_ICONS: Record<string, string> = {
-  ACTUACION_NEW: "🆕",
+  ACTUACION_NUEVA: "🆕",
   ACTUACION_MODIFIED: "✏️",
-  PUBLICACION_NEW: "📋",
-  PUBLICACION_MODIFIED: "✏️",
+  ESTADO_NUEVO: "📋",
+  ESTADO_MODIFIED: "✏️",
 };
 
 interface WorkItemInfo {
@@ -172,11 +172,13 @@ Deno.serve(async (req) => {
     }
 
     // ── Enrich alert payloads with full actuación/estado details from DB ──
+    // Some alerts have act_id/pub_id in payload, others don't (legacy triggers).
+    // For those without, we look up by work_item_id + proximity to fired_at.
     const actIds = alerts
       .filter(a => a.alert_type?.startsWith("ACTUACION") && (a.payload as any)?.act_id)
       .map(a => (a.payload as any).act_id);
     const pubIds = alerts
-      .filter(a => a.alert_type?.startsWith("PUBLICACION") && (a.payload as any)?.pub_id)
+      .filter(a => a.alert_type?.startsWith("ESTADO") && (a.payload as any)?.pub_id)
       .map(a => (a.payload as any).pub_id);
 
     const actDetailMap = new Map<string, any>();
@@ -185,7 +187,7 @@ Deno.serve(async (req) => {
     if (actIds.length > 0) {
       const { data: actDetails } = await supabase
         .from("work_item_acts")
-        .select("id, act_date, act_type, description, annotation, source, despacho, fecha_registro, inicia_termino, medio")
+        .select("id, act_date, act_type, description, annotation, source, despacho, fecha_registro, inicia_termino, medio, event_summary")
         .in("id", actIds);
       for (const act of actDetails || []) {
         actDetailMap.set(act.id, act);
@@ -195,14 +197,105 @@ Deno.serve(async (req) => {
     if (pubIds.length > 0) {
       const { data: pubDetails } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, published_at, source, pdf_url, fecha_fijacion, observacion, instancia")
+        .select("id, title, published_at, source, pdf_url, fecha_fijacion, observacion, instancia, descripcion")
         .in("id", pubIds);
       for (const pub of pubDetails || []) {
         pubDetailMap.set(pub.id, pub);
       }
     }
 
-    // Merge enriched data back into alert payloads
+    // ── Fallback enrichment: for alerts WITHOUT act_id/pub_id in payload,
+    // fetch the most recent act/pub for the work_item_id near the fired_at time ──
+    const needsActFallback = alerts.filter(
+      a => a.alert_type?.startsWith("ACTUACION") && !(a.payload as any)?.act_id
+    );
+    const needsPubFallback = alerts.filter(
+      a => a.alert_type?.startsWith("ESTADO") && !(a.payload as any)?.pub_id
+    );
+
+    // Build a map of work_item_id -> latest act details for fallback
+    if (needsActFallback.length > 0) {
+      const wiIds = [...new Set(needsActFallback.map(a => a.entity_id).filter(Boolean))];
+      if (wiIds.length > 0) {
+        const { data: fallbackActs } = await supabase
+          .from("work_item_acts")
+          .select("id, work_item_id, act_date, act_type, description, annotation, source, despacho, detected_at, event_summary")
+          .in("work_item_id", wiIds)
+          .order("detected_at", { ascending: false })
+          .limit(wiIds.length * 3);
+
+        // Map: work_item_id -> list of acts (ordered by detected_at desc)
+        const actsByWi = new Map<string, any[]>();
+        for (const act of fallbackActs || []) {
+          const list = actsByWi.get(act.work_item_id) || [];
+          list.push(act);
+          actsByWi.set(act.work_item_id, list);
+        }
+
+        // For each alert without act_id, find closest act by fired_at
+        for (const alert of needsActFallback) {
+          const acts = actsByWi.get(alert.entity_id);
+          if (!acts || acts.length === 0) continue;
+          const firedMs = new Date(alert.fired_at).getTime();
+          // Find act with detected_at closest to fired_at
+          let bestAct = acts[0];
+          let bestDiff = Math.abs(new Date(acts[0].detected_at).getTime() - firedMs);
+          for (const act of acts) {
+            const diff = Math.abs(new Date(act.detected_at).getTime() - firedMs);
+            if (diff < bestDiff) { bestDiff = diff; bestAct = act; }
+          }
+          // Inject into payload
+          const payload = (alert.payload || {}) as Record<string, unknown>;
+          payload.act_id = bestAct.id;
+          payload.description = payload.description || bestAct.description || bestAct.act_type || "";
+          payload.annotation = payload.annotation || bestAct.annotation || bestAct.event_summary || "";
+          payload.source = payload.source || bestAct.source || "";
+          payload.act_date = payload.act_date || bestAct.act_date || "";
+          payload.despacho = payload.despacho || bestAct.despacho || "";
+          alert.payload = payload;
+        }
+      }
+    }
+
+    if (needsPubFallback.length > 0) {
+      const wiIds = [...new Set(needsPubFallback.map(a => a.entity_id).filter(Boolean))];
+      if (wiIds.length > 0) {
+        const { data: fallbackPubs } = await supabase
+          .from("work_item_publicaciones")
+          .select("id, work_item_id, title, fecha_fijacion, source, observacion, descripcion, detected_at, published_at")
+          .in("work_item_id", wiIds)
+          .order("detected_at", { ascending: false })
+          .limit(wiIds.length * 3);
+
+        const pubsByWi = new Map<string, any[]>();
+        for (const pub of fallbackPubs || []) {
+          const list = pubsByWi.get(pub.work_item_id) || [];
+          list.push(pub);
+          pubsByWi.set(pub.work_item_id, list);
+        }
+
+        for (const alert of needsPubFallback) {
+          const pubs = pubsByWi.get(alert.entity_id);
+          if (!pubs || pubs.length === 0) continue;
+          const firedMs = new Date(alert.fired_at).getTime();
+          let bestPub = pubs[0];
+          let bestDiff = Math.abs(new Date(pubs[0].detected_at || pubs[0].published_at).getTime() - firedMs);
+          for (const pub of pubs) {
+            const diff = Math.abs(new Date(pub.detected_at || pub.published_at).getTime() - firedMs);
+            if (diff < bestDiff) { bestDiff = diff; bestPub = pub; }
+          }
+          const payload = (alert.payload || {}) as Record<string, unknown>;
+          payload.pub_id = bestPub.id;
+          payload.description = payload.description || bestPub.title || bestPub.descripcion || "";
+          payload.fecha_fijacion = payload.fecha_fijacion || bestPub.fecha_fijacion || bestPub.published_at || "";
+          payload.observacion = payload.observacion || bestPub.observacion || "";
+          payload.source = payload.source || bestPub.source || "";
+          alert.payload = payload;
+        }
+      }
+    }
+
+    // Merge enriched data from act_id/pub_id lookups back into alert payloads
     for (const alert of alerts) {
       const payload = alert.payload as Record<string, unknown> | null;
       if (!payload) continue;
@@ -211,7 +304,7 @@ Deno.serve(async (req) => {
         const detail = actDetailMap.get(payload.act_id as string);
         if (detail) {
           payload.description = payload.description || detail.description || detail.act_type || "";
-          payload.annotation = payload.annotation || detail.annotation || "";
+          payload.annotation = payload.annotation || detail.annotation || detail.event_summary || "";
           payload.source = payload.source || detail.source || "";
           payload.act_date = payload.act_date || detail.act_date || detail.fecha_registro || "";
           payload.despacho = payload.despacho || detail.despacho || "";
@@ -220,11 +313,11 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (alert.alert_type?.startsWith("PUBLICACION") && payload.pub_id) {
+      if (alert.alert_type?.startsWith("ESTADO") && payload.pub_id) {
         const detail = pubDetailMap.get(payload.pub_id as string);
         if (detail) {
           payload.title = payload.title || detail.title || "";
-          payload.description = payload.description || detail.title || "";
+          payload.description = payload.description || detail.title || detail.descripcion || "";
           payload.fecha_fijacion = payload.fecha_fijacion || detail.fecha_fijacion || detail.published_at || "";
           payload.observacion = payload.observacion || detail.observacion || "";
           payload.source = payload.source || detail.source || "";
@@ -281,7 +374,7 @@ Deno.serve(async (req) => {
 
         // Count by type
         const actCount = ownerAlerts.filter(a => a.alert_type?.startsWith("ACTUACION")).length;
-        const estCount = ownerAlerts.filter(a => a.alert_type?.startsWith("PUBLICACION")).length;
+        const estCount = ownerAlerts.filter(a => a.alert_type?.startsWith("ESTADO")).length;
 
         // Build subject — contextually specific
         const parts: string[] = [];
@@ -408,7 +501,7 @@ function buildDigestHtml(
   }
 
   // Count totals
-  const totalEstados = alerts.filter(a => a.alert_type?.startsWith("PUBLICACION")).length;
+  const totalEstados = alerts.filter(a => a.alert_type?.startsWith("ESTADO")).length;
   const totalActuaciones = alerts.filter(a => a.alert_type?.startsWith("ACTUACION")).length;
 
   let workItemSections = "";
@@ -425,7 +518,7 @@ function buildDigestHtml(
     wiAlerts.sort((a: any, b: any) => new Date(b.fired_at).getTime() - new Date(a.fired_at).getTime());
 
     // Separate estados and actuaciones
-    const estados = wiAlerts.filter((a: any) => a.alert_type?.startsWith("PUBLICACION"));
+    const estados = wiAlerts.filter((a: any) => a.alert_type?.startsWith("ESTADO"));
     const actuaciones = wiAlerts.filter((a: any) => a.alert_type?.startsWith("ACTUACION"));
 
     let sectionBody = "";
