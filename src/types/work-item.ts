@@ -110,6 +110,19 @@ export interface WorkItem {
     id: string;
     matter_name: string;
   } | null;
+
+  // CPNU enrichment fields (from external API)
+  cpnu_status?: string | null;
+  cpnu_total_procesos?: number | null;
+  cpnu_total_sujetos?: number | null;
+  ultimo_run_status?: string | null;
+  ultimo_run_has_novedad?: boolean | null;
+  tipo_novedad?: string | null;
+  valor_anterior?: string | null;
+  valor_nuevo?: string | null;
+  ultima_novedad_descripcion?: string | null;
+  ultima_novedad_revisada?: boolean | null;
+  ultima_novedad_fecha?: string | null;
 }
 
 // Work Item Act - actuaciones linked to work items
