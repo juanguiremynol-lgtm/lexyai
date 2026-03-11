@@ -128,12 +128,7 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
     enabled,
   });
 
-  // 2. Check if there are CPNU items to enrich
-  const hasCpnuItems = supabaseQuery.data?.some(
-    (item) => item.workflow_type === "CPNU"
-  ) ?? false;
-
-  // 3. Secondary query: CPNU enrichment from external API
+  // 2. Secondary query: CPNU enrichment from external API
   const cpnuQuery = useQuery({
     queryKey: ["cpnu-enrichment"],
     queryFn: async (): Promise<Map<string, CpnuApiItem>> => {
@@ -149,11 +144,11 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
       }
       return map;
     },
-    enabled: enabled && hasCpnuItems,
-    staleTime: 60_000, // 1 min cache
+    enabled,
+    staleTime: 60_000,
   });
 
-  // 4. Merge: enrich CPNU items with external data
+  // 3. Merge: enrich items found in CPNU API
   const mergedData = useMemo(() => {
     const items = supabaseQuery.data;
     if (!items) return undefined;
@@ -162,7 +157,6 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
     if (!cpnuMap || cpnuMap.size === 0) return items;
 
     return items.map((item): WorkItem => {
-      if (item.workflow_type !== "CPNU") return item;
 
       const enrichment = cpnuMap.get(item.id);
       if (!enrichment) return item;
