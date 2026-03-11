@@ -186,6 +186,6 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
   return {
     ...supabaseQuery,
     data: mergedData,
-    isLoading: supabaseQuery.isLoading || (hasCpnuItems && cpnuQuery.isLoading),
+    isLoading: supabaseQuery.isLoading || cpnuQuery.isLoading,
   };
 }
