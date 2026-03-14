@@ -208,6 +208,11 @@ export function useCreateWorkItem() {
         }).catch(err => console.warn("[use-create-work-item] Background actuaciones sync failed:", err));
       }
 
+      // Register in Google Cloud SQL + trigger CPNU sync for CGP items
+      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CGP') {
+        registerAndSyncCpnu(workItem.id, workItem.radicado!);
+      }
+
       // Create milestone reminders for judicial workflows
       try {
         const workItemForReminders = {

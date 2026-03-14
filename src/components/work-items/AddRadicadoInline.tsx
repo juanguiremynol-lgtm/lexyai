@@ -54,11 +54,16 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
 
       return radicado23;
     },
-    onSuccess: () => {
+    onSuccess: (radicado23: string) => {
       toast.success("Radicado guardado. Se sincronizará en el próximo ciclo programado.");
       setIsEditing(false);
       onUpdate?.();
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
+
+      // Register + sync in Google Cloud SQL for CGP items
+      if (workflowType === 'CGP') {
+        registerAndSyncCpnu(workItemId, radicado23);
+      }
     },
     onError: (err: Error) => {
       toast.error("Error: " + err.message);
