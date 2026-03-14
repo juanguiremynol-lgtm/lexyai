@@ -210,7 +210,9 @@ export function useCreateWorkItem() {
 
       // Register in Google Cloud SQL + trigger CPNU sync for CGP items
       if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CGP') {
-        registerAndSyncCpnu(workItem.id, workItem.radicado!);
+        registerAndSyncCpnu(workItem.id, workItem.radicado!).then(ok => {
+          if (ok) queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
+        });
       }
 
       // Create milestone reminders for judicial workflows

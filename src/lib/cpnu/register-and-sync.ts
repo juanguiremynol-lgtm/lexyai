@@ -5,7 +5,7 @@
 
 const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
 
-export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<void> {
+export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<boolean> {
   try {
     // 1. Register in Google Cloud SQL
     const regRes = await fetch(`${CPNU_API_BASE}/work-items`, {
@@ -21,7 +21,10 @@ export async function registerAndSyncCpnu(workItemId: string, radicado: string):
       headers: { "Content-Type": "application/json" },
     });
     console.log(`[CPNU sync] POST /work-items/${workItemId}/sync → ${syncRes.status}`);
+
+    return regRes.ok && syncRes.ok;
   } catch (err) {
     console.warn("[CPNU register-and-sync] Failed (non-blocking):", err);
+    return false;
   }
 }
