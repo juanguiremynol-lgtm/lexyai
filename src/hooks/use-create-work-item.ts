@@ -179,7 +179,7 @@ export function useCreateWorkItem() {
         const { error: actsError } = await supabase
           .from("work_item_acts")
           .upsert(actsToInsert as any, { 
-            onConflict: 'hash_fingerprint',
+            onConflict: 'work_item_id,hash_fingerprint',
             ignoreDuplicates: true 
           });
 
