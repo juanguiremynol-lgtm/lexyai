@@ -10,7 +10,10 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+
+const CPNU_API_URL = "https://cpnu-read-api-486431576619.us-central1.run.app/work-items";
 
 interface WorkItemDetail {
   id: string;
