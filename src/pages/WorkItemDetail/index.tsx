@@ -281,6 +281,7 @@ export default function WorkItemDetail() {
                 <AddRadicadoInline
                   workItemId={workItem.id}
                   currentRadicado={workItem.radicado}
+                  workflowType={workItem.workflow_type as any}
                   onUpdate={refetch}
                 />
               </div>

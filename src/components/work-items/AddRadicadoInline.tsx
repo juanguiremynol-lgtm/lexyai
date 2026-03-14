@@ -14,14 +14,17 @@ import { Badge } from "@/components/ui/badge";
 import { Check, X, Pencil, Loader2, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeRadicado } from "@/lib/radicado-utils";
+import { registerAndSyncCpnu } from "@/lib/cpnu/register-and-sync";
+import type { WorkflowType } from "@/lib/workflow-constants";
 
 interface AddRadicadoInlineProps {
   workItemId: string;
   currentRadicado: string | null;
+  workflowType?: WorkflowType;
   onUpdate?: () => void;
 }
 
-export function AddRadicadoInline({ workItemId, currentRadicado, onUpdate }: AddRadicadoInlineProps) {
+export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, onUpdate }: AddRadicadoInlineProps) {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState(currentRadicado || "");
@@ -51,11 +54,16 @@ export function AddRadicadoInline({ workItemId, currentRadicado, onUpdate }: Add
 
       return radicado23;
     },
-    onSuccess: () => {
+    onSuccess: (radicado23: string) => {
       toast.success("Radicado guardado. Se sincronizará en el próximo ciclo programado.");
       setIsEditing(false);
       onUpdate?.();
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
+
+      // Register + sync in Google Cloud SQL for CGP items
+      if (workflowType === 'CGP') {
+        registerAndSyncCpnu(workItemId, radicado23);
+      }
     },
     onError: (err: Error) => {
       toast.error("Error: " + err.message);

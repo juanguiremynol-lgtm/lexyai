@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
+import { registerAndSyncCpnu } from "@/lib/cpnu/register-and-sync";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
@@ -205,6 +206,11 @@ export function useCreateWorkItem() {
         supabase.functions.invoke("sync-by-work-item", {
           body: { work_item_id: workItem.id },
         }).catch(err => console.warn("[use-create-work-item] Background actuaciones sync failed:", err));
+      }
+
+      // Register in Google Cloud SQL + trigger CPNU sync for CGP items
+      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CGP') {
+        registerAndSyncCpnu(workItem.id, workItem.radicado!);
       }
 
       // Create milestone reminders for judicial workflows

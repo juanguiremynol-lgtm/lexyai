@@ -10,7 +10,10 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+
+const CPNU_API_URL = "https://cpnu-read-api-486431576619.us-central1.run.app/work-items";
 
 interface WorkItemDetail {
   id: string;
@@ -335,6 +338,41 @@ export function useWorkItemDetail(id: string | undefined) {
 
   const workItem = workItemQuery.data;
 
+  // CPNU enrichment for CGP items
+  const isCpnuEligible = !!workItem && workItem.workflow_type === "CGP" && !!workItem.radicado;
+  const cpnuQuery = useQuery({
+    queryKey: ["cpnu-detail-enrichment", id],
+    queryFn: async () => {
+      const res = await fetch(CPNU_API_URL);
+      if (!res.ok) return null;
+      const items: Record<string, unknown>[] = await res.json();
+      return items.find((i: any) => i.work_item_id === id) || null;
+    },
+    enabled: isCpnuEligible,
+    staleTime: 60_000,
+  });
+
+  // Merge CPNU data into work item
+  const enrichedWorkItem = useMemo(() => {
+    if (!workItem) return null;
+    if (!cpnuQuery.data) return workItem;
+    const cpnu = cpnuQuery.data as Record<string, unknown>;
+    return {
+      ...workItem,
+      cpnu_status: cpnu.cpnu_status ?? workItem.scrape_status,
+      ultimo_run_status: cpnu.ultimo_run_status ?? null,
+      ultimo_run_has_novedad: cpnu.ultimo_run_has_novedad ?? null,
+      tipo_novedad: cpnu.tipo_novedad ?? null,
+      valor_anterior: cpnu.valor_anterior ?? null,
+      valor_nuevo: cpnu.valor_nuevo ?? null,
+      ultima_novedad_descripcion: cpnu.ultima_novedad_descripcion ?? null,
+      ultima_novedad_revisada: cpnu.ultima_novedad_revisada ?? null,
+      ultima_novedad_fecha: cpnu.ultima_novedad_fecha ?? null,
+      last_checked_at: (cpnu.last_checked_at as string) ?? workItem.last_checked_at,
+      total_actuaciones: (cpnu.total_actuaciones as number) ?? workItem.total_actuaciones,
+    } as WorkItemDetail;
+  }, [workItem, cpnuQuery.data]);
+
   // Fetch process events (timeline)
   const processEventsQuery = useQuery({
     queryKey: ["work-item-process-events", id],
@@ -371,7 +409,7 @@ export function useWorkItemDetail(id: string | undefined) {
   });
 
   return {
-    workItem: workItemQuery.data,
+    workItem: enrichedWorkItem,
     isLoading: workItemQuery.isLoading,
     error: workItemQuery.error,
     processEvents: processEventsQuery.data || [],
@@ -383,6 +421,7 @@ export function useWorkItemDetail(id: string | undefined) {
     hearings: hearingsQuery.data || [],
     refetch: () => {
       workItemQuery.refetch();
+      cpnuQuery.refetch();
       processEventsQuery.refetch();
       actuacionesQuery.refetch();
       documentsQuery.refetch();
