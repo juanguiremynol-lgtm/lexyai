@@ -24,7 +24,7 @@ interface AddRadicadoInlineProps {
   onUpdate?: () => void;
 }
 
-export function AddRadicadoInline({ workItemId, currentRadicado, onUpdate }: AddRadicadoInlineProps) {
+export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, onUpdate }: AddRadicadoInlineProps) {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState(currentRadicado || "");
