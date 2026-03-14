@@ -62,7 +62,9 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
 
       // Register + sync in Google Cloud SQL for CGP items
       if (workflowType === 'CGP') {
-        registerAndSyncCpnu(workItemId, radicado23);
+        registerAndSyncCpnu(workItemId, radicado23).then(ok => {
+          if (ok) queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
+        });
       }
     },
     onError: (err: Error) => {
