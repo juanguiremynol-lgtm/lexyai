@@ -473,6 +473,11 @@ export default function WorkItemDetail() {
             </CardContent>
           </Card>
 
+          {/* Novedades CPNU panel for CGP items */}
+          {workItem.workflow_type === "CGP" && workItem.radicado && (
+            <NovedadesCpnuPanel workItemId={workItem.id} />
+          )}
+
           {/* Monitoring Status & Controls */}
           <WorkItemMonitoringControls
             workItem={{
