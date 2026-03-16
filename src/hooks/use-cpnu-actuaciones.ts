@@ -73,7 +73,9 @@ export function useCpnuActuaciones(workItemId: string, enabled = true) {
     queryFn: async (): Promise<WorkItemAct[]> => {
       const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/actuaciones`);
       if (!res.ok) throw new Error(`CPNU Actuaciones API error: ${res.status}`);
-      const rawList: CpnuActuacionRaw[] = await res.json();
+      const body = await res.json();
+      // API returns { ok, total, actuaciones: [...] } envelope
+      const rawList: CpnuActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
 
       const mapped = rawList.map((r) => mapToWorkItemAct(r, workItemId));
 
