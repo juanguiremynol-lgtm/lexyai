@@ -34,6 +34,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocumentsTab";
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
+import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
