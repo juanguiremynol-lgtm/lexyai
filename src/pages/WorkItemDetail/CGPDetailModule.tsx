@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Scale, FileText } from "lucide-react";
 import type { WorkItem } from "@/types/work-item";
 import { getStageLabel } from "@/lib/workflow-constants";
+import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 
 interface Props {
   workItem: WorkItem;
