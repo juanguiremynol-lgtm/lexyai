@@ -26,6 +26,13 @@ interface CpnuActuacionRaw {
   instancia: string | null;
 }
 
+/** Extract YYYY-MM-DD from an ISO timestamp or date string */
+function toDateOnly(iso: string | null): string | null {
+  if (!iso) return null;
+  // Handle "2024-08-12T00:00:00.000Z" → "2024-08-12"
+  return iso.slice(0, 10);
+}
+
 function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAct {
   // Build description: "ACTUACION - anotacion" matching existing parse logic
   const actuacion = raw.actuacion?.trim() || "Sin descripción";
@@ -38,7 +45,7 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
     work_item_id: workItemId,
     description,
     event_summary: anotacion,
-    act_date: raw.fecha_actuacion || null,
+    act_date: toDateOnly(raw.fecha_actuacion),
     act_date_raw: raw.fecha_actuacion || null,
     event_date: null,
     act_type: null,
@@ -62,8 +69,8 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
     detected_at: null,
     changed_at: null,
     instancia: raw.instancia || null,
-    fecha_registro_source: raw.fecha_registro || null,
-    inicia_termino: raw.fecha_inicial || null,
+    fecha_registro_source: toDateOnly(raw.fecha_registro),
+    inicia_termino: toDateOnly(raw.fecha_inicial),
   };
 }
 

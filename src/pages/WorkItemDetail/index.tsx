@@ -34,6 +34,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocumentsTab";
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
+import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -472,6 +473,11 @@ export default function WorkItemDetail() {
               </p>
             </CardContent>
           </Card>
+
+          {/* Novedades CPNU panel for CGP items */}
+          {workItem.workflow_type === "CGP" && workItem.radicado && (
+            <NovedadesCpnuPanel workItemId={workItem.id} />
+          )}
 
           {/* Monitoring Status & Controls */}
           <WorkItemMonitoringControls
