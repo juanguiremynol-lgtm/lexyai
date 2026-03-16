@@ -96,6 +96,10 @@ export default function CGPDetailModule({ workItem }: Props) {
               )}
             </CardContent>
           </Card>
+
+          {workItem.radicado && (
+            <NovedadesCpnuPanel workItemId={workItem.id} />
+          )}
         </div>
 
         <div className="space-y-6">
