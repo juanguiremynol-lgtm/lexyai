@@ -19,8 +19,10 @@ export function useCpnuNovedades(workItemId: string | undefined) {
     queryKey: ["cpnu-novedades", workItemId],
     queryFn: async (): Promise<Novedad[]> => {
       const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/novedades`);
+      if (!res.ok) throw new Error(`Novedades API error: ${res.status}`);
       const body = await res.json();
-      return Array.isArray(body) ? body : (body.novedades ?? []);
+      const novedades = body?.novedades ?? [];
+      return Array.isArray(novedades) ? novedades : [];
     },
     enabled: !!workItemId,
     staleTime: 60_000,
