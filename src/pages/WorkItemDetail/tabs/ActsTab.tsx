@@ -1,8 +1,9 @@
 /**
- * Acts Tab - Shows actuaciones for the work item from work_item_acts table
- * Unified card design regardless of data source
+ * Acts Tab - Shows actuaciones for the work item
+ * CGP workflow: reads from Google Cloud CPNU API
+ * Other workflows: reads from work_item_acts table (Supabase)
  *
- * CRITICAL: This tab reads ONLY from work_item_acts table (canonical)
+ * CRITICAL: CGP → Google Cloud API, everything else → Supabase
  */
 
 import { useState } from "react";
@@ -28,9 +29,45 @@ import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
+import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 
 interface ActsTabProps {
   workItem: WorkItem & { _source?: string };
+}
+
+// ─── Supabase query hook (non-CGP) ──────────────────────────────────────────
+
+function useSupabaseActs(workItemId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["work-item-actuaciones", workItemId],
+    queryFn: async () => {
+      await ensureValidSession();
+
+      const { data, error } = await supabase
+        .from("work_item_acts")
+        .select("*")
+        .eq("work_item_id", workItemId)
+        .eq("is_archived", false)
+        .order("act_date", { ascending: false, nullsFirst: false });
+
+      if (error) throw error;
+
+      const sorted = (data || []).sort((a, b) => {
+        if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
+        if (a.act_date && !b.act_date) return -1;
+        if (!a.act_date && b.act_date) return 1;
+        const regA = (a as any).fecha_registro_source || '';
+        const regB = (b as any).fecha_registro_source || '';
+        if (regA !== regB) return regB.localeCompare(regA);
+        return (a.hash_fingerprint || '').localeCompare(b.hash_fingerprint || '');
+      });
+
+      return sorted as WorkItemAct[];
+    },
+    enabled,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 }
 
 export function ActsTab({ workItem }: ActsTabProps) {
@@ -38,8 +75,22 @@ export function ActsTab({ workItem }: ActsTabProps) {
   const [filterSource, setFilterSource] = useState<string>("all");
   const queryClient = useQueryClient();
 
+  const isCGP = workItem.workflow_type === "CGP";
+
+  // ─── Data source branching ──────────────────────────────────────────────
+  const cpnuQuery = useCpnuActuaciones(workItem.id, isCGP);
+  const supabaseQuery = useSupabaseActs(workItem.id, !isCGP && !!workItem.id);
+
+  const acts = isCGP ? cpnuQuery.data : supabaseQuery.data;
+  const isLoading = isCGP ? cpnuQuery.isLoading : supabaseQuery.isLoading;
+
+  // ─── Resync mutation ────────────────────────────────────────────────────
   const resyncMutation = useMutation({
     mutationFn: async () => {
+      if (isCGP) {
+        return resyncCpnuActuaciones(workItem.id);
+      }
+      // Non-CGP: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
         body: { work_item_id: workItem.id },
       });
@@ -48,9 +99,20 @@ export function ActsTab({ workItem }: ActsTabProps) {
       return data;
     },
     onSuccess: (data) => {
+      if (isCGP) {
+        toast.success("Re-sincronización CPNU iniciada", {
+          description: "Las actuaciones se actualizarán en unos momentos.",
+          duration: 5000,
+        });
+        // Invalidate after a short delay to allow sync to complete
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["cpnu-actuaciones", workItem.id] });
+        }, 3000);
+        return;
+      }
+
       const inserted = data.inserted_count || 0;
       const skipped = data.skipped_count || 0;
-      const notif = data.notification;
 
       if (inserted > 0) {
         toast.success(`${inserted} nueva${inserted > 1 ? 's' : ''} actuaci${inserted > 1 ? 'ones' : 'ón'} insertada${inserted > 1 ? 's' : ''}`, {
@@ -70,41 +132,6 @@ export function ActsTab({ workItem }: ActsTabProps) {
         description: err instanceof Error ? err.message : "Error desconocido",
       });
     },
-  });
-
-  const { data: acts, isLoading } = useQuery({
-    queryKey: ["work-item-actuaciones", workItem.id],
-    queryFn: async () => {
-      // Guard: ensure valid auth before querying to prevent empty results from expired JWT
-      await ensureValidSession();
-
-      const { data, error } = await supabase
-        .from("work_item_acts")
-        .select("*")
-        .eq("work_item_id", workItem.id)
-        .eq("is_archived", false)
-        .order("act_date", { ascending: false, nullsFirst: false });
-
-      if (error) throw error;
-
-      // Sort: act_date DESC, fecha_registro_source DESC, hash_fingerprint (deterministic tie-breaker)
-      const sorted = (data || []).sort((a, b) => {
-        if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
-        if (a.act_date && !b.act_date) return -1;
-        if (!a.act_date && b.act_date) return 1;
-        // Secondary: fecha_registro_source DESC
-        const regA = (a as any).fecha_registro_source || '';
-        const regB = (b as any).fecha_registro_source || '';
-        if (regA !== regB) return regB.localeCompare(regA);
-        // Tertiary: deterministic tie-breaker by hash_fingerprint
-        return (a.hash_fingerprint || '').localeCompare(b.hash_fingerprint || '');
-      });
-
-      return sorted as WorkItemAct[];
-    },
-    enabled: !!workItem.id,
-    staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: false,
   });
 
   // Get unique sources for filter
@@ -191,6 +218,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
               <Scale className="h-5 w-5 text-foreground" />
               <h3 className="font-semibold text-foreground">Actuaciones</h3>
               <Badge variant="secondary">{summary.total}</Badge>
+              {isCGP && (
+                <Badge variant="outline" className="text-xs">
+                  CPNU API
+                </Badge>
+              )}
               <SyncStatusBadge
                 lastSyncedAt={workItem.last_synced_at ?? null}
                 monitoringEnabled={workItem.monitoring_enabled}
@@ -209,7 +241,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
                 onClick={() => resyncMutation.mutate()}
                 disabled={resyncMutation.isPending}
                 className="h-7 text-xs gap-1.5"
-                title="Re-sincronizar actuaciones desde CPNU"
+                title={isCGP ? "Re-sincronizar actuaciones desde CPNU API" : "Re-sincronizar actuaciones desde CPNU"}
               >
                 <RefreshCw className={`h-3 w-3 ${resyncMutation.isPending ? 'animate-spin' : ''}`} />
                 {resyncMutation.isPending ? "Sincronizando..." : "Re-sync"}
