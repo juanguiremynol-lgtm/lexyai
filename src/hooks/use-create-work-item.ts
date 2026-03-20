@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
-import { registerAndSyncCpnu } from "@/lib/cpnu/register-and-sync";
+import { registerAndSyncCpnu, registerAndSyncPp } from "@/lib/cpnu/register-and-sync";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
@@ -212,6 +212,13 @@ export function useCreateWorkItem() {
       if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CGP') {
         registerAndSyncCpnu(workItem.id, workItem.radicado!).then(ok => {
           if (ok) queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
+        });
+      }
+
+      // Register in PP (Portal Publicaciones) for ALL items with valid radicado
+      if (workItem.id && radicadoDigits.length === 23) {
+        registerAndSyncPp(workItem.id, workItem.radicado!).then(ok => {
+          if (ok) queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
         });
       }
 

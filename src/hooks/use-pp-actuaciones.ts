@@ -1,15 +1,15 @@
 /**
- * Hook: useCpnuActuaciones
- * Fetches actuaciones for CGP work items from Google Cloud API
+ * Hook: usePpActuaciones
+ * Fetches actuaciones for ALL work items from PP (Portal Publicaciones) Google Cloud API
  * and maps them to the WorkItemAct interface for UI compatibility.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { CPNU_API_BASE } from "@/lib/api-urls";
+import { PP_API_BASE } from "@/lib/api-urls";
 
 /** Raw shape returned by GET /work-items/:id/actuaciones */
-interface CpnuActuacionRaw {
+interface PpActuacionRaw {
   id: string;
   id_reg_actuacion: number | null;
   cons_actuacion: number | null;
@@ -23,17 +23,16 @@ interface CpnuActuacionRaw {
   con_documentos: boolean | null;
   despacho: string | null;
   instancia: string | null;
+  gcs_url_auto: string | null;
+  gcs_url_tabla: string | null;
 }
 
-/** Extract YYYY-MM-DD from an ISO timestamp or date string */
 function toDateOnly(iso: string | null): string | null {
   if (!iso) return null;
-  // Handle "2024-08-12T00:00:00.000Z" → "2024-08-12"
   return iso.slice(0, 10);
 }
 
-function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAct {
-  // Build description: "ACTUACION - anotacion" matching existing parse logic
+function mapToWorkItemAct(raw: PpActuacionRaw, workItemId: string): WorkItemAct {
   const actuacion = raw.actuacion?.trim() || "Sin descripción";
   const anotacion = raw.anotacion?.trim() || null;
   const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
@@ -48,13 +47,13 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
     act_date_raw: raw.fecha_actuacion || null,
     event_date: null,
     act_type: null,
-    source: "cpnu",
-    source_platform: "cpnu",
+    source: "pp",
+    source_platform: "pp",
     source_url: null,
     source_reference: raw.cons_actuacion != null ? String(raw.cons_actuacion) : null,
-    sources: ["cpnu"],
+    sources: ["pp"],
     despacho: raw.despacho || null,
-    workflow_type: "CGP",
+    workflow_type: null,
     scrape_date: null,
     hash_fingerprint: raw.id,
     created_at: new Date().toISOString(),
@@ -64,6 +63,8 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
       con_documentos: raw.con_documentos,
       id_reg_actuacion: raw.id_reg_actuacion,
       fecha_final: raw.fecha_final,
+      gcs_url_auto: raw.gcs_url_auto,
+      gcs_url_tabla: raw.gcs_url_tabla,
     },
     detected_at: null,
     changed_at: null,
@@ -73,19 +74,17 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
   };
 }
 
-export function useCpnuActuaciones(workItemId: string, enabled = true) {
+export function usePpActuaciones(workItemId: string, enabled = true) {
   return useQuery({
-    queryKey: ["cpnu-actuaciones", workItemId],
+    queryKey: ["pp-actuaciones", workItemId],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/actuaciones`);
-      if (!res.ok) throw new Error(`CPNU Actuaciones API error: ${res.status}`);
+      const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/actuaciones`);
+      if (!res.ok) throw new Error(`PP Actuaciones API error: ${res.status}`);
       const body = await res.json();
-      // API returns { ok, total, actuaciones: [...] } envelope
-      const rawList: CpnuActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
+      const rawList: PpActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
 
       const mapped = rawList.map((r) => mapToWorkItemAct(r, workItemId));
 
-      // Sort: fecha_actuacion DESC, fecha_registro DESC, id (tie-breaker)
       mapped.sort((a, b) => {
         if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
@@ -104,12 +103,12 @@ export function useCpnuActuaciones(workItemId: string, enabled = true) {
   });
 }
 
-/** Trigger a re-sync for a CGP work item via the Google Cloud API */
-export async function resyncCpnuActuaciones(workItemId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/sync`, {
+/** Trigger a re-sync for a work item via PP Google Cloud API */
+export async function resyncPpActuaciones(workItemId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`CPNU sync error: ${res.status}`);
+  if (!res.ok) throw new Error(`PP sync error: ${res.status}`);
   return res.json();
 }

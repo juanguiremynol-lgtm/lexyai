@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CPNU_API_BASE } from "@/lib/api-urls";
+import { PP_API_BASE } from "@/lib/api-urls";
 
 export interface Novedad {
   id: string;
@@ -11,14 +11,14 @@ export interface Novedad {
   created_at: string;
 }
 
-export function useCpnuNovedades(workItemId: string | undefined) {
+export function usePpNovedades(workItemId: string | undefined) {
   const queryClient = useQueryClient();
 
   const { data: novedades = [], isLoading } = useQuery({
-    queryKey: ["cpnu-novedades", workItemId],
+    queryKey: ["pp-novedades", workItemId],
     queryFn: async (): Promise<Novedad[]> => {
-      const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/novedades`);
-      if (!res.ok) throw new Error(`Novedades API error: ${res.status}`);
+      const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/novedades`);
+      if (!res.ok) throw new Error(`PP Novedades API error: ${res.status}`);
       const body = await res.json();
       const novedades = body?.novedades ?? [];
       return Array.isArray(novedades) ? novedades : [];
@@ -30,14 +30,14 @@ export function useCpnuNovedades(workItemId: string | undefined) {
   const { mutate: markAsReviewed, isPending: isMarking } = useMutation({
     mutationFn: async (novedadId: string) => {
       const res = await fetch(
-        `${CPNU_API_BASE}/work-items/${workItemId}/novedades/${novedadId}/revisar`,
+        `${PP_API_BASE}/work-items/${workItemId}/novedades/${novedadId}/revisar`,
         { method: "PATCH" }
       );
       if (!res.ok) throw new Error(`Mark reviewed error: ${res.status}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cpnu-novedades", workItemId] });
-      queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
+      queryClient.invalidateQueries({ queryKey: ["pp-novedades", workItemId] });
+      queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
     },
   });
 

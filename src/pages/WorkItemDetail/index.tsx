@@ -35,6 +35,8 @@ import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocume
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
+import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
+import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -331,13 +333,17 @@ export default function WorkItemDetail() {
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-7">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
                 <Badge variant="secondary" className="ml-1 text-xs">
                   {actuaciones.length}
                 </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="publicaciones" className="gap-2">
+                <Newspaper className="h-4 w-4" />
+                Publicaciones
               </TabsTrigger>
               <TabsTrigger value="estados" className="gap-2">
                 <Newspaper className="h-4 w-4" />
@@ -363,6 +369,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="actuaciones" className="mt-4">
               <ActsTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="publicaciones" className="mt-4">
+              <PublicacionesPpTab workItem={extendedWorkItem} />
             </TabsContent>
 
             <TabsContent value="estados" className="mt-4">
@@ -477,6 +487,11 @@ export default function WorkItemDetail() {
           {/* Novedades CPNU panel for CGP items */}
           {workItem.workflow_type === "CGP" && workItem.radicado && (
             <NovedadesCpnuPanel workItemId={workItem.id} />
+          )}
+
+          {/* Novedades PP panel for ALL items with radicado */}
+          {workItem.radicado && (
+            <NovedadesPpPanel workItemId={workItem.id} />
           )}
 
           {/* Monitoring Status & Controls */}
