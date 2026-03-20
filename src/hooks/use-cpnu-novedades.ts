@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
+import { CPNU_API_BASE } from "@/lib/api-urls";
 
 export interface Novedad {
   id: string;

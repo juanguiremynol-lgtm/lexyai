@@ -1,9 +1,10 @@
 /**
- * register-and-sync.ts — Register a work item in Google Cloud SQL and trigger initial CPNU sync.
+ * register-and-sync.ts — Register a work item in Google Cloud SQL and trigger initial sync.
+ * Handles both CPNU (CGP items) and PP (all items with radicado).
  * Fire-and-forget: logs errors but never throws.
  */
 
-const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
+import { CPNU_API_BASE, PP_API_BASE } from "@/lib/api-urls";
 
 export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<boolean> {
   try {

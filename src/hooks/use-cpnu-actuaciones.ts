@@ -6,8 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-
-const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
+import { CPNU_API_BASE } from "@/lib/api-urls";
 
 /** Raw shape returned by GET /work-items/:id/actuaciones */
 interface CpnuActuacionRaw {
