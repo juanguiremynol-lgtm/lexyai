@@ -63,7 +63,11 @@ export function PublicacionesPpTab({ workItem }: Props) {
   const queryClient = useQueryClient();
   const ppId = workItem.pp_id ?? null;
 
-  const { data: acts, isLoading } = usePpActuaciones(ppId, !!workItem.radicado);
+  console.log("[PublicacionesPpTab] ppId:", ppId, "radicado:", workItem.radicado);
+
+  const { data: acts, isLoading, error } = usePpActuaciones(ppId, !!workItem.radicado);
+
+  console.log("[PublicacionesPpTab] acts:", acts?.length, "isLoading:", isLoading, "error:", error);
 
   const resyncMutation = useMutation({
     mutationFn: () => {
