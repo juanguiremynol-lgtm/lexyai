@@ -66,6 +66,11 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
           if (ok) queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
         });
       }
+
+      // Register + sync in PP for ALL workflow types
+      registerAndSyncPp(workItemId, radicado23).then(ok => {
+        if (ok) queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
+      });
     },
     onError: (err: Error) => {
       toast.error("Error: " + err.message);
