@@ -6,11 +6,11 @@ import { usePpNovedades } from "@/hooks/use-pp-novedades";
 import { useState } from "react";
 
 interface Props {
-  workItemId: string;
+  ppId: number | null;
 }
 
-export default function NovedadesPpPanel({ workItemId }: Props) {
-  const { novedades, isLoading, markAsReviewed, isMarking } = usePpNovedades(workItemId);
+export default function NovedadesPpPanel({ ppId }: Props) {
+  const { novedades, isLoading, markAsReviewed, isMarking } = usePpNovedades(ppId);
   const [markingId, setMarkingId] = useState<string | null>(null);
 
   const handleMark = (id: string) => {
@@ -19,6 +19,8 @@ export default function NovedadesPpPanel({ workItemId }: Props) {
       onSettled: () => setMarkingId(null),
     });
   };
+
+  if (ppId == null) return null;
 
   if (isLoading) {
     return (

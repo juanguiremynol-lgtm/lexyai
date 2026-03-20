@@ -1,6 +1,7 @@
 /**
  * PublicacionesPpTab - Shows actuaciones from Portal Publicaciones Procesales
  * Available for ALL work items. Each actuación may have PDF links (Auto / Tabla).
+ * Uses numeric pp_id to call the PP API.
  */
 
 import { useState } from "react";
@@ -60,18 +61,22 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
 export function PublicacionesPpTab({ workItem }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const queryClient = useQueryClient();
+  const ppId = workItem.pp_id ?? null;
 
-  const { data: acts, isLoading } = usePpActuaciones(workItem.id, !!workItem.radicado);
+  const { data: acts, isLoading } = usePpActuaciones(ppId, !!workItem.radicado);
 
   const resyncMutation = useMutation({
-    mutationFn: () => resyncPpActuaciones(workItem.id),
+    mutationFn: () => {
+      if (ppId == null) throw new Error("No PP ID disponible");
+      return resyncPpActuaciones(ppId);
+    },
     onSuccess: () => {
       toast.success("Re-sincronización PP iniciada", {
         description: "Las publicaciones se actualizarán en unos momentos.",
         duration: 5000,
       });
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["pp-actuaciones", workItem.id] });
+        queryClient.invalidateQueries({ queryKey: ["pp-actuaciones", ppId] });
       }, 3000);
     },
     onError: (err) => {
@@ -98,6 +103,23 @@ export function PublicacionesPpTab({ workItem }: Props) {
             <h3 className="font-semibold mb-2">Sin radicado asignado</h3>
             <p className="text-muted-foreground text-sm">
               Agrega un radicado al asunto para consultar publicaciones procesales.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (ppId == null) {
+    return (
+      <Card>
+        <CardContent className="py-12">
+          <div className="text-center">
+            <div className="text-4xl mb-4">⏳</div>
+            <h3 className="font-semibold mb-2">Registrando en PP...</h3>
+            <p className="text-muted-foreground text-sm max-w-md mx-auto">
+              Este asunto se está registrando en el Portal de Publicaciones Procesales.
+              Recarga la página en unos momentos.
             </p>
           </div>
         </CardContent>

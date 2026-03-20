@@ -11,32 +11,32 @@ export interface Novedad {
   created_at: string;
 }
 
-export function usePpNovedades(workItemId: string | undefined) {
+export function usePpNovedades(ppId: number | null) {
   const queryClient = useQueryClient();
 
   const { data: novedades = [], isLoading } = useQuery({
-    queryKey: ["pp-novedades", workItemId],
+    queryKey: ["pp-novedades", ppId],
     queryFn: async (): Promise<Novedad[]> => {
-      const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/novedades`);
+      const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/novedades`);
       if (!res.ok) throw new Error(`PP Novedades API error: ${res.status}`);
       const body = await res.json();
       const novedades = body?.novedades ?? [];
       return Array.isArray(novedades) ? novedades : [];
     },
-    enabled: !!workItemId,
+    enabled: ppId != null,
     staleTime: 60_000,
   });
 
   const { mutate: markAsReviewed, isPending: isMarking } = useMutation({
     mutationFn: async (novedadId: string) => {
       const res = await fetch(
-        `${PP_API_BASE}/work-items/${workItemId}/novedades/${novedadId}/revisar`,
+        `${PP_API_BASE}/work-items/${ppId}/novedades/${novedadId}/revisar`,
         { method: "PATCH" }
       );
       if (!res.ok) throw new Error(`Mark reviewed error: ${res.status}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pp-novedades", workItemId] });
+      queryClient.invalidateQueries({ queryKey: ["pp-novedades", ppId] });
       queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
     },
   });
