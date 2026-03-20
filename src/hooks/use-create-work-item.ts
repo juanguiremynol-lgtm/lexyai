@@ -218,7 +218,10 @@ export function useCreateWorkItem() {
       // Register in PP (Portal Publicaciones) for ALL items with valid radicado
       if (workItem.id && radicadoDigits.length === 23) {
         registerAndSyncPp(workItem.id, workItem.radicado!).then(ok => {
-          if (ok) queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
+          if (ok) {
+            queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
+            queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+          }
         });
       }
 
