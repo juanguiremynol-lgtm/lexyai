@@ -1,14 +1,14 @@
 /**
  * Hook: usePpActuaciones
  * Fetches actuaciones for ALL work items from PP (Portal Publicaciones) Google Cloud API
- * and maps them to the WorkItemAct interface for UI compatibility.
+ * using the numeric pp_id, and maps them to the WorkItemAct interface for UI compatibility.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
 import { PP_API_BASE } from "@/lib/api-urls";
 
-/** Raw shape returned by GET /work-items/:id/actuaciones */
+/** Raw shape returned by GET /work-items/:ppId/actuaciones */
 interface PpActuacionRaw {
   id: string;
   id_reg_actuacion: number | null;
@@ -74,16 +74,16 @@ function mapToWorkItemAct(raw: PpActuacionRaw, workItemId: string): WorkItemAct 
   };
 }
 
-export function usePpActuaciones(workItemId: string, enabled = true) {
+export function usePpActuaciones(ppId: number | null, enabled = true) {
   return useQuery({
-    queryKey: ["pp-actuaciones", workItemId],
+    queryKey: ["pp-actuaciones", ppId],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/actuaciones`);
+      const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/actuaciones`);
       if (!res.ok) throw new Error(`PP Actuaciones API error: ${res.status}`);
       const body = await res.json();
       const rawList: PpActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
 
-      const mapped = rawList.map((r) => mapToWorkItemAct(r, workItemId));
+      const mapped = rawList.map((r) => mapToWorkItemAct(r, String(ppId)));
 
       mapped.sort((a, b) => {
         if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
@@ -97,15 +97,15 @@ export function usePpActuaciones(workItemId: string, enabled = true) {
 
       return mapped;
     },
-    enabled: !!workItemId && enabled,
+    enabled: ppId != null && enabled,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }
 
-/** Trigger a re-sync for a work item via PP Google Cloud API */
-export async function resyncPpActuaciones(workItemId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${PP_API_BASE}/work-items/${workItemId}/sync`, {
+/** Trigger a re-sync for a work item via PP Google Cloud API using numeric ppId */
+export async function resyncPpActuaciones(ppId: number): Promise<{ ok: boolean }> {
+  const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });

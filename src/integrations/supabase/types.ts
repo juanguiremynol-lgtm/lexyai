@@ -14147,6 +14147,7 @@ export type Database = {
           owner_id: string
           pipeline_stage: number | null
           ponente: string | null
+          pp_id: number | null
           provider_reachable: boolean | null
           provider_sources: Json | null
           pubs_initial_sync_completed_at: string | null
@@ -14315,6 +14316,7 @@ export type Database = {
           owner_id: string
           pipeline_stage?: number | null
           ponente?: string | null
+          pp_id?: number | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -14483,6 +14485,7 @@ export type Database = {
           owner_id?: string
           pipeline_stage?: number | null
           ponente?: string | null
+          pp_id?: number | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null

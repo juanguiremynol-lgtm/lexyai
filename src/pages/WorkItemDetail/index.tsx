@@ -489,9 +489,9 @@ export default function WorkItemDetail() {
             <NovedadesCpnuPanel workItemId={workItem.id} />
           )}
 
-          {/* Novedades PP panel for ALL items with radicado */}
+          {/* Novedades PP panel for ALL items with radicado and pp_id */}
           {workItem.radicado && (
-            <NovedadesPpPanel workItemId={workItem.id} />
+            <NovedadesPpPanel ppId={(workItem as any).pp_id ?? null} />
           )}
 
           {/* Monitoring Status & Controls */}

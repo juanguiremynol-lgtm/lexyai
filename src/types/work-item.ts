@@ -89,6 +89,9 @@ export interface WorkItem {
   // Statistics
   total_actuaciones: number;
   
+  // External API IDs
+  pp_id: number | null;
+  
   // Legacy IDs
   legacy_filing_id: string | null;
   legacy_process_id: string | null;

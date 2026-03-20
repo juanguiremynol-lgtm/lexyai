@@ -5,6 +5,7 @@
  */
 
 import { CPNU_API_BASE, PP_API_BASE } from "@/lib/api-urls";
+import { supabase } from "@/integrations/supabase/client";
 
 export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<boolean> {
   try {
@@ -30,7 +31,8 @@ export async function registerAndSyncCpnu(workItemId: string, radicado: string):
   }
 }
 
-/** Register a work item in PP (Portal Publicaciones) Google Cloud SQL and trigger initial sync */
+/** Register a work item in PP (Portal Publicaciones) Google Cloud SQL and trigger initial sync.
+ *  Captures the numeric pp_id from the response and stores it in Supabase. */
 export async function registerAndSyncPp(workItemId: string, radicado: string): Promise<boolean> {
   try {
     const regRes = await fetch(`${PP_API_BASE}/work-items`, {
@@ -40,13 +42,34 @@ export async function registerAndSyncPp(workItemId: string, radicado: string): P
     });
     console.log(`[PP register] POST /work-items → ${regRes.status}`);
 
-    const syncRes = await fetch(`${PP_API_BASE}/work-items/${workItemId}/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    console.log(`[PP sync] POST /work-items/${workItemId}/sync → ${syncRes.status}`);
+    let ppId: number | null = null;
 
-    return regRes.ok && syncRes.ok;
+    if (regRes.ok) {
+      const regBody = await regRes.json();
+      ppId = regBody?.item?.id ?? null;
+      console.log(`[PP register] pp_id=${ppId}`);
+
+      // Store numeric PP ID in Supabase
+      if (ppId != null) {
+        const { error } = await supabase
+          .from("work_items")
+          .update({ pp_id: ppId } as any)
+          .eq("id", workItemId);
+        if (error) console.warn("[PP register] Failed to save pp_id:", error);
+      }
+    }
+
+    // Trigger sync using the numeric PP ID
+    if (ppId != null) {
+      const syncRes = await fetch(`${PP_API_BASE}/work-items/${ppId}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      console.log(`[PP sync] POST /work-items/${ppId}/sync → ${syncRes.status}`);
+      return syncRes.ok;
+    }
+
+    return false;
   } catch (err) {
     console.warn("[PP register-and-sync] Failed (non-blocking):", err);
     return false;

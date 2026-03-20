@@ -69,7 +69,10 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
 
       // Register + sync in PP for ALL workflow types
       registerAndSyncPp(workItemId, radicado23).then(ok => {
-        if (ok) queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
+        if (ok) {
+          queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
+          queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
+        }
       });
     },
     onError: (err: Error) => {
