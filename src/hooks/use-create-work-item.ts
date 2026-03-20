@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
-import { registerAndSyncCpnu } from "@/lib/cpnu/register-and-sync";
+import { registerAndSyncCpnu, registerAndSyncPp } from "@/lib/cpnu/register-and-sync";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
