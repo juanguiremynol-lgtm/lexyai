@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Check, X, Pencil, Loader2, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeRadicado } from "@/lib/radicado-utils";
-import { registerAndSyncCpnu } from "@/lib/cpnu/register-and-sync";
+import { registerAndSyncCpnu, registerAndSyncPp } from "@/lib/cpnu/register-and-sync";
 import type { WorkflowType } from "@/lib/workflow-constants";
 
 interface AddRadicadoInlineProps {
