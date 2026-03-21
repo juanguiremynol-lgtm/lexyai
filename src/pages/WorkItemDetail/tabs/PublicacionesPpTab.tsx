@@ -36,7 +36,7 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
         <Button
           variant="outline"
           size="sm"
-          className="h-7 text-xs gap-1.5"
+          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
           onClick={() => window.open(autoUrl, "_blank")}
         >
           <FileText className="h-3 w-3" />
