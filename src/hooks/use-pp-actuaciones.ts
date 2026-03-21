@@ -17,6 +17,7 @@ interface PpActuacionRaw {
   fecha_actuacion: string | null;
   actuacion: string | null;
   anotacion: string | null;
+  descripcion: string | null;
   fecha_inicial: string | null;
   fecha_final: string | null;
   fecha_registro: string | null;
@@ -33,7 +34,7 @@ function toDateOnly(iso: string | null): string | null {
 }
 
 function mapToWorkItemAct(raw: PpActuacionRaw, workItemId: string): WorkItemAct {
-  const actuacion = raw.actuacion?.trim() || "Sin descripción";
+  const actuacion = raw.actuacion?.trim() || raw.descripcion?.trim() || "Sin descripción";
   const anotacion = raw.anotacion?.trim() || null;
   const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
 
