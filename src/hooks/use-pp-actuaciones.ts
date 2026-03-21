@@ -92,7 +92,7 @@ export function usePpActuaciones(ppId: number | null, enabled = true) {
         const regA = a.fecha_registro_source || "";
         const regB = b.fecha_registro_source || "";
         if (regA !== regB) return regB.localeCompare(regA);
-        return a.id.localeCompare(b.id);
+        return String(a.id).localeCompare(String(b.id));
       });
 
       return mapped;
