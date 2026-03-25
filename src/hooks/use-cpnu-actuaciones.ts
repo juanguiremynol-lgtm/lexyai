@@ -57,7 +57,7 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
     workflow_type: "CGP",
     scrape_date: null,
     hash_fingerprint: raw.id,
-    created_at: new Date().toISOString(),
+    created_at: raw.fecha_registro || new Date().toISOString(),
     date_confidence: "high",
     raw_data: {
       llave_proceso: raw.llave_proceso,
