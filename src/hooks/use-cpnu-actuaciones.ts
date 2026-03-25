@@ -65,7 +65,7 @@ function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAc
       id_reg_actuacion: raw.id_reg_actuacion,
       fecha_final: raw.fecha_final,
     },
-    detected_at: null,
+    detected_at: raw.fecha_registro || null,
     changed_at: null,
     instancia: raw.instancia || null,
     fecha_registro_source: toDateOnly(raw.fecha_registro),
