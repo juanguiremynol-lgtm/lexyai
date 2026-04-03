@@ -294,11 +294,11 @@ export function WorkItemMonitoringControls({
             {/* Pausar / Reactivar — mutually exclusive */}
             {workItem.monitoring_enabled && !isClosed ? (
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => setConfirmAction("pausar")}
                 disabled={isPending}
-                className="gap-1.5"
+                className="gap-1.5 border border-border"
               >
                 <Pause className="h-3.5 w-3.5" />
                 Pausar monitoreo
@@ -319,11 +319,11 @@ export function WorkItemMonitoringControls({
             {/* Cerrar — always visible unless already closed */}
             {!isClosed && (
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => setConfirmAction("cerrar")}
                 disabled={isPending}
-                className="gap-1.5"
+                className="gap-1.5 border border-border"
               >
                 <Lock className="h-3.5 w-3.5" />
                 Cerrar radicado
