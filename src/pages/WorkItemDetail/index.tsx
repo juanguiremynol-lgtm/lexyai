@@ -500,6 +500,7 @@ export default function WorkItemDetail() {
               id: workItem.id,
               radicado: workItem.radicado || undefined,
               workflow_type: workItem.workflow_type,
+              stage: workItem.stage,
               monitoring_enabled: workItem.monitoring_enabled,
               monitoring_suspended_at: (workItem as any).monitoring_suspended_at || null,
               monitoring_suspended_reason: (workItem as any).monitoring_suspended_reason || null,
