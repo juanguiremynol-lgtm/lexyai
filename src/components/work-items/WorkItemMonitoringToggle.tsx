@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 
 interface Props {
   workItemId: string;
+  workflowType?: string;
   monitoringEnabled: boolean;
   monitoringDisabledReason?: string | null;
   monitoringDisabledBy?: string | null;
