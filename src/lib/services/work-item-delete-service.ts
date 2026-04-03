@@ -155,5 +155,10 @@ export async function softDeleteWorkItem(
     },
   });
 
+  // 7. Sync to Google Cloud SQL for CGP items (fire-and-forget)
+  if (item.workflow_type === "CGP") {
+    void syncCpnuEliminar(workItemId, reason).catch(console.warn);
+  }
+
   return { success: true };
 }

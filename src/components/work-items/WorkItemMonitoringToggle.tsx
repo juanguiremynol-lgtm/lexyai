@@ -90,6 +90,9 @@ export function WorkItemMonitoringToggle({
       return;
     }
     toast.success('Monitoreo reactivado');
+    if (workflowType === 'CGP') {
+      void syncCpnuReactivar(workItemId).catch(console.warn);
+    }
     onChanged?.();
   }
 

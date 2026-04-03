@@ -127,6 +127,13 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
     onSuccess: (_, enabled) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
       toast.success(enabled ? "Monitoreo activado" : "Monitoreo desactivado");
+      if (workItem.workflow_type === "CGP") {
+        if (enabled) {
+          void syncCpnuReactivar(workItem.id).catch(console.warn);
+        } else {
+          void syncCpnuPausar(workItem.id, "Desactivado desde overview").catch(console.warn);
+        }
+      }
     },
     onError: (error) => {
       toast.error("Error: " + error.message);
