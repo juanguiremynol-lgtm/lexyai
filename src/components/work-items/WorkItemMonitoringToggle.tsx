@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { syncCpnuPausar, syncCpnuReactivar } from '@/lib/services/cpnu-sync-service';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
