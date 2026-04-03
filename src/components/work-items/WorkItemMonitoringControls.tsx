@@ -60,6 +60,9 @@ export function WorkItemMonitoringControls({ workItem, onUpdate }: WorkItemMonit
     onSuccess: () => {
       toast.success("Monitoreo suspendido");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+      if (workItem.workflow_type === "CGP") {
+        void syncCpnuPausar(workItem.id, "USER_SUSPENDED").catch(console.warn);
+      }
       onUpdate();
     },
     onError: (err: any) => {
