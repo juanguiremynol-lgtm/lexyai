@@ -9,6 +9,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { syncCpnuPausar, syncCpnuReactivar } from "@/lib/services/cpnu-sync-service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ interface WorkItemMonitoringControlsProps {
   workItem: {
     id: string;
     radicado?: string;
+    workflow_type?: string;
     monitoring_enabled: boolean;
     monitoring_suspended_at?: string | null;
     monitoring_suspended_reason?: string | null;
@@ -58,6 +60,9 @@ export function WorkItemMonitoringControls({ workItem, onUpdate }: WorkItemMonit
     onSuccess: () => {
       toast.success("Monitoreo suspendido");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+      if (workItem.workflow_type === "CGP") {
+        void syncCpnuPausar(workItem.id, "USER_SUSPENDED").catch(console.warn);
+      }
       onUpdate();
     },
     onError: (err: any) => {
@@ -84,6 +89,9 @@ export function WorkItemMonitoringControls({ workItem, onUpdate }: WorkItemMonit
     onSuccess: () => {
       toast.success("Monitoreo reactivado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+      if (workItem.workflow_type === "CGP") {
+        void syncCpnuReactivar(workItem.id).catch(console.warn);
+      }
       onUpdate();
     },
     onError: (err: any) => {
