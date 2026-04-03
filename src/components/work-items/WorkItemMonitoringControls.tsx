@@ -89,6 +89,9 @@ export function WorkItemMonitoringControls({ workItem, onUpdate }: WorkItemMonit
     onSuccess: () => {
       toast.success("Monitoreo reactivado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+      if (workItem.workflow_type === "CGP") {
+        void syncCpnuReactivar(workItem.id).catch(console.warn);
+      }
       onUpdate();
     },
     onError: (err: any) => {
