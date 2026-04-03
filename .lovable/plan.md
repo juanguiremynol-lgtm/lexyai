@@ -1,51 +1,31 @@
 
 
-# Plan: Sincronizar acciones de gestión CGP con Google Cloud SQL
+# Plan: Proxy CPNU sync calls through a backend function
 
-## Resumen
+## Problem
 
-Crear un servicio centralizado que llame los endpoints CPNU cuando un work item es CGP, e integrarlo en los 4 puntos de la UI que actualmente solo actualizan Supabase. Las llamadas son fire-and-forget (no bloquean el flujo).
+The CPNU API calls from the browser fail with `TypeError: Failed to fetch` — this is a **CORS issue**. The Google Cloud Run service at `cpnu-read-api-486431576619.us-central1.run.app` does not include the necessary `Access-Control-Allow-Origin` headers for the Lovable preview domain, so the browser blocks the preflight `OPTIONS` request.
 
-## Cambios
+## Solution
 
-### 1. Nuevo servicio: `src/lib/services/cpnu-sync-service.ts`
+Route CPNU sync calls through a Supabase Edge Function that acts as a proxy. The edge function runs server-side, so CORS does not apply.
 
-Función utilitaria que hace PATCH fire-and-forget a los endpoints CPNU:
+## Changes
 
-- `syncCpnuPausar(workItemId, razon)` → PATCH `/work-items/:id/pausar`
-- `syncCpnuReactivar(workItemId)` → PATCH `/work-items/:id/reactivar`
-- `syncCpnuEliminar(workItemId, razon)` → PATCH `/work-items/:id/eliminar`
+### 1. New Edge Function: `supabase/functions/cpnu-sync/index.ts`
 
-Cada función usa `CPNU_API_BASE` de `api-urls.ts`, hace fetch sin await en el caller (fire-and-forget), y loguea errores a console.warn sin interrumpir el flujo.
+- Accepts POST with body `{ action: "pausar"|"reactivar"|"cerrar"|"eliminar", workItemId: string, razon?: string }`
+- Maps action to the correct PATCH endpoint on `CPNU_API_BASE`
+- Forwards the request server-side and returns the result
+- No JWT verification needed (fire-and-forget from authenticated UI)
 
-### 2. `WorkItemMonitoringControls.tsx` — Suspender/Reactivar
+### 2. Update `src/lib/services/cpnu-sync-service.ts`
 
-- Importar `syncCpnuPausar` y `syncCpnuReactivar`
-- Añadir `workflowType` al prop `workItem`
-- En `suspendMutation.onSuccess`: si `workflowType === "CGP"`, llamar `syncCpnuPausar`
-- En `reactivateMutation.onSuccess`: si CGP, llamar `syncCpnuReactivar`
-- Actualizar el caller en `index.tsx` para pasar `workflow_type`
+- Replace direct `fetch` to CPNU API with a call to the edge function
+- Use `supabase.functions.invoke("cpnu-sync", { body: { action, workItemId, razon } })`
+- Keep the same public API (`syncCpnuPausar`, `syncCpnuReactivar`, etc.)
 
-### 3. `WorkItemMonitoringToggle.tsx` — Switch enable/disable
+### 3. No other files change
 
-- Importar sync functions
-- Añadir prop `workflowType`
-- En `disable()` tras éxito: si CGP, `syncCpnuPausar`
-- En `enable()` tras éxito: si CGP, `syncCpnuReactivar`
-- Actualizar callers que usen este componente para pasar workflow_type
-
-### 4. `OverviewTab.tsx` — toggleMonitoringMutation
-
-- En `onSuccess`: si `workItem.workflow_type === "CGP"`, llamar `syncCpnuPausar` o `syncCpnuReactivar` según el valor de `enabled`
-
-### 5. `work-item-delete-service.ts` — Soft delete
-
-- Importar `syncCpnuEliminar`
-- Después de las operaciones exitosas de Supabase, si `item.workflow_type === "CGP"`, llamar `syncCpnuEliminar(workItemId, reason)` fire-and-forget
-
-## Notas técnicas
-
-- Fire-and-forget: se invoca la función pero no se espera (`void syncCpnuPausar(...)` o `.catch(console.warn)`)
-- No se altera el flujo existente ni se muestra error al usuario si el CPNU API falla
-- Se reutiliza `CPNU_API_BASE` del archivo centralizado `api-urls.ts`
+The callers (`WorkItemMonitoringControls`, `WorkItemMonitoringToggle`, `OverviewTab`, `work-item-delete-service`) already call the sync functions correctly — only the transport layer changes.
 
