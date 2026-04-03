@@ -23,6 +23,7 @@ interface CpnuActuacionRaw {
   con_documentos: boolean | null;
   despacho: string | null;
   instancia: string | null;
+  created_at: string | null;
 }
 
 /** Extract YYYY-MM-DD from an ISO timestamp or date string */
