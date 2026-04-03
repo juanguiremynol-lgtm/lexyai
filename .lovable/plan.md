@@ -1,21 +1,51 @@
 
 
-## Plan: Actualizar pp_id para radicado existente
+# Plan: Sincronizar acciones de gestión CGP con Google Cloud SQL
 
-### Contexto
-El work item `fb2e68d7-0c1b-4b45-b518-cd5d5615a83b` (radicado `05030318900120230006300`) fue registrado en PP API antes de implementar la captura de `pp_id`. La columna `pp_id` está vacía en la base de datos.
+## Resumen
 
-### Cambio
-Ejecutar una actualización de datos (no migración de esquema):
+Crear un servicio centralizado que llame los endpoints CPNU cuando un work item es CGP, e integrarlo en los 4 puntos de la UI que actualmente solo actualizan Supabase. Las llamadas son fire-and-forget (no bloquean el flujo).
 
-```sql
-UPDATE work_items 
-SET pp_id = 1 
-WHERE radicado = '05030318900120230006300';
-```
+## Cambios
 
-Esto se ejecutará usando la herramienta de inserción/actualización de datos de la base de datos. No se requieren cambios de código.
+### 1. Nuevo servicio: `src/lib/services/cpnu-sync-service.ts`
 
-### Resultado esperado
-Tras la actualización, el tab "Publicaciones" del work item mostrará las actuaciones de PP correctamente, ya que el hook `usePpActuaciones` recibirá `ppId = 1` y llamará a `GET /work-items/1/actuaciones`.
+Función utilitaria que hace PATCH fire-and-forget a los endpoints CPNU:
+
+- `syncCpnuPausar(workItemId, razon)` → PATCH `/work-items/:id/pausar`
+- `syncCpnuReactivar(workItemId)` → PATCH `/work-items/:id/reactivar`
+- `syncCpnuEliminar(workItemId, razon)` → PATCH `/work-items/:id/eliminar`
+
+Cada función usa `CPNU_API_BASE` de `api-urls.ts`, hace fetch sin await en el caller (fire-and-forget), y loguea errores a console.warn sin interrumpir el flujo.
+
+### 2. `WorkItemMonitoringControls.tsx` — Suspender/Reactivar
+
+- Importar `syncCpnuPausar` y `syncCpnuReactivar`
+- Añadir `workflowType` al prop `workItem`
+- En `suspendMutation.onSuccess`: si `workflowType === "CGP"`, llamar `syncCpnuPausar`
+- En `reactivateMutation.onSuccess`: si CGP, llamar `syncCpnuReactivar`
+- Actualizar el caller en `index.tsx` para pasar `workflow_type`
+
+### 3. `WorkItemMonitoringToggle.tsx` — Switch enable/disable
+
+- Importar sync functions
+- Añadir prop `workflowType`
+- En `disable()` tras éxito: si CGP, `syncCpnuPausar`
+- En `enable()` tras éxito: si CGP, `syncCpnuReactivar`
+- Actualizar callers que usen este componente para pasar workflow_type
+
+### 4. `OverviewTab.tsx` — toggleMonitoringMutation
+
+- En `onSuccess`: si `workItem.workflow_type === "CGP"`, llamar `syncCpnuPausar` o `syncCpnuReactivar` según el valor de `enabled`
+
+### 5. `work-item-delete-service.ts` — Soft delete
+
+- Importar `syncCpnuEliminar`
+- Después de las operaciones exitosas de Supabase, si `item.workflow_type === "CGP"`, llamar `syncCpnuEliminar(workItemId, reason)` fire-and-forget
+
+## Notas técnicas
+
+- Fire-and-forget: se invoca la función pero no se espera (`void syncCpnuPausar(...)` o `.catch(console.warn)`)
+- No se altera el flujo existente ni se muestra error al usuario si el CPNU API falla
+- Se reutiliza `CPNU_API_BASE` del archivo centralizado `api-urls.ts`
 
