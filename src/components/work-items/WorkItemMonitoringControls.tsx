@@ -75,7 +75,6 @@ type ConfirmAction = "pausar" | "cerrar" | "eliminar" | null;
 
 export function WorkItemMonitoringControls({
   workItem,
-  userId,
   onUpdate,
 }: WorkItemMonitoringControlsProps) {
   const queryClient = useQueryClient();
@@ -83,6 +82,11 @@ export function WorkItemMonitoringControls({
 
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [reason, setReason] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
 
   const isCGP = workItem.workflow_type === "CGP";
   const isClosed = workItem.stage === "CLOSED";
