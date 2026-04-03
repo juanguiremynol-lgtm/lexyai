@@ -22,6 +22,7 @@ interface WorkItemMonitoringControlsProps {
   workItem: {
     id: string;
     radicado?: string;
+    workflow_type?: string;
     monitoring_enabled: boolean;
     monitoring_suspended_at?: string | null;
     monitoring_suspended_reason?: string | null;
