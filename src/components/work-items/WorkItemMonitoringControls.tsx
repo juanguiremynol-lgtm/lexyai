@@ -61,7 +61,6 @@ interface WorkItemMonitoringControlsProps {
     last_error_code?: string | null;
     last_attempted_sync_at?: string | null;
   };
-  userId?: string;
   onUpdate: () => void;
 }
 
