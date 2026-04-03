@@ -35,6 +35,7 @@ interface Props {
 
 export function WorkItemMonitoringToggle({
   workItemId,
+  workflowType,
   monitoringEnabled,
   monitoringDisabledReason,
   monitoringDisabledBy,
