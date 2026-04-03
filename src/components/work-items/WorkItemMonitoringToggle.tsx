@@ -67,6 +67,9 @@ export function WorkItemMonitoringToggle({
       return;
     }
     toast.success('Monitoreo suspendido');
+    if (workflowType === 'CGP') {
+      void syncCpnuPausar(workItemId, reason || 'USER_DEMONITOR').catch(console.warn);
+    }
     onChanged?.();
   }
 
