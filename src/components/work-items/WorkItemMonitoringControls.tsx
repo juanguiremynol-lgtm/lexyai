@@ -10,7 +10,7 @@
  * All actions update Supabase first; CGP items also fire-and-forget to CPNU API.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
