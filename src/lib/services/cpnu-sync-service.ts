@@ -33,6 +33,11 @@ export function syncCpnuReactivar(workItemId: string): Promise<void> {
   return patchCpnu(`/work-items/${workItemId}/reactivar`);
 }
 
+/** Close (cerrar) radicado in Google Cloud SQL */
+export function syncCpnuCerrar(workItemId: string, razon?: string): Promise<void> {
+  return patchCpnu(`/work-items/${workItemId}/cerrar`, { razon: razon || "Cerrado desde UI" });
+}
+
 /** Soft-delete in Google Cloud SQL */
 export function syncCpnuEliminar(workItemId: string, razon?: string): Promise<void> {
   return patchCpnu(`/work-items/${workItemId}/eliminar`, { razon: razon || "Eliminado desde UI" });
