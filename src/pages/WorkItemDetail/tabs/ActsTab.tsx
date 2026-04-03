@@ -78,11 +78,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
   const isCGP = workItem.workflow_type === "CGP";
 
   // ─── Data source branching ──────────────────────────────────────────────
+  // For CGP: try CPNU API first, fall back to Supabase if CPNU returns empty
   const cpnuQuery = useCpnuActuaciones(workItem.id, isCGP);
-  const supabaseQuery = useSupabaseActs(workItem.id, !isCGP && !!workItem.id);
+  const cpnuEmpty = isCGP && !cpnuQuery.isLoading && (!cpnuQuery.data || cpnuQuery.data.length === 0);
+  const supabaseQuery = useSupabaseActs(workItem.id, !isCGP || cpnuEmpty);
 
-  const acts = isCGP ? cpnuQuery.data : supabaseQuery.data;
-  const isLoading = isCGP ? cpnuQuery.isLoading : supabaseQuery.isLoading;
+  const acts = isCGP
+    ? (cpnuQuery.data && cpnuQuery.data.length > 0 ? cpnuQuery.data : supabaseQuery.data)
+    : supabaseQuery.data;
+  const isLoading = isCGP
+    ? (cpnuQuery.isLoading || (cpnuEmpty && supabaseQuery.isLoading))
+    : supabaseQuery.isLoading;
 
   // ─── Resync mutation ────────────────────────────────────────────────────
   const resyncMutation = useMutation({
