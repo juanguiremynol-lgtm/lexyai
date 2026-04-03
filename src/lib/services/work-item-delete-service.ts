@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkWorkItemRetention } from "./document-retention-service";
+import { syncCpnuEliminar } from "./cpnu-sync-service";
 
 export interface SoftDeleteResult {
   success: boolean;
