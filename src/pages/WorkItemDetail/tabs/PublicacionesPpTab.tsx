@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Newspaper, Search, RefreshCw, FileText, Table2 } from "lucide-react";
+import { Newspaper, Search, RefreshCw, FileText, Table2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
@@ -27,12 +27,18 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
   const rawData = act.raw_data as Record<string, unknown> | null;
   const autoUrl = rawData?.gcs_url_auto as string | undefined;
   const tablaUrl = rawData?.gcs_url_tabla as string | undefined;
+  const pdfIndividualUrl = rawData?.pdf_individual_url as string | undefined;
 
-  if (!autoUrl && !tablaUrl) return null;
+  // Filter out empty strings
+  const hasAuto = !!autoUrl?.trim();
+  const hasTabla = !!tablaUrl?.trim();
+  const hasPdfIndividual = !!pdfIndividualUrl?.trim();
+
+  if (!hasAuto && !hasTabla && !hasPdfIndividual) return null;
 
   return (
-    <div className="flex items-center gap-1.5 mt-2">
-      {autoUrl && (
+    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+      {hasAuto && (
         <Button
           variant="outline"
           size="sm"
@@ -43,7 +49,7 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
           Ver Auto
         </Button>
       )}
-      {tablaUrl && (
+      {hasTabla && (
         <Button
           variant="outline"
           size="sm"
@@ -52,6 +58,17 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
         >
           <Table2 className="h-3 w-3" />
           Ver Tabla
+        </Button>
+      )}
+      {hasPdfIndividual && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
+          onClick={() => window.open(pdfIndividualUrl, "_blank")}
+        >
+          <ExternalLink className="h-3 w-3" />
+          Ver PDF Fuente
         </Button>
       )}
     </div>
