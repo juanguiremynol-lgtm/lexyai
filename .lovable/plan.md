@@ -1,31 +1,17 @@
 
 
-# Plan: Proxy CPNU sync calls through a backend function
+## Plan: Asignar pp_id a 9 work_items y verificar tab Publicaciones
 
-## Problem
+### Paso 1 — Ejecutar UPDATEs en Supabase
+Usar la herramienta de inserción/actualización de datos para ejecutar los 9 UPDATE statements que asignan el `pp_id` numérico a cada work_item según su radicado.
 
-The CPNU API calls from the browser fail with `TypeError: Failed to fetch` — this is a **CORS issue**. The Google Cloud Run service at `cpnu-read-api-486431576619.us-central1.run.app` does not include the necessary `Access-Control-Allow-Origin` headers for the Lovable preview domain, so the browser blocks the preflight `OPTIONS` request.
+### Paso 2 — Verificar en navegador
+Navegar al work_item con radicado `05001400301620220106300` (pp_id = 3) y abrir el tab "Publicaciones" para confirmar que:
+- Se cargan las actuaciones desde la PP API
+- Los botones "Ver Auto" y "Ver Tabla" aparecen donde corresponda
 
-## Solution
-
-Route CPNU sync calls through a Supabase Edge Function that acts as a proxy. The edge function runs server-side, so CORS does not apply.
-
-## Changes
-
-### 1. New Edge Function: `supabase/functions/cpnu-sync/index.ts`
-
-- Accepts POST with body `{ action: "pausar"|"reactivar"|"cerrar"|"eliminar", workItemId: string, razon?: string }`
-- Maps action to the correct PATCH endpoint on `CPNU_API_BASE`
-- Forwards the request server-side and returns the result
-- No JWT verification needed (fire-and-forget from authenticated UI)
-
-### 2. Update `src/lib/services/cpnu-sync-service.ts`
-
-- Replace direct `fetch` to CPNU API with a call to the edge function
-- Use `supabase.functions.invoke("cpnu-sync", { body: { action, workItemId, razon } })`
-- Keep the same public API (`syncCpnuPausar`, `syncCpnuReactivar`, etc.)
-
-### 3. No other files change
-
-The callers (`WorkItemMonitoringControls`, `WorkItemMonitoringToggle`, `OverviewTab`, `work-item-delete-service`) already call the sync functions correctly — only the transport layer changes.
+### Alcance técnico
+- Solo se modifican datos existentes (UPDATE), no estructura de tablas
+- El hook `usePpActuaciones` ya consume `workItem.pp_id` para llamar a `PP_API_BASE/work-items/{ppId}/actuaciones`
+- Una vez asignado el `pp_id`, el tab dejará de mostrar "Registrando en PP..." y cargará las actuaciones reales
 
