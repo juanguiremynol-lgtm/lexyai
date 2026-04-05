@@ -10,68 +10,79 @@ import { PP_API_BASE } from "@/lib/api-urls";
 
 /** Raw shape returned by GET /work-items/:ppId/actuaciones */
 interface PpActuacionRaw {
-  id: string;
-  id_reg_actuacion: number | null;
-  cons_actuacion: number | null;
-  llave_proceso: string | null;
-  fecha_actuacion: string | null;
-  actuacion: string | null;
-  anotacion: string | null;
+  id: number;
+  fecha: string | null;            // "DD/MM/YYYY"
+  fecha_auto: string | null;
   descripcion: string | null;
-  fecha_inicial: string | null;
-  fecha_final: string | null;
-  fecha_registro: string | null;
-  con_documentos: boolean | null;
-  despacho: string | null;
-  instancia: string | null;
+  clase_proceso: string | null;
+  demandante: string | null;
+  demandado: string | null;
+  numero_auto: string | null;
+  juez: string | null;
+  texto_auto: string | null;
+  fuente: string | null;
   gcs_url_auto: string | null;
   gcs_url_tabla: string | null;
+  pdf_individual_url: string | null;
+  creado_en: string | null;
+  estado_numero: string | null;
+  estado_fecha: string | null;
+  estado_titulo: string | null;
+  estado_categoria: string | null;
 }
 
-function toDateOnly(iso: string | null): string | null {
-  if (!iso) return null;
-  return iso.slice(0, 10);
+/** Parse "DD/MM/YYYY" → "YYYY-MM-DD", returns null on failure */
+function parseDDMMYYYY(raw: string | null | undefined): string | null {
+  if (!raw || !raw.trim()) return null;
+  const parts = raw.trim().split("/");
+  if (parts.length !== 3) return null;
+  const [dd, mm, yyyy] = parts;
+  if (!dd || !mm || !yyyy || yyyy.length !== 4) return null;
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
 }
 
 function mapToWorkItemAct(raw: PpActuacionRaw, workItemId: string): WorkItemAct {
-  const actuacion = raw.actuacion?.trim() || raw.descripcion?.trim() || "Sin descripción";
-  const anotacion = raw.anotacion?.trim() || null;
-  const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
+  const description = raw.descripcion?.trim() || "Sin descripción";
+  const actDate = parseDDMMYYYY(raw.fecha);
 
   return {
-    id: raw.id,
+    id: String(raw.id),
     owner_id: "",
     work_item_id: workItemId,
     description,
-    event_summary: anotacion,
-    act_date: toDateOnly(raw.fecha_actuacion),
-    act_date_raw: raw.fecha_actuacion || null,
+    event_summary: raw.estado_titulo || null,
+    act_date: actDate,
+    act_date_raw: raw.fecha || null,
     event_date: null,
-    act_type: null,
+    act_type: raw.fuente || null,
     source: "pp",
     source_platform: "pp",
     source_url: null,
-    source_reference: raw.cons_actuacion != null ? String(raw.cons_actuacion) : null,
+    source_reference: raw.estado_numero || null,
     sources: ["pp"],
-    despacho: raw.despacho || null,
-    workflow_type: null,
+    despacho: null,
+    workflow_type: raw.clase_proceso || null,
     scrape_date: null,
-    hash_fingerprint: raw.id,
-    created_at: new Date().toISOString(),
+    hash_fingerprint: String(raw.id),
+    created_at: raw.creado_en || new Date().toISOString(),
     date_confidence: "high",
     raw_data: {
-      llave_proceso: raw.llave_proceso,
-      con_documentos: raw.con_documentos,
-      id_reg_actuacion: raw.id_reg_actuacion,
-      fecha_final: raw.fecha_final,
       gcs_url_auto: raw.gcs_url_auto,
       gcs_url_tabla: raw.gcs_url_tabla,
+      pdf_individual_url: raw.pdf_individual_url,
+      estado_categoria: raw.estado_categoria,
+      demandante: raw.demandante,
+      demandado: raw.demandado,
+      juez: raw.juez,
+      texto_auto: raw.texto_auto,
+      numero_auto: raw.numero_auto,
+      fecha_auto: raw.fecha_auto,
     },
     detected_at: null,
     changed_at: null,
-    instancia: raw.instancia || null,
-    fecha_registro_source: toDateOnly(raw.fecha_registro),
-    inicia_termino: toDateOnly(raw.fecha_inicial),
+    instancia: raw.estado_categoria || null,
+    fecha_registro_source: raw.creado_en ? raw.creado_en.slice(0, 10) : null,
+    inicia_termino: null,
   };
 }
 
@@ -90,10 +101,7 @@ export function usePpActuaciones(ppId: number | null, enabled = true) {
         if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
-        const regA = a.fecha_registro_source || "";
-        const regB = b.fecha_registro_source || "";
-        if (regA !== regB) return regB.localeCompare(regA);
-        return String(a.id).localeCompare(String(b.id));
+        return String(b.id).localeCompare(String(a.id));
       });
 
       return mapped;
