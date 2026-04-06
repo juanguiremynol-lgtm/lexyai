@@ -38,7 +38,7 @@ export async function registerAndSyncPp(workItemId: string, radicado: string): P
     const regRes = await fetch(`${PP_API_BASE}/work-items`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ work_item_id: workItemId, radicado }),
+      body: JSON.stringify({ radicado }),
     });
     console.log(`[PP register] POST /work-items → ${regRes.status}`);
 
