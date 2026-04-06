@@ -1210,6 +1210,17 @@ async function syncSingleItem(
         // Pub errors don't count as item failure
       }
     }
+
+    // ── Sync PP actuaciones (23-digit radicados) ──
+    if (syncOk && item.radicado?.replace(/\D/g, "").length === 23) {
+      try {
+        await supabase.functions.invoke("sync-pp-by-work-item", {
+          body: { work_item_id: item.id, _scheduled: true },
+        });
+      } catch (_ppErr) {
+        // PP sync errors are non-blocking
+      }
+    }
   }
 
   // If sync wasn't successful and wasn't scraping_pending, this is a soft failure
