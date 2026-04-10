@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
-import { registerAndSyncCpnu, registerAndSyncPp } from "@/lib/cpnu/register-and-sync";
+import { registerAndSyncCpnu, registerAndSyncPp, registerAndSyncSamai } from "@/lib/cpnu/register-and-sync";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
@@ -222,6 +222,13 @@ export function useCreateWorkItem() {
             queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
             queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
           }
+        });
+      }
+
+      // Register in SAMAI + SAMAI_ESTADOS for CPACA items
+      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CPACA') {
+        registerAndSyncSamai(workItem.id, workItem.radicado!).then(ok => {
+          if (ok) queryClient.invalidateQueries({ queryKey: ["samai-enrichment"] });
         });
       }
 

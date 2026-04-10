@@ -4,7 +4,7 @@
  * Fire-and-forget: logs errors but never throws.
  */
 
-import { CPNU_API_BASE, PP_API_BASE } from "@/lib/api-urls";
+import { CPNU_API_BASE, PP_API_BASE, SAMAI_API_BASE } from "@/lib/api-urls";
 import { supabase } from "@/integrations/supabase/client";
 
 export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<boolean> {
@@ -72,6 +72,47 @@ export async function registerAndSyncPp(workItemId: string, radicado: string): P
     return false;
   } catch (err) {
     console.warn("[PP register-and-sync] Failed (non-blocking):", err);
+    return false;
+  }
+}
+
+/** Register a work item in SAMAI + SAMAI_ESTADOS Google Cloud SQL and trigger initial sync.
+ *  Fire-and-forget: logs errors but never throws. */
+export async function registerAndSyncSamai(workItemId: string, radicado: string): Promise<boolean> {
+  try {
+    // 1. Register in SAMAI
+    const samaiRegRes = await fetch(`${SAMAI_API_BASE}/samai/work-items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ work_item_id: workItemId, radicado }),
+    });
+    console.log(`[SAMAI register] POST /samai/work-items → ${samaiRegRes.status}`);
+
+    // 2. Trigger SAMAI sync
+    const samaiSyncRes = await fetch(`${SAMAI_API_BASE}/samai/work-items/${workItemId}/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    console.log(`[SAMAI sync] POST /samai/work-items/${workItemId}/sync → ${samaiSyncRes.status}`);
+
+    // 3. Register in SAMAI_ESTADOS
+    const estadosRegRes = await fetch(`${SAMAI_API_BASE}/samai-estados/work-items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ work_item_id: workItemId, radicado }),
+    });
+    console.log(`[SAMAI_ESTADOS register] POST /samai-estados/work-items → ${estadosRegRes.status}`);
+
+    // 4. Trigger SAMAI_ESTADOS sync
+    const estadosSyncRes = await fetch(`${SAMAI_API_BASE}/samai-estados/work-items/${workItemId}/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    console.log(`[SAMAI_ESTADOS sync] POST /samai-estados/work-items/${workItemId}/sync → ${estadosSyncRes.status}`);
+
+    return samaiRegRes.ok && samaiSyncRes.ok && estadosRegRes.ok && estadosSyncRes.ok;
+  } catch (err) {
+    console.warn("[SAMAI register-and-sync] Failed (non-blocking):", err);
     return false;
   }
 }
