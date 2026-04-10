@@ -225,6 +225,13 @@ export function useCreateWorkItem() {
         });
       }
 
+      // Register in SAMAI + SAMAI_ESTADOS for CPACA items
+      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CPACA') {
+        registerAndSyncSamai(workItem.id, workItem.radicado!).then(ok => {
+          if (ok) queryClient.invalidateQueries({ queryKey: ["samai-enrichment"] });
+        });
+      }
+
       // Create milestone reminders for judicial workflows
       try {
         const workItemForReminders = {
