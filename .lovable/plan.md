@@ -1,52 +1,36 @@
 
 
-## Plan: Edge Function `sync-pp-by-work-item` + integración cron
+## Plan: Agregar integración SAMAI y SAMAI_ESTADOS al flujo de creación
 
-### 1. Migración de base de datos
-Agregar columnas de tracking PP a `work_items`:
-```sql
-ALTER TABLE work_items ADD COLUMN IF NOT EXISTS pp_ultima_sync timestamptz;
-ALTER TABLE work_items ADD COLUMN IF NOT EXISTS pp_estado text DEFAULT 'pending';
-ALTER TABLE work_items ADD COLUMN IF NOT EXISTS pp_novedades_pendientes integer DEFAULT 0;
+### Archivos afectados
+
+1. **`src/lib/api-urls.ts`** — Agregar `SAMAI_API_BASE`
+2. **`src/lib/cpnu/register-and-sync.ts`** — Nueva función `registerAndSyncSamai()` que hace 4 POSTs (samai register + sync, samai-estados register + sync)
+3. **`src/hooks/use-create-work-item.ts`** — Invocar `registerAndSyncSamai()` para `workflow_type === 'CPACA'` con radicado de 23 dígitos
+
+### Detalle técnico
+
+**Nueva URL:**
+```typescript
+export const SAMAI_API_BASE = "https://samai-read-api-486431576619.us-central1.run.app";
 ```
 
-### 2. Crear `supabase/functions/sync-pp-by-work-item/index.ts`
-Edge Function simplificada (sin jobs asíncronos):
+**Nueva función `registerAndSyncSamai()`** — sigue el patrón existente de fire-and-forget:
+1. `POST ${SAMAI_API_BASE}/samai/work-items` con `{ work_item_id, radicado }`
+2. `POST ${SAMAI_API_BASE}/samai/work-items/${workItemId}/sync`
+3. `POST ${SAMAI_API_BASE}/samai-estados/work-items` con `{ work_item_id, radicado }`
+4. `POST ${SAMAI_API_BASE}/samai-estados/work-items/${workItemId}/sync`
+- Retorna `boolean` indicando si todos los pasos fueron exitosos
+- Logs de consola con prefijos `[SAMAI register]`, `[SAMAI sync]`, `[SAMAI_ESTADOS register]`, `[SAMAI_ESTADOS sync]`
 
-1. Recibe `{ work_item_id, _scheduled? }` con CORS y health check estándar
-2. Lee work_item de Supabase → obtiene `pp_id`, `radicado`, `owner_id`
-3. Si no tiene `pp_id`: POST `PP_API_BASE/work-items` con `{ radicado }` → guarda `item.id` como `pp_id`
-4. GET `PP_API_BASE/work-items/{pp_id}/actuaciones` → array de actuaciones
-5. Mapea cada actuación a `work_item_acts`:
-   - `hash_fingerprint`: `pp_act_{workItemId.slice(0,8)}_{ppActuacionId}`
-   - `act_date`: parsea DD/MM/YYYY → YYYY-MM-DD
-   - `description`: `descripcion` (o `actuacion` como fallback)
-   - `source`: `"pp"`, `act_type`: `"publicacion_pp"`
-   - `raw_data`: objeto completo de la API
-6. Upsert con `onConflict: 'work_item_id,hash_fingerprint'` (índice único ya existe)
-7. Calcula novedades pendientes (inserted_count) y actualiza work_item: `pp_ultima_sync`, `pp_estado`, `pp_novedades_pendientes`
-8. Retorna `{ ok, inserted_count, skipped_count }`
-
-Auth: `_scheduled=true` usa service role (cron), sino valida JWT.
-
-### 3. Integrar en `scheduled-daily-sync`
-En `syncSingleItem` (~línea 1213), después del bloque de publicaciones, agregar invocación de `sync-pp-by-work-item` para items con radicado de 23 dígitos:
-
+**Trigger en `use-create-work-item.ts`** — en `onSuccess`, después del bloque de PP:
 ```typescript
-// Sync PP actuaciones
-if (syncOk && item.radicado?.replace(/\D/g, '').length === 23) {
-  try {
-    await supabase.functions.invoke("sync-pp-by-work-item", {
-      body: { work_item_id: item.id, _scheduled: true },
-    });
-  } catch (_ppErr) { /* non-blocking */ }
+if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CPACA') {
+  registerAndSyncSamai(workItem.id, workItem.radicado!).then(ok => {
+    if (ok) queryClient.invalidateQueries({ queryKey: ["samai-enrichment"] });
+  });
 }
 ```
 
-No se necesita nuevo pg_cron — PP corre dentro del daily-sync existente.
-
-### Archivos afectados
-- **Nuevo**: `supabase/functions/sync-pp-by-work-item/index.ts`
-- **Editado**: `supabase/functions/scheduled-daily-sync/index.ts` (agregar invocación PP)
-- **Migración**: 3 columnas nuevas en `work_items`
+Sin migración de BD necesaria — SAMAI usa el UUID de Supabase como identificador (igual que CPNU).
 
