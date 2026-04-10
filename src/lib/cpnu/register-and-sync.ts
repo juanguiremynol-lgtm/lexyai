@@ -4,7 +4,7 @@
  * Fire-and-forget: logs errors but never throws.
  */
 
-import { CPNU_API_BASE, PP_API_BASE } from "@/lib/api-urls";
+import { CPNU_API_BASE, PP_API_BASE, SAMAI_API_BASE } from "@/lib/api-urls";
 import { supabase } from "@/integrations/supabase/client";
 
 export async function registerAndSyncCpnu(workItemId: string, radicado: string): Promise<boolean> {
