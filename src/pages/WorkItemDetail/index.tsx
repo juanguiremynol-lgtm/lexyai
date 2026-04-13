@@ -9,6 +9,7 @@
  */
 
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
 import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
 import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2, Users } from "lucide-react";
@@ -138,8 +139,24 @@ export default function WorkItemDetail() {
     auto_admisorio_url?: string | null;
   };
 
-  // Count publicaciones from cache (if available) or default to showing "—"
-  const publicacionesCount = "—"; // Will be loaded by EstadosTab
+  // Count publicaciones & estados
+  const { data: pubCounts } = useQuery({
+    queryKey: ["pub-counts", workItem.id],
+    queryFn: async () => {
+      const { count: pubCount } = await supabase
+        .from("work_item_publicaciones")
+        .select("id", { count: "exact", head: true })
+        .eq("work_item_id", workItem.id)
+        .eq("source", "publicaciones");
+      const { count: estadosCount } = await supabase
+        .from("work_item_publicaciones")
+        .select("id", { count: "exact", head: true })
+        .eq("work_item_id", workItem.id)
+        .eq("source", "samai_estados");
+      return { pub: pubCount ?? 0, estados: estadosCount ?? 0 };
+    },
+    enabled: !!workItem.id,
+  });
 
   return (
     <div className="space-y-6">
@@ -350,10 +367,16 @@ export default function WorkItemDetail() {
               <TabsTrigger value="publicaciones" className="gap-2">
                 <Newspaper className="h-4 w-4" />
                 Publicaciones
+                {pubCounts && pubCounts.pub > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.pub}</Badge>
+                )}
               </TabsTrigger>
               <TabsTrigger value="estados" className="gap-2">
                 <Newspaper className="h-4 w-4" />
                 Estados
+                {pubCounts && pubCounts.estados > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.estados}</Badge>
+                )}
               </TabsTrigger>
               <TabsTrigger value="documentos" className="gap-2">
                 <FileText className="h-4 w-4" />
