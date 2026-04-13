@@ -141,6 +141,23 @@ export default function WorkItemDetail() {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+      ACTIVE: "default",
+      CLOSED: "secondary",
+      ARCHIVED: "outline",
+    };
+    return <Badge variant={variants[status] || "default"}>{status}</Badge>;
+  };
+
+  // Extended workItem type for new fields
+  const extendedWorkItem = workItem as unknown as WorkItem & { 
+    _source?: string;
+    onedrive_url?: string | null;
+    acta_radicacion_url?: string | null;
+    auto_admisorio_url?: string | null;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
