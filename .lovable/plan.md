@@ -1,48 +1,47 @@
 
 
-## Plan: Ampliar CpacaDetailModule con campos SAMAI
+## Plan: Corregir extracción de datos SAMAI Estados para CPACA
 
-### Contexto
-- Los campos `ponente`, `clase_proceso`, `etapa`, `ubicacion_expediente`, `tipo_proceso`, `formato_expediente`, `fecha_radicado`, `fecha_sentencia`, `origen`, `total_sujetos_procesales` ya existen en la tabla `work_items` y se traen con `SELECT *` en el hook
-- La interfaz `WorkItemDetail` no los declara explícitamente pero llegan al componente vía `as unknown`
-- `CpacaDetailModule.tsx` existe pero no se usa en `index.tsx`
-- El detalle general ya muestra radicado, autoridad, ciudad, departamento, demandantes, demandados en una Card "Información General"
+### Problema
+El bloque CPACA ya existe en `sync-publicaciones-by-work-item` (líneas 689-795), pero tiene un **bug crítico**: en la línea 730 busca `resultado.estados`, mientras que la API real devuelve `resultado.actuaciones`.
 
-### Cambios
+```
+// Código actual (línea 730) — INCORRECTO:
+const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
 
-**1. `src/types/work-item.ts`** — Agregar campos SAMAI al tipo `WorkItem`:
+// La API devuelve:
+{ "total_actuaciones": 6, "actuaciones": [...] }
+```
+
+Esto causa que `rawEstados` siempre sea `[]`, y nunca se ingresan estados de SAMAI.
+
+### Cambio necesario
+
+**Archivo**: `supabase/functions/sync-publicaciones-by-work-item/index.ts`
+
+**Línea 730** — Cambiar la extracción para buscar tanto `estados` como `actuaciones`:
+
 ```typescript
-ponente?: string | null;
-origen?: string | null;
-clase_proceso?: string | null;
-etapa?: string | null;
-ubicacion_expediente?: string | null;
-formato_expediente?: string | null;
-tipo_proceso?: string | null;
-fecha_radicado?: string | null;
-fecha_sentencia?: string | null;
-total_sujetos_procesales?: number | null;
-subclase_proceso?: string | null;
+const rawEstados = Array.isArray(resultado?.estados)
+  ? resultado.estados
+  : Array.isArray(resultado?.actuaciones)
+    ? resultado.actuaciones
+    : [];
 ```
 
-**2. `src/hooks/use-work-item-detail.ts`** — Agregar los mismos campos a la interfaz `WorkItemDetail` para que TypeScript los reconozca.
+También agregar el campo `hash_documento` del response al mapeo (línea 739), para preservarlo en `raw_data` o en el fingerprint. El mapeo de campos existente (líneas 736-739) ya maneja correctamente:
+- `"Fecha Providencia"` → `fecha`
+- `"Actuación"` → `actuacion`  
+- `"url_descarga"` → `docUrl`
 
-**3. `src/pages/WorkItemDetail/CpacaDetailModule.tsx`** — Reescribir completamente:
+Adicionalmente, se debe incluir `"Docum. a notif."` como parte de la anotación/descripción si está presente.
 
-- **Sección primaria** (grid 2 cols): Ponente, Clase de Proceso, Etapa, Ubicación del Expediente
-- **Sección secundaria** (grid 2-3 cols, texto más pequeño o colapsable): Tipo de Proceso, Formato del Expediente, Fecha de Radicado, Fecha de Sentencia, Origen
-- **Sección sujetos procesales**: Demandantes y Demandados en lista, con el total de sujetos
-- Usa los mismos componentes `Card`, `CardHeader`, `CardContent` y estilo visual (label `text-sm text-muted-foreground` + valor `font-medium`) del resto del detalle
-- Quitar la navegación/header propio (ya lo maneja `index.tsx`)
+### Cambios específicos
 
-**4. `src/pages/WorkItemDetail/index.tsx`** — Para workflow CPACA, insertar `<CpacaDetailModule>` justo después de la Card "Información General" y antes de `RadicadoAnalyzer`:
-
-```tsx
-{workItem.workflow_type === 'CPACA' && (
-  <CpacaDetailModule workItem={extendedWorkItem} />
-)}
-```
+1. **Línea 730**: Agregar fallback a `resultado.actuaciones`
+2. **Línea 738**: Incluir `e['Docum. a notif.']` como fuente de anotación
+3. **Línea 749**: Incluir `hash_documento` en el asset_id para mejor deduplicación
 
 ### Resultado
-Para radicados CPACA se mostrará una card adicional con todos los datos enriquecidos de SAMAI, con el mismo estilo visual que el resto del detalle.
+Un solo cambio de ~5 líneas que desbloquea la ingesta de estados SAMAI para todos los work items CPACA, sin afectar otros workflows.
 
