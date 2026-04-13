@@ -268,20 +268,46 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         return dateB.localeCompare(dateA);
       });
 
-      // UI-level dedup: only collapse records with the SAME hash_fingerprint
-      // (different fingerprints = different API entries, even if annotation text is identical)
+      // UI-level dedup: two passes
+      // 1) By hash_fingerprint (exact provider dedup)
+      // 2) By date + normalised description (content dedup across providers)
       const seen = new Map<string, PublicacionEstado>();
+      const contentKeys = new Map<string, PublicacionEstado>();
+
+      const normalizeDesc = (s: string | null | undefined) =>
+        (s || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 50);
+
+      const richness = (item: PublicacionEstado) =>
+        (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0) + (item.description ? 1 : 0);
+
       for (const item of merged) {
-        const key = item.hash_fingerprint || item.id;
-        const existing = seen.get(key);
-        if (!existing) {
-          seen.set(key, item);
-        } else {
-          // Same fingerprint seen twice (e.g. from pubs + acts provenance merge) — keep richer one
-          const existingScore = (existing.fecha_fijacion ? 1 : 0) + (existing.pdf_url ? 1 : 0);
-          const newScore = (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0);
-          if (newScore > existingScore) {
-            seen.set(key, item);
+        // Pass 1: fingerprint dedup
+        const fpKey = item.hash_fingerprint || item.id;
+        const existingFp = seen.get(fpKey);
+        if (existingFp) {
+          if (richness(item) > richness(existingFp)) {
+            seen.set(fpKey, item);
+          }
+          continue;
+        }
+        seen.set(fpKey, item);
+
+        // Pass 2: content dedup (date + first 50 chars of description)
+        const dateStr = item.date || "";
+        const desc = normalizeDesc(item.description);
+        if (dateStr && desc) {
+          const contentKey = `${dateStr}|${desc}`;
+          const existingContent = contentKeys.get(contentKey);
+          if (existingContent) {
+            // Duplicate content — keep the richer record, remove the other from seen
+            if (richness(item) > richness(existingContent)) {
+              seen.delete(existingContent.hash_fingerprint || existingContent.id);
+              contentKeys.set(contentKey, item);
+            } else {
+              seen.delete(fpKey);
+            }
+          } else {
+            contentKeys.set(contentKey, item);
           }
         }
       }
