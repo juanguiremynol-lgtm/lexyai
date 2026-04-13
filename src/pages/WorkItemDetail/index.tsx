@@ -324,6 +324,11 @@ export default function WorkItemDetail() {
             </CardContent>
           </Card>
 
+          {/* CPACA SAMAI enrichment */}
+          {workItem.workflow_type === 'CPACA' && (
+            <CpacaDetailModule workItem={extendedWorkItem as unknown as WorkItem} />
+          )}
+
           {/* Radicado Analysis */}
           {workItem.radicado && (
             <RadicadoAnalyzer radicado={workItem.radicado} />
