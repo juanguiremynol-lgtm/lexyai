@@ -294,7 +294,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
         // Pass 2: content dedup (date + first 50 chars of description)
         const dateStr = item.date || "";
-        const desc = normalizeDesc(item.title || item.annotation);
+        const desc = normalizeDesc(item.description);
         if (dateStr && desc) {
           const contentKey = `${dateStr}|${desc}`;
           const existingContent = contentKeys.get(contentKey);
