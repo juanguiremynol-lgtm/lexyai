@@ -92,6 +92,25 @@ export default function WorkItemDetail() {
     },
   });
 
+  // Count publicaciones & estados — must be before early returns to avoid conditional hook calls
+  const { data: pubCounts } = useQuery({
+    queryKey: ["pub-counts", workItem?.id],
+    queryFn: async () => {
+      const { count: pubCount } = await supabase
+        .from("work_item_publicaciones")
+        .select("id", { count: "exact", head: true })
+        .eq("work_item_id", workItem!.id)
+        .eq("source", "publicaciones");
+      const { count: estadosCount } = await supabase
+        .from("work_item_publicaciones")
+        .select("id", { count: "exact", head: true })
+        .eq("work_item_id", workItem!.id)
+        .eq("source", "samai_estados");
+      return { pub: pubCount ?? 0, estados: estadosCount ?? 0 };
+    },
+    enabled: !!workItem?.id,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -118,45 +137,6 @@ export default function WorkItemDetail() {
     try {
       return format(new Date(dateStr), "d MMM yyyy", { locale: es });
     } catch {
-      return dateStr;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-      ACTIVE: "default",
-      CLOSED: "secondary",
-      ARCHIVED: "outline",
-    };
-    return <Badge variant={variants[status] || "default"}>{status}</Badge>;
-  };
-
-  // Extended workItem type for new fields
-  const extendedWorkItem = workItem as unknown as WorkItem & { 
-    _source?: string;
-    onedrive_url?: string | null;
-    acta_radicacion_url?: string | null;
-    auto_admisorio_url?: string | null;
-  };
-
-  // Count publicaciones & estados
-  const { data: pubCounts } = useQuery({
-    queryKey: ["pub-counts", workItem.id],
-    queryFn: async () => {
-      const { count: pubCount } = await supabase
-        .from("work_item_publicaciones")
-        .select("id", { count: "exact", head: true })
-        .eq("work_item_id", workItem.id)
-        .eq("source", "publicaciones");
-      const { count: estadosCount } = await supabase
-        .from("work_item_publicaciones")
-        .select("id", { count: "exact", head: true })
-        .eq("work_item_id", workItem.id)
-        .eq("source", "samai_estados");
-      return { pub: pubCount ?? 0, estados: estadosCount ?? 0 };
-    },
-    enabled: !!workItem.id,
-  });
 
   return (
     <div className="space-y-6">
