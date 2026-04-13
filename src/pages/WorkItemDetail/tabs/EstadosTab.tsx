@@ -268,17 +268,20 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         return dateB.localeCompare(dateA);
       });
 
-      // UI-level dedup: two passes
+
+      // UI-level dedup: three passes
       // 1) By hash_fingerprint (exact provider dedup)
-      // 2) By date + normalised description (content dedup across providers)
+      // 2) For publicaciones: by title — keep the one with published_at, discard the one without
+      // 3) By date + normalised description (content dedup across providers)
       const seen = new Map<string, PublicacionEstado>();
       const contentKeys = new Map<string, PublicacionEstado>();
+      const pubTitleKeys = new Map<string, PublicacionEstado>();
 
       const normalizeDesc = (s: string | null | undefined) =>
         (s || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 50);
 
       const richness = (item: PublicacionEstado) =>
-        (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0) + (item.description ? 1 : 0);
+        (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0) + (item.description ? 1 : 0) + (item.date ? 1 : 0);
 
       for (const item of merged) {
         // Pass 1: fingerprint dedup
@@ -292,14 +295,31 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         }
         seen.set(fpKey, item);
 
-        // Pass 2: content dedup (date + first 50 chars of description)
+        // Pass 2: publicaciones title dedup — same title + same source='publicaciones'
+        if (item.source === 'publicaciones' || item.source === 'Publicaciones') {
+          const titleKey = `pub|${normalizeDesc(item.title)}`;
+          const existingPub = pubTitleKeys.get(titleKey);
+          if (existingPub) {
+            // Keep the one with a date; if both have dates, keep richer
+            const keepNew = (!existingPub.date && item.date) || (richness(item) > richness(existingPub));
+            if (keepNew) {
+              seen.delete(existingPub.hash_fingerprint || existingPub.id);
+              pubTitleKeys.set(titleKey, item);
+            } else {
+              seen.delete(fpKey);
+            }
+            continue;
+          }
+          pubTitleKeys.set(titleKey, item);
+        }
+
+        // Pass 3: content dedup (date + first 50 chars of description)
         const dateStr = item.date || "";
         const desc = normalizeDesc(item.description);
         if (dateStr && desc) {
           const contentKey = `${dateStr}|${desc}`;
           const existingContent = contentKeys.get(contentKey);
           if (existingContent) {
-            // Duplicate content — keep the richer record, remove the other from seen
             if (richness(item) > richness(existingContent)) {
               seen.delete(existingContent.hash_fingerprint || existingContent.id);
               contentKeys.set(contentKey, item);
