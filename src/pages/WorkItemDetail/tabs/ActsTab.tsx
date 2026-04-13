@@ -102,7 +102,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
         return resyncCpnuActuaciones(workItem.id);
       }
       if (isCPACA) {
-        return resyncSamaiActuaciones(workItem.id);
+        return resyncSamaiActuaciones(workItem.radicado || "");
       }
       // Non-CGP/CPACA: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
