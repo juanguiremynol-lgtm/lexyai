@@ -1001,7 +1001,7 @@ Deno.serve(async (req) => {
         records: JSON.stringify([{
           work_item_id,
           organization_id: workItem.organization_id,
-          source: 'publicaciones',
+          source: (pub as any)._source_provider || 'publicaciones',
           title: pub.titulo || pub.key || 'Sin título',
           annotation: pub.clasificacion?.descripcion || null,
           pdf_url: pub.pdf_url || null,
@@ -1015,7 +1015,7 @@ Deno.serve(async (req) => {
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: 'publicaciones_v3',
-          sources: ['publicaciones'],
+          sources: [(pub as any)._source_provider || 'publicaciones'],
         }]),
       });
 
