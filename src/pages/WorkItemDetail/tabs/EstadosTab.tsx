@@ -297,7 +297,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
         // Pass 2: publicaciones title dedup — same title + same source='publicaciones'
         if (item.source === 'publicaciones' || item.source === 'Publicaciones') {
-          const titleKey = `pub|${normalizeDesc(item.title)}`;
+          const titleKey = `pub|${normalizeDesc(item.description)}`;
           const existingPub = pubTitleKeys.get(titleKey);
           if (existingPub) {
             // Keep the one with a date; if both have dates, keep richer
