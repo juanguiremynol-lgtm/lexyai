@@ -79,30 +79,26 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   const isCGP = workItem.workflow_type === "CGP";
   const isCPACA = workItem.workflow_type === "CPACA";
-  const useExternalApi = isCGP || isCPACA;
+  const useExternalApi = isCGP;
 
   // ─── Data source branching ──────────────────────────────────────────────
   // CGP → Google Cloud CPNU API
-  // CPACA → Google Cloud SAMAI + SAMAI_ESTADOS APIs
-  // Other workflows → Supabase work_item_acts
+  // CPACA + Other workflows → Supabase work_item_acts (SAMAI data synced via edge function)
   const cpnuQuery = useCpnuActuaciones(workItem.id, isCGP);
-  const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", isCPACA);
+  const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", false);
   const supabaseQuery = useSupabaseActs(workItem.id, !useExternalApi);
 
-  const acts = isCGP ? cpnuQuery.data : isCPACA ? samaiQuery.data : supabaseQuery.data;
-  const isLoading = isCGP ? cpnuQuery.isLoading : isCPACA ? samaiQuery.isLoading : supabaseQuery.isLoading;
+  const acts = isCGP ? cpnuQuery.data : supabaseQuery.data;
+  const isLoading = isCGP ? cpnuQuery.isLoading : supabaseQuery.isLoading;
 
   // ─── API label for badges ───────────────────────────────────────────────
-  const apiLabel = isCGP ? "CPNU API" : isCPACA ? "SAMAI API" : null;
+  const apiLabel = isCGP ? "CPNU API" : null;
 
   // ─── Resync mutation ────────────────────────────────────────────────────
   const resyncMutation = useMutation({
     mutationFn: async () => {
       if (isCGP) {
         return resyncCpnuActuaciones(workItem.id);
-      }
-      if (isCPACA) {
-        return resyncSamaiActuaciones(workItem.radicado || "");
       }
       // Non-CGP/CPACA: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
@@ -124,16 +120,6 @@ export function ActsTab({ workItem }: ActsTabProps) {
         return;
       }
 
-      if (isCPACA) {
-        toast.success("Re-sincronización SAMAI iniciada", {
-          description: "Las actuaciones se actualizarán en unos momentos.",
-          duration: 5000,
-        });
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["samai-actuaciones", workItem.id] });
-        }, 3000);
-        return;
-      }
 
       const inserted = data.inserted_count || 0;
       const skipped = data.skipped_count || 0;
