@@ -137,6 +137,9 @@ export default function WorkItemDetail() {
     try {
       return format(new Date(dateStr), "d MMM yyyy", { locale: es });
     } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <div className="space-y-6">
