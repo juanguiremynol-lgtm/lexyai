@@ -63,6 +63,16 @@ interface WorkItemDetail {
   scraped_fields: Record<string, unknown> | null;
   total_actuaciones: number;
   ponente: string | null;
+  origen: string | null;
+  clase_proceso: string | null;
+  etapa: string | null;
+  ubicacion_expediente: string | null;
+  formato_expediente: string | null;
+  tipo_proceso: string | null;
+  fecha_radicado: string | null;
+  fecha_sentencia: string | null;
+  total_sujetos_procesales: number | null;
+  subclase_proceso: string | null;
   corte_status: string | null;
   sentencia_ref: string | null;
   provider_sources: Record<string, unknown> | null;

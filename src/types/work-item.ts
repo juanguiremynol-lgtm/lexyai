@@ -114,6 +114,19 @@ export interface WorkItem {
     matter_name: string;
   } | null;
 
+  // SAMAI / CPACA enrichment fields
+  ponente?: string | null;
+  origen?: string | null;
+  clase_proceso?: string | null;
+  etapa?: string | null;
+  ubicacion_expediente?: string | null;
+  formato_expediente?: string | null;
+  tipo_proceso?: string | null;
+  fecha_radicado?: string | null;
+  fecha_sentencia?: string | null;
+  total_sujetos_procesales?: number | null;
+  subclase_proceso?: string | null;
+
   // CPNU enrichment fields (from external API)
   cpnu_status?: string | null;
   cpnu_total_procesos?: number | null;
