@@ -1,23 +1,35 @@
 
 
-## Plan: Cambiar useSamaiActuaciones para usar radicado en vez de UUID
+## Plan: CPACA usa Supabase en vez de API externa
 
-El hook actual usa el UUID de Supabase en la URL de la API, pero SAMAI espera el radicado (ej: `05001333300320190025200`).
+### Cambios en `src/pages/WorkItemDetail/tabs/ActsTab.tsx`
 
-### Cambios
+**1. Línea 82** — Quitar `isCPACA`:
+```typescript
+const useExternalApi = isCGP;
+```
 
-**1. `src/hooks/use-samai-actuaciones.ts`**
-- Cambiar la firma de `useSamaiActuaciones(workItemId, enabled)` a `useSamaiActuaciones(workItemId, radicado, enabled)`
-- Usar `radicado` en las URLs de fetch: `${SAMAI_API_BASE}/samai/work-items/${radicado}/actuaciones`
-- Seguir usando `workItemId` en el mapeo interno (para `work_item_id` del `WorkItemAct`)
-- Actualizar `queryKey` para incluir radicado
-- Habilitar solo si `radicado` existe
+**2. Línea 89** — Deshabilitar samaiQuery:
+```typescript
+const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", false);
+```
 
-**2. `src/pages/WorkItemDetail/tabs/ActsTab.tsx`**
-- Cambiar la llamada de `useSamaiActuaciones(workItem.id, isCPACA)` a `useSamaiActuaciones(workItem.id, workItem.radicado || "", isCPACA)`
+**3. Líneas 92-93** — Simplificar branching (CPACA cae en Supabase):
+```typescript
+const acts = isCGP ? cpnuQuery.data : supabaseQuery.data;
+const isLoading = isCGP ? cpnuQuery.isLoading : supabaseQuery.isLoading;
+```
 
-**3. `resyncSamaiActuaciones`**
-- También cambiar para recibir `radicado` y usarlo en las URLs de sync
+**4. Línea 96** — Quitar label SAMAI:
+```typescript
+const apiLabel = isCGP ? "CPNU API" : null;
+```
 
-Son cambios mínimos — solo se modifica qué valor va en la URL.
+**5. Líneas 104-106** — Eliminar bloque `if (isCPACA)` en `mutationFn` (CPACA usará el edge function de Supabase).
+
+**6. Líneas 127-136** — Eliminar bloque `if (isCPACA)` en `onSuccess` (CPACA usará el toast genérico de Supabase).
+
+**7. Comentarios líneas 84-87** — Actualizar para reflejar que CPACA usa Supabase.
+
+Un solo archivo. Las actuaciones ya almacenadas en `work_item_acts` aparecerán correctamente.
 
