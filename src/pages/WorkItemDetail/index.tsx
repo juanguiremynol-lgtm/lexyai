@@ -49,6 +49,7 @@ import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
 import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
+import CpacaDetailModule from "./CpacaDetailModule";
 
 import type { WorkItem } from "@/types/work-item";
 
