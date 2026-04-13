@@ -67,10 +67,11 @@ function mapToWorkItemAct(
 
 async function fetchSamaiEndpoint(
   path: string,
+  radicado: string,
   workItemId: string,
   source: "samai" | "samai_estados"
 ): Promise<WorkItemAct[]> {
-  const res = await fetch(`${SAMAI_API_BASE}/${path}/work-items/${workItemId}/actuaciones`);
+  const res = await fetch(`${SAMAI_API_BASE}/${path}/work-items/${radicado}/actuaciones`);
   if (!res.ok) {
     console.warn(`[${source}] Actuaciones API error: ${res.status}`);
     return [];
@@ -82,14 +83,14 @@ async function fetchSamaiEndpoint(
   return rawList.map((r) => mapToWorkItemAct(r, workItemId, source));
 }
 
-export function useSamaiActuaciones(workItemId: string, enabled = true) {
+export function useSamaiActuaciones(workItemId: string, radicado: string, enabled = true) {
   return useQuery({
-    queryKey: ["samai-actuaciones", workItemId],
+    queryKey: ["samai-actuaciones", workItemId, radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
       // Fetch both SAMAI and SAMAI_ESTADOS in parallel
       const [samaiActs, estadosActs] = await Promise.all([
-        fetchSamaiEndpoint("samai", workItemId, "samai"),
-        fetchSamaiEndpoint("samai-estados", workItemId, "samai_estados"),
+        fetchSamaiEndpoint("samai", radicado, workItemId, "samai"),
+        fetchSamaiEndpoint("samai-estados", radicado, workItemId, "samai_estados"),
       ]);
 
       // Combine and deduplicate by id
@@ -116,20 +117,20 @@ export function useSamaiActuaciones(workItemId: string, enabled = true) {
 
       return combined;
     },
-    enabled: !!workItemId && enabled,
+    enabled: !!workItemId && !!radicado && enabled,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }
 
 /** Trigger a re-sync for a CPACA work item via the SAMAI Google Cloud APIs */
-export async function resyncSamaiActuaciones(workItemId: string): Promise<{ ok: boolean }> {
+export async function resyncSamaiActuaciones(radicado: string): Promise<{ ok: boolean }> {
   const [samaiRes, estadosRes] = await Promise.all([
-    fetch(`${SAMAI_API_BASE}/samai/work-items/${workItemId}/sync`, {
+    fetch(`${SAMAI_API_BASE}/samai/work-items/${radicado}/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     }),
-    fetch(`${SAMAI_API_BASE}/samai-estados/work-items/${workItemId}/sync`, {
+    fetch(`${SAMAI_API_BASE}/samai-estados/work-items/${radicado}/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     }),

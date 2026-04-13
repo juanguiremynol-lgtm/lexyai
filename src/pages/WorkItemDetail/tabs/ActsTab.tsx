@@ -86,7 +86,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
   // CPACA → Google Cloud SAMAI + SAMAI_ESTADOS APIs
   // Other workflows → Supabase work_item_acts
   const cpnuQuery = useCpnuActuaciones(workItem.id, isCGP);
-  const samaiQuery = useSamaiActuaciones(workItem.id, isCPACA);
+  const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", isCPACA);
   const supabaseQuery = useSupabaseActs(workItem.id, !useExternalApi);
 
   const acts = isCGP ? cpnuQuery.data : isCPACA ? samaiQuery.data : supabaseQuery.data;
@@ -102,7 +102,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
         return resyncCpnuActuaciones(workItem.id);
       }
       if (isCPACA) {
-        return resyncSamaiActuaciones(workItem.id);
+        return resyncSamaiActuaciones(workItem.radicado || "");
       }
       // Non-CGP/CPACA: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
