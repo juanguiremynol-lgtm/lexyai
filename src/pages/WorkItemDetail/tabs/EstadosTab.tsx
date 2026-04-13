@@ -85,6 +85,7 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: typeof
   "publicaciones-api": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   publicaciones: { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   SAMAI_ESTADOS: { label: "SAMAI Estados", color: "text-blue-600 bg-blue-500/10", icon: Scale },
+  samai_estados: { label: "SAMAI Estados", color: "text-blue-600 bg-blue-500/10", icon: Scale },
   DEFAULT: { label: "Sistema", color: "text-muted-foreground bg-muted/50", icon: Newspaper },
 };
 
