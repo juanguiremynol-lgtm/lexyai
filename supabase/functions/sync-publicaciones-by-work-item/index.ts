@@ -752,7 +752,7 @@ Deno.serve(async (req) => {
                       fecha_publicacion: fecha,
                       pdf_url: (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https')) ? docUrl : undefined,
                       tipo_evento: 'Estado Electrónico',
-                      asset_id: `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
+                      asset_id: hashDoc ? `samai_${hashDoc}` : `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
                       clasificacion: {
                         categoria: 'Estado Electrónico',
                         descripcion: anotacion || actuacion,
