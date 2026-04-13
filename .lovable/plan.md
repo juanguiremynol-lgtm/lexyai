@@ -1,36 +1,23 @@
 
 
-## Plan: Agregar integración SAMAI y SAMAI_ESTADOS al flujo de creación
+## Plan: Cambiar useSamaiActuaciones para usar radicado en vez de UUID
 
-### Archivos afectados
+El hook actual usa el UUID de Supabase en la URL de la API, pero SAMAI espera el radicado (ej: `05001333300320190025200`).
 
-1. **`src/lib/api-urls.ts`** — Agregar `SAMAI_API_BASE`
-2. **`src/lib/cpnu/register-and-sync.ts`** — Nueva función `registerAndSyncSamai()` que hace 4 POSTs (samai register + sync, samai-estados register + sync)
-3. **`src/hooks/use-create-work-item.ts`** — Invocar `registerAndSyncSamai()` para `workflow_type === 'CPACA'` con radicado de 23 dígitos
+### Cambios
 
-### Detalle técnico
+**1. `src/hooks/use-samai-actuaciones.ts`**
+- Cambiar la firma de `useSamaiActuaciones(workItemId, enabled)` a `useSamaiActuaciones(workItemId, radicado, enabled)`
+- Usar `radicado` en las URLs de fetch: `${SAMAI_API_BASE}/samai/work-items/${radicado}/actuaciones`
+- Seguir usando `workItemId` en el mapeo interno (para `work_item_id` del `WorkItemAct`)
+- Actualizar `queryKey` para incluir radicado
+- Habilitar solo si `radicado` existe
 
-**Nueva URL:**
-```typescript
-export const SAMAI_API_BASE = "https://samai-read-api-486431576619.us-central1.run.app";
-```
+**2. `src/pages/WorkItemDetail/tabs/ActsTab.tsx`**
+- Cambiar la llamada de `useSamaiActuaciones(workItem.id, isCPACA)` a `useSamaiActuaciones(workItem.id, workItem.radicado || "", isCPACA)`
 
-**Nueva función `registerAndSyncSamai()`** — sigue el patrón existente de fire-and-forget:
-1. `POST ${SAMAI_API_BASE}/samai/work-items` con `{ work_item_id, radicado }`
-2. `POST ${SAMAI_API_BASE}/samai/work-items/${workItemId}/sync`
-3. `POST ${SAMAI_API_BASE}/samai-estados/work-items` con `{ work_item_id, radicado }`
-4. `POST ${SAMAI_API_BASE}/samai-estados/work-items/${workItemId}/sync`
-- Retorna `boolean` indicando si todos los pasos fueron exitosos
-- Logs de consola con prefijos `[SAMAI register]`, `[SAMAI sync]`, `[SAMAI_ESTADOS register]`, `[SAMAI_ESTADOS sync]`
+**3. `resyncSamaiActuaciones`**
+- También cambiar para recibir `radicado` y usarlo en las URLs de sync
 
-**Trigger en `use-create-work-item.ts`** — en `onSuccess`, después del bloque de PP:
-```typescript
-if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CPACA') {
-  registerAndSyncSamai(workItem.id, workItem.radicado!).then(ok => {
-    if (ok) queryClient.invalidateQueries({ queryKey: ["samai-enrichment"] });
-  });
-}
-```
-
-Sin migración de BD necesaria — SAMAI usa el UUID de Supabase como identificador (igual que CPNU).
+Son cambios mínimos — solo se modifica qué valor va en la URL.
 
