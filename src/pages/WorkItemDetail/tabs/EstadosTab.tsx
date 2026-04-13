@@ -278,7 +278,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         (s || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 50);
 
       const richness = (item: PublicacionEstado) =>
-        (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0) + (item.annotation ? 1 : 0);
+        (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0) + (item.description ? 1 : 0);
 
       for (const item of merged) {
         // Pass 1: fingerprint dedup
@@ -293,7 +293,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         seen.set(fpKey, item);
 
         // Pass 2: content dedup (date + first 50 chars of description)
-        const dateStr = item.published_at || "";
+        const dateStr = item.date || "";
         const desc = normalizeDesc(item.title || item.annotation);
         if (dateStr && desc) {
           const contentKey = `${dateStr}|${desc}`;
