@@ -727,7 +727,11 @@ Deno.serve(async (req) => {
                 const samaiData = await samaiResp.json();
                 // Extract estados from response (handles result.estados or estados at top level)
                 const resultado = samaiData?.result || samaiData;
-                const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
+                const rawEstados = Array.isArray(resultado?.estados)
+                  ? resultado.estados
+                  : Array.isArray(resultado?.actuaciones)
+                    ? resultado.actuaciones
+                    : [];
                 console.log(`[sync-pub] SAMAI Estados returned ${rawEstados.length} estados`);
 
                 if (rawEstados.length > 0) {
@@ -735,8 +739,10 @@ Deno.serve(async (req) => {
                   for (const e of rawEstados) {
                     const fecha = e['Fecha Providencia'] ?? e['Fecha Estado'] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? '';
                     const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
-                    const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? '');
+                    const docNotif = e['Docum. a notif.'] ?? e['Documento a notificar'] ?? '';
+                    const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? docNotif ?? '');
                     const docUrl = e.pdf_url || e.pdfUrl || e.url_descarga || e.url_pdf || e.documento_url || e.documentUrl || e.Documento || e.url || '';
+                    const hashDoc = e.hash_documento || '';
 
                     // Generate a synthetic PublicacionV3
                     samaiEstados.push({
@@ -746,7 +752,7 @@ Deno.serve(async (req) => {
                       fecha_publicacion: fecha,
                       pdf_url: (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https')) ? docUrl : undefined,
                       tipo_evento: 'Estado Electrónico',
-                      asset_id: `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
+                      asset_id: hashDoc ? `samai_${hashDoc}` : `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
                       clasificacion: {
                         categoria: 'Estado Electrónico',
                         descripcion: anotacion || actuacion,
