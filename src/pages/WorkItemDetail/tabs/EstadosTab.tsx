@@ -132,75 +132,31 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   // Check if radicado is valid for Publicaciones sync
   const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
   
-  // Fetch ESTADOS from three sources:
-  // 1. work_item_publicaciones — Publicaciones Procesales (Rama Judicial)
-  // 2. work_item_acts WHERE source='SAMAI_ESTADOS' — directly tagged SAMAI Estados
-  // 3. work_item_acts confirmed by SAMAI_ESTADOS provenance (deduped records with source='samai')
+  // Fetch ESTADOS from single source of truth: work_item_publicaciones
+  // Both publicaciones and samai_estados records are stored here
   const { data: estados, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["work-item-estados-unified", workItem.id],
     queryFn: async () => {
       await ensureValidSession();
 
-      // Find the SAMAI_ESTADOS provider instance ID for provenance lookup
-      const { data: samaiEstadosInstances } = await supabase
-        .from("provider_instances")
-        .select("id, connector_id, provider_connectors!inner(key)")
-        .eq("provider_connectors.key", "SAMAI_ESTADOS")
-        .eq("is_enabled", true);
+      const { data: pubs, error } = await supabase
+        .from("work_item_publicaciones")
+        .select("*")
+        .eq("work_item_id", workItem.id)
+        .eq("is_archived", false)
+        .order("fecha_fijacion", { ascending: false, nullsFirst: false });
 
-      const samaiEstadosInstanceIds = (samaiEstadosInstances || []).map((i: any) => i.id);
-
-      // Query publicaciones + direct SAMAI_ESTADOS acts in parallel
-      const [pubsResult, samaiEstadosResult, provenanceIdsResult] = await Promise.all([
-        supabase
-          .from("work_item_publicaciones")
-          .select("*")
-          .eq("work_item_id", workItem.id)
-          .eq("is_archived", false)
-          .order("fecha_fijacion", { ascending: false, nullsFirst: false }),
-        supabase
-          .from("work_item_acts")
-          .select("*")
-          .eq("work_item_id", workItem.id)
-          .eq("source", "SAMAI_ESTADOS")
-          .eq("is_archived", false)
-          .order("act_date", { ascending: false, nullsFirst: false }),
-        // Get act IDs confirmed by SAMAI_ESTADOS provenance (no FK join needed)
-        samaiEstadosInstanceIds.length > 0
-          ? supabase
-              .from("act_provenance")
-              .select("work_item_act_id")
-              .in("provider_instance_id", samaiEstadosInstanceIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
-      if (pubsResult.error) throw pubsResult.error;
-      if (samaiEstadosResult.error) throw samaiEstadosResult.error;
-
-      // Step 2: If we have provenance-confirmed act IDs, fetch those acts
-      const provenanceActIds = (provenanceIdsResult.data || []).map((r: any) => r.work_item_act_id);
-      let provenanceActs: any[] = [];
-      if (provenanceActIds.length > 0) {
-        const { data } = await supabase
-          .from("work_item_acts")
-          .select("*")
-          .in("id", provenanceActIds)
-          .eq("work_item_id", workItem.id)
-          .eq("is_archived", false);
-        provenanceActs = data || [];
-      }
+      if (error) throw error;
 
       // Map work_item_publicaciones to display format
-      const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => {
+      const fromPubs: PublicacionEstado[] = (pubs || []).map((pub: any) => {
         // Extract pdf_url: direct field → raw_data attachments → raw_data fields
         let pdfUrl = pub.pdf_url || pub.entry_url || null;
         if (!pdfUrl && pub.raw_data) {
           const rd = pub.raw_data;
-          // Check attachments array (SAMAI Estados format)
           if (Array.isArray(rd.attachments) && rd.attachments.length > 0) {
             pdfUrl = rd.attachments[0]?.url || null;
           }
-          // Check common URL fields in raw_data
           if (!pdfUrl) {
             pdfUrl = rd.pdf_url || rd.url_descarga || rd.documento_url || rd.url || null;
           }
@@ -221,48 +177,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         };
       });
 
-      // Map directly tagged SAMAI_ESTADOS acts
-      const samaiDirectIds = new Set<string>();
-      const fromSamaiEstados: PublicacionEstado[] = (samaiEstadosResult.data || []).map((act: any) => {
-        samaiDirectIds.add(act.id);
-        return {
-          id: act.id,
-          date: act.act_date,
-          date_raw: act.act_date,
-          description: act.description || act.event_summary || '',
-          type: act.act_type || 'ESTADO',
-          source: "SAMAI_ESTADOS",
-          pdf_url: act.source_url || null,
-          created_at: act.created_at,
-          fecha_fijacion: null,
-          fecha_desfijacion: null,
-          despacho: act.despacho || null,
-        };
-      });
-
-      // Map provenance-confirmed SAMAI_ESTADOS acts (deduped records with source='samai')
-      // Only include those NOT already in the direct SAMAI_ESTADOS list
-      const fromProvenance: PublicacionEstado[] = [];
-      for (const act of provenanceActs) {
-        if (samaiDirectIds.has(act.id)) continue;
-        samaiDirectIds.add(act.id); // prevent duplicates from multiple provenance rows
-        fromProvenance.push({
-          id: act.id,
-          date: act.act_date,
-          date_raw: act.act_date,
-          description: act.description || act.event_summary || '',
-          type: act.act_type || 'ESTADO',
-          source: "SAMAI_ESTADOS", // Tag as SAMAI_ESTADOS since provenance confirms it
-          pdf_url: act.source_url || null,
-          created_at: act.created_at,
-          fecha_fijacion: null,
-          fecha_desfijacion: null,
-          despacho: act.despacho || null,
-        });
-      }
-
-      // Merge all sources and sort by date descending
-      const merged = [...fromPubs, ...fromSamaiEstados, ...fromProvenance].sort((a, b) => {
+      // Sort by date descending
+      const merged = fromPubs.sort((a, b) => {
         const dateA = a.date || a.created_at;
         const dateB = b.date || b.created_at;
         return dateB.localeCompare(dateA);
