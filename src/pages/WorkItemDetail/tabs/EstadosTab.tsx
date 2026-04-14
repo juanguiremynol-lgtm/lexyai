@@ -1,9 +1,9 @@
 /**
  * Estados Tab - Court Notifications & ESTADOS
  * 
- * This tab displays ESTADOS data from two canonical sources:
- *   1. work_item_publicaciones — Publicaciones Procesales API (Rama Judicial)
- *   2. work_item_acts WHERE source='SAMAI_ESTADOS' — SAMAI Estados external provider (CPACA)
+ * Single source of truth: work_item_publicaciones
+ * Both publicaciones and samai_estados records are stored in this table.
+ * Do NOT query work_item_acts or act_provenance here — that causes duplicates.
  * 
  * Actuaciones (clerk registry entries from CPNU/SAMAI actuaciones) are shown in the
  * separate Actuaciones tab and must NEVER appear here.
