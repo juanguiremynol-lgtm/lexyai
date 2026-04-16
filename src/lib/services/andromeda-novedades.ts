@@ -43,7 +43,7 @@ export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta
  * Fallback range: últimos 30 días hasta ayer (COT).
  */
 export function getAndromedaFallbackRange(): { desde: string; hasta: string } {
-  return { desde: getColombiaDate(-31), hasta: getColombiaDate(-1) };
+  return { desde: getColombiaDate(-30), hasta: getColombiaToday() };
 }
 
 /**
