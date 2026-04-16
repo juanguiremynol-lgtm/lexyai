@@ -40,6 +40,49 @@ export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta
 }
 
 /**
+ * Fallback range: últimos 30 días hasta ayer (COT).
+ */
+export function getAndromedaFallbackRange(): { desde: string; hasta: string } {
+  return { desde: getColombiaDate(-31), hasta: getColombiaDate(-1) };
+}
+
+/**
+ * Fetch novedades for an arbitrary date range.
+ */
+async function fetchNovedadesByRange(
+  desde: string,
+  hasta: string,
+  fuentes?: string[],
+  search?: string
+): Promise<{ items: NovedadItem[]; total: number }> {
+  const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("[andromeda-novedades] API error:", res.status, res.statusText);
+    return { items: [], total: 0 };
+  }
+  const json: NovedadesResponse = await res.json();
+  if (!json.ok) return { items: [], total: 0 };
+
+  let items = json.novedades || [];
+  if (fuentes && fuentes.length > 0) {
+    const fuenteSet = new Set(fuentes.map((f) => f.toUpperCase()));
+    items = items.filter((n) => fuenteSet.has((n.fuente || "").toUpperCase()));
+  }
+  if (search) {
+    const lower = search.toLowerCase();
+    items = items.filter(
+      (n) =>
+        n.radicado?.toLowerCase().includes(lower) ||
+        n.descripcion?.toLowerCase().includes(lower) ||
+        n.fuente?.toLowerCase().includes(lower) ||
+        n.workflow_type?.toLowerCase().includes(lower)
+    );
+  }
+  return { items, total: items.length };
+}
+
+/**
  * Fetch novedades from Andromeda API, optionally filtering by fuente.
  */
 export async function fetchNovedades(
