@@ -91,39 +91,36 @@ export async function fetchNovedades(
   search?: string
 ): Promise<{ items: NovedadItem[]; total: number }> {
   const { desde, hasta } = getAndromedaDateRange(window);
-  const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
+  return fetchNovedadesByRange(desde, hasta, fuentes, search);
+}
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("[andromeda-novedades] API error:", res.status, res.statusText);
-    return { items: [], total: 0 };
+/**
+ * Fetch novedades with automatic fallback when the primary range returns 0.
+ * If the requested window has no results, retries with a 30-day window.
+ */
+export async function fetchNovedadesWithFallback(
+  window: HoyWindow,
+  fuentes?: string[],
+  search?: string
+): Promise<{
+  items: NovedadItem[];
+  total: number;
+  isFallback: boolean;
+  fallbackRange?: { desde: string; hasta: string };
+}> {
+  const primary = await fetchNovedades(window, fuentes, search);
+  if (primary.total > 0) {
+    return { ...primary, isFallback: false };
   }
-
-  const json: NovedadesResponse = await res.json();
-  if (!json.ok) {
-    console.error("[andromeda-novedades] API returned ok=false");
-    return { items: [], total: 0 };
+  const fallbackRange = getAndromedaFallbackRange();
+  const fallback = await fetchNovedadesByRange(
+    fallbackRange.desde,
+    fallbackRange.hasta,
+    fuentes,
+    search
+  );
+  if (fallback.total === 0) {
+    return { ...fallback, isFallback: false };
   }
-
-  let items = json.novedades || [];
-
-  // Filter by fuente if specified
-  if (fuentes && fuentes.length > 0) {
-    const fuenteSet = new Set(fuentes.map((f) => f.toUpperCase()));
-    items = items.filter((n) => fuenteSet.has((n.fuente || "").toUpperCase()));
-  }
-
-  // Client-side search
-  if (search) {
-    const lower = search.toLowerCase();
-    items = items.filter(
-      (n) =>
-        n.radicado?.toLowerCase().includes(lower) ||
-        n.descripcion?.toLowerCase().includes(lower) ||
-        n.fuente?.toLowerCase().includes(lower) ||
-        n.workflow_type?.toLowerCase().includes(lower)
-    );
-  }
-
-  return { items, total: items.length };
+  return { ...fallback, isFallback: true, fallbackRange };
 }
