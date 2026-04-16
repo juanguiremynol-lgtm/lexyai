@@ -7,7 +7,7 @@
  */
 
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
-import { getColombiaDate, type HoyWindow } from "@/lib/colombia-date-utils";
+import { getColombiaDate, getColombiaToday, type HoyWindow } from "@/lib/colombia-date-utils";
 
 export interface NovedadItem {
   fuente: string;
@@ -43,7 +43,7 @@ export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta
  * Fallback range: últimos 30 días hasta ayer (COT).
  */
 export function getAndromedaFallbackRange(): { desde: string; hasta: string } {
-  return { desde: getColombiaDate(-31), hasta: getColombiaDate(-1) };
+  return { desde: getColombiaDate(-30), hasta: getColombiaToday() };
 }
 
 /**
