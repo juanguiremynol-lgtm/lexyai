@@ -21,7 +21,8 @@ import {
   formatActDate,
   windowLabel,
 } from "@/lib/colombia-date-utils";
-import { fetchNovedades, type NovedadItem } from "@/lib/services/andromeda-novedades";
+import { fetchNovedadesWithFallback, type NovedadItem } from "@/lib/services/andromeda-novedades";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +116,7 @@ export default function ActuacionesHoy() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["actuaciones-hoy-andromeda", organization?.id, window, debouncedSearch],
     queryFn: async () => {
-      const { items: novedades } = await fetchNovedades(
+      const { items: novedades, isFallback, fallbackRange } = await fetchNovedadesWithFallback(
         window,
         ["CPNU", "SAMAI"],
         debouncedSearch || undefined
@@ -130,7 +131,7 @@ export default function ActuacionesHoy() {
         return msB - msA;
       });
 
-      return { items, total: items.length, discoveredCount: items.length, courtDatedCount: 0, modifiedCount: 0 };
+      return { items, total: items.length, discoveredCount: items.length, courtDatedCount: 0, modifiedCount: 0, isFallback, fallbackRange };
     },
     enabled: !!organization?.id,
     staleTime: 30_000,
