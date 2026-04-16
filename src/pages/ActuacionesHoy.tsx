@@ -178,6 +178,19 @@ export default function ActuacionesHoy() {
         </div>
       )}
 
+      {/* Fallback notice — primary range returned 0, showing extended history */}
+      {data?.isFallback && (
+        <Alert className="border-yellow-500/50 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200 dark:border-yellow-500/40">
+          <Sparkles className="h-4 w-4 !text-yellow-700 dark:!text-yellow-400" />
+          <AlertTitle>No hay novedades recientes. Mostrando las últimas disponibles.</AlertTitle>
+          {data.fallbackRange && (
+            <AlertDescription className="text-xs opacity-80">
+              Rango ampliado: {data.fallbackRange.desde} → {data.fallbackRange.hasta}
+            </AlertDescription>
+          )}
+        </Alert>
+      )}
+
       {/* Window selector + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 flex-wrap">
