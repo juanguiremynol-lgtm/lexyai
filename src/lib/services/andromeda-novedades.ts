@@ -7,7 +7,7 @@
  */
 
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
-import { getColombiaDate, type HoyWindow } from "@/lib/colombia-date-utils";
+import { getColombiaDate, getColombiaToday, type HoyWindow } from "@/lib/colombia-date-utils";
 
 export interface NovedadItem {
   fuente: string;
