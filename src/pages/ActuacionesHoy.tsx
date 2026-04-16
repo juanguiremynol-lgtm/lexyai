@@ -1,9 +1,8 @@
 /**
- * Actuaciones de Hoy — Global View (Dual-Criteria)
+ * Actuaciones de Hoy — Global View
  *
- * Shows actuaciones DISCOVERED by ATENIA (created_at) AND/OR
- * court-dated (act_date) within the selected time window.
- * Groups by work item, badges for newly discovered items.
+ * Now powered by Andromeda Read API (/novedades endpoint).
+ * Filters for CPNU and SAMAI sources.
  */
 
 import { useState, useCallback, useEffect } from "react";
@@ -11,18 +10,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import {
-  getActuacionesHoy,
   groupByWorkItem,
   type ActuacionHoyItem,
   type GroupedActuaciones,
   type HoyWindow,
-  type HoyMode,
 } from "@/lib/services/actuaciones-hoy-service";
+import { detectActuacionSeverity, type TickerItemSource } from "@/lib/services/ticker-data-service";
 import {
   humanizeCreatedAt,
   formatActDate,
   windowLabel,
 } from "@/lib/colombia-date-utils";
+import { fetchNovedades, type NovedadItem } from "@/lib/services/andromeda-novedades";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +63,39 @@ function guessActType(description: string, actType: string | null): string {
   return "ACTUACIÓN";
 }
 
+function mapSource(fuente: string): TickerItemSource {
+  const l = fuente.toUpperCase();
+  if (l.includes("CPNU")) return "CPNU";
+  if (l.includes("SAMAI")) return "SAMAI";
+  return "CPNU";
+}
+
+function mapNovedadToActuacion(n: NovedadItem): ActuacionHoyItem {
+  const desc = n.descripcion || "Actuación registrada";
+  return {
+    id: `${n.fuente}_${n.radicado}_${n.fecha}_${n.creado_en}`,
+    work_item_id: n.radicado, // used for grouping
+    radicado: n.radicado || "",
+    authority_name: null,
+    workflow_type: n.workflow_type || "",
+    demandantes: null,
+    demandados: null,
+    client_name: null,
+    description: desc,
+    annotation: null,
+    act_date: n.fecha,
+    act_type: null,
+    source: mapSource(n.fuente),
+    severity: detectActuacionSeverity(desc),
+    created_at: n.creado_en,
+    detected_at: n.creado_en,
+    changed_at: null,
+    match_reason: "discovered",
+    is_new: true,
+    is_modified: false,
+  };
+}
+
 /* ── page component ── */
 
 export default function ActuacionesHoy() {
@@ -71,7 +103,6 @@ export default function ActuacionesHoy() {
   const navigate = useNavigate();
 
   const [window, setWindow] = useState<HoyWindow>("today");
-  const [mode, setMode] = useState<HoyMode>("detected");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -82,8 +113,25 @@ export default function ActuacionesHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["actuaciones-hoy", organization?.id, window, debouncedSearch, mode],
-    queryFn: () => getActuacionesHoy(organization!.id, window, debouncedSearch || undefined, mode),
+    queryKey: ["actuaciones-hoy-andromeda", organization?.id, window, debouncedSearch],
+    queryFn: async () => {
+      const { items: novedades } = await fetchNovedades(
+        window,
+        ["CPNU", "SAMAI"],
+        debouncedSearch || undefined
+      );
+
+      const items: ActuacionHoyItem[] = novedades.map(mapNovedadToActuacion);
+
+      // Sort by fecha desc
+      items.sort((a, b) => {
+        const msA = a.act_date ? new Date(a.act_date).getTime() : 0;
+        const msB = b.act_date ? new Date(b.act_date).getTime() : 0;
+        return msB - msA;
+      });
+
+      return { items, total: items.length, discoveredCount: items.length, courtDatedCount: 0, modifiedCount: 0 };
+    },
     enabled: !!organization?.id,
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -124,12 +172,6 @@ export default function ActuacionesHoy() {
             <Sparkles className="h-4 w-4 text-primary" />
             <strong className="text-foreground">{data.discoveredCount}</strong> nuevas
           </span>
-          {data.modifiedCount > 0 && (
-            <>
-              <span>·</span>
-              <span>✏️ <strong className="text-foreground">{data.modifiedCount}</strong> modificadas</span>
-            </>
-          )}
           <span>·</span>
           <span><strong className="text-foreground">{data.total}</strong> total</span>
         </div>
@@ -138,28 +180,6 @@ export default function ActuacionesHoy() {
       {/* Window selector + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Mode toggle */}
-          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
-            <Button
-              variant={mode === "detected" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setMode("detected")}
-            >
-              <Sparkles className="h-3 w-3 mr-1" />
-              Detectadas hoy
-            </Button>
-            <Button
-              variant={mode === "court_date" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setMode("court_date")}
-            >
-              <Calendar className="h-3 w-3 mr-1" />
-              Fecha juzgado
-            </Button>
-          </div>
-          <div className="w-px h-5 bg-border" />
           <Calendar className="h-4 w-4 text-muted-foreground" />
           {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
             <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
