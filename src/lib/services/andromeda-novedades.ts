@@ -40,37 +40,35 @@ export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta
 }
 
 /**
- * Fetch novedades from Andromeda API, optionally filtering by fuente.
+ * Fallback range: últimos 30 días hasta ayer (COT).
  */
-export async function fetchNovedades(
-  window: HoyWindow,
+export function getAndromedaFallbackRange(): { desde: string; hasta: string } {
+  return { desde: getColombiaDate(-31), hasta: getColombiaDate(-1) };
+}
+
+/**
+ * Fetch novedades for an arbitrary date range.
+ */
+async function fetchNovedadesByRange(
+  desde: string,
+  hasta: string,
   fuentes?: string[],
   search?: string
 ): Promise<{ items: NovedadItem[]; total: number }> {
-  const { desde, hasta } = getAndromedaDateRange(window);
   const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
-
   const res = await fetch(url);
   if (!res.ok) {
     console.error("[andromeda-novedades] API error:", res.status, res.statusText);
     return { items: [], total: 0 };
   }
-
   const json: NovedadesResponse = await res.json();
-  if (!json.ok) {
-    console.error("[andromeda-novedades] API returned ok=false");
-    return { items: [], total: 0 };
-  }
+  if (!json.ok) return { items: [], total: 0 };
 
   let items = json.novedades || [];
-
-  // Filter by fuente if specified
   if (fuentes && fuentes.length > 0) {
     const fuenteSet = new Set(fuentes.map((f) => f.toUpperCase()));
     items = items.filter((n) => fuenteSet.has((n.fuente || "").toUpperCase()));
   }
-
-  // Client-side search
   if (search) {
     const lower = search.toLowerCase();
     items = items.filter(
@@ -81,6 +79,48 @@ export async function fetchNovedades(
         n.workflow_type?.toLowerCase().includes(lower)
     );
   }
-
   return { items, total: items.length };
+}
+
+/**
+ * Fetch novedades from Andromeda API, optionally filtering by fuente.
+ */
+export async function fetchNovedades(
+  window: HoyWindow,
+  fuentes?: string[],
+  search?: string
+): Promise<{ items: NovedadItem[]; total: number }> {
+  const { desde, hasta } = getAndromedaDateRange(window);
+  return fetchNovedadesByRange(desde, hasta, fuentes, search);
+}
+
+/**
+ * Fetch novedades with automatic fallback when the primary range returns 0.
+ * If the requested window has no results, retries with a 30-day window.
+ */
+export async function fetchNovedadesWithFallback(
+  window: HoyWindow,
+  fuentes?: string[],
+  search?: string
+): Promise<{
+  items: NovedadItem[];
+  total: number;
+  isFallback: boolean;
+  fallbackRange?: { desde: string; hasta: string };
+}> {
+  const primary = await fetchNovedades(window, fuentes, search);
+  if (primary.total > 0) {
+    return { ...primary, isFallback: false };
+  }
+  const fallbackRange = getAndromedaFallbackRange();
+  const fallback = await fetchNovedadesByRange(
+    fallbackRange.desde,
+    fallbackRange.hasta,
+    fuentes,
+    search
+  );
+  if (fallback.total === 0) {
+    return { ...fallback, isFallback: false };
+  }
+  return { ...fallback, isFallback: true, fallbackRange };
 }

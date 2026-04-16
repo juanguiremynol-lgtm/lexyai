@@ -23,7 +23,8 @@ import {
   windowLabel,
   type HoyWindow,
 } from "@/lib/colombia-date-utils";
-import { fetchNovedades, type NovedadItem } from "@/lib/services/andromeda-novedades";
+import { fetchNovedadesWithFallback, type NovedadItem } from "@/lib/services/andromeda-novedades";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,7 +135,7 @@ export default function EstadosHoy() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["estados-hoy-andromeda", organization?.id, window, debouncedSearch],
     queryFn: async () => {
-      const { items: novedades } = await fetchNovedades(
+      const { items: novedades, isFallback, fallbackRange } = await fetchNovedadesWithFallback(
         window,
         ["PP", "SAMAI_ESTADOS"],
         debouncedSearch || undefined
@@ -153,7 +154,7 @@ export default function EstadosHoy() {
       const ppCount = novedades.filter((n) => n.fuente.toUpperCase() === "PP").length;
       const samaiCount = novedades.filter((n) => n.fuente.toUpperCase() === "SAMAI_ESTADOS").length;
 
-      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
+      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount, isFallback, fallbackRange };
     },
     enabled: !!organization?.id,
     staleTime: 30_000,
@@ -296,6 +297,19 @@ export default function EstadosHoy() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* Fallback notice — primary range returned 0, showing extended history */}
+      {data?.isFallback && (
+        <Alert className="border-yellow-500/50 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200 dark:border-yellow-500/40">
+          <AlertTriangle className="h-4 w-4 !text-yellow-700 dark:!text-yellow-400" />
+          <AlertTitle>No hay novedades recientes. Mostrando las últimas disponibles.</AlertTitle>
+          {data.fallbackRange && (
+            <AlertDescription className="text-xs opacity-80">
+              Rango ampliado: {data.fallbackRange.desde} → {data.fallbackRange.hasta}
+            </AlertDescription>
+          )}
+        </Alert>
       )}
 
       {/* Ejecutoria info banner */}
