@@ -1,0 +1,86 @@
+/**
+ * Andromeda Novedades Service
+ *
+ * Fetches novedades from the Andromeda Read API.
+ * Date windows are calculated relative to YESTERDAY in COT (UTC-5)
+ * because the sync cron runs at ~2 AM COT.
+ */
+
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { getColombiaDate, type HoyWindow } from "@/lib/colombia-date-utils";
+
+export interface NovedadItem {
+  fuente: string;
+  radicado: string;
+  workflow_type: string;
+  fecha: string;
+  descripcion: string;
+  gcs_url_auto?: string | null;
+  gcs_url_tabla?: string | null;
+  creado_en: string;
+}
+
+export interface NovedadesResponse {
+  ok: boolean;
+  total: number;
+  novedades: NovedadItem[];
+}
+
+/**
+ * Calculate desde/hasta dates relative to yesterday (COT).
+ * "Hoy"     → ayer → ayer
+ * "3 Días"  → ayer-2 → ayer
+ * "Semana"  → ayer-6 → ayer
+ */
+export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta: string } {
+  const yesterday = getColombiaDate(-1); // ayer en COT
+  const daysBack = window === "today" ? 0 : window === "three_days" ? 2 : 6;
+  const desde = getColombiaDate(-1 - daysBack);
+  return { desde, hasta: yesterday };
+}
+
+/**
+ * Fetch novedades from Andromeda API, optionally filtering by fuente.
+ */
+export async function fetchNovedades(
+  window: HoyWindow,
+  fuentes?: string[],
+  search?: string
+): Promise<{ items: NovedadItem[]; total: number }> {
+  const { desde, hasta } = getAndromedaDateRange(window);
+  const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("[andromeda-novedades] API error:", res.status, res.statusText);
+    return { items: [], total: 0 };
+  }
+
+  const json: NovedadesResponse = await res.json();
+  if (!json.ok) {
+    console.error("[andromeda-novedades] API returned ok=false");
+    return { items: [], total: 0 };
+  }
+
+  let items = json.novedades || [];
+
+  // Filter by fuente if specified
+  if (fuentes && fuentes.length > 0) {
+    const fuenteSet = new Set(fuentes.map((f) => f.toUpperCase()));
+    items = items.filter((n) => fuenteSet.has((n.fuente || "").toUpperCase()));
+  }
+
+  // Client-side search
+  if (search) {
+    const lower = search.toLowerCase();
+    items = items.filter(
+      (n) =>
+        n.radicado?.toLowerCase().includes(lower) ||
+        n.descripcion?.toLowerCase().includes(lower) ||
+        n.fuente?.toLowerCase().includes(lower) ||
+        n.workflow_type?.toLowerCase().includes(lower)
+    );
+  }
+
+  return { items, total: items.length };
+}

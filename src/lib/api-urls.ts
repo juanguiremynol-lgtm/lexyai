@@ -4,3 +4,4 @@
 export const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
 export const PP_API_BASE = "https://pp-read-api-486431576619.us-central1.run.app";
 export const SAMAI_API_BASE = "https://samai-read-api-486431576619.us-central1.run.app";
+export const ANDROMEDA_API_BASE = "https://andromeda-read-api-486431576619.us-central1.run.app";

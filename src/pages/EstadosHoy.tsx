@@ -1,9 +1,8 @@
 /**
- * Estados de Hoy — Global View (Dual-Criteria)
+ * Estados de Hoy — Global View
  *
- * Shows estados DISCOVERED by ATENIA (created_at) AND/OR
- * court-posted (fecha_fijacion) within the selected time window.
- * ONLY from work_item_publicaciones — never merges with actuaciones.
+ * Now powered by Andromeda Read API (/novedades endpoint).
+ * Filters for PP and SAMAI_ESTADOS sources.
  */
 
 import { useState, useCallback, useEffect } from "react";
@@ -18,13 +17,13 @@ import {
 import { detectEstadoType, type TickerItemSeverity, type TickerItemSource } from "@/lib/services/ticker-data-service";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  getWindowBounds,
   humanizeCreatedAt,
   formatActDate,
   getDeadlineUrgency,
   windowLabel,
   type HoyWindow,
 } from "@/lib/colombia-date-utils";
+import { fetchNovedades, type NovedadItem } from "@/lib/services/andromeda-novedades";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,7 +44,6 @@ import {
   AlertTriangle,
   Scale,
   WifiOff,
-  Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -56,11 +54,8 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-type MatchReason = "discovered" | "court_posted" | "both" | "modified";
-type EstadosHoyMode = "detected" | "court_date";
-
 interface EstadoHoyItemWithMeta extends EstadoHoyItem {
-  match_reason: MatchReason;
+  match_reason: string;
   is_new: boolean;
   fecha_fijacion_raw?: string | null;
 }
@@ -73,88 +68,18 @@ const TIPO_COLORS: Record<string, string> = {
   SENTENCIA: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-300",
 };
 
-function mapSource(source: string | null | undefined): TickerItemSource {
-  if (!source) return "MANUAL";
-  const l = source.toLowerCase();
-  if (l.includes("publicaciones")) return "PUBLICACIONES_API";
-  if (l.includes("cpnu")) return "CPNU";
-  if (l.includes("samai")) return "SAMAI";
+function mapSource(fuente: string): TickerItemSource {
+  const l = fuente.toUpperCase();
+  if (l.includes("PP") || l.includes("PUBLICACIONES")) return "PUBLICACIONES_API";
+  if (l.includes("SAMAI")) return "SAMAI";
+  if (l.includes("CPNU")) return "CPNU";
   return "MANUAL";
 }
 
-const PUB_SELECT = `
-  id, work_item_id, title, annotation, published_at, fecha_fijacion, fecha_desfijacion,
-  despacho, tipo_publicacion, source, pdf_url, raw_data, created_at, detected_at, changed_at,
-  work_items!inner (
-    id, radicado, workflow_type, organization_id,
-    authority_name, demandantes, demandados,
-    client:clients ( name )
-  )
-`;
-
-const SAMAI_ESTADOS_SELECT = `
-  id, work_item_id, description, act_date, act_type, source,
-  despacho, raw_data, created_at, source_url, detected_at, changed_at,
-  work_items!inner (
-    id, radicado, workflow_type, organization_id,
-    authority_name, demandantes, demandados,
-    client:clients ( name )
-  )
-`;
-
-function mapPubRow(pub: any, reason: MatchReason): EstadoHoyItemWithMeta {
-  const wi = pub.work_items as any;
-  const content = pub.annotation || pub.title || "Estado publicado";
+function mapNovedadToEstado(n: NovedadItem): EstadoHoyItemWithMeta {
+  const content = n.descripcion || "Estado publicado";
   const estadoType = detectEstadoType(content);
-  const rawData = pub.raw_data as Record<string, any> | null;
-  const termCalc = calculateTermStart(pub.fecha_desfijacion, rawData?.fechaInicial, pub.published_at);
-  const ejecutoria = isInEjecutoriaWindow(termCalc.date);
-
-  let severity: TickerItemSeverity = pub.fecha_desfijacion ? "HIGH" : "MEDIUM";
-  if (estadoType.type === "SENTENCIA") severity = "CRITICAL";
-  else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
-
-  return {
-    id: pub.id,
-    type: "ESTADO" as const,
-    source: mapSource(pub.source),
-    radicado: wi?.radicado || "",
-    work_item_id: pub.work_item_id,
-    workflow_type: wi?.workflow_type || "",
-    client_name: wi?.client?.name || undefined,
-    authority_name: wi?.authority_name || undefined,
-    demandantes: wi?.demandantes || undefined,
-    demandados: wi?.demandados || undefined,
-    content,
-    date: pub.published_at,
-    fecha_desfijacion: pub.fecha_desfijacion,
-    fecha_fijacion_raw: pub.fecha_fijacion,
-    terminos_inician: termCalc.date,
-    is_deadline_trigger: !!pub.fecha_desfijacion && estadoType.triggersDeadline,
-    missing_fecha_desfijacion: !pub.fecha_desfijacion,
-    severity,
-    tipo_publicacion: pub.tipo_publicacion || undefined,
-    despacho: pub.despacho || undefined,
-    pdf_url: pub.pdf_url || undefined,
-    created_at: pub.created_at,
-    actuacion_type: estadoType.label,
-    inicia_termino: termCalc.date,
-    inicia_termino_source: termCalc.source,
-    is_in_ejecutoria_window: ejecutoria.isInWindow,
-    ejecutoria_ends_at: ejecutoria.windowEndsAt,
-    match_reason: reason,
-    is_new: reason === "discovered" || reason === "both",
-  };
-}
-
-/* ── dual-criteria fetch ── */
-
-function mapSamaiEstadoRow(act: any, reason: MatchReason): EstadoHoyItemWithMeta {
-  const wi = act.work_items as any;
-  const content = act.description || "Estado electrónico";
-  const estadoType = detectEstadoType(content);
-  const rawData = act.raw_data as Record<string, any> | null;
-  const termCalc = calculateTermStart(null, rawData?.fechaInicial, act.act_date);
+  const termCalc = calculateTermStart(null, null, n.fecha);
   const ejecutoria = isInEjecutoriaWindow(termCalc.date);
 
   let severity: TickerItemSeverity = "MEDIUM";
@@ -162,201 +87,32 @@ function mapSamaiEstadoRow(act: any, reason: MatchReason): EstadoHoyItemWithMeta
   else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
 
   return {
-    id: act.id,
+    id: `${n.fuente}_${n.radicado}_${n.fecha}_${n.creado_en}`,
     type: "ESTADO" as const,
-    source: "SAMAI" as TickerItemSource,
-    radicado: wi?.radicado || "",
-    work_item_id: act.work_item_id,
-    workflow_type: wi?.workflow_type || "",
-    client_name: wi?.client?.name || undefined,
-    authority_name: wi?.authority_name || undefined,
-    demandantes: wi?.demandantes || undefined,
-    demandados: wi?.demandados || undefined,
+    source: mapSource(n.fuente),
+    radicado: n.radicado || "",
+    work_item_id: "",
+    workflow_type: n.workflow_type || "",
     content,
-    date: act.act_date,
+    date: n.fecha,
     fecha_desfijacion: null,
-    fecha_fijacion_raw: act.act_date,
+    fecha_fijacion_raw: n.fecha,
     terminos_inician: termCalc.date,
     is_deadline_trigger: estadoType.triggersDeadline,
     missing_fecha_desfijacion: true,
     severity,
-    tipo_publicacion: act.act_type || "ESTADO",
-    despacho: act.despacho || undefined,
-    pdf_url: act.source_url || undefined,
-    created_at: act.created_at,
+    tipo_publicacion: undefined,
+    despacho: undefined,
+    pdf_url: n.gcs_url_auto || n.gcs_url_tabla || undefined,
+    created_at: n.creado_en,
     actuacion_type: estadoType.label,
     inicia_termino: termCalc.date,
     inicia_termino_source: termCalc.source,
     is_in_ejecutoria_window: ejecutoria.isInWindow,
     ejecutoria_ends_at: ejecutoria.windowEndsAt,
-    match_reason: reason,
-    is_new: reason === "discovered" || reason === "both",
+    match_reason: "discovered",
+    is_new: true,
   };
-}
-
-async function fetchEstadosHoy(
-  organizationId: string,
-  window: HoyWindow,
-  search?: string,
-  mode: EstadosHoyMode = "detected"
-): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number; samaiEstadosCount: number }> {
-  const bounds = getWindowBounds(window);
-
-  /**
-   * Dual-mode query:
-   * "detected" mode: filter by detected_at / changed_at within COT window
-   * "court_date" mode: filter by fecha_fijacion / act_date (original behavior)
-   */
-
-  // First, resolve SAMAI_ESTADOS instance IDs for provenance-based lookups
-  const { data: samaiInstances } = await supabase
-    .from("provider_instances")
-    .select("id, provider_connectors!inner(key)")
-    .eq("provider_connectors.key", "SAMAI_ESTADOS")
-    .eq("is_enabled", true);
-  const samaiInstanceIds = (samaiInstances || []).map((i: any) => i.id);
-
-  // Build queries based on mode
-  let pubQuery = supabase
-    .from("work_item_publicaciones")
-    .select(PUB_SELECT)
-    .eq("work_items.organization_id", organizationId)
-    .eq("is_archived", false);
-
-  let samaiQuery = supabase
-    .from("work_item_acts")
-    .select(SAMAI_ESTADOS_SELECT)
-    .eq("work_items.organization_id", organizationId)
-    .eq("source", "SAMAI_ESTADOS")
-    .eq("is_archived", false);
-
-  if (mode === "detected") {
-    // Use created_at as proxy for detected_at (detected_at defaults to created_at)
-    pubQuery = pubQuery
-      .gte("detected_at", bounds.created_start)
-      .lte("detected_at", bounds.created_end)
-      .order("detected_at", { ascending: false });
-    samaiQuery = samaiQuery
-      .gte("detected_at", bounds.created_start)
-      .lte("detected_at", bounds.created_end)
-      .order("detected_at", { ascending: false });
-  } else {
-    pubQuery = pubQuery
-      .gte("fecha_fijacion", bounds.date_start)
-      .lte("fecha_fijacion", bounds.date_end)
-      .order("fecha_fijacion", { ascending: false });
-    samaiQuery = samaiQuery
-      .gte("act_date", bounds.date_start)
-      .lte("act_date", bounds.date_end)
-      .order("act_date", { ascending: false });
-  }
-
-  const [pubResult, samaiEstadosResult, provenanceResult] = await Promise.all([
-    pubQuery.limit(500),
-    samaiQuery.limit(200),
-    // Provenance-confirmed SAMAI_ESTADOS acts
-    samaiInstanceIds.length > 0
-      ? supabase
-          .from("act_provenance")
-          .select("work_item_act_id, provider_instance_id")
-          .in("provider_instance_id", samaiInstanceIds)
-          .limit(500)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (pubResult.error) console.error("[estados-hoy] publicaciones query error:", pubResult.error);
-  if (samaiEstadosResult.error) console.error("[estados-hoy] SAMAI_ESTADOS query error:", samaiEstadosResult.error);
-
-  const itemMap = new Map<string, EstadoHoyItemWithMeta>();
-
-  // Compute window bounds for "discovered" tagging
-  const windowStartMs = new Date(bounds.created_start).getTime();
-  const windowEndMs = new Date(bounds.created_end).getTime();
-
-  let discoveredCount = 0;
-  let courtPostedCount = 0;
-
-  for (const row of pubResult.data || []) {
-    const createdMs = new Date(row.created_at).getTime();
-    const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
-    const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
-    if (isDiscoveredInWindow) discoveredCount++;
-    courtPostedCount++;
-    itemMap.set(row.id, mapPubRow(row, reason));
-  }
-
-  // Merge SAMAI_ESTADOS records — direct + provenance-confirmed
-  const samaiSeenIds = new Set<string>();
-  let samaiEstadosCount = 0;
-  for (const row of samaiEstadosResult.data || []) {
-    const key = `samai_estado_${row.id}`;
-    if (!itemMap.has(key)) {
-      const createdMs = new Date(row.created_at).getTime();
-      const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
-      const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
-      if (isDiscoveredInWindow) discoveredCount++;
-      itemMap.set(key, mapSamaiEstadoRow(row, reason));
-      samaiEstadosCount++;
-    }
-    samaiSeenIds.add(row.id);
-  }
-
-  // Load provenance-confirmed acts in bulk
-  const provenanceActIds = (provenanceResult.data || [])
-    .map((p: any) => p.work_item_act_id)
-    .filter((id: string) => !samaiSeenIds.has(id));
-  
-  if (provenanceActIds.length > 0) {
-    const { data: provenanceActs } = await supabase
-      .from("work_item_acts")
-      .select(SAMAI_ESTADOS_SELECT)
-      .in("id", provenanceActIds.slice(0, 200))
-      .eq("work_items.organization_id", organizationId)
-      .eq("is_archived", false)
-      // Also filter by act_date to avoid pulling in historical records
-      .gte("act_date", bounds.date_start)
-      .lte("act_date", bounds.date_end);
-    
-    for (const act of (provenanceActs || [])) {
-      if (samaiSeenIds.has(act.id)) continue;
-      samaiSeenIds.add(act.id);
-      const key = `samai_estado_${act.id}`;
-      if (!itemMap.has(key)) {
-        const createdMs = new Date(act.created_at).getTime();
-        const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
-        const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
-        if (isDiscoveredInWindow) discoveredCount++;
-        itemMap.set(key, mapSamaiEstadoRow(act, reason));
-        samaiEstadosCount++;
-      }
-    }
-  }
-
-  let items = Array.from(itemMap.values());
-
-  if (search) {
-    const lower = search.toLowerCase();
-    items = items.filter((i) =>
-      i.radicado?.toLowerCase().includes(lower) ||
-      i.despacho?.toLowerCase().includes(lower) ||
-      i.demandantes?.toLowerCase().includes(lower) ||
-      i.demandados?.toLowerCase().includes(lower) ||
-      i.content?.toLowerCase().includes(lower) ||
-      i.client_name?.toLowerCase().includes(lower)
-    );
-  }
-
-  // Sort by publication/event date descending, then created_at as tie-breaker
-  items.sort((a, b) => {
-    const dateA = a.fecha_fijacion_raw || a.date;
-    const dateB = b.fecha_fijacion_raw || b.date;
-    const msA = dateA ? new Date(dateA).getTime() : 0;
-    const msB = dateB ? new Date(dateB).getTime() : 0;
-    if (msB !== msA) return msB - msA;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-
-  return { items, total: items.length, discoveredCount, courtPostedCount, samaiEstadosCount };
 }
 
 /* ── page component ── */
@@ -366,7 +122,6 @@ export default function EstadosHoy() {
   const navigate = useNavigate();
 
   const [window, setWindow] = useState<HoyWindow>("today");
-  const [mode, setMode] = useState<EstadosHoyMode>("detected");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -377,8 +132,29 @@ export default function EstadosHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy-v3", organization?.id, window, debouncedSearch, mode],
-    queryFn: () => fetchEstadosHoy(organization!.id, window, debouncedSearch || undefined, mode),
+    queryKey: ["estados-hoy-andromeda", organization?.id, window, debouncedSearch],
+    queryFn: async () => {
+      const { items: novedades } = await fetchNovedades(
+        window,
+        ["PP", "SAMAI_ESTADOS"],
+        debouncedSearch || undefined
+      );
+
+      const items: EstadoHoyItemWithMeta[] = novedades.map(mapNovedadToEstado);
+
+      // Sort by fecha descending, then creado_en
+      items.sort((a, b) => {
+        const msA = a.date ? new Date(a.date).getTime() : 0;
+        const msB = b.date ? new Date(b.date).getTime() : 0;
+        if (msB !== msA) return msB - msA;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+
+      const ppCount = novedades.filter((n) => n.fuente.toUpperCase() === "PP").length;
+      const samaiCount = novedades.filter((n) => n.fuente.toUpperCase() === "SAMAI_ESTADOS").length;
+
+      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
+    },
     enabled: !!organization?.id,
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -476,10 +252,8 @@ export default function EstadosHoy() {
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
           <span className="flex items-center gap-1">
             <Sparkles className="h-4 w-4 text-primary" />
-            <strong className="text-foreground">{data.discoveredCount}</strong> nuevos descubiertos
+            <strong className="text-foreground">{data.courtPostedCount}</strong> PP
           </span>
-          <span>·</span>
-          <span>📅 <strong className="text-foreground">{data.courtPostedCount}</strong> por fecha fijación</span>
           {(data.samaiEstadosCount ?? 0) > 0 && (
             <>
               <span>·</span>
@@ -518,7 +292,7 @@ export default function EstadosHoy() {
           <CardContent className="py-3 flex items-center gap-3">
             <WifiOff className="h-4 w-4 text-orange-600 flex-shrink-0" />
             <p className="text-sm text-orange-800 dark:text-orange-200">
-              <strong>Sincronización degradada:</strong> es posible que se muestren estados históricos como recientes o que falten resultados. Verifique directamente en el portal judicial o en el PDF del estado.
+              <strong>Sincronización degradada:</strong> es posible que se muestren estados históricos como recientes o que falten resultados.
             </p>
           </CardContent>
         </Card>
@@ -534,31 +308,9 @@ export default function EstadosHoy() {
         </CardContent>
       </Card>
 
-      {/* Window selector + mode toggle + search */}
+      {/* Window selector + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Mode toggle */}
-          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
-            <Button
-              variant={mode === "detected" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setMode("detected")}
-            >
-              <Sparkles className="h-3 w-3 mr-1" />
-              Detectados hoy
-            </Button>
-            <Button
-              variant={mode === "court_date" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setMode("court_date")}
-            >
-              <Calendar className="h-3 w-3 mr-1" />
-              Fecha juzgado
-            </Button>
-          </div>
-          <div className="w-px h-5 bg-border" />
           <Calendar className="h-4 w-4 text-muted-foreground" />
           {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
             <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
@@ -667,8 +419,7 @@ function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavig
         {/* Dates */}
         <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
           <div className="flex items-center gap-3 flex-wrap">
-            <span>📅 Fijación: {formatActDate(item.fecha_fijacion_raw || item.date)}</span>
-            {item.fecha_desfijacion && <span>· Desfijación: {formatActDate(item.fecha_desfijacion)}</span>}
+            <span>📅 Fecha: {formatActDate(item.fecha_fijacion_raw || item.date)}</span>
             {(item.inicia_termino || item.terminos_inician) && (
               <span className={cn(
                 "flex items-center gap-1",
