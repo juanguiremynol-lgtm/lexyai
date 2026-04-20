@@ -29,6 +29,9 @@ import {
   CheckCircle,
   Download,
   WifiOff,
+  ExternalLink,
+  Building2,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -38,6 +41,13 @@ import { toast } from "sonner";
 import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
+
+/** Optional fields the API may return in the future; render if present. */
+type NovedadItemExt = NovedadItem & {
+  despacho?: string | null;
+  demandante?: string | null;
+  demandado?: string | null;
+};
 
 function fuenteBadgeClass(fuente: string): string {
   const f = (fuente || "").toUpperCase();
@@ -51,6 +61,27 @@ function fuenteBadgeClass(fuente: string): string {
     return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
   }
   return "bg-muted text-muted-foreground border-border";
+}
+
+/** Returns true if `fecha` is within the last 3 Colombian business days (Mon–Fri). */
+function isWithinEjecutoria(fecha: string | null | undefined): boolean {
+  if (!fecha) return false;
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d);
+  target.setHours(0, 0, 0, 0);
+  if (target > today) return false;
+  let businessDays = 0;
+  const cursor = new Date(today);
+  while (cursor >= target) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) businessDays++;
+    if (businessDays > 3) return false;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return businessDays <= 3;
 }
 
 /* ── page component ── */
@@ -75,6 +106,10 @@ export default function EstadosHoy() {
       const res = await fetch(url);
       const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
       let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
+
+      // Filter: only PP and SAMAI_ESTADOS (case-insensitive)
+      const allowed = new Set(["PP", "SAMAI_ESTADOS"]);
+      novedades = novedades.filter((n) => allowed.has((n.fuente || "").toUpperCase()));
 
       // Optional text search
       if (debouncedSearch) {
@@ -233,51 +268,105 @@ export default function EstadosHoy() {
 
 /* ── row component ── */
 
-function NovedadRow({ n }: { n: NovedadItem }) {
+function NovedadRow({ n }: { n: NovedadItemExt }) {
+  const enEjecutoria = isWithinEjecutoria(n.fecha);
+
   let fechaLabel = n.fecha || "—";
-  if (n.creado_en) {
+  if (n.fecha) {
     try {
-      fechaLabel = format(new Date(n.creado_en), "dd MMM yyyy HH:mm", { locale: es });
+      fechaLabel = format(new Date(n.fecha), "dd MMM yyyy", { locale: es });
     } catch {
       /* keep raw */
     }
   }
 
+  const partes =
+    n.demandante || n.demandado
+      ? `${n.demandante || "—"} vs ${n.demandado || "—"}`
+      : null;
+
   return (
-    <Card>
-      <CardContent className="py-3">
-        <div className="grid grid-cols-12 gap-3 items-start">
-          {/* Radicado */}
-          <div className="col-span-12 md:col-span-3">
-            <p className="font-mono text-sm font-medium text-foreground break-all">
+    <Card
+      className={cn(
+        "transition-shadow hover:shadow-md border-l-4",
+        enEjecutoria
+          ? "border-l-green-500 bg-green-50/60 dark:bg-green-950/20"
+          : "border-l-primary/30"
+      )}
+    >
+      <CardContent className="py-4 space-y-3">
+        {/* Top row: radicado + workflow + fuente + ejecutoria */}
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <p className="font-mono text-sm font-semibold text-foreground break-all">
               {n.radicado || "—"}
             </p>
             {n.workflow_type && (
-              <p className="text-xs text-muted-foreground mt-0.5">{n.workflow_type}</p>
+              <Badge variant="secondary" className="text-xs">
+                {n.workflow_type}
+              </Badge>
             )}
           </div>
-
-          {/* Fuente badge */}
-          <div className="col-span-6 md:col-span-2">
-            <Badge variant="outline" className={cn("text-xs font-medium", fuenteBadgeClass(n.fuente))}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {enEjecutoria && (
+              <Badge
+                variant="outline"
+                className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30 dark:text-green-400"
+              >
+                <CheckCircle className="h-3 w-3 mr-1" />
+                En ejecutoria
+              </Badge>
+            )}
+            <Badge
+              variant="outline"
+              className={cn("text-xs font-medium", fuenteBadgeClass(n.fuente))}
+            >
               {n.fuente || "—"}
             </Badge>
           </div>
+        </div>
 
-          {/* Descripción */}
-          <div className="col-span-12 md:col-span-5">
-            <p className="text-sm text-foreground/80 line-clamp-2">
-              {n.descripcion || "—"}
-            </p>
+        {/* Despacho */}
+        {n.despacho && (
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="truncate">{n.despacho}</span>
           </div>
+        )}
 
-          {/* Fecha */}
-          <div className="col-span-6 md:col-span-2 text-right">
-            <p className="text-xs text-foreground">{fechaLabel}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {humanizeCreatedAt(n.creado_en)}
-            </p>
+        {/* Partes */}
+        {partes && (
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Users className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="truncate">{partes}</span>
           </div>
+        )}
+
+        {/* Descripción */}
+        {n.descripcion && (
+          <p className="text-sm text-foreground/80 line-clamp-3">{n.descripcion}</p>
+        )}
+
+        {/* Footer: fecha + acción */}
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+          <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+            <span>📅 {fechaLabel}</span>
+            <span>·</span>
+            <span>🔄 {humanizeCreatedAt(n.creado_en)}</span>
+          </div>
+          {n.gcs_url_auto && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              asChild
+            >
+              <a href={n.gcs_url_auto} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3 w-3" />
+                Ver Auto
+              </a>
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
