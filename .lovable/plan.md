@@ -1,26 +1,29 @@
 
 
-## Plan: Reconectar EstadosHoy.tsx a la API Andromeda (30 días fijo)
+## Plan: Agregar dominios Andromeda y Samai a CSP
 
-Con CORS corregido, vuelvo a conectar `EstadosHoy.tsx` a la API externa Andromeda directamente desde el navegador.
+### Cambio en `index.html`
 
-### Cambios en `src/pages/EstadosHoy.tsx`
+Extender `connect-src` en el meta CSP para incluir los dos endpoints de Cloud Run que faltan:
 
-1. **Fetch directo a Andromeda** vía `getAndromedaFallbackRange()` (ventana fija de 30 días hasta hoy COT).
-2. **Filtrar fuentes** en cliente: solo `PP` y `SAMAI_ESTADOS` (case-insensitive).
-3. **Ordenar** por `creado_en DESC`.
-4. **Buscador de texto** sobre `radicado`, `descripcion`, `fuente`, `workflow_type` (mantener el debounce existente).
-5. **Eliminar**:
-   - Selector Hoy / 3 Días / Semana y estado `window`.
-   - Banner amarillo de fallback y cualquier `Alert` relacionado.
-   - Icono `Calendar` y referencias a `HoyWindow`.
-6. **Mantener**: header, contadores, tabla/lista de estados, mapeo `mapNovedadToEstado` y badges de fuente (`PP` ya soportado).
+```html
+connect-src 'self' 
+  https://*.supabase.co 
+  wss://*.supabase.co 
+  https://cpnu-read-api-486431576619.us-central1.run.app 
+  https://pp-read-api-486431576619.us-central1.run.app 
+  https://andromeda-read-api-486431576619.us-central1.run.app 
+  https://samai-read-api-486431576619.us-central1.run.app;
+```
 
-### Resultado
-La página `/app/estados-hoy` muestra siempre los últimos 30 días de novedades PP + SAMAI_ESTADOS ordenadas por fecha de creación descendente, con buscador de texto como único filtro.
+- `andromeda-read-api`: requerido por `EstadosHoy.tsx` y `andromeda-novedades.ts`.
+- `samai-read-api`: incluido preventivamente porque `mem://features/integracion-samai-cpaca` confirma que se usa para CPACA y podría ser llamado desde el navegador en otros componentes.
+
+### Verificación posterior
+Tras el cambio, recargar `/app/estados-hoy` con DevTools → Network. El fetch a `andromeda-read-api-.../novedades` debe pasar de "Failed to fetch" a un status HTTP real (200 o el error que devuelva la API).
 
 ### Fuera de alcance
-- `ActuacionesHoy.tsx` no se toca.
-- `andromeda-novedades.ts` no se toca.
-- No se agrega Edge Function proxy (CORS ya resuelto).
+- No se toca `vite.config.ts` (la CSP no vive ahí).
+- No se modifican headers de Edge Functions (ortogonal al problema).
+- No se cambia `EstadosHoy.tsx` ni `andromeda-novedades.ts`.
 
