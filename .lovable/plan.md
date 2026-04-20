@@ -1,120 +1,93 @@
 
 
-## Plan: Sección "Términos Procesales" en Estados de Hoy
+## Plan: Edge Function `sync-terminos-alertas`
 
 ### Contexto
-La API `andromeda-read-api/terminos` devuelve plazos legales con: `id`, `radicado`, `workflow_type`, `despacho`, `demandante`, `demandado`, `tipo_auto`, `accion_abogado`, `dias_habiles`, `prioridad` (CRITICA/ALTA/NORMAL), `norma`, `consecuencia`, `fecha_auto`, `fecha_limite`, `descripcion_auto`, `estado` (PENDIENTE/ATENDIDO), `fuente`, `alerta` (VENCIDO/URGENTE/PROXIMO/VIGENTE), `dias_vencido`, `creado_en`. PATCH `/terminos/{id}/atender` con body `{notas}` marca como atendido y responde `{ok:true, id}`.
+Crear un cron diario que consulta la API externa `andromeda-read-api/terminos`, filtra términos con `alerta ∈ {URGENTE, VENCIDO}` y `estado = PENDIENTE`, y genera alertas idempotentes en `alert_instances` para los dueños correspondientes.
 
-### Cambio 1 — `src/lib/services/andromeda-terminos.ts` (nuevo)
+### Resolución de `owner_id` (decisión clave)
+La API de términos NO trae `owner_id`. Para cada término necesitamos saber a qué usuario(s) notificar. Estrategia: **buscar `work_items` por `radicado` normalizado** y crear una alerta por `owner_id` distinto. Si ningún `work_item` matchea ese radicado, el término se ignora silenciosamente (con log) — significa que ningún usuario lo está monitoreando.
 
-Servicio dedicado:
+### Cambio 1 — `supabase/functions/sync-terminos-alertas/index.ts` (nuevo)
 
+Edge function Deno con CORS estándar y `verify_jwt = false` (corre en cron + admin-trigger).
+
+**Flujo**:
+1. `GET https://andromeda-read-api-486431576619.us-central1.run.app/terminos` → lista de términos.
+2. Filtrar: `alerta ∈ {URGENTE, VENCIDO}` y `(estado || "").toUpperCase() === "PENDIENTE"`.
+3. Para cada término:
+   - Normalizar `radicado` (usar helper local trim/colapsar espacios; no requiere `radicadoUtils` de import path con alias).
+   - Query: `SELECT id, owner_id, organization_id, workflow_type FROM work_items WHERE radicado = $1 AND deleted_at IS NULL`.
+   - Para cada `work_item` resultante, llamar `createAlertIdempotentEdge(...)` con:
+     - `alert_type`: `TERMINO_CRITICO` si `URGENTE`, `TERMINO_VENCIDO` si `VENCIDO`.
+     - `severity`: `CRITICAL` si `prioridad === "CRITICA"`, `WARNING` si `prioridad === "ALTA"`, en otros casos `WARNING` (default conservador).
+     - `entity_type`: mapear `workflow_type` del work_item a `AlertEntityType` (CGP→`CGP_FILING`, CPACA→`CPACA`, etc.); fallback `CGP_FILING`.
+     - `entity_id`: `work_item.id` (UUID — la columna es uuid). El `radicado` se guarda dentro de `payload` y `fingerprint_keys`.
+     - `title`: `termino.tipo_auto || "Término procesal"`.
+     - `message`: `${termino.accion_abogado || "Acción requerida"} — Vence: ${termino.fecha_limite || "sin fecha"}`.
+     - `payload`: `{ ...termino, source: "andromeda-terminos-api" }`.
+     - `fingerprint`: MD5 vía `crypto.subtle` o `node:crypto` de `${radicado}:${termino.id}:${termino.fecha_limite}`. Se pasa como `fingerprint_keys.radicado/eventType/eventDate` para que el helper lo recomponga, **o** se inserta directamente con un `fingerprint` precomputado (más simple).
+4. Insert directo en `alert_instances` con `ON CONFLICT (fingerprint) DO NOTHING` para idempotencia. Requiere `unique index` sobre `fingerprint` — si no existe, agregar migración (ver Cambio 3).
+
+**Helper local en el archivo** (no importamos el cliente):
 ```ts
-export interface TerminoItem {
-  id: number;
-  radicado: string;
-  workflow_type: string | null;
-  despacho?: string | null;
-  demandante?: string | null;
-  demandado?: string | null;
-  tipo_auto?: string | null;
-  accion_abogado?: string | null;
-  dias_habiles?: number | null;
-  prioridad: "CRITICA" | "ALTA" | "NORMAL" | string;
-  norma?: string | null;
-  consecuencia?: string | null;
-  fecha_auto?: string | null;
-  fecha_limite?: string | null;
-  descripcion_auto?: string | null;
-  estado: "PENDIENTE" | "ATENDIDO" | string;
-  fuente?: string | null;
-  alerta: "VENCIDO" | "URGENTE" | "PROXIMO" | "VIGENTE" | string;
-  dias_vencido: number;
-  creado_en: string;
+async function md5Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("MD5", data); // si MD5 no está disponible en Deno, usar SHA-256 truncado
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
+```
+Nota: Deno no expone MD5 vía SubtleCrypto. Usaremos **SHA-256** y tomaremos los primeros 32 chars (equivalente en colisión-resistance, sirve para dedup). Esto difiere del cliente Node, pero el `fingerprint` solo necesita ser estable dentro de esta función.
 
-export async function fetchTerminos(): Promise<TerminoItem[]>;
-export async function atenderTermino(id: number, notas?: string): Promise<{ok:boolean}>;
+**Respuesta**: `{ ok: true, fetched: N, candidates: M, alerts_created: K, alerts_skipped_duplicate: D, no_owner: O }`.
+
+**Service role**: usar `SUPABASE_SERVICE_ROLE_KEY` (bypassa RLS para insertar alertas en nombre de cualquier owner).
+
+### Cambio 2 — Programar cron diario
+
+Agregar en `supabase/functions/_shared/cronRegistry.ts` una nueva entrada:
+```ts
+{
+  jobname: "sync-terminos-alertas-daily",
+  label: "Sync Términos → Alertas",
+  schedule_utc: "20 12 * * *",   // 07:20 COT (después del sync diario y antes del supervisor)
+  schedule_cot: "07:20 COT",
+  edge_function: "sync-terminos-alertas",
+  role: "ALERTS",
+  critical: true,
+  expected_active: true,
+  notes: "Lee /terminos y genera alertas TERMINO_CRITICO/TERMINO_VENCIDO para owners de work_items que matcheen radicado",
+}
 ```
 
-`fetchTerminos` hace `GET ${ANDROMEDA_API_BASE}/terminos`. `atenderTermino` hace `PATCH /terminos/{id}/atender` con `{ notas }`.
+Y crear migración SQL que registre el cron job vía `cron.schedule(...)` con `net.http_post` al edge function (mismo patrón que el resto del registry).
 
-### Cambio 2 — `src/components/terminos/TerminoCard.tsx` (nuevo)
+### Cambio 3 — Garantía de idempotencia en DB
 
-Card por término con:
+Verificar/crear índice único parcial sobre `alert_instances(fingerprint)` (probablemente ya existe; si no, migración:
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_instances_fingerprint_unique
+  ON public.alert_instances (fingerprint)
+  WHERE fingerprint IS NOT NULL;
+```
 
-- **Top-left**: badge alerta + badge prioridad
-  - Alerta: VENCIDO=`bg-red-500/15 text-red-700 border-red-300`, URGENTE=`bg-orange-500/15 text-orange-700 border-orange-300`, PROXIMO=`bg-yellow-500/15 text-yellow-700 border-yellow-300`, VIGENTE=`bg-green-500/15 text-green-700 border-green-300`.
-  - Prioridad: CRITICA=rojo, ALTA=naranja, NORMAL=gris (mismo patrón).
-- **Top-right**: badge fuente (reusa `fuenteBadgeClass` extraído).
-- **Línea radicado**: `radicado` mono + workflow badge.
-- **Despacho**: `Building2` + texto truncado.
-- **Partes**: `Users` + `demandante vs demandado`.
-- **Bloque destacado** (fondo `bg-muted/40 rounded p-2`):
-  - `tipo_auto` en negrita.
-  - `accion_abogado` en negrita.
-- **Metadatos** (text-xs muted): `norma` · `Fecha límite: {fecha_limite}` · `{dias_habiles} días hábiles` · indicador "vence en {N} días" o "vencido hace {N} días" usando `dias_vencido`.
-- **Consecuencia**: línea pequeña en rojo si existe (`AlertTriangle` icon).
-- **Footer**:
-  - Si `estado === "PENDIENTE"`: textarea opcional "Notas (acción tomada)" + botón "Marcar atendido" (variant default, icon `CheckCircle`).
-  - Si `estado === "ATENDIDO"`: badge verde "Atendido" + el card completo con `opacity-60` y `line-through` en títulos.
-- Borde izquierdo coloreado por alerta (rojo/naranja/amarillo/verde) o gris si atendido.
+Esto permite usar `ON CONFLICT (fingerprint) DO NOTHING` en el insert desde la edge function, garantizando que reejecuciones del cron no dupliquen alertas para el mismo `(radicado, termino_id, fecha_limite)`.
 
-### Cambio 3 — `src/pages/EstadosHoy.tsx`
+### Cambio 4 — Trigger manual desde Admin (opcional pero recomendado)
 
-Agregar una sección "Términos Procesales" **arriba** del listado de estados (después del banner de ejecutoria, antes del search):
+Pequeño botón "Ejecutar ahora" en el panel de Cron Governance (si existe) que llame al endpoint. Fuera de alcance si no se pide explícitamente — solo dejo nota.
 
-1. **Query nueva**:
-   ```ts
-   const { data: terminos, refetch: refetchTerminos } = useQuery({
-     queryKey: ["terminos-andromeda"],
-     queryFn: fetchTerminos,
-     staleTime: 30_000,
-   });
-   ```
+### Notas operativas
 
-2. **Estado local de atendidos optimista**: `useMutation` que llama `atenderTermino` y al éxito invalida la query. Mientras tanto, se aplica update optimista cambiando `estado` a `ATENDIDO`.
-
-3. **Ordenamiento**:
-   - Pendientes primero (por orden de alerta: VENCIDO=0, URGENTE=1, PROXIMO=2, VIGENTE=3, otros=4), desempate por `dias_vencido` desc para vencidos / `dias_vencido` asc para resto (más cercanos al vencimiento primero).
-   - Atendidos al final, ordenados por `creado_en` desc.
-
-4. **Render**:
-   ```tsx
-   <section className="space-y-3">
-     <h2 className="text-lg font-semibold flex items-center gap-2">
-       <AlarmClock className="h-5 w-5 text-primary" />
-       Términos Procesales
-       {pendientesCount > 0 && (
-         <Badge variant="destructive">{pendientesCount} pendientes</Badge>
-       )}
-     </h2>
-     {terminosOrdenados.map(t => (
-       <TerminoCard
-         key={t.id}
-         termino={t}
-         onMarcarAtendido={(notas) => mutation.mutate({ id: t.id, notas })}
-         loading={mutation.isPending && mutation.variables?.id === t.id}
-       />
-     ))}
-   </section>
-   ```
-
-   Estado vacío: card con mensaje "No hay términos procesales activos".
-
-### Cambio 4 — Refactor menor
-
-Extraer `fuenteBadgeClass` de `EstadosHoy.tsx` a `src/lib/services/andromeda-novedades.ts` (export nombrado) para reusarla en `TerminoCard` sin duplicación. ActuacionesHoy también puede importarla en cleanup futuro (no en este PR).
-
-### Notas de UX
-
-- Optimistic update: al hacer click en "Marcar atendido", el card se mueve al final y aplica `line-through` inmediatamente. Si la mutación falla → toast error y revertir.
-- Textarea de notas: máximo 500 caracteres, placeholder "¿Qué acción tomó? (opcional)".
-- Toast de éxito: "Término marcado como atendido".
+- **Términos sin radicado matcheable**: se loguea `console.warn` con `radicado` y se cuenta en `no_owner`. No se crea alerta huérfana.
+- **Múltiples work_items con el mismo radicado** (caso colaborativo): se crea **una alerta por owner distinto**. El fingerprint incluye `organization_id || owner_id` implícitamente al ser parte del scope, pero como aquí decidimos por owner, lo añadimos al input del hash: `${owner_id}:${radicado}:${termino.id}:${termino.fecha_limite}`.
+- **Campo `actions`**: se incluye `[{label: "Ver expediente", action: "navigate", params: {path: `/app/work-items/${work_item.id}`}}]` para deep-link.
+- **No se altera la API externa** ni `alert-service.ts` cliente. Toda la lógica vive dentro del edge function.
+- **Logging**: por término procesado: `radicado`, `termino_id`, `alerta`, `prioridad`, `owners matched`, resultado (`created` / `duplicate` / `error`).
 
 ### Fuera de alcance
-- No se persisten las notas localmente (solo se envían al PATCH; la API es la fuente de verdad).
-- No se filtra por radicado/despacho dentro de la sección de términos (todo en una lista; si crece, se evaluará buscador propio).
-- No se modifica `ActuacionesHoy.tsx`.
-- No se crean alertas/notificaciones internas a partir de términos VENCIDO/URGENTE.
+- No se cambia `TerminoCard` ni `EstadosHoy.tsx`.
+- No se generan emails directamente — el cron `dispatch-update-emails-5min` ya recoge las nuevas filas de `alert_instances` y aplica políticas de envío según `alert_preferences` del usuario.
+- No se sincroniza el campo `notas` de la API hacia ningún lado.
+- No se crea UI para forzar la ejecución manual.
 
