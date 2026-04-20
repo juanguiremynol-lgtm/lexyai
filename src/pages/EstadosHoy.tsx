@@ -57,7 +57,6 @@ function fuenteBadgeClass(fuente: string): string {
 
 export default function EstadosHoy() {
   const { organization } = useOrganization();
-  const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -77,10 +76,6 @@ export default function EstadosHoy() {
       const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
       let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
 
-      // Filter by source: PP and SAMAI_ESTADOS only
-      const allowed = new Set(["PP", "SAMAI_ESTADOS"]);
-      novedades = novedades.filter((n) => allowed.has((n.fuente || "").toUpperCase()));
-
       // Optional text search
       if (debouncedSearch) {
         const lower = debouncedSearch.toLowerCase();
@@ -93,15 +88,10 @@ export default function EstadosHoy() {
         );
       }
 
-      const items: EstadoHoyItemWithMeta[] = novedades.map(mapNovedadToEstado);
+      // Sort by creado_en DESC — no grouping, no dedup
+      novedades.sort((a, b) => (b.creado_en || "").localeCompare(a.creado_en || ""));
 
-      // Sort by creado_en DESC
-      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      const ppCount = novedades.filter((n) => n.fuente.toUpperCase() === "PP").length;
-      const samaiCount = novedades.filter((n) => n.fuente.toUpperCase() === "SAMAI_ESTADOS").length;
-
-      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
+      return { items: novedades, total: novedades.length };
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
