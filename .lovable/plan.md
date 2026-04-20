@@ -1,31 +1,44 @@
 
 
-## Plan: Desbloquear el fetch en EstadosHoy.tsx
+## Plan: Mostrar todas las novedades sin agrupar en EstadosHoy.tsx
 
-### Problema
-El `useQuery` tiene `enabled: !!organization?.id`, lo que impide que el fetch a Andromeda se dispare hasta que `OrganizationContext` resuelva. En esta sesión (Super Admin) el contexto puede tardar o devolver `null`, dejando el query congelado y sin generar ningún request en Network.
+### Cambio en `src/pages/EstadosHoy.tsx` (queryFn)
 
-### Cambio en `src/pages/EstadosHoy.tsx`
+1. **Eliminar el filtro de fuentes**: quitar el `Set` `allowed` y la línea `novedades = raw.filter(n => allowed.has(...))`. Aceptar todas las fuentes que devuelva la API.
 
-1. **Eliminar `enabled: !!organization?.id`** del `useQuery` principal (el de Andromeda en líneas 135-173). El endpoint `/novedades` no depende de la organización; es un feed global filtrado en cliente.
+2. **Eliminar cualquier deduplicación por radicado**: cada novedad es una fila independiente, incluso si comparte radicado con otras.
 
-2. **Quitar `organization?.id` del `queryKey`** del mismo query, ya que deja de ser una dependencia real:
+3. **Ordenar por `creado_en` DESC**:
    ```ts
-   queryKey: ["estados-hoy-andromeda", debouncedSearch],
+   raw.sort((a, b) => (b.creado_en || "").localeCompare(a.creado_en || ""));
    ```
 
-3. **Mantener** la condición `enabled: !!organization?.id` en el segundo query (`sync-health-estados`, línea 194), porque ese SÍ consulta `atenia_ai_reports` filtrado por `organization_id`.
+4. **Mantener** el buscador de texto existente (`debouncedSearch`) sobre el array completo.
 
-### Verificación posterior
-Recargar `/app/estados-hoy`. En Network debe aparecer inmediatamente:
-```
-GET https://andromeda-read-api-486431576619.us-central1.run.app/novedades?desde=...&hasta=...
-```
-Con un status real (200 si CORS está OK, error CORS visible si todavía falta whitelistear `*.lovable.app`).
+5. **Remover los `console.log` temporales** del paso de diagnóstico anterior.
+
+### Cambio en el render (tabla/lista de filas)
+
+Asegurar que cada fila muestre exactamente cuatro columnas, sin agrupar por radicado:
+
+| Radicado | Fuente (badge) | Descripción | Fecha |
+
+- **Radicado**: `n.radicado` (texto plano, monoespaciado).
+- **Fuente**: badge con `n.fuente` tal cual lo devuelve la API (ya hay soporte de badges para `PP`; las demás fuentes usan estilo neutro por defecto).
+- **Descripción**: `n.descripcion` (truncar con `line-clamp-2` si es muy larga).
+- **Fecha**: `n.creado_en` formateado a fecha+hora COT corto.
+
+Si el render actual usa `mapNovedadToEstado` para convertir a un tipo intermedio que agrupa o reordena, **se reemplaza por un render directo** sobre el array de `NovedadItem` para evitar pérdida de filas duplicadas por radicado.
+
+`key` de cada fila: `${n.radicado}-${n.creado_en}-${idx}` para garantizar unicidad incluso con duplicados.
+
+### Contadores
+
+El contador del header pasa a mostrar el total de novedades crudas (no procesos únicos): `novedades.length`.
 
 ### Fuera de alcance
-- No se toca `andromeda-novedades.ts`.
-- No se toca el filtro de fuentes ni la ventana de 30 días.
-- No se modifica `ActuacionesHoy.tsx`.
-- No se cambia `OrganizationContext`.
+- No se toca `andromeda-novedades.ts` (la ventana de 30 días sigue resuelta por `getAndromedaFallbackRange`).
+- No se modifica el segundo query (`sync-health-estados`).
+- No se cambia `ActuacionesHoy.tsx`.
+- No se ajustan estilos globales de badges; se reutilizan los existentes.
 
