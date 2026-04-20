@@ -162,6 +162,10 @@ export default function EstadosHoy() {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
     const rows = data.items.map((n) => sanitizeRowForExport({
       Radicado: n.radicado || "",
+      Despacho: n.despacho || "",
+      "Clase de Proceso": n.clase_proceso || "",
+      Demandante: n.demandante || "",
+      Demandado: n.demandado || "",
       Fuente: n.fuente || "",
       "Workflow": n.workflow_type || "",
       Descripción: n.descripcion || "",
