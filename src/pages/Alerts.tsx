@@ -613,6 +613,7 @@ export default function Alerts() {
         </Button>
       </div>
     </div>
+    )
   );
 
   // Render a reminder card with checkbox
