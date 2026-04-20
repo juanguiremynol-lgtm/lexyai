@@ -123,7 +123,6 @@ export default function EstadosHoy() {
   const { organization } = useOrganization();
   const navigate = useNavigate();
 
-  const [window, setWindow] = useState<HoyWindow>("today");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -134,28 +133,39 @@ export default function EstadosHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy-andromeda", organization?.id, window, debouncedSearch],
+    queryKey: ["estados-hoy-andromeda", organization?.id, debouncedSearch],
     queryFn: async () => {
-      const { items: novedades, isFallback, fallbackRange } = await fetchNovedadesWithFallback(
-        window,
-        ["PP", "SAMAI_ESTADOS"],
-        debouncedSearch || undefined
-      );
+      const { desde, hasta } = getAndromedaFallbackRange();
+      const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
+      const res = await fetch(url);
+      const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
+      let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
+
+      // Filter by source: PP and SAMAI_ESTADOS only
+      const allowed = new Set(["PP", "SAMAI_ESTADOS"]);
+      novedades = novedades.filter((n) => allowed.has((n.fuente || "").toUpperCase()));
+
+      // Optional text search
+      if (debouncedSearch) {
+        const lower = debouncedSearch.toLowerCase();
+        novedades = novedades.filter(
+          (n) =>
+            n.radicado?.toLowerCase().includes(lower) ||
+            n.descripcion?.toLowerCase().includes(lower) ||
+            n.fuente?.toLowerCase().includes(lower) ||
+            n.workflow_type?.toLowerCase().includes(lower)
+        );
+      }
 
       const items: EstadoHoyItemWithMeta[] = novedades.map(mapNovedadToEstado);
 
-      // Sort by fecha descending, then creado_en
-      items.sort((a, b) => {
-        const msA = a.date ? new Date(a.date).getTime() : 0;
-        const msB = b.date ? new Date(b.date).getTime() : 0;
-        if (msB !== msA) return msB - msA;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+      // Sort by creado_en DESC
+      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       const ppCount = novedades.filter((n) => n.fuente.toUpperCase() === "PP").length;
       const samaiCount = novedades.filter((n) => n.fuente.toUpperCase() === "SAMAI_ESTADOS").length;
 
-      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount, isFallback, fallbackRange };
+      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
     },
     enabled: !!organization?.id,
     staleTime: 30_000,
@@ -201,7 +211,6 @@ export default function EstadosHoy() {
     return u === "expired";
   }).length ?? 0;
 
-  const label = windowLabel(window);
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
   const handleExport = useCallback(() => {
