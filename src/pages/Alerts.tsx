@@ -487,6 +487,42 @@ export default function Alerts() {
   const isLoading = isLoadingInstances || isLoadingReminders;
   const totalAlerts = (alertInstances?.length || 0) + allReminders.length;
 
+  // Procedural alert types that use the consolidated portal row
+  const PROCEDURAL_ALERT_TYPES = new Set([
+    "ACTUACION_NUEVA",
+    "ACTUACION_MODIFIED",
+    "PUBLICACION_NEW",
+    "PUBLICACION_MODIFIED",
+    "ESTADO_NUEVO",
+  ]);
+
+  const isProcedural = (a: AlertInstance) =>
+    !!a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type);
+
+  // Group procedural alerts by canonical portal
+  const proceduralAlerts = (alertInstances ?? []).filter(isProcedural);
+  const portalGroups = PORTAL_GROUP_ORDER.reduce<Record<PortalKey, AlertInstance[]>>(
+    (acc, key) => {
+      acc[key] = [];
+      return acc;
+    },
+    {} as Record<PortalKey, AlertInstance[]>,
+  );
+  for (const a of proceduralAlerts) {
+    const portalRaw =
+      (a.payload && (a.payload as Record<string, unknown>).portal as string | undefined) ??
+      a.alert_source ??
+      null;
+    const key = normalizePortal(portalRaw);
+    portalGroups[key].push(a);
+  }
+
+  const portalCounts = (Object.entries(portalGroups) as [PortalKey, AlertInstance[]][])
+    .reduce<Record<PortalKey, number>>((acc, [k, v]) => {
+      acc[k] = v.length;
+      return acc;
+    }, {} as Record<PortalKey, number>);
+
   // Render alert card with checkbox
   const renderAlertCard = (instance: AlertInstance, showCheckbox = true) => (
     <div
