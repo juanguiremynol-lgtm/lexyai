@@ -231,9 +231,9 @@ export default function EstadosHoy() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Estados");
-    XLSX.writeFile(wb, `estados_${window}_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    XLSX.writeFile(wb, `estados_30d_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
     toast.success("Exportado");
-  }, [data?.items, window]);
+  }, [data?.items]);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
