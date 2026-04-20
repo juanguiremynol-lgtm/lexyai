@@ -29,6 +29,9 @@ import {
   CheckCircle,
   Download,
   WifiOff,
+  ExternalLink,
+  Building2,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -38,6 +41,13 @@ import { toast } from "sonner";
 import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
+
+/** Optional fields the API may return in the future; render if present. */
+type NovedadItemExt = NovedadItem & {
+  despacho?: string | null;
+  demandante?: string | null;
+  demandado?: string | null;
+};
 
 function fuenteBadgeClass(fuente: string): string {
   const f = (fuente || "").toUpperCase();
@@ -51,6 +61,27 @@ function fuenteBadgeClass(fuente: string): string {
     return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
   }
   return "bg-muted text-muted-foreground border-border";
+}
+
+/** Returns true if `fecha` is within the last 3 Colombian business days (Mon–Fri). */
+function isWithinEjecutoria(fecha: string | null | undefined): boolean {
+  if (!fecha) return false;
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d);
+  target.setHours(0, 0, 0, 0);
+  if (target > today) return false;
+  let businessDays = 0;
+  const cursor = new Date(today);
+  while (cursor >= target) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) businessDays++;
+    if (businessDays > 3) return false;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return businessDays <= 3;
 }
 
 /* ── page component ── */
