@@ -42,12 +42,7 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-/** Optional fields the API may return in the future; render if present. */
-type NovedadItemExt = NovedadItem & {
-  despacho?: string | null;
-  demandante?: string | null;
-  demandado?: string | null;
-};
+type NovedadItemExt = NovedadItem;
 
 function fuenteBadgeClass(fuente: string): string {
   const f = (fuente || "").toUpperCase();
@@ -167,6 +162,10 @@ export default function EstadosHoy() {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
     const rows = data.items.map((n) => sanitizeRowForExport({
       Radicado: n.radicado || "",
+      Despacho: n.despacho || "",
+      "Clase de Proceso": n.clase_proceso || "",
+      Demandante: n.demandante || "",
+      Demandado: n.demandado || "",
       Fuente: n.fuente || "",
       "Workflow": n.workflow_type || "",
       Descripción: n.descripcion || "",
@@ -304,6 +303,11 @@ function NovedadRow({ n }: { n: NovedadItemExt }) {
             {n.workflow_type && (
               <Badge variant="secondary" className="text-xs">
                 {n.workflow_type}
+              </Badge>
+            )}
+            {n.clase_proceso && (
+              <Badge variant="outline" className="text-xs">
+                {n.clase_proceso}
               </Badge>
             )}
           </div>

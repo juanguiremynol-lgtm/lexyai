@@ -15,6 +15,10 @@ export interface NovedadItem {
   workflow_type: string;
   fecha: string;
   descripcion: string;
+  despacho?: string | null;
+  demandante?: string | null;
+  demandado?: string | null;
+  clase_proceso?: string | null;
   gcs_url_auto?: string | null;
   gcs_url_tabla?: string | null;
   creado_en: string;
