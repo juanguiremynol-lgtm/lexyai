@@ -6,15 +6,22 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { humanizeCreatedAt } from "@/lib/colombia-date-utils";
 import {
   getAndromedaFallbackRange,
+  fuenteBadgeClass,
   type NovedadItem,
   type NovedadesResponse,
 } from "@/lib/services/andromeda-novedades";
+import {
+  fetchTerminos,
+  atenderTermino,
+  type TerminoItem,
+} from "@/lib/services/andromeda-terminos";
+import { TerminoCard } from "@/components/terminos/TerminoCard";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 import { Button } from "@/components/ui/button";
@@ -32,6 +39,7 @@ import {
   ExternalLink,
   Building2,
   Users,
+  AlarmClock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -43,20 +51,6 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 /* ── helpers ── */
 
 type NovedadItemExt = NovedadItem;
-
-function fuenteBadgeClass(fuente: string): string {
-  const f = (fuente || "").toUpperCase();
-  if (f === "PP" || f.includes("PUBLICACIONES")) {
-    return "bg-primary/10 text-primary border-primary/30";
-  }
-  if (f.includes("SAMAI")) {
-    return "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-300";
-  }
-  if (f.includes("CPNU")) {
-    return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
-  }
-  return "bg-muted text-muted-foreground border-border";
-}
 
 /** Returns true if `fecha` is within the last 3 Colombian business days (Mon–Fri). */
 function isWithinEjecutoria(fecha: string | null | undefined): boolean {
@@ -83,6 +77,7 @@ function isWithinEjecutoria(fecha: string | null | undefined): boolean {
 
 export default function EstadosHoy() {
   const { organization } = useOrganization();
+  const queryClient = useQueryClient();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -155,6 +150,63 @@ export default function EstadosHoy() {
     globalThis.addEventListener("atenia-sync-complete", handler);
     return () => globalThis.removeEventListener("atenia-sync-complete", handler);
   }, [refetch]);
+
+  /* ── Términos Procesales ── */
+  const { data: terminos = [] } = useQuery({
+    queryKey: ["terminos-andromeda"],
+    queryFn: fetchTerminos,
+    staleTime: 30_000,
+  });
+
+  const atenderMutation = useMutation({
+    mutationFn: ({ id, notas }: { id: number; notas: string }) =>
+      atenderTermino(id, notas),
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: ["terminos-andromeda"] });
+      const previous = queryClient.getQueryData<TerminoItem[]>(["terminos-andromeda"]);
+      queryClient.setQueryData<TerminoItem[]>(["terminos-andromeda"], (old) =>
+        (old || []).map((t) => (t.id === id ? { ...t, estado: "ATENDIDO" } : t))
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["terminos-andromeda"], ctx.previous);
+      toast.error("No se pudo marcar el término como atendido");
+    },
+    onSuccess: () => {
+      toast.success("Término marcado como atendido");
+      queryClient.invalidateQueries({ queryKey: ["terminos-andromeda"] });
+    },
+  });
+
+  const alertOrder: Record<string, number> = {
+    VENCIDO: 0,
+    URGENTE: 1,
+    PROXIMO: 2,
+    VIGENTE: 3,
+  };
+
+  const terminosOrdenados = [...terminos].sort((a, b) => {
+    const aAtendido = (a.estado || "").toUpperCase() === "ATENDIDO";
+    const bAtendido = (b.estado || "").toUpperCase() === "ATENDIDO";
+    if (aAtendido !== bAtendido) return aAtendido ? 1 : -1;
+    if (aAtendido && bAtendido) {
+      return (b.creado_en || "").localeCompare(a.creado_en || "");
+    }
+    const aOrder = alertOrder[(a.alerta || "").toUpperCase()] ?? 4;
+    const bOrder = alertOrder[(b.alerta || "").toUpperCase()] ?? 4;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    // Vencidos: más vencidos primero (dias_vencido desc)
+    // Resto: más cercanos al vencimiento primero (dias_vencido asc)
+    if ((a.alerta || "").toUpperCase() === "VENCIDO") {
+      return (b.dias_vencido ?? 0) - (a.dias_vencido ?? 0);
+    }
+    return (a.dias_vencido ?? 0) - (b.dias_vencido ?? 0);
+  });
+
+  const pendientesCount = terminos.filter(
+    (t) => (t.estado || "").toUpperCase() !== "ATENDIDO"
+  ).length;
 
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
@@ -230,6 +282,38 @@ export default function EstadosHoy() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Términos Procesales */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <AlarmClock className="h-5 w-5 text-primary" />
+          Términos Procesales
+          {pendientesCount > 0 && (
+            <Badge variant="destructive">{pendientesCount} pendientes</Badge>
+          )}
+        </h2>
+        {terminosOrdenados.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              No hay términos procesales activos.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {terminosOrdenados.map((t) => (
+              <TerminoCard
+                key={t.id}
+                termino={t}
+                onMarcarAtendido={(notas) => atenderMutation.mutate({ id: t.id, notas })}
+                loading={
+                  atenderMutation.isPending &&
+                  atenderMutation.variables?.id === t.id
+                }
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">

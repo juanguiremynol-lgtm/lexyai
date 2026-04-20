@@ -51,6 +51,23 @@ export function getAndromedaFallbackRange(): { desde: string; hasta: string } {
 }
 
 /**
+ * Tailwind classes for fuente badges. Shared across Estados/Actuaciones/Términos.
+ */
+export function fuenteBadgeClass(fuente: string | null | undefined): string {
+  const f = (fuente || "").toUpperCase();
+  if (f === "PP" || f.includes("PUBLICACIONES")) {
+    return "bg-primary/10 text-primary border-primary/30";
+  }
+  if (f.includes("SAMAI")) {
+    return "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-300";
+  }
+  if (f.includes("CPNU")) {
+    return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
+  }
+  return "bg-muted text-muted-foreground border-border";
+}
+
+/**
  * Fetch novedades for an arbitrary date range.
  */
 async function fetchNovedadesByRange(
