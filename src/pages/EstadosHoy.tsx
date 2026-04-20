@@ -42,12 +42,7 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-/** Optional fields the API may return in the future; render if present. */
-type NovedadItemExt = NovedadItem & {
-  despacho?: string | null;
-  demandante?: string | null;
-  demandado?: string | null;
-};
+type NovedadItemExt = NovedadItem;
 
 function fuenteBadgeClass(fuente: string): string {
   const f = (fuente || "").toUpperCase();
