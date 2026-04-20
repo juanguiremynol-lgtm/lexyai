@@ -810,6 +810,22 @@ export default function Alerts() {
         </Card>
       </div>
 
+      {/* Portal mini-chips */}
+      {proceduralAlerts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground mr-1">Por portal:</span>
+          {(["CPNU", "PP", "SAMAI", "SAMAI_ESTADOS"] as PortalKey[]).map((p) => (
+            <Badge
+              key={p}
+              variant="outline"
+              className={cn("text-xs", PORTAL_BADGE_CLASS[p])}
+            >
+              {PORTAL_LABEL[p]} · {portalCounts[p] ?? 0}
+            </Badge>
+          ))}
+        </div>
+      )}
+
       <Tabs defaultValue="notifications" className="w-full">
         <TabsList className="flex-wrap">
           <TabsTrigger value="notifications">
@@ -819,6 +835,10 @@ export default function Alerts() {
           <TabsTrigger value="milestones">
             <Target className="h-4 w-4 mr-1" />
             Hitos ({allReminders.length})
+          </TabsTrigger>
+          <TabsTrigger value="by_portal">
+            <Layers className="h-4 w-4 mr-1" />
+            Por portal ({proceduralAlerts.length})
           </TabsTrigger>
           <TabsTrigger value="process_updates">
             Actualizaciones ({processUpdateCount})
