@@ -40,6 +40,16 @@ import {
   AlertBulkConfirmDialog 
 } from "@/components/alerts";
 import { NotificationsAlertTab } from "@/components/alerts/NotificationsAlertTab";
+import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+import {
+  normalizePortal,
+  PORTAL_BADGE_CLASS,
+  PORTAL_LABEL,
+  PORTAL_GROUP_ORDER,
+  type PortalKey,
+} from "@/lib/alerts/portal-badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, Layers } from "lucide-react";
 
 type AlertInstanceAction = {
   label: string;
@@ -63,6 +73,8 @@ interface AlertInstance {
   resolved_at?: string | null;
   read_at?: string | null;
   snoozed_until?: string | null;
+  alert_source?: string | null;
+  alert_type?: string | null;
 }
 
 interface ReminderWithWorkItem extends WorkItemReminder {
