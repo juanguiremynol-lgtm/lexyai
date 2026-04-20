@@ -171,38 +171,6 @@ export default function EstadosHoy() {
       {/* Summary bar */}
       {data && data.total > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <strong className="text-foreground">{data.courtPostedCount}</strong> PP
-          </span>
-          {(data.samaiEstadosCount ?? 0) > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1">
-                <Scale className="h-4 w-4 text-blue-500" />
-                <strong className="text-foreground">{data.samaiEstadosCount}</strong> SAMAI Estados
-              </span>
-            </>
-          )}
-          {urgentItems > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1 text-destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <strong>{urgentItems}</strong> con términos urgentes
-              </span>
-            </>
-          )}
-          {expiredItems > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                <strong>{expiredItems}</strong> con términos vencidos
-              </span>
-            </>
-          )}
-          <span>·</span>
           <span><strong className="text-foreground">{data.total}</strong> total</span>
         </div>
       )}
