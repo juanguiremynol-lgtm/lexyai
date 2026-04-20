@@ -107,6 +107,10 @@ export default function EstadosHoy() {
       const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
       let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
 
+      // Filter: only PP and SAMAI_ESTADOS (case-insensitive)
+      const allowed = new Set(["PP", "SAMAI_ESTADOS"]);
+      novedades = novedades.filter((n) => allowed.has((n.fuente || "").toUpperCase()));
+
       // Optional text search
       if (debouncedSearch) {
         const lower = debouncedSearch.toLowerCase();
