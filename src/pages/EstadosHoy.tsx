@@ -77,6 +77,7 @@ function isWithinEjecutoria(fecha: string | null | undefined): boolean {
 
 export default function EstadosHoy() {
   const { organization } = useOrganization();
+  const queryClient = useQueryClient();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -149,6 +150,63 @@ export default function EstadosHoy() {
     globalThis.addEventListener("atenia-sync-complete", handler);
     return () => globalThis.removeEventListener("atenia-sync-complete", handler);
   }, [refetch]);
+
+  /* ── Términos Procesales ── */
+  const { data: terminos = [] } = useQuery({
+    queryKey: ["terminos-andromeda"],
+    queryFn: fetchTerminos,
+    staleTime: 30_000,
+  });
+
+  const atenderMutation = useMutation({
+    mutationFn: ({ id, notas }: { id: number; notas: string }) =>
+      atenderTermino(id, notas),
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: ["terminos-andromeda"] });
+      const previous = queryClient.getQueryData<TerminoItem[]>(["terminos-andromeda"]);
+      queryClient.setQueryData<TerminoItem[]>(["terminos-andromeda"], (old) =>
+        (old || []).map((t) => (t.id === id ? { ...t, estado: "ATENDIDO" } : t))
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["terminos-andromeda"], ctx.previous);
+      toast.error("No se pudo marcar el término como atendido");
+    },
+    onSuccess: () => {
+      toast.success("Término marcado como atendido");
+      queryClient.invalidateQueries({ queryKey: ["terminos-andromeda"] });
+    },
+  });
+
+  const alertOrder: Record<string, number> = {
+    VENCIDO: 0,
+    URGENTE: 1,
+    PROXIMO: 2,
+    VIGENTE: 3,
+  };
+
+  const terminosOrdenados = [...terminos].sort((a, b) => {
+    const aAtendido = (a.estado || "").toUpperCase() === "ATENDIDO";
+    const bAtendido = (b.estado || "").toUpperCase() === "ATENDIDO";
+    if (aAtendido !== bAtendido) return aAtendido ? 1 : -1;
+    if (aAtendido && bAtendido) {
+      return (b.creado_en || "").localeCompare(a.creado_en || "");
+    }
+    const aOrder = alertOrder[(a.alerta || "").toUpperCase()] ?? 4;
+    const bOrder = alertOrder[(b.alerta || "").toUpperCase()] ?? 4;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    // Vencidos: más vencidos primero (dias_vencido desc)
+    // Resto: más cercanos al vencimiento primero (dias_vencido asc)
+    if ((a.alerta || "").toUpperCase() === "VENCIDO") {
+      return (b.dias_vencido ?? 0) - (a.dias_vencido ?? 0);
+    }
+    return (a.dias_vencido ?? 0) - (b.dias_vencido ?? 0);
+  });
+
+  const pendientesCount = terminos.filter(
+    (t) => (t.estado || "").toUpperCase() !== "ATENDIDO"
+  ).length;
 
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
