@@ -852,6 +852,62 @@ export default function Alerts() {
           <NotificationsAlertTab />
         </TabsContent>
 
+        <TabsContent value="by_portal">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Novedades por portal
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Cargando...</div>
+              ) : proceduralAlerts.length === 0 ? (
+                <div className="text-center py-12">
+                  <Layers className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                  <h3 className="mt-4 text-lg font-medium">No hay novedades por portal</h3>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {PORTAL_GROUP_ORDER.map((portalKey) => {
+                    const items = portalGroups[portalKey];
+                    if (!items || items.length === 0) return null;
+                    return (
+                      <Collapsible key={portalKey} defaultOpen>
+                        <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-md hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={cn("text-xs", PORTAL_BADGE_CLASS[portalKey])}>
+                              {PORTAL_LABEL[portalKey]}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {items.length} novedad{items.length === 1 ? "" : "es"}
+                            </span>
+                          </div>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 mt-2">
+                          {items.map((instance) => (
+                            <AlertConsolidatedRow
+                              key={instance.id}
+                              alert={instance}
+                              isSelected={isSelected(instance.id)}
+                              onToggleSelect={toggleSelection}
+                              onAcknowledge={(id) => acknowledgeInstance.mutate(id)}
+                              onDismiss={(id) => dismissInstance.mutate(id)}
+                              isDismissing={dismissInstance.isPending}
+                            />
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="milestones">
           <Card>
             <CardHeader>
