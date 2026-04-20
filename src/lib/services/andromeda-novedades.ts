@@ -33,10 +33,10 @@ export interface NovedadesResponse {
  * "Semana"  → ayer-6 → ayer
  */
 export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta: string } {
-  const yesterday = getColombiaDate(-1); // ayer en COT
+  const hasta = getColombiaToday();
   const daysBack = window === "today" ? 0 : window === "three_days" ? 2 : 6;
   const desde = getColombiaDate(-1 - daysBack);
-  return { desde, hasta: yesterday };
+  return { desde, hasta };
 }
 
 /**
