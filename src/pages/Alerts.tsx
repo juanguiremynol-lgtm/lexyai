@@ -40,6 +40,16 @@ import {
   AlertBulkConfirmDialog 
 } from "@/components/alerts";
 import { NotificationsAlertTab } from "@/components/alerts/NotificationsAlertTab";
+import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+import {
+  normalizePortal,
+  PORTAL_BADGE_CLASS,
+  PORTAL_LABEL,
+  PORTAL_GROUP_ORDER,
+  type PortalKey,
+} from "@/lib/alerts/portal-badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, Layers } from "lucide-react";
 
 type AlertInstanceAction = {
   label: string;
@@ -63,6 +73,8 @@ interface AlertInstance {
   resolved_at?: string | null;
   read_at?: string | null;
   snoozed_until?: string | null;
+  alert_source?: string | null;
+  alert_type?: string | null;
 }
 
 interface ReminderWithWorkItem extends WorkItemReminder {
@@ -475,8 +487,56 @@ export default function Alerts() {
   const isLoading = isLoadingInstances || isLoadingReminders;
   const totalAlerts = (alertInstances?.length || 0) + allReminders.length;
 
+  // Procedural alert types that use the consolidated portal row
+  const PROCEDURAL_ALERT_TYPES = new Set([
+    "ACTUACION_NUEVA",
+    "ACTUACION_MODIFIED",
+    "PUBLICACION_NEW",
+    "PUBLICACION_MODIFIED",
+    "ESTADO_NUEVO",
+  ]);
+
+  const isProcedural = (a: AlertInstance) =>
+    !!a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type);
+
+  // Group procedural alerts by canonical portal
+  const proceduralAlerts = (alertInstances ?? []).filter(isProcedural);
+  const portalGroups = PORTAL_GROUP_ORDER.reduce<Record<PortalKey, AlertInstance[]>>(
+    (acc, key) => {
+      acc[key] = [];
+      return acc;
+    },
+    {} as Record<PortalKey, AlertInstance[]>,
+  );
+  for (const a of proceduralAlerts) {
+    const portalRaw =
+      (a.payload && (a.payload as Record<string, unknown>).portal as string | undefined) ??
+      a.alert_source ??
+      null;
+    const key = normalizePortal(portalRaw);
+    portalGroups[key].push(a);
+  }
+
+  const portalCounts = (Object.entries(portalGroups) as [PortalKey, AlertInstance[]][])
+    .reduce<Record<PortalKey, number>>((acc, [k, v]) => {
+      acc[k] = v.length;
+      return acc;
+    }, {} as Record<PortalKey, number>);
+
   // Render alert card with checkbox
   const renderAlertCard = (instance: AlertInstance, showCheckbox = true) => (
+    isProcedural(instance) ? (
+      <AlertConsolidatedRow
+        key={instance.id}
+        alert={instance}
+        isSelected={isSelected(instance.id)}
+        showCheckbox={showCheckbox}
+        onToggleSelect={toggleSelection}
+        onAcknowledge={(id) => acknowledgeInstance.mutate(id)}
+        onDismiss={(id) => dismissInstance.mutate(id)}
+        isDismissing={dismissInstance.isPending}
+      />
+    ) : (
     <div
       key={instance.id}
       className={cn(
@@ -553,6 +613,7 @@ export default function Alerts() {
         </Button>
       </div>
     </div>
+    )
   );
 
   // Render a reminder card with checkbox
@@ -749,6 +810,22 @@ export default function Alerts() {
         </Card>
       </div>
 
+      {/* Portal mini-chips */}
+      {proceduralAlerts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground mr-1">Por portal:</span>
+          {(["CPNU", "PP", "SAMAI", "SAMAI_ESTADOS"] as PortalKey[]).map((p) => (
+            <Badge
+              key={p}
+              variant="outline"
+              className={cn("text-xs", PORTAL_BADGE_CLASS[p])}
+            >
+              {PORTAL_LABEL[p]} · {portalCounts[p] ?? 0}
+            </Badge>
+          ))}
+        </div>
+      )}
+
       <Tabs defaultValue="notifications" className="w-full">
         <TabsList className="flex-wrap">
           <TabsTrigger value="notifications">
@@ -758,6 +835,10 @@ export default function Alerts() {
           <TabsTrigger value="milestones">
             <Target className="h-4 w-4 mr-1" />
             Hitos ({allReminders.length})
+          </TabsTrigger>
+          <TabsTrigger value="by_portal">
+            <Layers className="h-4 w-4 mr-1" />
+            Por portal ({proceduralAlerts.length})
           </TabsTrigger>
           <TabsTrigger value="process_updates">
             Actualizaciones ({processUpdateCount})
@@ -769,6 +850,62 @@ export default function Alerts() {
 
         <TabsContent value="notifications">
           <NotificationsAlertTab />
+        </TabsContent>
+
+        <TabsContent value="by_portal">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Novedades por portal
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Cargando...</div>
+              ) : proceduralAlerts.length === 0 ? (
+                <div className="text-center py-12">
+                  <Layers className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                  <h3 className="mt-4 text-lg font-medium">No hay novedades por portal</h3>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {PORTAL_GROUP_ORDER.map((portalKey) => {
+                    const items = portalGroups[portalKey];
+                    if (!items || items.length === 0) return null;
+                    return (
+                      <Collapsible key={portalKey} defaultOpen>
+                        <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-md hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={cn("text-xs", PORTAL_BADGE_CLASS[portalKey])}>
+                              {PORTAL_LABEL[portalKey]}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {items.length} novedad{items.length === 1 ? "" : "es"}
+                            </span>
+                          </div>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 mt-2">
+                          {items.map((instance) => (
+                            <AlertConsolidatedRow
+                              key={instance.id}
+                              alert={instance}
+                              isSelected={isSelected(instance.id)}
+                              onToggleSelect={toggleSelection}
+                              onAcknowledge={(id) => acknowledgeInstance.mutate(id)}
+                              onDismiss={(id) => dismissInstance.mutate(id)}
+                              isDismissing={dismissInstance.isPending}
+                            />
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="milestones">

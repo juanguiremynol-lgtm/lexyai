@@ -28,6 +28,7 @@ import {
   Plus,
 } from "lucide-react";
 import { format, formatDistanceToNow, isPast } from "date-fns";
+import { normalizePortal, PORTAL_BADGE_CLASS, PORTAL_LABEL } from "@/lib/alerts/portal-badge";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
@@ -353,7 +354,12 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
                           <span>{formatDistanceToNow(new Date(alert.created_at), { addSuffix: true, locale: es })}</span>
                           {alert.alert_source && (
-                            <Badge variant="outline" className="text-[10px]">{alert.alert_source}</Badge>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${PORTAL_BADGE_CLASS[normalizePortal(alert.alert_source)]}`}
+                            >
+                              {PORTAL_LABEL[normalizePortal(alert.alert_source)]}
+                            </Badge>
                           )}
                         </div>
                       </div>
