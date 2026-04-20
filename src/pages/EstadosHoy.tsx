@@ -309,19 +309,6 @@ export default function EstadosHoy() {
         </Card>
       )}
 
-      {/* Fallback notice — primary range returned 0, showing extended history */}
-      {data?.isFallback && (
-        <Alert className="border-yellow-500/50 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200 dark:border-yellow-500/40">
-          <AlertTriangle className="h-4 w-4 !text-yellow-700 dark:!text-yellow-400" />
-          <AlertTitle>No hay novedades recientes. Mostrando las últimas disponibles.</AlertTitle>
-          {data.fallbackRange && (
-            <AlertDescription className="text-xs opacity-80">
-              Rango ampliado: {data.fallbackRange.desde} → {data.fallbackRange.hasta}
-            </AlertDescription>
-          )}
-        </Alert>
-      )}
-
       {/* Ejecutoria info banner */}
       <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
         <CardContent className="py-3 flex items-center gap-3">
@@ -332,16 +319,8 @@ export default function EstadosHoy() {
         </CardContent>
       </Card>
 
-      {/* Window selector + search */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-          {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
-            <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
-              {w === "today" ? "Hoy" : w === "three_days" ? "3 Días" : "Semana"}
-            </Button>
-          ))}
-        </div>
+      {/* Search */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar radicado, despacho, partes..." value={searchTerm} onChange={(e) => handleSearchChange(e.target.value)} className="pl-10" />
@@ -359,7 +338,7 @@ export default function EstadosHoy() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Newspaper className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No hay estados publicados {label}</p>
+            <p className="font-medium">No hay estados publicados en los últimos 30 días</p>
             <p className="text-sm mt-1">Los estados aparecerán aquí cuando se descubran novedades en los juzgados monitoreados.</p>
           </CardContent>
         </Card>
