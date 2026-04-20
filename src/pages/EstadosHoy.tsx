@@ -7,20 +7,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import {
-  isInEjecutoriaWindow,
-  calculateTermStart,
-  type EstadoHoyItem,
-} from "@/lib/services/estados-hoy-service";
-import { detectEstadoType, type TickerItemSeverity, type TickerItemSource } from "@/lib/services/ticker-data-service";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  humanizeCreatedAt,
-  formatActDate,
-  getDeadlineUrgency,
-} from "@/lib/colombia-date-utils";
+import { humanizeCreatedAt } from "@/lib/colombia-date-utils";
 import {
   getAndromedaFallbackRange,
   type NovedadItem,
@@ -36,15 +25,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search,
   RefreshCw,
-  FileText,
   Newspaper,
-  Clock,
   CheckCircle,
   Download,
-  ExternalLink,
-  Sparkles,
-  AlertTriangle,
-  Scale,
   WifiOff,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -56,65 +39,18 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-interface EstadoHoyItemWithMeta extends EstadoHoyItem {
-  match_reason: string;
-  is_new: boolean;
-  fecha_fijacion_raw?: string | null;
-}
-
-const TIPO_COLORS: Record<string, string> = {
-  ESTADO: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-300",
-  ESTADO_ELECTRONICO: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-300",
-  EDICTO: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-300",
-  AUTO: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-300",
-  SENTENCIA: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-300",
-};
-
-function mapSource(fuente: string): TickerItemSource {
-  const l = fuente.toUpperCase();
-  if (l.includes("PP") || l.includes("PUBLICACIONES")) return "PUBLICACIONES_API";
-  if (l.includes("SAMAI")) return "SAMAI";
-  if (l.includes("CPNU")) return "CPNU";
-  return "MANUAL";
-}
-
-function mapNovedadToEstado(n: NovedadItem): EstadoHoyItemWithMeta {
-  const content = n.descripcion || "Estado publicado";
-  const estadoType = detectEstadoType(content);
-  const termCalc = calculateTermStart(null, null, n.fecha);
-  const ejecutoria = isInEjecutoriaWindow(termCalc.date);
-
-  let severity: TickerItemSeverity = "MEDIUM";
-  if (estadoType.type === "SENTENCIA") severity = "CRITICAL";
-  else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
-
-  return {
-    id: `${n.fuente}_${n.radicado}_${n.fecha}_${n.creado_en}`,
-    type: "ESTADO" as const,
-    source: mapSource(n.fuente),
-    radicado: n.radicado || "",
-    work_item_id: "",
-    workflow_type: n.workflow_type || "",
-    content,
-    date: n.fecha,
-    fecha_desfijacion: null,
-    fecha_fijacion_raw: n.fecha,
-    terminos_inician: termCalc.date,
-    is_deadline_trigger: estadoType.triggersDeadline,
-    missing_fecha_desfijacion: true,
-    severity,
-    tipo_publicacion: undefined,
-    despacho: undefined,
-    pdf_url: n.gcs_url_auto || n.gcs_url_tabla || undefined,
-    created_at: n.creado_en,
-    actuacion_type: estadoType.label,
-    inicia_termino: termCalc.date,
-    inicia_termino_source: termCalc.source,
-    is_in_ejecutoria_window: ejecutoria.isInWindow,
-    ejecutoria_ends_at: ejecutoria.windowEndsAt,
-    match_reason: "discovered",
-    is_new: true,
-  };
+function fuenteBadgeClass(fuente: string): string {
+  const f = (fuente || "").toUpperCase();
+  if (f === "PP" || f.includes("PUBLICACIONES")) {
+    return "bg-primary/10 text-primary border-primary/30";
+  }
+  if (f.includes("SAMAI")) {
+    return "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-300";
+  }
+  if (f.includes("CPNU")) {
+    return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
+  }
+  return "bg-muted text-muted-foreground border-border";
 }
 
 /* ── page component ── */
