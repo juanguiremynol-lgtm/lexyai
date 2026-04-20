@@ -6,15 +6,22 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { humanizeCreatedAt } from "@/lib/colombia-date-utils";
 import {
   getAndromedaFallbackRange,
+  fuenteBadgeClass,
   type NovedadItem,
   type NovedadesResponse,
 } from "@/lib/services/andromeda-novedades";
+import {
+  fetchTerminos,
+  atenderTermino,
+  type TerminoItem,
+} from "@/lib/services/andromeda-terminos";
+import { TerminoCard } from "@/components/terminos/TerminoCard";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 import { Button } from "@/components/ui/button";
@@ -32,6 +39,7 @@ import {
   ExternalLink,
   Building2,
   Users,
+  AlarmClock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -43,20 +51,6 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 /* ── helpers ── */
 
 type NovedadItemExt = NovedadItem;
-
-function fuenteBadgeClass(fuente: string): string {
-  const f = (fuente || "").toUpperCase();
-  if (f === "PP" || f.includes("PUBLICACIONES")) {
-    return "bg-primary/10 text-primary border-primary/30";
-  }
-  if (f.includes("SAMAI")) {
-    return "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-300";
-  }
-  if (f.includes("CPNU")) {
-    return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
-  }
-  return "bg-muted text-muted-foreground border-border";
-}
 
 /** Returns true if `fecha` is within the last 3 Colombian business days (Mon–Fri). */
 function isWithinEjecutoria(fecha: string | null | undefined): boolean {
