@@ -20,11 +20,13 @@ import {
   humanizeCreatedAt,
   formatActDate,
   getDeadlineUrgency,
-  windowLabel,
-  type HoyWindow,
 } from "@/lib/colombia-date-utils";
-import { fetchNovedadesWithFallback, type NovedadItem } from "@/lib/services/andromeda-novedades";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  getAndromedaFallbackRange,
+  type NovedadItem,
+  type NovedadesResponse,
+} from "@/lib/services/andromeda-novedades";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +40,6 @@ import {
   Newspaper,
   Clock,
   CheckCircle,
-  Calendar,
   Download,
   ExternalLink,
   Sparkles,
