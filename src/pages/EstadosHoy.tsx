@@ -301,6 +301,11 @@ function NovedadRow({ n }: { n: NovedadItemExt }) {
                 {n.workflow_type}
               </Badge>
             )}
+            {n.clase_proceso && (
+              <Badge variant="outline" className="text-xs">
+                {n.clase_proceso}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {enEjecutoria && (
