@@ -1,29 +1,31 @@
 
 
-## Plan: Agregar dominios Andromeda y Samai a CSP
+## Plan: Desbloquear el fetch en EstadosHoy.tsx
 
-### Cambio en `index.html`
+### Problema
+El `useQuery` tiene `enabled: !!organization?.id`, lo que impide que el fetch a Andromeda se dispare hasta que `OrganizationContext` resuelva. En esta sesión (Super Admin) el contexto puede tardar o devolver `null`, dejando el query congelado y sin generar ningún request en Network.
 
-Extender `connect-src` en el meta CSP para incluir los dos endpoints de Cloud Run que faltan:
+### Cambio en `src/pages/EstadosHoy.tsx`
 
-```html
-connect-src 'self' 
-  https://*.supabase.co 
-  wss://*.supabase.co 
-  https://cpnu-read-api-486431576619.us-central1.run.app 
-  https://pp-read-api-486431576619.us-central1.run.app 
-  https://andromeda-read-api-486431576619.us-central1.run.app 
-  https://samai-read-api-486431576619.us-central1.run.app;
-```
+1. **Eliminar `enabled: !!organization?.id`** del `useQuery` principal (el de Andromeda en líneas 135-173). El endpoint `/novedades` no depende de la organización; es un feed global filtrado en cliente.
 
-- `andromeda-read-api`: requerido por `EstadosHoy.tsx` y `andromeda-novedades.ts`.
-- `samai-read-api`: incluido preventivamente porque `mem://features/integracion-samai-cpaca` confirma que se usa para CPACA y podría ser llamado desde el navegador en otros componentes.
+2. **Quitar `organization?.id` del `queryKey`** del mismo query, ya que deja de ser una dependencia real:
+   ```ts
+   queryKey: ["estados-hoy-andromeda", debouncedSearch],
+   ```
+
+3. **Mantener** la condición `enabled: !!organization?.id` en el segundo query (`sync-health-estados`, línea 194), porque ese SÍ consulta `atenia_ai_reports` filtrado por `organization_id`.
 
 ### Verificación posterior
-Tras el cambio, recargar `/app/estados-hoy` con DevTools → Network. El fetch a `andromeda-read-api-.../novedades` debe pasar de "Failed to fetch" a un status HTTP real (200 o el error que devuelva la API).
+Recargar `/app/estados-hoy`. En Network debe aparecer inmediatamente:
+```
+GET https://andromeda-read-api-486431576619.us-central1.run.app/novedades?desde=...&hasta=...
+```
+Con un status real (200 si CORS está OK, error CORS visible si todavía falta whitelistear `*.lovable.app`).
 
 ### Fuera de alcance
-- No se toca `vite.config.ts` (la CSP no vive ahí).
-- No se modifican headers de Edge Functions (ortogonal al problema).
-- No se cambia `EstadosHoy.tsx` ni `andromeda-novedades.ts`.
+- No se toca `andromeda-novedades.ts`.
+- No se toca el filtro de fuentes ni la ventana de 30 días.
+- No se modifica `ActuacionesHoy.tsx`.
+- No se cambia `OrganizationContext`.
 
