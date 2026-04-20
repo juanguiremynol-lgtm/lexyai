@@ -126,32 +126,17 @@ export default function EstadosHoy() {
     return () => globalThis.removeEventListener("atenia-sync-complete", handler);
   }, [refetch]);
 
-  const urgentItems = data?.items.filter((i) => {
-    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
-    return u === "critical" || u === "warning";
-  }).length ?? 0;
-
-  const expiredItems = data?.items.filter((i) => {
-    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
-    return u === "expired";
-  }).length ?? 0;
-
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
   const handleExport = useCallback(() => {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
-    const rows = data.items.map((i) => sanitizeRowForExport({
-      Radicado: i.radicado || "",
-      Despacho: i.despacho || i.authority_name || "",
-      "Demandante(s)": i.demandantes || "",
-      "Demandado(s)": i.demandados || "",
-      Tipo: i.tipo_publicacion || "",
-      Contenido: i.content || "",
-      "Fecha fijación": i.fecha_fijacion_raw || i.date || "",
-      "Fecha desfijación": i.fecha_desfijacion || "",
-      "Inicia término": i.inicia_termino || "",
-      "En ejecutoria": i.is_in_ejecutoria_window ? "Sí" : "No",
-      Descubierta: i.is_new ? "Sí" : "No",
+    const rows = data.items.map((n) => sanitizeRowForExport({
+      Radicado: n.radicado || "",
+      Fuente: n.fuente || "",
+      "Workflow": n.workflow_type || "",
+      Descripción: n.descripcion || "",
+      Fecha: n.fecha || "",
+      "Creado en": n.creado_en || "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
