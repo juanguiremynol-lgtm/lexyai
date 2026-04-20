@@ -283,6 +283,38 @@ export default function EstadosHoy() {
         </CardContent>
       </Card>
 
+      {/* Términos Procesales */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <AlarmClock className="h-5 w-5 text-primary" />
+          Términos Procesales
+          {pendientesCount > 0 && (
+            <Badge variant="destructive">{pendientesCount} pendientes</Badge>
+          )}
+        </h2>
+        {terminosOrdenados.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              No hay términos procesales activos.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {terminosOrdenados.map((t) => (
+              <TerminoCard
+                key={t.id}
+                termino={t}
+                onMarcarAtendido={(notas) => atenderMutation.mutate({ id: t.id, notas })}
+                loading={
+                  atenderMutation.isPending &&
+                  atenderMutation.variables?.id === t.id
+                }
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="relative w-full sm:w-72">
