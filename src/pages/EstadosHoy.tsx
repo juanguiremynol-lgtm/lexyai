@@ -222,8 +222,8 @@ export default function EstadosHoy() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {data?.items.map((item) => (
-            <EstadoCard key={item.id} item={item} onNavigate={() => navigate(`/app/work-items/${item.work_item_id}`)} />
+          {data?.items.map((n, idx) => (
+            <NovedadRow key={`${n.radicado}-${n.creado_en}-${idx}`} n={n} />
           ))}
         </div>
       )}
@@ -231,103 +231,52 @@ export default function EstadosHoy() {
   );
 }
 
-/* ── card component ── */
+/* ── row component ── */
 
-function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavigate: () => void }) {
-  const tipo = (item.tipo_publicacion || "ESTADO").toUpperCase();
-  const colorClass = TIPO_COLORS[tipo] || TIPO_COLORS["ESTADO"];
-  const urgency = getDeadlineUrgency(item.terminos_inician ?? item.inicia_termino ?? null);
+function NovedadRow({ n }: { n: NovedadItem }) {
+  let fechaLabel = n.fecha || "—";
+  if (n.creado_en) {
+    try {
+      fechaLabel = format(new Date(n.creado_en), "dd MMM yyyy HH:mm", { locale: es });
+    } catch {
+      /* keep raw */
+    }
+  }
 
   return (
-    <Card
-      className={cn(
-        "cursor-pointer hover:shadow-md transition-shadow border-l-4",
-        item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/20 border-green-200",
-        urgency === "expired" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/50 bg-muted/30 opacity-75",
-        urgency === "critical" && !item.is_in_ejecutoria_window && "border-l-destructive bg-destructive/5",
-        urgency === "warning" && !item.is_in_ejecutoria_window && "border-l-orange-500 bg-orange-50 dark:bg-orange-950/10",
-        urgency === "normal" && !item.is_in_ejecutoria_window && "border-l-primary/30",
-        urgency === "none" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/30"
-      )}
-      onClick={onNavigate}
-    >
-      <CardContent className="py-4 space-y-3">
-        {/* Top row */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            {item.is_new && <span className="text-xs">🆕</span>}
-            <Badge variant="outline" className={cn("text-xs font-medium", colorClass)}>
-              {tipo.replace(/_/g, " ")}
-            </Badge>
-            {item.is_in_ejecutoria_window && (
-              <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                En ejecutoria
-              </Badge>
-            )}
-            {urgency === "expired" && !item.is_in_ejecutoria_window && (
-              <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/40">
-                <Clock className="h-3 w-3 mr-1" />
-                Vencido
-              </Badge>
-            )}
-            {urgency === "critical" && !item.is_in_ejecutoria_window && (
-              <Badge variant="destructive" className="text-xs">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                Términos urgentes
-              </Badge>
-            )}
-          </div>
-          <Badge variant="outline" className={cn("text-xs", item.source === 'SAMAI' ? "text-blue-600 border-blue-300 bg-blue-500/10" : "text-muted-foreground")}>
-            {item.source === 'SAMAI' ? '⚡ SAMAI Estados' : item.source}
-          </Badge>
-        </div>
-
-        {/* Radicado + court */}
-        <div>
-          <p className="font-mono text-sm font-medium text-foreground">{item.radicado || "—"}</p>
-          <p className="text-sm text-muted-foreground truncate">{item.despacho || item.authority_name || "—"}</p>
-          {(item.demandantes || item.demandados) && (
-            <p className="text-sm text-muted-foreground truncate">
-              {item.demandantes || "—"} vs {item.demandados || "—"}
+    <Card>
+      <CardContent className="py-3">
+        <div className="grid grid-cols-12 gap-3 items-start">
+          {/* Radicado */}
+          <div className="col-span-12 md:col-span-3">
+            <p className="font-mono text-sm font-medium text-foreground break-all">
+              {n.radicado || "—"}
             </p>
-          )}
-        </div>
-
-        {/* Content */}
-        {item.content && <p className="text-sm text-foreground/80 line-clamp-2">{item.content}</p>}
-
-        {/* Dates */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span>📅 Fecha: {formatActDate(item.fecha_fijacion_raw || item.date)}</span>
-            {(item.inicia_termino || item.terminos_inician) && (
-              <span className={cn(
-                "flex items-center gap-1",
-                urgency === "expired" && "text-muted-foreground line-through",
-                urgency === "critical" && "text-destructive font-bold",
-                urgency === "warning" && "text-orange-600 dark:text-orange-400 font-medium",
-                item.is_in_ejecutoria_window && "text-green-700 dark:text-green-400 font-medium"
-              )}>
-                <Clock className="h-3 w-3" />
-                Términos: {formatActDate(item.inicia_termino || item.terminos_inician || null)}
-              </span>
+            {n.workflow_type && (
+              <p className="text-xs text-muted-foreground mt-0.5">{n.workflow_type}</p>
             )}
-            <span>🔄 {humanizeCreatedAt(item.created_at)}</span>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {item.pdf_url && (
-              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
-                <a href={item.pdf_url} target="_blank" rel="noopener noreferrer">
-                  <FileText className="h-3 w-3" />
-                  PDF
-                </a>
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={onNavigate}>
-              <ExternalLink className="h-3 w-3" />
-              Ver Asunto
-            </Button>
+
+          {/* Fuente badge */}
+          <div className="col-span-6 md:col-span-2">
+            <Badge variant="outline" className={cn("text-xs font-medium", fuenteBadgeClass(n.fuente))}>
+              {n.fuente || "—"}
+            </Badge>
+          </div>
+
+          {/* Descripción */}
+          <div className="col-span-12 md:col-span-5">
+            <p className="text-sm text-foreground/80 line-clamp-2">
+              {n.descripcion || "—"}
+            </p>
+          </div>
+
+          {/* Fecha */}
+          <div className="col-span-6 md:col-span-2 text-right">
+            <p className="text-xs text-foreground">{fechaLabel}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {humanizeCreatedAt(n.creado_en)}
+            </p>
           </div>
         </div>
       </CardContent>
