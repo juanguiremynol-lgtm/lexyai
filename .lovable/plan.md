@@ -1,44 +1,62 @@
 
 
-## Plan: Mostrar todas las novedades sin agrupar en EstadosHoy.tsx
+## Plan: Mostrar campos adicionales de la API en EstadosHoy.tsx
 
-### Cambio en `src/pages/EstadosHoy.tsx` (queryFn)
+### Contexto
+La API `andromeda-read-api/novedades` ahora devuelve cuatro campos extra por novedad: `despacho`, `demandante`, `demandado`, `clase_proceso`. Hoy `NovedadItem` no los tipa, así que aunque vengan en el payload, TypeScript no los expone y el render los ignora.
 
-1. **Eliminar el filtro de fuentes**: quitar el `Set` `allowed` y la línea `novedades = raw.filter(n => allowed.has(...))`. Aceptar todas las fuentes que devuelva la API.
+### Cambio 1 — `src/lib/services/andromeda-novedades.ts`
 
-2. **Eliminar cualquier deduplicación por radicado**: cada novedad es una fila independiente, incluso si comparte radicado con otras.
+Extender la interfaz `NovedadItem` con los cuatro campos opcionales:
 
-3. **Ordenar por `creado_en` DESC**:
-   ```ts
-   raw.sort((a, b) => (b.creado_en || "").localeCompare(a.creado_en || ""));
-   ```
+```ts
+export interface NovedadItem {
+  fuente: string;
+  radicado: string;
+  workflow_type: string;
+  fecha: string;
+  descripcion: string;
+  despacho?: string | null;
+  demandante?: string | null;
+  demandado?: string | null;
+  clase_proceso?: string | null;
+  gcs_url_auto?: string | null;
+  gcs_url_tabla?: string | null;
+  creado_en: string;
+}
+```
 
-4. **Mantener** el buscador de texto existente (`debouncedSearch`) sobre el array completo.
+No se toca la lógica de fetch/filtros/fallback.
 
-5. **Remover los `console.log` temporales** del paso de diagnóstico anterior.
+### Cambio 2 — `src/pages/EstadosHoy.tsx` (componente `NovedadRow`)
 
-### Cambio en el render (tabla/lista de filas)
+Reorganizar la fila para usar los nuevos campos:
 
-Asegurar que cada fila muestre exactamente cuatro columnas, sin agrupar por radicado:
+1. **Bloque Radicado** (columna izquierda):
+   - Línea 1: `radicado` (mono) + badge `workflow_type` (igual que hoy).
+   - Línea 2 (nueva): `despacho` en `text-xs text-muted-foreground` con truncado a una línea. Si `despacho` está vacío, no se renderiza.
+   - Línea 3 (si existe `clase_proceso`): badge pequeño outline con `clase_proceso`.
 
-| Radicado | Fuente (badge) | Descripción | Fecha |
+2. **Bloque Descripción** (columna central):
+   - Línea 1 (nueva, solo si hay `demandante` o `demandado`): renderizar `Demandante vs Demandado` con formato:
+     - `<span className="font-medium">{demandante || "—"}</span>` + separador ` vs ` (gris) + `<span className="font-medium">{demandado || "—"}</span>`.
+     - Truncado a una línea con `truncate`.
+   - Línea 2: `descripcion` con `line-clamp-2` (igual que hoy).
+   - Si no hay ni demandante ni demandado, se omite la línea de partes y solo queda la descripción.
 
-- **Radicado**: `n.radicado` (texto plano, monoespaciado).
-- **Fuente**: badge con `n.fuente` tal cual lo devuelve la API (ya hay soporte de badges para `PP`; las demás fuentes usan estilo neutro por defecto).
-- **Descripción**: `n.descripcion` (truncar con `line-clamp-2` si es muy larga).
-- **Fecha**: `n.creado_en` formateado a fecha+hora COT corto.
+3. **Resto de la fila** (fecha, badge fuente, botón "Ver Auto", borde verde "En ejecutoria") permanece sin cambios.
 
-Si el render actual usa `mapNovedadToEstado` para convertir a un tipo intermedio que agrupa o reordena, **se reemplaza por un render directo** sobre el array de `NovedadItem` para evitar pérdida de filas duplicadas por radicado.
+### Cambio 3 — Export a Excel (`handleExport`)
 
-`key` de cada fila: `${n.radicado}-${n.creado_en}-${idx}` para garantizar unicidad incluso con duplicados.
+Añadir las cuatro columnas nuevas al export para mantener paridad con la UI:
 
-### Contadores
+| Radicado | Despacho | Clase de Proceso | Demandante | Demandado | Fuente | Workflow | Descripción | Fecha | Detectado |
 
-El contador del header pasa a mostrar el total de novedades crudas (no procesos únicos): `novedades.length`.
+Insertar `Despacho`, `Clase de Proceso`, `Demandante`, `Demandado` después de `Radicado`.
 
 ### Fuera de alcance
-- No se toca `andromeda-novedades.ts` (la ventana de 30 días sigue resuelta por `getAndromedaFallbackRange`).
-- No se modifica el segundo query (`sync-health-estados`).
-- No se cambia `ActuacionesHoy.tsx`.
-- No se ajustan estilos globales de badges; se reutilizan los existentes.
+- No se cambia el filtro de fuentes (`PP` + `SAMAI_ESTADOS`).
+- No se cambia el orden por `creado_en` DESC.
+- No se modifica `ActuacionesHoy.tsx` ni `andromeda-read-api`.
+- No se añaden filtros nuevos por despacho o clase de proceso (puede ser una mejora posterior).
 
