@@ -14943,6 +14943,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      normalize_alert_source: { Args: { raw: string }; Returns: string }
       notify_work_item_recipients: {
         Args: {
           p_body: string
