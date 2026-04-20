@@ -133,7 +133,7 @@ export default function EstadosHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy-andromeda", organization?.id, debouncedSearch],
+    queryKey: ["estados-hoy-andromeda", debouncedSearch],
     queryFn: async () => {
       const { desde, hasta } = getAndromedaFallbackRange();
       const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
@@ -167,7 +167,6 @@ export default function EstadosHoy() {
 
       return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
     },
-    enabled: !!organization?.id,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
