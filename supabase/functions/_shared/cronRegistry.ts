@@ -201,6 +201,18 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     expected_active: true,
     notes: "Evaluates alert rules and fires due alerts",
   },
+  {
+    jobname: "sync-terminos-alertas-daily",
+    label: "Sync Términos → Alertas",
+    schedule_utc: "20 12 * * *",
+    schedule_cot: "07:20 COT",
+    edge_function: "sync-terminos-alertas",
+    role: "ALERTS",
+    critical: true,
+    expected_active: true,
+    notes:
+      "Lee /terminos de Andromeda API y genera alertas TERMINO_CRITICO/TERMINO_VENCIDO para owners de work_items que matcheen radicado",
+  },
 
   // ── MAINTENANCE ──
   {

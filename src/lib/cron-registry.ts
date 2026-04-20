@@ -259,6 +259,23 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
       downstream: ["alert_instances", "alert_rules"],
     },
   },
+  {
+    jobname: "sync-terminos-alertas-daily",
+    label: "Sync Términos → Alertas",
+    schedule_utc: "20 12 * * *",
+    schedule_cot: "07:20 COT",
+    edge_function: "sync-terminos-alertas",
+    role: "ALERTS",
+    critical: true,
+    expected_active: true,
+    notes: "Lee /terminos y genera alertas TERMINO_CRITICO/TERMINO_VENCIDO",
+    wiring: {
+      orchestrator_phase: null,
+      is_orchestrator_job: false,
+      providers_impacted: ["andromeda_terminos"],
+      downstream: ["alert_instances", "email_outbox"],
+    },
+  },
 
   // ── MAINTENANCE ──
   {
