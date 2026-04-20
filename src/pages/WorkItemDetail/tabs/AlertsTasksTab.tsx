@@ -28,6 +28,7 @@ import {
   Plus,
 } from "lucide-react";
 import { format, formatDistanceToNow, isPast } from "date-fns";
+import { normalizePortal, PORTAL_BADGE_CLASS, PORTAL_LABEL } from "@/lib/alerts/portal-badge";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
