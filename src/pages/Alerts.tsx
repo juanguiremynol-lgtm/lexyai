@@ -525,6 +525,18 @@ export default function Alerts() {
 
   // Render alert card with checkbox
   const renderAlertCard = (instance: AlertInstance, showCheckbox = true) => (
+    isProcedural(instance) ? (
+      <AlertConsolidatedRow
+        key={instance.id}
+        alert={instance}
+        isSelected={isSelected(instance.id)}
+        showCheckbox={showCheckbox}
+        onToggleSelect={toggleSelection}
+        onAcknowledge={(id) => acknowledgeInstance.mutate(id)}
+        onDismiss={(id) => dismissInstance.mutate(id)}
+        isDismissing={dismissInstance.isPending}
+      />
+    ) : (
     <div
       key={instance.id}
       className={cn(
