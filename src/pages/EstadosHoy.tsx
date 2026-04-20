@@ -7,20 +7,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import {
-  isInEjecutoriaWindow,
-  calculateTermStart,
-  type EstadoHoyItem,
-} from "@/lib/services/estados-hoy-service";
-import { detectEstadoType, type TickerItemSeverity, type TickerItemSource } from "@/lib/services/ticker-data-service";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  humanizeCreatedAt,
-  formatActDate,
-  getDeadlineUrgency,
-} from "@/lib/colombia-date-utils";
+import { humanizeCreatedAt } from "@/lib/colombia-date-utils";
 import {
   getAndromedaFallbackRange,
   type NovedadItem,
@@ -36,15 +25,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search,
   RefreshCw,
-  FileText,
   Newspaper,
-  Clock,
   CheckCircle,
   Download,
-  ExternalLink,
-  Sparkles,
-  AlertTriangle,
-  Scale,
   WifiOff,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -56,72 +39,24 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-interface EstadoHoyItemWithMeta extends EstadoHoyItem {
-  match_reason: string;
-  is_new: boolean;
-  fecha_fijacion_raw?: string | null;
-}
-
-const TIPO_COLORS: Record<string, string> = {
-  ESTADO: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-300",
-  ESTADO_ELECTRONICO: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-300",
-  EDICTO: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-300",
-  AUTO: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-300",
-  SENTENCIA: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-300",
-};
-
-function mapSource(fuente: string): TickerItemSource {
-  const l = fuente.toUpperCase();
-  if (l.includes("PP") || l.includes("PUBLICACIONES")) return "PUBLICACIONES_API";
-  if (l.includes("SAMAI")) return "SAMAI";
-  if (l.includes("CPNU")) return "CPNU";
-  return "MANUAL";
-}
-
-function mapNovedadToEstado(n: NovedadItem): EstadoHoyItemWithMeta {
-  const content = n.descripcion || "Estado publicado";
-  const estadoType = detectEstadoType(content);
-  const termCalc = calculateTermStart(null, null, n.fecha);
-  const ejecutoria = isInEjecutoriaWindow(termCalc.date);
-
-  let severity: TickerItemSeverity = "MEDIUM";
-  if (estadoType.type === "SENTENCIA") severity = "CRITICAL";
-  else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
-
-  return {
-    id: `${n.fuente}_${n.radicado}_${n.fecha}_${n.creado_en}`,
-    type: "ESTADO" as const,
-    source: mapSource(n.fuente),
-    radicado: n.radicado || "",
-    work_item_id: "",
-    workflow_type: n.workflow_type || "",
-    content,
-    date: n.fecha,
-    fecha_desfijacion: null,
-    fecha_fijacion_raw: n.fecha,
-    terminos_inician: termCalc.date,
-    is_deadline_trigger: estadoType.triggersDeadline,
-    missing_fecha_desfijacion: true,
-    severity,
-    tipo_publicacion: undefined,
-    despacho: undefined,
-    pdf_url: n.gcs_url_auto || n.gcs_url_tabla || undefined,
-    created_at: n.creado_en,
-    actuacion_type: estadoType.label,
-    inicia_termino: termCalc.date,
-    inicia_termino_source: termCalc.source,
-    is_in_ejecutoria_window: ejecutoria.isInWindow,
-    ejecutoria_ends_at: ejecutoria.windowEndsAt,
-    match_reason: "discovered",
-    is_new: true,
-  };
+function fuenteBadgeClass(fuente: string): string {
+  const f = (fuente || "").toUpperCase();
+  if (f === "PP" || f.includes("PUBLICACIONES")) {
+    return "bg-primary/10 text-primary border-primary/30";
+  }
+  if (f.includes("SAMAI")) {
+    return "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-300";
+  }
+  if (f.includes("CPNU")) {
+    return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300";
+  }
+  return "bg-muted text-muted-foreground border-border";
 }
 
 /* ── page component ── */
 
 export default function EstadosHoy() {
   const { organization } = useOrganization();
-  const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -141,10 +76,6 @@ export default function EstadosHoy() {
       const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
       let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
 
-      // Filter by source: PP and SAMAI_ESTADOS only
-      const allowed = new Set(["PP", "SAMAI_ESTADOS"]);
-      novedades = novedades.filter((n) => allowed.has((n.fuente || "").toUpperCase()));
-
       // Optional text search
       if (debouncedSearch) {
         const lower = debouncedSearch.toLowerCase();
@@ -157,15 +88,10 @@ export default function EstadosHoy() {
         );
       }
 
-      const items: EstadoHoyItemWithMeta[] = novedades.map(mapNovedadToEstado);
+      // Sort by creado_en DESC — no grouping, no dedup
+      novedades.sort((a, b) => (b.creado_en || "").localeCompare(a.creado_en || ""));
 
-      // Sort by creado_en DESC
-      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      const ppCount = novedades.filter((n) => n.fuente.toUpperCase() === "PP").length;
-      const samaiCount = novedades.filter((n) => n.fuente.toUpperCase() === "SAMAI_ESTADOS").length;
-
-      return { items, total: items.length, discoveredCount: items.length, courtPostedCount: ppCount, samaiEstadosCount: samaiCount };
+      return { items: novedades, total: novedades.length };
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -200,32 +126,17 @@ export default function EstadosHoy() {
     return () => globalThis.removeEventListener("atenia-sync-complete", handler);
   }, [refetch]);
 
-  const urgentItems = data?.items.filter((i) => {
-    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
-    return u === "critical" || u === "warning";
-  }).length ?? 0;
-
-  const expiredItems = data?.items.filter((i) => {
-    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
-    return u === "expired";
-  }).length ?? 0;
-
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
   const handleExport = useCallback(() => {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
-    const rows = data.items.map((i) => sanitizeRowForExport({
-      Radicado: i.radicado || "",
-      Despacho: i.despacho || i.authority_name || "",
-      "Demandante(s)": i.demandantes || "",
-      "Demandado(s)": i.demandados || "",
-      Tipo: i.tipo_publicacion || "",
-      Contenido: i.content || "",
-      "Fecha fijación": i.fecha_fijacion_raw || i.date || "",
-      "Fecha desfijación": i.fecha_desfijacion || "",
-      "Inicia término": i.inicia_termino || "",
-      "En ejecutoria": i.is_in_ejecutoria_window ? "Sí" : "No",
-      Descubierta: i.is_new ? "Sí" : "No",
+    const rows = data.items.map((n) => sanitizeRowForExport({
+      Radicado: n.radicado || "",
+      Fuente: n.fuente || "",
+      "Workflow": n.workflow_type || "",
+      Descripción: n.descripcion || "",
+      Fecha: n.fecha || "",
+      "Creado en": n.creado_en || "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -260,38 +171,6 @@ export default function EstadosHoy() {
       {/* Summary bar */}
       {data && data.total > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <strong className="text-foreground">{data.courtPostedCount}</strong> PP
-          </span>
-          {(data.samaiEstadosCount ?? 0) > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1">
-                <Scale className="h-4 w-4 text-blue-500" />
-                <strong className="text-foreground">{data.samaiEstadosCount}</strong> SAMAI Estados
-              </span>
-            </>
-          )}
-          {urgentItems > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1 text-destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <strong>{urgentItems}</strong> con términos urgentes
-              </span>
-            </>
-          )}
-          {expiredItems > 0 && (
-            <>
-              <span>·</span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                <strong>{expiredItems}</strong> con términos vencidos
-              </span>
-            </>
-          )}
-          <span>·</span>
           <span><strong className="text-foreground">{data.total}</strong> total</span>
         </div>
       )}
@@ -343,8 +222,8 @@ export default function EstadosHoy() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {data?.items.map((item) => (
-            <EstadoCard key={item.id} item={item} onNavigate={() => navigate(`/app/work-items/${item.work_item_id}`)} />
+          {data?.items.map((n, idx) => (
+            <NovedadRow key={`${n.radicado}-${n.creado_en}-${idx}`} n={n} />
           ))}
         </div>
       )}
@@ -352,103 +231,52 @@ export default function EstadosHoy() {
   );
 }
 
-/* ── card component ── */
+/* ── row component ── */
 
-function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavigate: () => void }) {
-  const tipo = (item.tipo_publicacion || "ESTADO").toUpperCase();
-  const colorClass = TIPO_COLORS[tipo] || TIPO_COLORS["ESTADO"];
-  const urgency = getDeadlineUrgency(item.terminos_inician ?? item.inicia_termino ?? null);
+function NovedadRow({ n }: { n: NovedadItem }) {
+  let fechaLabel = n.fecha || "—";
+  if (n.creado_en) {
+    try {
+      fechaLabel = format(new Date(n.creado_en), "dd MMM yyyy HH:mm", { locale: es });
+    } catch {
+      /* keep raw */
+    }
+  }
 
   return (
-    <Card
-      className={cn(
-        "cursor-pointer hover:shadow-md transition-shadow border-l-4",
-        item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/20 border-green-200",
-        urgency === "expired" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/50 bg-muted/30 opacity-75",
-        urgency === "critical" && !item.is_in_ejecutoria_window && "border-l-destructive bg-destructive/5",
-        urgency === "warning" && !item.is_in_ejecutoria_window && "border-l-orange-500 bg-orange-50 dark:bg-orange-950/10",
-        urgency === "normal" && !item.is_in_ejecutoria_window && "border-l-primary/30",
-        urgency === "none" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/30"
-      )}
-      onClick={onNavigate}
-    >
-      <CardContent className="py-4 space-y-3">
-        {/* Top row */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            {item.is_new && <span className="text-xs">🆕</span>}
-            <Badge variant="outline" className={cn("text-xs font-medium", colorClass)}>
-              {tipo.replace(/_/g, " ")}
-            </Badge>
-            {item.is_in_ejecutoria_window && (
-              <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                En ejecutoria
-              </Badge>
-            )}
-            {urgency === "expired" && !item.is_in_ejecutoria_window && (
-              <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/40">
-                <Clock className="h-3 w-3 mr-1" />
-                Vencido
-              </Badge>
-            )}
-            {urgency === "critical" && !item.is_in_ejecutoria_window && (
-              <Badge variant="destructive" className="text-xs">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                Términos urgentes
-              </Badge>
-            )}
-          </div>
-          <Badge variant="outline" className={cn("text-xs", item.source === 'SAMAI' ? "text-blue-600 border-blue-300 bg-blue-500/10" : "text-muted-foreground")}>
-            {item.source === 'SAMAI' ? '⚡ SAMAI Estados' : item.source}
-          </Badge>
-        </div>
-
-        {/* Radicado + court */}
-        <div>
-          <p className="font-mono text-sm font-medium text-foreground">{item.radicado || "—"}</p>
-          <p className="text-sm text-muted-foreground truncate">{item.despacho || item.authority_name || "—"}</p>
-          {(item.demandantes || item.demandados) && (
-            <p className="text-sm text-muted-foreground truncate">
-              {item.demandantes || "—"} vs {item.demandados || "—"}
+    <Card>
+      <CardContent className="py-3">
+        <div className="grid grid-cols-12 gap-3 items-start">
+          {/* Radicado */}
+          <div className="col-span-12 md:col-span-3">
+            <p className="font-mono text-sm font-medium text-foreground break-all">
+              {n.radicado || "—"}
             </p>
-          )}
-        </div>
-
-        {/* Content */}
-        {item.content && <p className="text-sm text-foreground/80 line-clamp-2">{item.content}</p>}
-
-        {/* Dates */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span>📅 Fecha: {formatActDate(item.fecha_fijacion_raw || item.date)}</span>
-            {(item.inicia_termino || item.terminos_inician) && (
-              <span className={cn(
-                "flex items-center gap-1",
-                urgency === "expired" && "text-muted-foreground line-through",
-                urgency === "critical" && "text-destructive font-bold",
-                urgency === "warning" && "text-orange-600 dark:text-orange-400 font-medium",
-                item.is_in_ejecutoria_window && "text-green-700 dark:text-green-400 font-medium"
-              )}>
-                <Clock className="h-3 w-3" />
-                Términos: {formatActDate(item.inicia_termino || item.terminos_inician || null)}
-              </span>
+            {n.workflow_type && (
+              <p className="text-xs text-muted-foreground mt-0.5">{n.workflow_type}</p>
             )}
-            <span>🔄 {humanizeCreatedAt(item.created_at)}</span>
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {item.pdf_url && (
-              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
-                <a href={item.pdf_url} target="_blank" rel="noopener noreferrer">
-                  <FileText className="h-3 w-3" />
-                  PDF
-                </a>
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={onNavigate}>
-              <ExternalLink className="h-3 w-3" />
-              Ver Asunto
-            </Button>
+
+          {/* Fuente badge */}
+          <div className="col-span-6 md:col-span-2">
+            <Badge variant="outline" className={cn("text-xs font-medium", fuenteBadgeClass(n.fuente))}>
+              {n.fuente || "—"}
+            </Badge>
+          </div>
+
+          {/* Descripción */}
+          <div className="col-span-12 md:col-span-5">
+            <p className="text-sm text-foreground/80 line-clamp-2">
+              {n.descripcion || "—"}
+            </p>
+          </div>
+
+          {/* Fecha */}
+          <div className="col-span-6 md:col-span-2 text-right">
+            <p className="text-xs text-foreground">{fechaLabel}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {humanizeCreatedAt(n.creado_en)}
+            </p>
           </div>
         </div>
       </CardContent>
