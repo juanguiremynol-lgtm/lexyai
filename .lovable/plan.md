@@ -1,29 +1,26 @@
 
 
-## Plan: Ajustes mínimos de rango y filtro
+## Plan: Reconectar EstadosHoy.tsx a la API Andromeda (30 días fijo)
 
-### 1. `src/lib/services/andromeda-novedades.ts`
-En `getAndromedaDateRange`, cambiar `hasta` para que sea **hoy COT** en lugar de **ayer COT** en las tres ventanas:
+Con CORS corregido, vuelvo a conectar `EstadosHoy.tsx` a la API externa Andromeda directamente desde el navegador.
 
-```ts
-export function getAndromedaDateRange(window: HoyWindow): { desde: string; hasta: string } {
-  const hasta = getColombiaToday();
-  const daysBack = window === "today" ? 0 : window === "three_days" ? 2 : 6;
-  const desde = getColombiaDate(-1 - daysBack);
-  return { desde, hasta };
-}
-```
+### Cambios en `src/pages/EstadosHoy.tsx`
 
-`desde` se mantiene igual (ayer, ayer-2, ayer-6) para preservar la ventana "incluye ayer" tras el cron de las 2 AM COT.
+1. **Fetch directo a Andromeda** vía `getAndromedaFallbackRange()` (ventana fija de 30 días hasta hoy COT).
+2. **Filtrar fuentes** en cliente: solo `PP` y `SAMAI_ESTADOS` (case-insensitive).
+3. **Ordenar** por `creado_en DESC`.
+4. **Buscador de texto** sobre `radicado`, `descripcion`, `fuente`, `workflow_type` (mantener el debounce existente).
+5. **Eliminar**:
+   - Selector Hoy / 3 Días / Semana y estado `window`.
+   - Banner amarillo de fallback y cualquier `Alert` relacionado.
+   - Icono `Calendar` y referencias a `HoyWindow`.
+6. **Mantener**: header, contadores, tabla/lista de estados, mapeo `mapNovedadToEstado` y badges de fuente (`PP` ya soportado).
 
-### 2. `src/pages/ActuacionesHoy.tsx`
-**Sin cambios.** Se mantiene el filtro `["CPNU", "SAMAI"]` tal como está.
-
-### 3. `src/pages/EstadosHoy.tsx`
-Cambiar el array de fuentes pasado a `fetchNovedadesWithFallback` a `["PP", "SAMAI_ESTADOS"]`. Si `mapSource()` no reconoce `"PP"`, agregar el mapeo correspondiente para que el badge se renderice correctamente.
+### Resultado
+La página `/app/estados-hoy` muestra siempre los últimos 30 días de novedades PP + SAMAI_ESTADOS ordenadas por fecha de creación descendente, con buscador de texto como único filtro.
 
 ### Fuera de alcance
-- No se toca `getAndromedaFallbackRange()` (ya quedó con `hasta = hoy COT` en el cambio anterior).
-- No se modifica la lógica de fallback ni el banner amarillo.
-- No se ajusta el parseo de fechas `DD/MM/YYYY` para sort.
+- `ActuacionesHoy.tsx` no se toca.
+- `andromeda-novedades.ts` no se toca.
+- No se agrega Edge Function proxy (CORS ya resuelto).
 
