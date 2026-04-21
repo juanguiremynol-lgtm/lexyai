@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Scale, Send, Gavel, Building2, Landmark, ChevronRight, Info, Briefcase, Shield } from "lucide-react";
+import { Scale, Send, Gavel, Building2, Landmark, ChevronRight, Info, Briefcase, Shield, FileText } from "lucide-react";
 import {
   type WorkflowType,
   type CGPPhase,
