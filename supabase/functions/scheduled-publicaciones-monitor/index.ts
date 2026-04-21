@@ -1,3 +1,4 @@
+import { ALERT_TYPE_ESTADO_NUEVO } from "../_shared/alertTypeConstants.ts";
 /**
  * scheduled-publicaciones-monitor Edge Function
  * 
@@ -225,14 +226,13 @@ Deno.serve(async (req) => {
                 title: `${syncResult.inserted_count} Nuevas Publicaciones Procesales`,
                 message: `Se detectaron ${syncResult.inserted_count} nuevas publicaciones para el radicado ${workItem.radicado}:\n${insertedTitles}${moreCount}`,
                 status: 'PENDING',
-                // NULL-GUARD FIX: explicit alert_type so dispatcher recognises it.
-                // 'PUBLICACIONES_NUEVAS' is an aggregated, in-app-only signal
-                // (no email dispatch) — per-item ESTADO_NUEVO alerts are
-                // produced by the publicacion trigger.
-                alert_type: 'PUBLICACIONES_NUEVAS',
+                // Canonical alert_type so dispatcher emails it. Previously
+                // emitted 'PUBLICACIONES_NUEVAS' which was not in
+                // JUDICIAL_ALERT_TYPES and was silently dropped.
+                alert_type: ALERT_TYPE_ESTADO_NUEVO,
                 alert_source: 'scheduled-publicaciones-monitor',
                 payload: {
-                  alert_type: 'PUBLICACIONES_NUEVAS',
+                  alert_type: ALERT_TYPE_ESTADO_NUEVO,
                   run_id: runId,
                   workflow_type: workItem.workflow_type,
                   radicado: workItem.radicado,
