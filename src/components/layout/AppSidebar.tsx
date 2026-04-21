@@ -14,6 +14,7 @@ import {
   Mail,
   FileSignature,
   PenTool,
+  Monitor,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -51,6 +52,7 @@ const navItems = [
   { title: "Documentos", url: "/app/documentos-legales", icon: FileSignature },
   { title: "Utilidades", url: "/app/utilities", icon: Wrench },
   { title: "Enlaces", url: "/app/links", icon: Link2 },
+  { title: "Sistema", url: "/app/sistema", icon: Monitor },
 ];
 
 const settingsItems = [
