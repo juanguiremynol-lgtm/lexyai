@@ -334,6 +334,151 @@ export default function SistemaSalud() {
           )}
         </CardContent>
       </Card>
+
+      {/* Estado de Work Items */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Estado de Work Items</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {workItemsEstado.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Sin datos de work items.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Monitoreo</TableHead>
+                  <TableHead>Pausado</TableHead>
+                  <TableHead>Cerrado</TableHead>
+                  <TableHead>CPNU Status</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {workItemsEstado.map((w, idx) => {
+                  const status = (w.status ?? "").toUpperCase();
+                  const cpnuStatus = (w.cpnu_status ?? "").toUpperCase();
+                  const isActiveSuccess = status === "ACTIVE" && cpnuStatus === "SUCCESS";
+                  const isNotFound = cpnuStatus === "NOT_FOUND";
+                  const isDeleted = status === "DELETED";
+                  const tone = isDeleted
+                    ? "border-destructive/40 text-destructive bg-destructive/10"
+                    : isActiveSuccess
+                    ? "border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
+                    : isNotFound
+                    ? "border-amber-500/40 text-amber-500 bg-amber-500/10"
+                    : "border-muted-foreground/30 text-muted-foreground bg-muted/30";
+                  return (
+                    <TableRow key={idx}>
+                      <TableCell>
+                        <Badge variant="outline" className={tone}>
+                          {status || "—"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {toBool(w.monitoring_enabled) ? "Sí" : "No"}
+                      </TableCell>
+                      <TableCell className="text-sm">{toBool(w.pausado) ? "Sí" : "No"}</TableCell>
+                      <TableCell className="text-sm">{toBool(w.cerrado) ? "Sí" : "No"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {cpnuStatus || "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {toNum(w.total)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Radicados con problemas */}
+      <div>
+        <h2 className="text-lg font-display font-semibold mb-3">Radicados con problemas</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Sin workflow_type</span>
+                <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
+                  {sinWorkflow.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sinWorkflow.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Todos los radicados tienen workflow asignado.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Despacho</TableHead>
+                      <TableHead>Portales</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sinWorkflow.map((row, idx) => (
+                      <TableRow key={`${row.radicado}-${idx}`}>
+                        <TableCell className="font-mono text-xs">{row.radicado}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.despacho || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <PortalBadges pp={row.en_pp} cpnu={row.en_cpnu} samai={row.en_samai} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Sin despacho</span>
+                <Badge variant="outline" className="border-amber-500/40 text-amber-500 bg-amber-500/10">
+                  {sinDespacho.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sinDespacho.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Todos los radicados tienen despacho asignado.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Workflow</TableHead>
+                      <TableHead>Portales</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sinDespacho.map((row, idx) => (
+                      <TableRow key={`${row.radicado}-${idx}`}>
+                        <TableCell className="font-mono text-xs">{row.radicado}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.workflow_type || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <PortalBadges pp={row.en_pp} cpnu={row.en_cpnu} samai={row.en_samai} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
