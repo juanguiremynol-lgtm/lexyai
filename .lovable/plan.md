@@ -1,39 +1,74 @@
 
 
-## Plan: Backfill enriquecimiento de payload + verificar build
+## Plan: Fallback ANDROMEDA en `AlertConsolidatedRow` para enriquecer datos faltantes
 
-### Cambio 1 — Ejecutar UPDATE de datos sobre `alert_instances`
+### Objetivo
+Cuando `payload.despacho` o `payload.demandante` están vacíos, hacer fetch a `GET ${ANDROMEDA_API_BASE}/radicados/:radicado` y usar la respuesta como fallback. Cachear por radicado con React Query.
 
-Usar el **insert tool** (no migración SQL — es UPDATE de datos, no cambio de schema) para correr:
+### Cambio 1 — Nuevo hook `src/hooks/useAndromedaRadicado.ts`
 
-```sql
-UPDATE alert_instances ai SET
-  payload = COALESCE(ai.payload, '{}'::jsonb) || jsonb_build_object(
-    'despacho', wi.authority_name,
-    'demandante', wi.demandantes,
-    'demandado', wi.demandados
-  )
-FROM work_items wi
-WHERE ai.entity_id = wi.id
-  AND (ai.payload->>'despacho' IS NULL OR ai.payload->>'despacho' = '')
-  AND ai.alert_type IN ('ACTUACION_NUEVA','ACTUACION_MODIFIED','PUBLICACION_NEW','ESTADO_NUEVO');
+```ts
+import { useQuery } from "@tanstack/react-query";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+
+export interface AndromedaRadicadoData {
+  despacho_nombre?: string | null;
+  demandante?: string | null;
+  demandado?: string | null;
+}
+
+export function useAndromedaRadicado(radicado: string | null, enabled: boolean) {
+  return useQuery<AndromedaRadicadoData | null>({
+    queryKey: ["andromeda-radicado", radicado],
+    enabled: enabled && !!radicado,
+    staleTime: 1000 * 60 * 60, // 1h
+    gcTime: 1000 * 60 * 60 * 24,
+    retry: 1,
+    queryFn: async () => {
+      if (!radicado) return null;
+      const res = await fetch(`${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado)}`);
+      if (!res.ok) return null;
+      return (await res.json()) as AndromedaRadicadoData;
+    },
+  });
+}
 ```
 
-Idempotente: solo afecta filas con `despacho` vacío. No toca `portal`, `tipo_actuacion` ni `fecha_auto` (ya backfilleados en migración previa).
+### Cambio 2 — `src/components/alerts/AlertConsolidatedRow.tsx`
 
-Tras ejecutar, validar con un `SELECT COUNT(*)` de filas con `despacho` no nulo y un sample de 3 filas para confirmar que `AlertConsolidatedRow` ahora tiene datos visibles.
+**a. Helper para extraer radicado** (23 dígitos, formato Colombia):
+```ts
+function extractRadicado(alert: AlertLike, payloadRadicado: string | null): string | null {
+  if (payloadRadicado) return payloadRadicado;
+  const RX = /\b\d{23}\b/;
+  return alert.title?.match(RX)?.[0] ?? alert.message?.match(RX)?.[0] ?? null;
+}
+```
 
-### Cambio 2 — Errores de build (stale, no requieren código)
+**b. Detectar si falta data y disparar query**:
+```ts
+const radicadoForLookup = extractRadicado(alert, radicado);
+const needsFallback = !despacho || !demandante || !demandado;
+const { data: andro } = useAndromedaRadicado(radicadoForLookup, needsFallback);
 
-Verifiqué `src/components/alerts/NotificationsAlertTab.tsx` (423 líneas):
-- `ALERT_TYPE_LABELS` está definido localmente en línea 49.
-- No hay referencias a `UserNotification`, `UserAlertType` ni `ALERT_TYPE_BADGE_STYLES` en el archivo.
-- Las líneas que el error cita (96, 243, 244, 298, 299) corresponden hoy a código válido (query a `alert_instances`, badge "sin leer", JSX de filtros).
+const finalDespacho   = despacho   ?? andro?.despacho_nombre ?? null;
+const finalDemandante = demandante ?? andro?.demandante      ?? null;
+const finalDemandado  = demandado  ?? andro?.demandado       ?? null;
+const finalRadicado   = radicado   ?? radicadoForLookup;
+```
 
-Los errores son de una versión anterior del archivo (snapshot stale del compilador). Al ejecutar cualquier cambio el build se re-evaluará y desaparecerán. No requiere edición de código.
+**c. Render**: reemplazar `radicado` → `finalRadicado`, `despacho` → `finalDespacho`, `demandante`/`demandado` → versiones finales. Sin cambios visuales adicionales — los mismos bloques se muestran si los valores existen, ahora poblados desde ANDROMEDA cuando el payload no los tiene.
+
+### Detalles técnicos
+- **Caché por radicado**: dos alertas del mismo expediente comparten un único request.
+- **No bloquea render**: la fila se pinta de inmediato con lo del payload; cuando llega ANDROMEDA, React Query refresca y los `—` se reemplazan.
+- **Tolerancia a fallos**: `res.ok` falso → `null`, fila queda como antes (con `—`). `retry: 1` evita ruido.
+- **No se llama si no hace falta**: `enabled` solo se activa cuando algún campo está vacío Y hay radicado disponible.
+- **Sin auth**: el endpoint es público (mismo patrón que otros usos de `ANDROMEDA_API_BASE` en el código). Si requiere headers, se ajustará al detectar 401.
 
 ### Fuera de alcance
-- No se modifican triggers ni schema.
-- No se cambia `AlertConsolidatedRow`, `Alerts.tsx` ni `NotificationsAlertTab.tsx`.
-- No se backfillea `portal`, `tipo_actuacion` ni `fecha_auto` (ya hecho).
+- No se modifica `Alerts.tsx` ni `NotificationsAlertTab.tsx`.
+- No se backfillea la base — el fallback es lazy en cliente.
+- No se cambia `isProcedural` ni el sistema de portal badges.
+- No se persiste el resultado de ANDROMEDA en `alert_instances.payload` (sería un siguiente paso si se quiere reducir requests cross-sesión).
 
