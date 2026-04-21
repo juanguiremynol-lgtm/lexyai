@@ -490,6 +490,7 @@ export default function Alerts() {
   // Procedural alert types that use the consolidated portal row
   const PROCEDURAL_ALERT_TYPES = new Set([
     "ACTUACION_NUEVA",
+    "ACTUACION_NEW",
     "ACTUACION_MODIFIED",
     "PUBLICACION_NEW",
     "PUBLICACION_MODIFIED",
