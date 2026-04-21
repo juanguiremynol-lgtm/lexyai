@@ -220,8 +220,11 @@ export function NotificationsAlertTab() {
   };
 
   const unreadCount = alerts.filter((a) => !a.read_at).length;
-  const isProcedural = (a: AlertInstance) =>
-    !!a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type);
+  const isProcedural = (a: AlertInstance) => {
+    if (a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type)) return true;
+    const p = (a.payload ?? {}) as Record<string, unknown>;
+    return Boolean(p.portal || p.despacho || p.demandante || p.tipo_actuacion);
+  };
 
   // Available filter types: union of procedural + types present in current data
   const presentTypes = Array.from(
