@@ -32,6 +32,7 @@ import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
 
 const PROCEDURAL_ALERT_TYPES = new Set([
   "ACTUACION_NUEVA",
+  "ACTUACION_NEW",
   "ACTUACION_MODIFIED",
   "PUBLICACION_NEW",
   "PUBLICACION_MODIFIED",
