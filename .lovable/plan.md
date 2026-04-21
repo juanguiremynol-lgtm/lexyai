@@ -1,52 +1,39 @@
 
 
-## Plan: Unificar pestaña "Notificaciones" sobre `alert_instances`
+## Plan: Backfill enriquecimiento de payload + verificar build
 
-### Objetivo
-Reemplazar `NotificationsAlertTab` para que consuma `alert_instances` (misma fuente que las pestañas "Todas" y "Por portal") y renderice cada fila con `AlertConsolidatedRow`. Elimina la divergencia entre la tabla legacy `notifications` y el sistema canónico de alertas.
+### Cambio 1 — Ejecutar UPDATE de datos sobre `alert_instances`
 
-### Cambio único — `src/pages/WorkItemDetail/tabs/NotificationsAlertTab.tsx`
+Usar el **insert tool** (no migración SQL — es UPDATE de datos, no cambio de schema) para correr:
 
-Reescribir el componente conservando su shape externa (mismas props, misma ubicación en el detalle del work item) pero cambiando origen de datos y render:
-
-**Query**:
-```ts
-supabase
-  .from("alert_instances")
-  .select("*")
-  .eq("entity_id", workItemId)
-  .order("fired_at", { ascending: false })
-  .limit(100);
+```sql
+UPDATE alert_instances ai SET
+  payload = COALESCE(ai.payload, '{}'::jsonb) || jsonb_build_object(
+    'despacho', wi.authority_name,
+    'demandante', wi.demandantes,
+    'demandado', wi.demandados
+  )
+FROM work_items wi
+WHERE ai.entity_id = wi.id
+  AND (ai.payload->>'despacho' IS NULL OR ai.payload->>'despacho' = '')
+  AND ai.alert_type IN ('ACTUACION_NUEVA','ACTUACION_MODIFIED','PUBLICACION_NEW','ESTADO_NUEVO');
 ```
-Sin filtros adicionales — la pestaña muestra todas las alertas asociadas al expediente (procedurales y operativas).
 
-**Render**:
-- Usar `AlertConsolidatedRow` para alertas procedurales (mismo helper `isProcedural` que `Alerts.tsx`: `ACTUACION_*`, `PUBLICACION_*`, `ESTADO_*`).
-- Para alertas no procedurales (TAREA_VENCIDA, HEARING_*, TERMINO_*, WATCHDOG_*), mantener un render simple inline (título + mensaje + severidad + fecha) sin badge de portal — esas alertas no tienen `payload.portal`.
-- Conservar handlers existentes (`onAcknowledge`, `onDismiss`) cableados a las mutaciones que ya usa `Alerts.tsx` (reutilizar `useAlertActions` si existe, o duplicar la lógica mínima de `update alert_instances set status='ACKNOWLEDGED'/'DISMISSED'`).
-- Estados: loading skeleton, empty state ("Sin notificaciones para este expediente"), error.
+Idempotente: solo afecta filas con `despacho` vacío. No toca `portal`, `tipo_actuacion` ni `fecha_auto` (ya backfilleados en migración previa).
 
-**KPIs / header opcional**: mantener el contador "N notificaciones" si la versión actual lo tenía; calcular desde el array.
+Tras ejecutar, validar con un `SELECT COUNT(*)` de filas con `despacho` no nulo y un sample de 3 filas para confirmar que `AlertConsolidatedRow` ahora tiene datos visibles.
 
-**Realtime (opcional)**: suscribirse a `postgres_changes` en `alert_instances` filtrado por `entity_id=eq.${workItemId}` para refresco en vivo (mismo patrón que `Alerts.tsx` si ya lo aplica). Si el componente actual no tiene realtime, no añadirlo en este paso.
+### Cambio 2 — Errores de build (stale, no requieren código)
 
-### Limpieza
+Verifiqué `src/components/alerts/NotificationsAlertTab.tsx` (423 líneas):
+- `ALERT_TYPE_LABELS` está definido localmente en línea 49.
+- No hay referencias a `UserNotification`, `UserAlertType` ni `ALERT_TYPE_BADGE_STYLES` en el archivo.
+- Las líneas que el error cita (96, 243, 244, 298, 299) corresponden hoy a código válido (query a `alert_instances`, badge "sin leer", JSX de filtros).
 
-- **No tocar la tabla `notifications`** ni `insert_notification()`. El sistema legacy de email sigue intacto (ver "Fuera de alcance").
-- Eliminar imports muertos hacia `notifications` en este componente.
-- Si quedan utilidades exclusivas del antiguo render (mappers de `notifications.metadata`), borrarlas del archivo.
-
-### Detalles técnicos
-
-- `AlertConsolidatedRow` ya tolera payloads incompletos (renderiza "—" para campos faltantes) → alertas viejas sin enriquecer no rompen UI.
-- RLS: `alert_instances` filtra por `owner_id`/`organization_id` igual que en `Alerts.tsx`; el query devolverá solo lo permitido.
-- Tipos: extender la interfaz local `AlertInstance` igual que en `Alerts.tsx` para incluir `alert_source`, `payload`, `read_at`.
-- Sin migración SQL, sin cambios en otros archivos.
+Los errores son de una versión anterior del archivo (snapshot stale del compilador). Al ejecutar cualquier cambio el build se re-evaluará y desaparecerán. No requiere edición de código.
 
 ### Fuera de alcance
-
-- No se elimina la tabla `notifications` ni los triggers que la alimentan (sigue siendo fuente para `dispatch-update-emails-5min`).
-- No se modifica `Alerts.tsx`, `AlertConsolidatedRow.tsx` ni `portal-badge.ts`.
-- No se cambia el orden/visibilidad de pestañas en el detalle del work item.
-- No se backfillea nada — `alert_instances` ya está poblada y enriquecida.
+- No se modifican triggers ni schema.
+- No se cambia `AlertConsolidatedRow`, `Alerts.tsx` ni `NotificationsAlertTab.tsx`.
+- No se backfillea `portal`, `tipo_actuacion` ni `fecha_auto` (ya hecho).
 
