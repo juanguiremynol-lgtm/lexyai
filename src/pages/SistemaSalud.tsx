@@ -38,6 +38,28 @@ type SaludResponse = {
     proximos: string | number;
   };
   novedades_24h: Array<{ fuente: string; total: string | number }>;
+  work_items_estado?: Array<{
+    status?: string;
+    monitoring_enabled?: boolean | string | null;
+    pausado?: boolean | string | null;
+    cerrado?: boolean | string | null;
+    cpnu_status?: string | null;
+    total: string | number;
+  }>;
+  sin_workflow?: Array<{
+    radicado: string;
+    despacho?: string | null;
+    en_pp?: boolean | string | null;
+    en_cpnu?: boolean | string | null;
+    en_samai?: boolean | string | null;
+  }>;
+  sin_despacho?: Array<{
+    radicado: string;
+    workflow_type?: string | null;
+    en_pp?: boolean | string | null;
+    en_cpnu?: boolean | string | null;
+    en_samai?: boolean | string | null;
+  }>;
 };
 
 const toNum = (v: unknown): number => {
@@ -45,6 +67,46 @@ const toNum = (v: unknown): number => {
   if (typeof v === "string") return Number(v) || 0;
   return 0;
 };
+
+const toBool = (v: unknown): boolean => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") return ["true", "t", "1", "yes", "si", "sí"].includes(v.toLowerCase());
+  return false;
+};
+
+function PortalBadges({
+  pp,
+  cpnu,
+  samai,
+}: {
+  pp?: unknown;
+  cpnu?: unknown;
+  samai?: unknown;
+}) {
+  const items: Array<{ label: string; on: boolean }> = [
+    { label: "PP", on: toBool(pp) },
+    { label: "CPNU", on: toBool(cpnu) },
+    { label: "SAMAI", on: toBool(samai) },
+  ];
+  return (
+    <div className="flex gap-1">
+      {items.map((i) => (
+        <Badge
+          key={i.label}
+          variant="outline"
+          className={
+            i.on
+              ? "border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
+              : "border-muted-foreground/30 text-muted-foreground bg-muted/30"
+          }
+        >
+          {i.label}
+        </Badge>
+      ))}
+    </div>
+  );
+}
 
 async function fetchSalud(): Promise<SaludResponse> {
   const res = await fetch(`${ANDROMEDA_API_BASE}/salud`);
@@ -95,6 +157,9 @@ export default function SistemaSalud() {
   const t = data?.terminos;
   const jobs = data?.jobs ?? [];
   const novedades = data?.novedades_24h ?? [];
+  const workItemsEstado = data?.work_items_estado ?? [];
+  const sinWorkflow = data?.sin_workflow ?? [];
+  const sinDespacho = data?.sin_despacho ?? [];
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -269,6 +334,151 @@ export default function SistemaSalud() {
           )}
         </CardContent>
       </Card>
+
+      {/* Estado de Work Items */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Estado de Work Items</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {workItemsEstado.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Sin datos de work items.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Monitoreo</TableHead>
+                  <TableHead>Pausado</TableHead>
+                  <TableHead>Cerrado</TableHead>
+                  <TableHead>CPNU Status</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {workItemsEstado.map((w, idx) => {
+                  const status = (w.status ?? "").toUpperCase();
+                  const cpnuStatus = (w.cpnu_status ?? "").toUpperCase();
+                  const isActiveSuccess = status === "ACTIVE" && cpnuStatus === "SUCCESS";
+                  const isNotFound = cpnuStatus === "NOT_FOUND";
+                  const isDeleted = status === "DELETED";
+                  const tone = isDeleted
+                    ? "border-destructive/40 text-destructive bg-destructive/10"
+                    : isActiveSuccess
+                    ? "border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
+                    : isNotFound
+                    ? "border-amber-500/40 text-amber-500 bg-amber-500/10"
+                    : "border-muted-foreground/30 text-muted-foreground bg-muted/30";
+                  return (
+                    <TableRow key={idx}>
+                      <TableCell>
+                        <Badge variant="outline" className={tone}>
+                          {status || "—"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {toBool(w.monitoring_enabled) ? "Sí" : "No"}
+                      </TableCell>
+                      <TableCell className="text-sm">{toBool(w.pausado) ? "Sí" : "No"}</TableCell>
+                      <TableCell className="text-sm">{toBool(w.cerrado) ? "Sí" : "No"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {cpnuStatus || "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {toNum(w.total)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Radicados con problemas */}
+      <div>
+        <h2 className="text-lg font-display font-semibold mb-3">Radicados con problemas</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Sin workflow_type</span>
+                <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
+                  {sinWorkflow.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sinWorkflow.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Todos los radicados tienen workflow asignado.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Despacho</TableHead>
+                      <TableHead>Portales</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sinWorkflow.map((row, idx) => (
+                      <TableRow key={`${row.radicado}-${idx}`}>
+                        <TableCell className="font-mono text-xs">{row.radicado}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.despacho || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <PortalBadges pp={row.en_pp} cpnu={row.en_cpnu} samai={row.en_samai} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Sin despacho</span>
+                <Badge variant="outline" className="border-amber-500/40 text-amber-500 bg-amber-500/10">
+                  {sinDespacho.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sinDespacho.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Todos los radicados tienen despacho asignado.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Workflow</TableHead>
+                      <TableHead>Portales</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sinDespacho.map((row, idx) => (
+                      <TableRow key={`${row.radicado}-${idx}`}>
+                        <TableCell className="font-mono text-xs">{row.radicado}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.workflow_type || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <PortalBadges pp={row.en_pp} cpnu={row.en_cpnu} samai={row.en_samai} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
