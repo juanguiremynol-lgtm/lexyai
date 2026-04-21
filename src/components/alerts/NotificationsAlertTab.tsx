@@ -29,6 +29,7 @@ import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+import { AlertGroupedRow, type GroupedAlertItem } from "@/components/alerts/AlertGroupedRow";
 
 const PROCEDURAL_ALERT_TYPES = new Set([
   "ACTUACION_NUEVA",
@@ -336,23 +337,67 @@ export function NotificationsAlertTab() {
           </div>
         ) : (
           <div className="space-y-2">
-            {alerts.map((a) => {
-              if (isProcedural(a)) {
-                return (
-                  <AlertConsolidatedRow
-                    key={a.id}
-                    alert={a}
-                    isSelected={selectedIds.has(a.id)}
-                    showCheckbox
-                    onToggleSelect={toggleSelection}
-                    onAcknowledge={(id) => acknowledge.mutate(id)}
-                    onDismiss={(id) => dismiss.mutate(id)}
-                    isDismissing={dismiss.isPending}
-                  />
-                );
+            {(() => {
+              const proceduralByEntity = new Map<string, GroupedAlertItem[]>();
+              for (const a of alerts) {
+                if (isProcedural(a) && a.entity_id) {
+                  const list = proceduralByEntity.get(a.entity_id) ?? [];
+                  list.push(a as GroupedAlertItem);
+                  proceduralByEntity.set(a.entity_id, list);
+                }
+              }
+              const seen = new Set<string>();
+              const renderItems: Array<
+                | { kind: "group"; entityId: string; items: GroupedAlertItem[] }
+                | { kind: "single"; alert: AlertInstance }
+              > = [];
+              for (const a of alerts) {
+                if (isProcedural(a) && a.entity_id) {
+                  if (seen.has(a.entity_id)) continue;
+                  seen.add(a.entity_id);
+                  renderItems.push({
+                    kind: "group",
+                    entityId: a.entity_id,
+                    items: proceduralByEntity.get(a.entity_id) ?? [],
+                  });
+                } else {
+                  renderItems.push({ kind: "single", alert: a });
+                }
               }
 
-              const severity = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.INFO;
+              return renderItems.map((it) => {
+                if (it.kind === "group") {
+                  if (it.items.length === 1) {
+                    const a = it.items[0];
+                    return (
+                      <AlertConsolidatedRow
+                        key={a.id}
+                        alert={a}
+                        isSelected={selectedIds.has(a.id)}
+                        showCheckbox
+                        onToggleSelect={toggleSelection}
+                        onAcknowledge={(id) => acknowledge.mutate(id)}
+                        onDismiss={(id) => dismiss.mutate(id)}
+                        isDismissing={dismiss.isPending}
+                      />
+                    );
+                  }
+                  return (
+                    <AlertGroupedRow
+                      key={`group-${it.entityId}`}
+                      entityId={it.entityId}
+                      alerts={it.items}
+                      selectedIds={selectedIds}
+                      onToggleSelect={toggleSelection}
+                      onMarkRead={(id) => markRead.mutate(id)}
+                      onDismiss={(id) => dismiss.mutate(id)}
+                      isDismissing={dismiss.isPending}
+                    />
+                  );
+                }
+
+                const a = it.alert;
+                const severity = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.INFO;
               const typeLabel = a.alert_type ? (ALERT_TYPE_LABELS[a.alert_type] ?? a.alert_type) : "Notificación";
               const deepLink = a.entity_id ? `/app/work-items/${a.entity_id}` : null;
 
@@ -418,7 +463,8 @@ export function NotificationsAlertTab() {
                   </div>
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
         )}
       </CardContent>
