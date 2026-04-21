@@ -180,28 +180,28 @@ export function AlertConsolidatedRow({
         </div>
 
         {/* Radicado */}
-        {radicado && (
+        {finalRadicado && (
           <p className="text-xs text-muted-foreground mb-0.5">
-            Radicado: <code className="bg-muted px-1 rounded">{radicado}</code>
+            Radicado: <code className="bg-muted px-1 rounded">{finalRadicado}</code>
           </p>
         )}
 
         {/* Despacho */}
-        {despacho && (
+        {finalDespacho && (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-0.5">
             <Gavel className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{despacho}</span>
+            <span className="truncate">{finalDespacho}</span>
           </p>
         )}
 
         {/* Partes */}
-        {(demandante || demandado) && (
+        {(finalDemandante || finalDemandado) && (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1">
             <Users className="h-3 w-3 flex-shrink-0" />
             <span className="truncate">
-              <span className="font-medium text-foreground/80">{demandante ?? "—"}</span>
+              <span className="font-medium text-foreground/80">{finalDemandante ?? "—"}</span>
               <span className="mx-1.5 text-muted-foreground">vs</span>
-              <span className="font-medium text-foreground/80">{demandado ?? "—"}</span>
+              <span className="font-medium text-foreground/80">{finalDemandado ?? "—"}</span>
             </span>
           </p>
         )}
