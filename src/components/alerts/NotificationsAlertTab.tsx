@@ -42,8 +42,9 @@ const PROCEDURAL_ALERT_TYPES = new Set([
 
 const SEVERITY_STYLES: Record<string, { dot: string; border: string }> = {
   INFO: { dot: "bg-primary", border: "border-primary/20" },
-  WARN: { dot: "bg-amber-500", border: "border-amber-500/30" },
   WARNING: { dot: "bg-amber-500", border: "border-amber-500/30" },
+  // Legacy alias — old `alerts` table enum used 'WARN'
+  WARN: { dot: "bg-amber-500", border: "border-amber-500/30" },
   CRITICAL: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
   error: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
 };
@@ -296,7 +297,7 @@ export function NotificationsAlertTab() {
             <SelectContent>
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="INFO">Info</SelectItem>
-              <SelectItem value="WARN">Alerta</SelectItem>
+              <SelectItem value="WARNING">Alerta</SelectItem>
               <SelectItem value="CRITICAL">Crítica</SelectItem>
             </SelectContent>
           </Select>
