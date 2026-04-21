@@ -68,6 +68,46 @@ const toNum = (v: unknown): number => {
   return 0;
 };
 
+const toBool = (v: unknown): boolean => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") return ["true", "t", "1", "yes", "si", "sí"].includes(v.toLowerCase());
+  return false;
+};
+
+function PortalBadges({
+  pp,
+  cpnu,
+  samai,
+}: {
+  pp?: unknown;
+  cpnu?: unknown;
+  samai?: unknown;
+}) {
+  const items: Array<{ label: string; on: boolean }> = [
+    { label: "PP", on: toBool(pp) },
+    { label: "CPNU", on: toBool(cpnu) },
+    { label: "SAMAI", on: toBool(samai) },
+  ];
+  return (
+    <div className="flex gap-1">
+      {items.map((i) => (
+        <Badge
+          key={i.label}
+          variant="outline"
+          className={
+            i.on
+              ? "border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
+              : "border-muted-foreground/30 text-muted-foreground bg-muted/30"
+          }
+        >
+          {i.label}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 async function fetchSalud(): Promise<SaludResponse> {
   const res = await fetch(`${ANDROMEDA_API_BASE}/salud`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
