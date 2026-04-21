@@ -463,7 +463,8 @@ export function NotificationsAlertTab() {
                   </div>
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
         )}
       </CardContent>
