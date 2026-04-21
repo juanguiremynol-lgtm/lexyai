@@ -539,6 +539,15 @@ Deno.serve(async (req) => {
         eventsCreated++;
         existingFingerprints.add(fingerprint);
 
+        // TASK 5: env-gated debug logging for alert_type pipeline visibility
+        if ((Deno.env.get("LOG_LEVEL") ?? "").toLowerCase() === "debug") {
+          console.log(
+            `[sync-penal906][debug] inserted act fingerprint=${fingerprint} ` +
+            `phase=${classification.phase} eventDate=${eventDate} ` +
+            `radicado=${cleanRadicado}`,
+          );
+        }
+
         // Update phase if advanced
         if (classification.phase > newPhase) {
           newPhase = classification.phase;
@@ -554,6 +563,10 @@ Deno.serve(async (req) => {
             entity_id: work_item_id,
             severity: importantEvent.severity,
             status: "PENDING",
+            // NULL-GUARD FIX: explicit canonical alert_type required by
+            // CHECK constraint and by the email dispatcher.
+            alert_type: "ACTUACION_NUEVA",
+            alert_source: "cpnu",
             title: `${importantEvent.type} detectado`,
             message: `Radicado ${cleanRadicado}: ${summary}`,
             payload: {

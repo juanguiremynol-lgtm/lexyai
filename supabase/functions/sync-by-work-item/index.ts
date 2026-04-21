@@ -2724,6 +2724,12 @@ Deno.serve(async (req) => {
                 title: significantEvent.title,
                 message: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`.slice(0, 500),
                 status: 'PENDING', // Must be: PENDING, SENT, ACKNOWLEDGED, RESOLVED, CANCELLED, DISMISSED
+                // NULL-GUARD FIX: must set canonical alert_type so the email
+                // dispatcher (filters on ACTUACION_NUEVA / ESTADO_NUEVO etc.)
+                // can pick this row up. Without it, the alert is silently
+                // skipped. See _shared/alertTypeConstants.ts.
+                alert_type: 'ACTUACION_NUEVA',
+                alert_source: fetchResult.provider || 'unknown',
                 fingerprint: alertFingerprint,
                 payload: {
                   event_type: significantEvent.type,

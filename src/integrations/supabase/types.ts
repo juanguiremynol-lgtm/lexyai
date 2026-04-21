@@ -14840,6 +14840,13 @@ export type Database = {
         }
         Returns: Json
       }
+      get_notifiability_function_bodies: {
+        Args: never
+        Returns: {
+          proname: string
+          prosrc: string
+        }[]
+      }
       get_pdf_provider_settings: {
         Args: never
         Returns: {
