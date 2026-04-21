@@ -110,6 +110,33 @@ Deno.serve(async (req) => {
       );
     }
 
+    // No-op guard: surface upstream API silence so operators can distinguish
+    // "Andromeda has no terminos" from "we filtered everything out".
+    if (fetched === 0) {
+      console.warn(
+        "[sync-terminos-alertas] noop_no_upstream_data: Andromeda /terminos returned 0 rows. " +
+        "No alert_instances will be created. Check upstream API health.",
+      );
+      const summary = {
+        ok: true,
+        noop: true,
+        reason: "no_upstream_data",
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        fetched: 0,
+        candidates: 0,
+        alerts_created: 0,
+        alerts_skipped_duplicate: 0,
+        no_owner: 0,
+        errors: 0,
+      };
+      console.log("[sync-terminos-alertas] done", summary);
+      return new Response(JSON.stringify(summary), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
     const candidatos = terminos.filter((t) => {
       const alerta = (t.alerta || "").toUpperCase();
       const estado = (t.estado || "").toUpperCase();
@@ -119,6 +146,14 @@ Deno.serve(async (req) => {
       );
     });
     candidates = candidatos.length;
+
+    if (candidates === 0) {
+      console.warn(
+        `[sync-terminos-alertas] noop_no_candidates: fetched ${fetched} rows ` +
+        `but none matched filter (alerta IN URGENTE/VENCIDO AND estado=PENDIENTE). ` +
+        `Sample estados: ${terminos.slice(0, 5).map((t) => `${t.alerta}/${t.estado}`).join(", ")}`,
+      );
+    }
 
     for (const term of candidatos) {
       const radNorm = normalizeRadicado(term.radicado);
