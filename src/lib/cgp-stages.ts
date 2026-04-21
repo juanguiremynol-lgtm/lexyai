@@ -9,6 +9,12 @@
  * PHASE DERIVATION RULE:
  * - Stages 1-3 (order <= 3) → RADICACIÓN
  * - Stages 4-12 (order >= 4) → PROCESO
+ *
+ * @see CGP_FILING_STAGES / CGP_PROCESS_STAGES (workflow-constants.ts) for the
+ * granular inference vocabulary that maps into these buckets via
+ * `mapInferenceStageToDashboard()` below.
+ * Do NOT add keys here that are not Dashboard-visible columns.
+ * See `src/lib/__tests__/cgpStageDrift.test.ts` for the drift guard.
  */
 
 export type CGPPhase = 'RADICACION' | 'PROCESO';
