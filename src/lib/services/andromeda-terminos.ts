@@ -5,6 +5,7 @@
  */
 
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { supabase } from "@/integrations/supabase/client";
 
 export type TerminoAlerta = "VENCIDO" | "URGENTE" | "PROXIMO" | "VIGENTE" | string;
 export type TerminoPrioridad = "CRITICA" | "ALTA" | "NORMAL" | string;
@@ -52,13 +53,18 @@ export async function fetchTerminos(): Promise<TerminoItem[]> {
 
 export async function atenderTermino(
   id: number,
-  notas?: string
-): Promise<{ ok: boolean; id?: number }> {
-  const res = await fetch(`${ANDROMEDA_API_BASE}/terminos/${id}/atender`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ notas: notas || "" }),
+  notas?: string,
+  radicado?: string
+): Promise<{ ok: boolean; alerts_resolved: number; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("andromeda-terminos-proxy", {
+    body: { termino_id: id, notas: notas || "", radicado: radicado || "" },
   });
-  if (!res.ok) throw new Error(`Atender término API error: ${res.status}`);
-  return res.json();
+  if (error) {
+    throw new Error(error.message || "Error al marcar término como atendido");
+  }
+  const payload = (data || {}) as { ok?: boolean; alerts_resolved?: number; error?: string };
+  if (!payload.ok) {
+    throw new Error(payload.error || "No se pudo marcar el término como atendido");
+  }
+  return { ok: true, alerts_resolved: payload.alerts_resolved || 0 };
 }
