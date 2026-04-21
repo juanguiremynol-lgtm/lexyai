@@ -38,6 +38,28 @@ type SaludResponse = {
     proximos: string | number;
   };
   novedades_24h: Array<{ fuente: string; total: string | number }>;
+  work_items_estado?: Array<{
+    status?: string;
+    monitoring_enabled?: boolean | string | null;
+    pausado?: boolean | string | null;
+    cerrado?: boolean | string | null;
+    cpnu_status?: string | null;
+    total: string | number;
+  }>;
+  sin_workflow?: Array<{
+    radicado: string;
+    despacho?: string | null;
+    en_pp?: boolean | string | null;
+    en_cpnu?: boolean | string | null;
+    en_samai?: boolean | string | null;
+  }>;
+  sin_despacho?: Array<{
+    radicado: string;
+    workflow_type?: string | null;
+    en_pp?: boolean | string | null;
+    en_cpnu?: boolean | string | null;
+    en_samai?: boolean | string | null;
+  }>;
 };
 
 const toNum = (v: unknown): number => {
