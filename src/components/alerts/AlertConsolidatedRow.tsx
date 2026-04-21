@@ -126,6 +126,13 @@ export function AlertConsolidatedRow({
   const demandado = asString(payload.demandado);
   const tipoActuacion = asString(payload.tipo_actuacion);
   const fechaAuto = formatFecha(payload.fecha_auto);
+  const radicadoForLookup = extractRadicado(alert, radicado);
+  const needsFallback = !despacho || !demandante || !demandado;
+  const { data: andro } = useAndromedaRadicado(radicadoForLookup, needsFallback);
+  const finalDespacho = despacho ?? asString(andro?.despacho_nombre);
+  const finalDemandante = demandante ?? asString(andro?.demandante);
+  const finalDemandado = demandado ?? asString(andro?.demandado);
+  const finalRadicado = radicado ?? radicadoForLookup;
   const detectedAgo = formatDistanceToNow(new Date(alert.fired_at), {
     addSuffix: true,
     locale: es,
