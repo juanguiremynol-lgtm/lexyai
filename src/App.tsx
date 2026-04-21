@@ -60,6 +60,7 @@ import VerifyDocumentPage from "./pages/VerifyDocumentPage";
 import WorkItemDocumentWizard from "./pages/WorkItemDocumentWizard";
 import DocumentDetailPage from "./pages/DocumentDetailPage";
 import DocumentsDashboard from "./pages/DocumentsDashboard";
+import SistemaSalud from "./pages/SistemaSalud";
 
 // Platform Console Pages
 import {
@@ -237,6 +238,7 @@ const App = () => (
             <Route path="work-items/:id/documents/new" element={<ErrorBoundary><WorkItemDocumentWizard /></ErrorBoundary>} />
             <Route path="work-items/:id/documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
             <Route path="documentos-legales" element={<ErrorBoundary><DocumentsDashboard /></ErrorBoundary>} />
+            <Route path="sistema" element={<ErrorBoundary><SistemaSalud /></ErrorBoundary>} />
             <Route path="documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
