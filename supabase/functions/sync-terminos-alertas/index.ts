@@ -101,6 +101,15 @@ Deno.serve(async (req) => {
       : [];
     fetched = terminos.length;
 
+    // TASK 5: env-gated debug logging for radicado matching visibility
+    const DEBUG = (Deno.env.get("LOG_LEVEL") ?? "").toLowerCase() === "debug";
+    if (DEBUG) {
+      console.log(
+        `[sync-terminos-alertas][debug] /terminos returned ${fetched} rows. ` +
+        `Sample radicados: ${terminos.slice(0, 5).map((t) => t.radicado).join(", ")}`,
+      );
+    }
+
     const candidatos = terminos.filter((t) => {
       const alerta = (t.alerta || "").toUpperCase();
       const estado = (t.estado || "").toUpperCase();
@@ -116,6 +125,14 @@ Deno.serve(async (req) => {
       if (!radNorm) {
         noOwner++;
         continue;
+      }
+
+      if (DEBUG) {
+        console.log(
+          `[sync-terminos-alertas][debug] candidate termino_id=${term.id} ` +
+          `raw_radicado="${term.radicado}" normalized="${radNorm}" ` +
+          `alerta=${term.alerta} estado=${term.estado}`,
+        );
       }
 
       const { data: items, error: wiErr } = await supabase

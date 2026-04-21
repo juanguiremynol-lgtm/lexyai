@@ -539,6 +539,15 @@ Deno.serve(async (req) => {
         eventsCreated++;
         existingFingerprints.add(fingerprint);
 
+        // TASK 5: env-gated debug logging for alert_type pipeline visibility
+        if ((Deno.env.get("LOG_LEVEL") ?? "").toLowerCase() === "debug") {
+          console.log(
+            `[sync-penal906][debug] inserted act fingerprint=${fingerprint} ` +
+            `phase=${classification.phase} eventDate=${eventDate} ` +
+            `radicado=${cleanRadicado}`,
+          );
+        }
+
         // Update phase if advanced
         if (classification.phase > newPhase) {
           newPhase = classification.phase;
