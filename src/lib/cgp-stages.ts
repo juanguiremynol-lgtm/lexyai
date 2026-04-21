@@ -9,6 +9,12 @@
  * PHASE DERIVATION RULE:
  * - Stages 1-3 (order <= 3) → RADICACIÓN
  * - Stages 4-12 (order >= 4) → PROCESO
+ *
+ * @see CGP_FILING_STAGES / CGP_PROCESS_STAGES (workflow-constants.ts) for the
+ * granular inference vocabulary that maps into these buckets via
+ * `mapInferenceStageToDashboard()` below.
+ * Do NOT add keys here that are not Dashboard-visible columns.
+ * See `src/lib/__tests__/cgpStageDrift.test.ts` for the drift guard.
  */
 
 export type CGPPhase = 'RADICACION' | 'PROCESO';
@@ -284,4 +290,51 @@ export function mapLegacyStage(legacyStage: string): string {
   }
   
   return mapped;
+}
+
+/**
+ * Inference-key → Dashboard-bucket mapping.
+ *
+ * Bridges the granular inference vocabulary (CGP_FILING_STAGES /
+ * CGP_PROCESS_STAGES in workflow-constants.ts) to the coarse Dashboard
+ * bucket vocabulary (CGP_STAGES above).
+ *
+ * Every key returned here MUST exist in CGP_STAGES. This invariant is
+ * enforced by `src/lib/__tests__/cgpStageDrift.test.ts`.
+ */
+const INFERENCE_TO_DASHBOARD_BUCKET: Record<string, { phase: CGPPhase; bucketKey: string }> = {
+  // ===== Filing (RADICACION phase) =====
+  DRAFTED:                 { phase: 'RADICACION', bucketKey: 'PREPARACION' },
+  SENT_TO_REPARTO:         { phase: 'RADICACION', bucketKey: 'PREPARACION' },
+  ACTA_PENDING:            { phase: 'RADICACION', bucketKey: 'PREPARACION' },
+  ACTA_RECEIVED:           { phase: 'RADICACION', bucketKey: 'PREPARACION' },
+  SUBSANACION:             { phase: 'RADICACION', bucketKey: 'RADICADO' },
+  RADICADO_PENDING:        { phase: 'RADICACION', bucketKey: 'RADICADO' },
+  RADICADO_CONFIRMED:      { phase: 'RADICACION', bucketKey: 'RADICADO' },
+  PENDING_AUTO_ADMISORIO:  { phase: 'RADICACION', bucketKey: 'RADICADO' },
+
+  // ===== Process (PROCESO phase) =====
+  AUTO_ADMISORIO:          { phase: 'PROCESO', bucketKey: 'ADMISION' },
+  CUADERNO:                { phase: 'PROCESO', bucketKey: 'CUADERNO' },
+  NOTIFICACION_PERSONAL:   { phase: 'PROCESO', bucketKey: 'NOTIFICACION' },
+  NOTIFICACION_AVISO:      { phase: 'PROCESO', bucketKey: 'NOTIFICACION' },
+  EXCEPCIONES_PREVIAS:     { phase: 'PROCESO', bucketKey: 'CONTESTACION' },
+  PRONUNCIARSE_EXCEPCIONES:{ phase: 'PROCESO', bucketKey: 'SANEAMIENTO' },
+  AUDIENCIA_INICIAL:       { phase: 'PROCESO', bucketKey: 'AUDIENCIA_INICIAL' },
+  AUDIENCIA_INSTRUCCION:   { phase: 'PROCESO', bucketKey: 'INTERVENCION' },
+  ALEGATOS_SENTENCIA:      { phase: 'PROCESO', bucketKey: 'SENTENCIA' },
+  APELACION:               { phase: 'PROCESO', bucketKey: 'RECURSO' },
+};
+
+/**
+ * Resolve a granular inference stage key to its Dashboard bucket.
+ *
+ * @param inferenceStageKey A key from CGP_FILING_STAGES or CGP_PROCESS_STAGES.
+ * @returns `{ phase, bucketKey }` where `bucketKey` is a key in CGP_STAGES,
+ *          or `null` if the inference key is unknown.
+ */
+export function mapInferenceStageToDashboard(
+  inferenceStageKey: string
+): { phase: CGPPhase; bucketKey: string } | null {
+  return INFERENCE_TO_DASHBOARD_BUCKET[inferenceStageKey] ?? null;
 }

@@ -106,28 +106,44 @@ export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
 // CGP Stages (Filing phase + Process phase)
 // ============================================
 
-// CGP Filing stages (before auto admisorio)
+/**
+ * CGP Filing stages (granular, pre-auto-admisorio inference vocabulary).
+ *
+ * @see CGP_STAGES (cgp-stages.ts) for the Dashboard bucket vocabulary.
+ * Every key here must map to a CGP_STAGES bucket via
+ * `mapInferenceStageToDashboard()` in cgp-stages.ts.
+ * See `src/lib/__tests__/cgpStageDrift.test.ts` for the drift guard.
+ */
 export const CGP_FILING_STAGES = {
   DRAFTED: { label: 'Borrador', order: 0 },
   SENT_TO_REPARTO: { label: 'Enviado a Reparto', order: 1 },
   ACTA_PENDING: { label: 'Acta Pendiente', order: 2 },
   ACTA_RECEIVED: { label: 'Acta Recibida', order: 3 },
-  RADICADO_PENDING: { label: 'Radicado Pendiente', order: 4 },
-  RADICADO_CONFIRMED: { label: 'Radicado Confirmado', order: 5 },
-  PENDING_AUTO_ADMISORIO: { label: 'Pendiente Auto Admisorio', order: 6 },
+  SUBSANACION: { label: 'Subsanación', order: 4 },
+  RADICADO_PENDING: { label: 'Radicado Pendiente', order: 5 },
+  RADICADO_CONFIRMED: { label: 'Radicado Confirmado', order: 6 },
+  PENDING_AUTO_ADMISORIO: { label: 'Pendiente Auto Admisorio', order: 7 },
 } as const;
 
-// CGP Process stages (after auto admisorio)
+/**
+ * CGP Process stages (granular, post-auto-admisorio inference vocabulary).
+ *
+ * @see CGP_STAGES (cgp-stages.ts) for the Dashboard bucket vocabulary.
+ * Every key here must map to a CGP_STAGES bucket via
+ * `mapInferenceStageToDashboard()` in cgp-stages.ts.
+ * See `src/lib/__tests__/cgpStageDrift.test.ts` for the drift guard.
+ */
 export const CGP_PROCESS_STAGES = {
   AUTO_ADMISORIO: { label: 'Auto Admisorio', order: 0 },
-  NOTIFICACION_PERSONAL: { label: 'Notificación Personal', order: 1 },
-  NOTIFICACION_AVISO: { label: 'Notificación por Aviso', order: 2 },
-  EXCEPCIONES_PREVIAS: { label: 'Excepciones Previas', order: 3 },
-  PRONUNCIARSE_EXCEPCIONES: { label: 'Pronunciarse Excepciones', order: 4 },
-  AUDIENCIA_INICIAL: { label: 'Audiencia Inicial', order: 5 },
-  AUDIENCIA_INSTRUCCION: { label: 'Audiencia Instrucción', order: 6 },
-  ALEGATOS_SENTENCIA: { label: 'Alegatos y Sentencia', order: 7 },
-  APELACION: { label: 'Apelación', order: 8 },
+  CUADERNO: { label: 'Cuaderno de medidas', order: 1 },
+  NOTIFICACION_PERSONAL: { label: 'Notificación Personal', order: 2 },
+  NOTIFICACION_AVISO: { label: 'Notificación por Aviso', order: 3 },
+  EXCEPCIONES_PREVIAS: { label: 'Excepciones Previas', order: 4 },
+  PRONUNCIARSE_EXCEPCIONES: { label: 'Pronunciarse Excepciones', order: 5 },
+  AUDIENCIA_INICIAL: { label: 'Audiencia Inicial', order: 6 },
+  AUDIENCIA_INSTRUCCION: { label: 'Audiencia Instrucción', order: 7 },
+  ALEGATOS_SENTENCIA: { label: 'Alegatos y Sentencia', order: 8 },
+  APELACION: { label: 'Apelación', order: 9 },
 } as const;
 
 export type CGPFilingStage = keyof typeof CGP_FILING_STAGES;
