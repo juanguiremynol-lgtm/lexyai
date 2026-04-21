@@ -78,7 +78,7 @@ export function AlertGroupedRow({
     !despachoPayload || !demandantePayload || !demandadoPayload || !radicadoPayload;
   const { data: andro } = useAndromedaRadicado(radicadoPayload, needsFallback);
 
-  const radicado = radicadoPayload ?? asString(andro?.radicado);
+  const radicado = radicadoPayload;
   const despacho = despachoPayload ?? asString(andro?.despacho_nombre);
   const demandante = demandantePayload ?? asString(andro?.demandante);
   const demandado = demandadoPayload ?? asString(andro?.demandado);
