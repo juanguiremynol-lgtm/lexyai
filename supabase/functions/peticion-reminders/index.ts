@@ -6,6 +6,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { PETICION_ALERT_TYPE } from "../_shared/peticionAlertTypeConstants.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -241,11 +242,11 @@ const handler = async (req: Request): Promise<Response> => {
 
       // Determine severity for in-app alert
       let severity: "INFO" | "WARN" | "CRITICAL" = "INFO";
-      let alertType = "DEADLINE_WARNING";
+      let alertType: string = PETICION_ALERT_TYPE.DEADLINE_WARNING;
       
       if (daysUntil <= 0) {
         severity = "CRITICAL";
-        alertType = "DEADLINE_CRITICAL";
+        alertType = PETICION_ALERT_TYPE.DEADLINE_CRITICAL;
       } else if (daysUntil <= 3) {
         severity = "WARN";
       }
@@ -254,7 +255,9 @@ const handler = async (req: Request): Promise<Response> => {
       const { error: alertError } = await supabase.from("peticion_alerts").insert({
         owner_id: peticion.owner_id,
         peticion_id: peticion.id,
-        alert_type: isProrogation ? "PROROGATION_DEADLINE" : alertType,
+        alert_type: isProrogation
+          ? PETICION_ALERT_TYPE.PROROGATION_DEADLINE
+          : alertType,
         severity,
         message: daysUntil <= 0
           ? `Petición VENCIDA: ${peticion.subject} - ${peticion.entity_name}`
