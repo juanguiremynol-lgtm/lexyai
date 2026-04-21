@@ -4,7 +4,7 @@
  */
 
 // Workflow type enum matching database
-export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906';
+export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC';
 
 // Item source enum matching database
 export type ItemSource = 'ICARUS_IMPORT' | 'SCRAPE_API' | 'MANUAL' | 'EMAIL_IMPORT' | 'MIGRATION';
@@ -80,6 +80,14 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
     icon: 'Shield',
     hasPhases: false,
   },
+  GENERIC: {
+    label: 'Genérico',
+    shortLabel: 'Genérico',
+    description: 'Asuntos importados sin clasificación de flujo específico',
+    color: 'gray',
+    icon: 'FileText',
+    hasPhases: false,
+  },
 };
 
 // Ordered list of workflow types for UI rendering
@@ -91,6 +99,7 @@ export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
   'GOV_PROCEDURE',
   'CPACA',
   'PENAL_906',
+  'GENERIC',
 ];
 
 // ============================================
