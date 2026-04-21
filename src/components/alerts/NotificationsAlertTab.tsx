@@ -29,6 +29,7 @@ import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+import { AlertGroupedRow, type GroupedAlertItem } from "@/components/alerts/AlertGroupedRow";
 
 const PROCEDURAL_ALERT_TYPES = new Set([
   "ACTUACION_NUEVA",
