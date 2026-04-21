@@ -1,41 +1,45 @@
 
 
-## Plan: Backfill `alert_source` en `alert_instances`
+## Plan: Backfill `payload` con datos del work_item en alertas procesales
 
 ### Cambio único — UPDATE de datos vía insert tool
 
-Ejecutar el UPDATE provisto sobre `alert_instances`. Es operación de datos (no schema), por lo tanto va por el insert tool, no por migración.
+Ejecutar el UPDATE provisto sobre `alert_instances`, enriqueciendo `payload` con `radicado`, `despacho`, `demandante`, `demandado` desde `work_items`. Operación de datos (no schema) → va por insert tool.
 
 ```sql
 UPDATE alert_instances ai SET
-  alert_source = CASE 
-    WHEN EXISTS (SELECT 1 FROM work_item_acts wia WHERE wia.work_item_id = ai.entity_id AND wia.source ILIKE '%cpnu%') THEN 'CPNU'
-    WHEN EXISTS (SELECT 1 FROM work_item_acts wia WHERE wia.work_item_id = ai.entity_id AND wia.source ILIKE '%samai_estados%') THEN 'SAMAI_ESTADOS'
-    WHEN EXISTS (SELECT 1 FROM work_item_acts wia WHERE wia.work_item_id = ai.entity_id AND wia.source ILIKE '%samai%') THEN 'SAMAI'
-    WHEN EXISTS (SELECT 1 FROM work_item_publicaciones wip WHERE wip.work_item_id = ai.entity_id) THEN 'PP'
-    ELSE 'UNKNOWN'
-  END
-WHERE (ai.alert_source IS NULL OR ai.alert_source = '' OR ai.alert_source = 'UNKNOWN')
+  payload = COALESCE(ai.payload, '{}'::jsonb) || jsonb_build_object(
+    'radicado', wi.radicado,
+    'despacho', COALESCE(ai.payload->>'despacho', wi.authority_name),
+    'demandante', COALESCE(ai.payload->>'demandante', wi.demandantes),
+    'demandado', COALESCE(ai.payload->>'demandado', wi.demandados)
+  )
+FROM work_items wi
+WHERE ai.entity_id = wi.id
 AND ai.alert_type IN ('ACTUACION_NEW', 'ACTUACION_NUEVA', 'ACTUACION_MODIFIED', 'PUBLICACION_NEW', 'ESTADO_NUEVO');
 ```
 
 ### Verificación post-UPDATE
-Query de control para confirmar la nueva distribución:
+
 ```sql
-SELECT alert_source, COUNT(*) 
-FROM alert_instances 
-WHERE alert_type IN ('ACTUACION_NEW','ACTUACION_NUEVA','ACTUACION_MODIFIED','PUBLICACION_NEW','ESTADO_NUEVO')
-GROUP BY alert_source ORDER BY 2 DESC;
+SELECT 
+  COUNT(*) FILTER (WHERE payload ? 'radicado') AS con_radicado,
+  COUNT(*) FILTER (WHERE payload ? 'despacho') AS con_despacho,
+  COUNT(*) FILTER (WHERE payload ? 'demandante') AS con_demandante,
+  COUNT(*) AS total
+FROM alert_instances
+WHERE alert_type IN ('ACTUACION_NEW','ACTUACION_NUEVA','ACTUACION_MODIFIED','PUBLICACION_NEW','ESTADO_NUEVO');
 ```
 
 ### Detalles técnicos
-- **Prioridad del CASE**: CPNU → SAMAI_ESTADOS → SAMAI → PP → UNKNOWN. El orden importa porque `samai_estados` contiene `samai` como substring, por eso va antes.
-- **Filtro WHERE**: solo toca filas con `alert_source` faltante o `'UNKNOWN'`, no sobrescribe valores ya correctos.
-- **`entity_id`**: se asume que para alertas procesales mapea a `work_item_id`. Coherente con la relación usada por el resto de queries de alerts.
-- **Sin efecto en UI hasta refresh**: las alertas existentes en pantalla no se re-renderizan hasta que el usuario recargue o React Query invalide el cache de `alert_instances`.
+- **Merge no destructivo**: el operador `||` hace shallow merge sobre el JSONB existente; los `COALESCE(payload->>'campo', wi.campo)` preservan valores ya presentes y solo rellenan los faltantes.
+- **`radicado` siempre se sobrescribe**: no hay `COALESCE` en ese campo, asumiendo que `work_items.radicado` es la fuente canónica. Si el payload tuviera un radicado distinto previamente, será reemplazado (esperado: alinear con la entidad).
+- **Filtro por `alert_type`**: solo alertas procesales canónicas + alias legacy `ACTUACION_NEW` / `PUBLICACION_NEW`.
+- **Mapeo `entity_id → work_items.id`**: coherente con el resto del sistema (work-item-centric governance).
+- **Sin efecto inmediato en UI**: las alertas en pantalla no se re-renderizan hasta que React Query invalide el cache de `alert_instances` (refresh manual o navegación).
 
 ### Fuera de alcance
-- No se modifica el trigger que asigna `alert_source` en nuevas alertas.
-- No se backfillea `payload` (ya hecho en backfill previo).
-- No se cambia `normalizePortal` ni `PORTAL_LABEL`.
+- No se modifica el trigger que crea alertas (futuras alertas se asume que ya incluyen el payload completo, o se manejan vía fallback ANDROMEDA en cliente).
+- No se backfillea `alert_source` (ya hecho previamente).
+- No se cambia el hook `useAndromedaRadicado` ni `AlertConsolidatedRow` — el fallback ANDROMEDA se mantiene como segunda línea.
 
