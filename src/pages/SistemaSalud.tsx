@@ -157,6 +157,9 @@ export default function SistemaSalud() {
   const t = data?.terminos;
   const jobs = data?.jobs ?? [];
   const novedades = data?.novedades_24h ?? [];
+  const workItemsEstado = data?.work_items_estado ?? [];
+  const sinWorkflow = data?.sin_workflow ?? [];
+  const sinDespacho = data?.sin_despacho ?? [];
 
   return (
     <div className="container mx-auto py-6 space-y-6">
