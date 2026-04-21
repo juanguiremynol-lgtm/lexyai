@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
               actor_user_id: user.id,
               actor_type: "USER",
               action: "WORK_ITEM_HARD_DELETED",
-              entity_type: "work_item",
+              entity_type: "WORK_ITEM",
               entity_id: workItemId,
               metadata: {
                 deleted_at: new Date().toISOString(),

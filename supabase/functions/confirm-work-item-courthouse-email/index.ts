@@ -107,7 +107,7 @@ Deno.serve(async (req: Request) => {
           actor_user_id: user.id,
           actor_type: "USER",
           action: "COURTHOUSE_EMAIL_CONFIRMED",
-          entity_type: "work_item",
+          entity_type: "WORK_ITEM",
           entity_id: work_item_id,
           metadata: {
             confirmed_email: email,
