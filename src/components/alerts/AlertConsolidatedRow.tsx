@@ -21,6 +21,7 @@ import {
   PORTAL_BADGE_CLASS,
   PORTAL_LABEL,
 } from "@/lib/alerts/portal-badge";
+import { useAndromedaRadicado } from "@/hooks/useAndromedaRadicado";
 
 interface AlertLike {
   id: string;
@@ -98,6 +99,12 @@ function formatFecha(value: unknown): string | null {
     return d.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });
   }
   return s;
+}
+
+function extractRadicado(alert: AlertLike, payloadRadicado: string | null): string | null {
+  if (payloadRadicado) return payloadRadicado;
+  const RX = /\b\d{23}\b/;
+  return alert.title?.match(RX)?.[0] ?? alert.message?.match(RX)?.[0] ?? null;
 }
 
 export function AlertConsolidatedRow({
