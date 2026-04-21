@@ -1,9 +1,11 @@
 /**
  * NotificationsAlertTab — Tab for the /alerts page showing user notifications
- * (ACTUACION_NUEVA, ESTADO_NUEVO, STAGE_CHANGE, etc.) from the unified notifications table.
+ * sourced from `alert_instances` (single source of truth, same as the
+ * "Todas" and "Por portal" tabs). Procedural alerts render with the
+ * consolidated portal row; operational alerts use a compact inline row.
  */
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,44 +28,41 @@ import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ALERT_TYPE_LABELS, type UserAlertType } from "@/lib/alerts/create-user-alert";
+import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+
+const PROCEDURAL_ALERT_TYPES = new Set([
+  "ACTUACION_NUEVA",
+  "ACTUACION_MODIFIED",
+  "PUBLICACION_NEW",
+  "PUBLICACION_MODIFIED",
+  "ESTADO_NUEVO",
+]);
 
 const SEVERITY_STYLES: Record<string, { dot: string; border: string }> = {
   INFO: { dot: "bg-primary", border: "border-primary/20" },
+  WARN: { dot: "bg-amber-500", border: "border-amber-500/30" },
   WARNING: { dot: "bg-amber-500", border: "border-amber-500/30" },
   CRITICAL: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
 };
 
-const ALERT_TYPE_BADGE_STYLES: Record<string, string> = {
-  ACTUACION_NUEVA: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  ESTADO_NUEVO: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
-  STAGE_CHANGE: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-  TAREA_CREADA: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  TAREA_VENCIDA: "bg-destructive/10 text-destructive",
-  AUDIENCIA_PROXIMA: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  AUDIENCIA_CREADA: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  TERMINO_CRITICO: "bg-destructive/10 text-destructive",
-  TERMINO_VENCIDO: "bg-destructive/10 text-destructive",
-  PETICION_CREADA: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-  HITO_ALCANZADO: "bg-green-500/10 text-green-600 dark:text-green-400",
-};
-
-interface UserNotification {
+interface AlertInstance {
   id: string;
-  type: string;
-  title: string;
-  body: string | null;
+  entity_id: string;
+  entity_type: string;
+  alert_type: string | null;
+  alert_source: string | null;
   severity: string;
-  category: string;
-  work_item_id: string | null;
+  status: string;
+  title: string;
+  message: string;
+  fired_at: string;
   read_at: string | null;
+  acknowledged_at: string | null;
   dismissed_at: string | null;
-  created_at: string;
-  metadata: Record<string, unknown> | null;
-  deep_link: string | null;
+  payload: Record<string, unknown> | null;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 export function NotificationsAlertTab() {
   const queryClient = useQueryClient();
