@@ -251,6 +251,7 @@ export type Database = {
           alert_source: string | null
           alert_type: string | null
           created_at: string
+          dismissal_reason: string | null
           dismissed_at: string | null
           emailed_at: string | null
           entity_id: string
@@ -281,6 +282,7 @@ export type Database = {
           alert_source?: string | null
           alert_type?: string | null
           created_at?: string
+          dismissal_reason?: string | null
           dismissed_at?: string | null
           emailed_at?: string | null
           entity_id: string
@@ -311,6 +313,7 @@ export type Database = {
           alert_source?: string | null
           alert_type?: string | null
           created_at?: string
+          dismissal_reason?: string | null
           dismissed_at?: string | null
           emailed_at?: string | null
           entity_id?: string
