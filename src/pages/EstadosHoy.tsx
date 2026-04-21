@@ -159,8 +159,8 @@ export default function EstadosHoy() {
   });
 
   const atenderMutation = useMutation({
-    mutationFn: ({ id, notas }: { id: number; notas: string }) =>
-      atenderTermino(id, notas),
+    mutationFn: ({ id, notas, radicado }: { id: number; notas: string; radicado?: string }) =>
+      atenderTermino(id, notas, radicado),
     onMutate: async ({ id }) => {
       await queryClient.cancelQueries({ queryKey: ["terminos-andromeda"] });
       const previous = queryClient.getQueryData<TerminoItem[]>(["terminos-andromeda"]);
@@ -169,13 +169,20 @@ export default function EstadosHoy() {
       );
       return { previous };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(["terminos-andromeda"], ctx.previous);
-      toast.error("No se pudo marcar el término como atendido");
+      toast.error((err as Error)?.message || "No se pudo marcar el término como atendido");
     },
-    onSuccess: () => {
-      toast.success("Término marcado como atendido");
+    onSuccess: (result) => {
+      const resolved = result?.alerts_resolved || 0;
+      toast.success(
+        resolved > 0
+          ? `Término marcado como atendido — ${resolved} alerta${resolved === 1 ? "" : "s"} resuelta${resolved === 1 ? "" : "s"}`
+          : "Término marcado como atendido"
+      );
       queryClient.invalidateQueries({ queryKey: ["terminos-andromeda"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
   });
 
@@ -304,7 +311,7 @@ export default function EstadosHoy() {
               <TerminoCard
                 key={t.id}
                 termino={t}
-                onMarcarAtendido={(notas) => atenderMutation.mutate({ id: t.id, notas })}
+                onMarcarAtendido={(notas) => atenderMutation.mutate({ id: t.id, notas, radicado: t.radicado })}
                 loading={
                   atenderMutation.isPending &&
                   atenderMutation.variables?.id === t.id
