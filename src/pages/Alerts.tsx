@@ -496,8 +496,11 @@ export default function Alerts() {
     "ESTADO_NUEVO",
   ]);
 
-  const isProcedural = (a: AlertInstance) =>
-    !!a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type);
+  const isProcedural = (a: AlertInstance) => {
+    if (a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type)) return true;
+    const p = (a.payload ?? {}) as Record<string, unknown>;
+    return Boolean(p.portal || p.despacho || p.demandante || p.tipo_actuacion);
+  };
 
   // Group procedural alerts by canonical portal
   const proceduralAlerts = (alertInstances ?? []).filter(isProcedural);
