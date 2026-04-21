@@ -439,7 +439,7 @@ async function buildContext(
         .from("alert_instances")
         .select("id, title, message, severity, status, fired_at, alert_type")
         .eq("entity_id", workItemId)
-        .eq("entity_type", "work_item")
+        .eq("entity_type", "WORK_ITEM")
         .order("fired_at", { ascending: false })
         .limit(15);
       ctx.alerts = alerts ?? [];

@@ -89,7 +89,7 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         .from("alert_instances")
         .select("*")
         .eq("entity_id", workItem.id)
-        .eq("entity_type", "work_item")
+        .eq("entity_type", "WORK_ITEM")
         .not("status", "eq", "RESOLVED")
         .order("fired_at", { ascending: false })
         .limit(20);

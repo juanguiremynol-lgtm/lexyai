@@ -56,7 +56,7 @@ export async function evaluateFreshnessClassification(
   const { data: activeAlerts } = await (supabase
     .from('alert_instances') as any)
     .select('entity_id')
-    .eq('entity_type', 'work_item')
+    .eq('entity_type', 'WORK_ITEM')
     .eq('status', 'ACTIVE')
     .eq('organization_id', orgId);
 

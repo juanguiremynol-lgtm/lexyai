@@ -48,14 +48,14 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
         .from("alert_instances")
         .select("*", { count: "exact", head: true })
         .eq("entity_id", workItem.id)
-        .eq("entity_type", "work_item")
+        .eq("entity_type", "WORK_ITEM")
         .not("status", "eq", "RESOLVED");
 
       const { count: unread } = await supabase
         .from("alert_instances")
         .select("*", { count: "exact", head: true })
         .eq("entity_id", workItem.id)
-        .eq("entity_type", "work_item")
+        .eq("entity_type", "WORK_ITEM")
         .not("status", "eq", "RESOLVED")
         .is("read_at", null);
 
