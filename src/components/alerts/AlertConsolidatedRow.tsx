@@ -21,6 +21,7 @@ import {
   PORTAL_BADGE_CLASS,
   PORTAL_LABEL,
 } from "@/lib/alerts/portal-badge";
+import { useAndromedaRadicado } from "@/hooks/useAndromedaRadicado";
 
 interface AlertLike {
   id: string;
@@ -100,6 +101,12 @@ function formatFecha(value: unknown): string | null {
   return s;
 }
 
+function extractRadicado(alert: AlertLike, payloadRadicado: string | null): string | null {
+  if (payloadRadicado) return payloadRadicado;
+  const RX = /\b\d{23}\b/;
+  return alert.title?.match(RX)?.[0] ?? alert.message?.match(RX)?.[0] ?? null;
+}
+
 export function AlertConsolidatedRow({
   alert,
   isSelected,
@@ -119,6 +126,13 @@ export function AlertConsolidatedRow({
   const demandado = asString(payload.demandado);
   const tipoActuacion = asString(payload.tipo_actuacion);
   const fechaAuto = formatFecha(payload.fecha_auto);
+  const radicadoForLookup = extractRadicado(alert, radicado);
+  const needsFallback = !despacho || !demandante || !demandado;
+  const { data: andro } = useAndromedaRadicado(radicadoForLookup, needsFallback);
+  const finalDespacho = despacho ?? asString(andro?.despacho_nombre);
+  const finalDemandante = demandante ?? asString(andro?.demandante);
+  const finalDemandado = demandado ?? asString(andro?.demandado);
+  const finalRadicado = radicado ?? radicadoForLookup;
   const detectedAgo = formatDistanceToNow(new Date(alert.fired_at), {
     addSuffix: true,
     locale: es,
@@ -166,28 +180,28 @@ export function AlertConsolidatedRow({
         </div>
 
         {/* Radicado */}
-        {radicado && (
+        {finalRadicado && (
           <p className="text-xs text-muted-foreground mb-0.5">
-            Radicado: <code className="bg-muted px-1 rounded">{radicado}</code>
+            Radicado: <code className="bg-muted px-1 rounded">{finalRadicado}</code>
           </p>
         )}
 
         {/* Despacho */}
-        {despacho && (
+        {finalDespacho && (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-0.5">
             <Gavel className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{despacho}</span>
+            <span className="truncate">{finalDespacho}</span>
           </p>
         )}
 
         {/* Partes */}
-        {(demandante || demandado) && (
+        {(finalDemandante || finalDemandado) && (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1">
             <Users className="h-3 w-3 flex-shrink-0" />
             <span className="truncate">
-              <span className="font-medium text-foreground/80">{demandante ?? "—"}</span>
+              <span className="font-medium text-foreground/80">{finalDemandante ?? "—"}</span>
               <span className="mx-1.5 text-muted-foreground">vs</span>
-              <span className="font-medium text-foreground/80">{demandado ?? "—"}</span>
+              <span className="font-medium text-foreground/80">{finalDemandado ?? "—"}</span>
             </span>
           </p>
         )}
