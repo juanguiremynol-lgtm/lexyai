@@ -1,9 +1,11 @@
 /**
  * NotificationsAlertTab — Tab for the /alerts page showing user notifications
- * (ACTUACION_NUEVA, ESTADO_NUEVO, STAGE_CHANGE, etc.) from the unified notifications table.
+ * sourced from `alert_instances` (single source of truth, same as the
+ * "Todas" and "Por portal" tabs). Procedural alerts render with the
+ * consolidated portal row; operational alerts use a compact inline row.
  */
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,44 +28,56 @@ import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ALERT_TYPE_LABELS, type UserAlertType } from "@/lib/alerts/create-user-alert";
+import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
+
+const PROCEDURAL_ALERT_TYPES = new Set([
+  "ACTUACION_NUEVA",
+  "ACTUACION_MODIFIED",
+  "PUBLICACION_NEW",
+  "PUBLICACION_MODIFIED",
+  "ESTADO_NUEVO",
+]);
 
 const SEVERITY_STYLES: Record<string, { dot: string; border: string }> = {
   INFO: { dot: "bg-primary", border: "border-primary/20" },
+  WARN: { dot: "bg-amber-500", border: "border-amber-500/30" },
   WARNING: { dot: "bg-amber-500", border: "border-amber-500/30" },
   CRITICAL: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
+  error: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
 };
 
-const ALERT_TYPE_BADGE_STYLES: Record<string, string> = {
-  ACTUACION_NUEVA: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  ESTADO_NUEVO: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
-  STAGE_CHANGE: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-  TAREA_CREADA: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  TAREA_VENCIDA: "bg-destructive/10 text-destructive",
-  AUDIENCIA_PROXIMA: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  AUDIENCIA_CREADA: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  TERMINO_CRITICO: "bg-destructive/10 text-destructive",
-  TERMINO_VENCIDO: "bg-destructive/10 text-destructive",
-  PETICION_CREADA: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-  HITO_ALCANZADO: "bg-green-500/10 text-green-600 dark:text-green-400",
+const ALERT_TYPE_LABELS: Record<string, string> = {
+  ACTUACION_NUEVA: "Actuación nueva",
+  ACTUACION_MODIFIED: "Actuación modificada",
+  PUBLICACION_NEW: "Publicación nueva",
+  PUBLICACION_MODIFIED: "Publicación modificada",
+  ESTADO_NUEVO: "Estado nuevo",
+  TAREA_VENCIDA: "Tarea vencida",
+  HEARING_REMINDER: "Audiencia próxima",
+  HEARING_TODAY: "Audiencia hoy",
+  TERMINO_CRITICO: "Término crítico",
+  TERMINO_VENCIDO: "Término vencido",
+  WATCHDOG_PROVIDER_DOWN: "Proveedor caído",
 };
 
-interface UserNotification {
+interface AlertInstance {
   id: string;
-  type: string;
-  title: string;
-  body: string | null;
+  entity_id: string;
+  entity_type: string;
+  alert_type: string | null;
+  alert_source: string | null;
   severity: string;
-  category: string;
-  work_item_id: string | null;
+  status: string;
+  title: string;
+  message: string;
+  fired_at: string;
   read_at: string | null;
+  acknowledged_at: string | null;
   dismissed_at: string | null;
-  created_at: string;
-  metadata: Record<string, unknown> | null;
-  deep_link: string | null;
+  payload: Record<string, unknown> | null;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 export function NotificationsAlertTab() {
   const queryClient = useQueryClient();
@@ -72,18 +86,25 @@ export function NotificationsAlertTab() {
   const [showRead, setShowRead] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ["user-notifications-page", typeFilter, severityFilter, showRead],
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["alert-instances-notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
+    queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+  };
+
+  const { data: alerts = [], isLoading } = useQuery({
+    queryKey: ["alert-instances-notifications", typeFilter, severityFilter, showRead],
     queryFn: async () => {
-      let query = (supabase.from("notifications") as any)
+      let query = supabase
+        .from("alert_instances")
         .select("*")
-        .in("category", ["WORK_ITEM_ALERTS", "TERMS"])
-        .is("dismissed_at", null)
-        .order("created_at", { ascending: false })
+        .neq("status", "DISMISSED")
+        .order("fired_at", { ascending: false })
         .limit(PAGE_SIZE);
 
       if (typeFilter !== "all") {
-        query = query.eq("type", typeFilter);
+        query = query.eq("alert_type", typeFilter);
       }
       if (severityFilter !== "all") {
         query = query.eq("severity", severityFilter);
@@ -94,106 +115,121 @@ export function NotificationsAlertTab() {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data || []) as UserNotification[];
+      return (data || []) as unknown as AlertInstance[];
     },
   });
 
   const markRead = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from("notifications") as any)
+      const { error } = await supabase
+        .from("alert_instances")
         .update({ read_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-notifications-page"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+    onSuccess: invalidateAll,
+  });
+
+  const acknowledge = useMutation({
+    mutationFn: async (id: string) => {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("alert_instances")
+        .update({ status: "ACKNOWLEDGED", acknowledged_at: now, read_at: now })
+        .eq("id", id);
+      if (error) throw error;
     },
+    onSuccess: invalidateAll,
   });
 
   const dismiss = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from("notifications") as any)
-        .update({ dismissed_at: new Date().toISOString() })
+      const { error } = await supabase
+        .from("alert_instances")
+        .update({ status: "DISMISSED", dismissed_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-notifications-page"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+      invalidateAll();
       toast.success("Notificación descartada");
     },
   });
 
   const markAllRead = useMutation({
     mutationFn: async () => {
-      let query = (supabase.from("notifications") as any)
+      let query = supabase
+        .from("alert_instances")
         .update({ read_at: new Date().toISOString() })
         .is("read_at", null)
-        .is("dismissed_at", null)
-        .in("category", ["WORK_ITEM_ALERTS", "TERMS"]);
+        .neq("status", "DISMISSED");
 
       if (typeFilter !== "all") {
-        query = query.eq("type", typeFilter);
+        query = query.eq("alert_type", typeFilter);
       }
       const { error } = await query;
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-notifications-page"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+      invalidateAll();
       toast.success("Todas marcadas como leídas");
     },
   });
 
   const bulkDismiss = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await (supabase.from("notifications") as any)
-        .update({ dismissed_at: new Date().toISOString() })
+      const { error } = await supabase
+        .from("alert_instances")
+        .update({ status: "DISMISSED", dismissed_at: new Date().toISOString() })
         .in("id", ids);
       if (error) throw error;
     },
     onSuccess: () => {
       setSelectedIds(new Set());
-      queryClient.invalidateQueries({ queryKey: ["user-notifications-page"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+      invalidateAll();
       toast.success("Notificaciones descartadas");
     },
   });
 
   const bulkMarkRead = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await (supabase.from("notifications") as any)
+      const { error } = await supabase
+        .from("alert_instances")
         .update({ read_at: new Date().toISOString() })
         .in("id", ids);
       if (error) throw error;
     },
     onSuccess: () => {
       setSelectedIds(new Set());
-      queryClient.invalidateQueries({ queryKey: ["user-notifications-page"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
+      invalidateAll();
       toast.success("Marcadas como leídas");
     },
   });
 
   const toggleSelection = (id: string) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
   const selectAll = () => {
-    setSelectedIds(new Set(notifications.map(n => n.id)));
+    setSelectedIds(new Set(alerts.map((a) => a.id)));
   };
 
-  const unreadCount = notifications.filter(n => !n.read_at).length;
+  const unreadCount = alerts.filter((a) => !a.read_at).length;
+  const isProcedural = (a: AlertInstance) =>
+    !!a.alert_type && PROCEDURAL_ALERT_TYPES.has(a.alert_type);
+
+  // Available filter types: union of procedural + types present in current data
+  const presentTypes = Array.from(
+    new Set(alerts.map((a) => a.alert_type).filter((t): t is string => !!t)),
+  );
+  const filterTypes = Array.from(
+    new Set([...PROCEDURAL_ALERT_TYPES, ...presentTypes]),
+  );
 
   return (
     <Card>
@@ -236,13 +272,15 @@ export function NotificationsAlertTab() {
         <div className="flex items-center gap-3 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-48">
+            <SelectTrigger className="w-56">
               <SelectValue placeholder="Tipo" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los tipos</SelectItem>
-              {Object.entries(ALERT_TYPE_LABELS).map(([key, label]) => (
-                <SelectItem key={key} value={key}>{label}</SelectItem>
+              {filterTypes.map((key) => (
+                <SelectItem key={key} value={key}>
+                  {ALERT_TYPE_LABELS[key] ?? key}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -253,7 +291,7 @@ export function NotificationsAlertTab() {
             <SelectContent>
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="INFO">Info</SelectItem>
-              <SelectItem value="WARNING">Alerta</SelectItem>
+              <SelectItem value="WARN">Alerta</SelectItem>
               <SelectItem value="CRITICAL">Crítica</SelectItem>
             </SelectContent>
           </Select>
@@ -287,70 +325,79 @@ export function NotificationsAlertTab() {
         {/* List */}
         {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">Cargando...</div>
-        ) : notifications.length === 0 ? (
+        ) : alerts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Inbox className="h-12 w-12 mb-3 opacity-50" />
             <p className="text-sm">No hay notificaciones {!showRead ? "sin leer" : ""}</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {notifications.map(n => {
-              const severity = SEVERITY_STYLES[n.severity] || SEVERITY_STYLES.INFO;
-              const typeLabel = ALERT_TYPE_LABELS[n.type as UserAlertType] || n.type;
-              const typeBadgeStyle = ALERT_TYPE_BADGE_STYLES[n.type] || "bg-muted text-muted-foreground";
-              const radicado = (n.metadata as any)?.radicado;
+            {alerts.map((a) => {
+              if (isProcedural(a)) {
+                return (
+                  <AlertConsolidatedRow
+                    key={a.id}
+                    alert={a}
+                    isSelected={selectedIds.has(a.id)}
+                    showCheckbox
+                    onToggleSelect={toggleSelection}
+                    onAcknowledge={(id) => acknowledge.mutate(id)}
+                    onDismiss={(id) => dismiss.mutate(id)}
+                    isDismissing={dismiss.isPending}
+                  />
+                );
+              }
+
+              const severity = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.INFO;
+              const typeLabel = a.alert_type ? (ALERT_TYPE_LABELS[a.alert_type] ?? a.alert_type) : "Notificación";
+              const deepLink = a.entity_id ? `/app/work-items/${a.entity_id}` : null;
 
               return (
                 <div
-                  key={n.id}
+                  key={a.id}
                   className={cn(
                     "flex items-start gap-3 p-3 rounded-lg border transition-colors",
                     severity.border,
-                    !n.read_at ? "bg-primary/5" : "bg-background",
-                    selectedIds.has(n.id) && "ring-2 ring-primary"
+                    !a.read_at ? "bg-primary/5" : "bg-background",
+                    selectedIds.has(a.id) && "ring-2 ring-primary",
                   )}
                 >
                   <Checkbox
-                    checked={selectedIds.has(n.id)}
-                    onCheckedChange={() => toggleSelection(n.id)}
+                    checked={selectedIds.has(a.id)}
+                    onCheckedChange={() => toggleSelection(a.id)}
                     className="mt-1 shrink-0"
                   />
                   <div className={cn("h-2.5 w-2.5 rounded-full mt-1.5 shrink-0", severity.dot)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", typeBadgeStyle)}>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                         {typeLabel}
                       </Badge>
-                      {n.severity === "CRITICAL" && (
+                      {(a.severity === "CRITICAL" || a.severity === "error") && (
                         <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Crítica</Badge>
                       )}
                     </div>
-                    <p className="text-sm font-medium">{n.title}</p>
-                    {n.body && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{n.body}</p>
-                    )}
-                    {radicado && (
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        Radicado: <code className="bg-muted px-1 rounded">{String(radicado)}</code>
-                      </p>
+                    <p className="text-sm font-medium">{a.title}</p>
+                    {a.message && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{a.message}</p>
                     )}
                     <p className="text-[11px] text-muted-foreground/70 mt-1">
-                      {formatDistanceToNow(new Date(n.created_at), { addSuffix: true, locale: es })}
+                      {formatDistanceToNow(new Date(a.fired_at), { addSuffix: true, locale: es })}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    {n.deep_link && (
+                    {deepLink && (
                       <Button variant="ghost" size="sm" asChild title="Ver asunto">
-                        <Link to={n.deep_link}>
+                        <Link to={deepLink}>
                           <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
                       </Button>
                     )}
-                    {!n.read_at && (
+                    {!a.read_at && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => markRead.mutate(n.id)}
+                        onClick={() => markRead.mutate(a.id)}
                         title="Marcar leída"
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -359,7 +406,7 @@ export function NotificationsAlertTab() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => dismiss.mutate(n.id)}
+                      onClick={() => dismiss.mutate(a.id)}
                       title="Descartar"
                     >
                       <X className="h-3.5 w-3.5" />
