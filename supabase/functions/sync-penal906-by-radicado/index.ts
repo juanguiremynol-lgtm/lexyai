@@ -554,6 +554,10 @@ Deno.serve(async (req) => {
             entity_id: work_item_id,
             severity: importantEvent.severity,
             status: "PENDING",
+            // NULL-GUARD FIX: explicit canonical alert_type required by
+            // CHECK constraint and by the email dispatcher.
+            alert_type: "ACTUACION_NUEVA",
+            alert_source: "cpnu",
             title: `${importantEvent.type} detectado`,
             message: `Radicado ${cleanRadicado}: ${summary}`,
             payload: {
