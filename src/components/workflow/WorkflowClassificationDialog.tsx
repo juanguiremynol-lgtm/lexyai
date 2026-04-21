@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Scale, Send, Gavel, Building2, Landmark, ChevronRight, Info, Briefcase, Shield } from "lucide-react";
+import { Scale, Send, Gavel, Building2, Landmark, ChevronRight, Info, Briefcase, Shield, FileText } from "lucide-react";
 import {
   type WorkflowType,
   type CGPPhase,
@@ -42,6 +42,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   CPACA: <Landmark className="h-5 w-5" />,
   LABORAL: <Briefcase className="h-5 w-5" />,
   PENAL_906: <Shield className="h-5 w-5" />,
+  GENERIC: <FileText className="h-5 w-5" />,
 };
 
 export function WorkflowClassificationDialog({
