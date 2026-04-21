@@ -43,9 +43,8 @@ const PROCEDURAL_ALERT_TYPES = new Set([
 const SEVERITY_STYLES: Record<string, { dot: string; border: string }> = {
   INFO: { dot: "bg-primary", border: "border-primary/20" },
   WARNING: { dot: "bg-amber-500", border: "border-amber-500/30" },
-  // Legacy lowercase aliases (old `alerts` table enum) — keep for backward compat
+  // Legacy alias — old `alerts` table enum used 'WARN'
   WARN: { dot: "bg-amber-500", border: "border-amber-500/30" },
-  WARNING: { dot: "bg-amber-500", border: "border-amber-500/30" },
   CRITICAL: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
   error: { dot: "bg-destructive animate-pulse", border: "border-destructive/30" },
 };
