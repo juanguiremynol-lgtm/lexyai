@@ -171,14 +171,59 @@ function SourceBadges({ source, sources }: { source: string | null; sources: str
 
 // ─── Date helpers ────────────────────────────────────────────────────────────
 
-function formatActDate(dateStr: string): string {
-  try {
-    const [year, month, day] = dateStr.split("-").map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return dateStr;
+/**
+ * Robust date parser. Handles:
+ *   - YYYY-MM-DD (or YYYY-MM-DDTHH:MM:SS...)
+ *   - DD/MM/YYYY HH:MM:SS (SAMAI format)
+ *   - DD/MM/YYYY  or  DD-MM-YYYY
+ * Returns a Date in local time, or null if unparseable.
+ */
+function parseFlexibleDate(input: string): Date | null {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+
+  // ISO-like: YYYY-MM-DD[ T...]
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    const dt = new Date(Number(y), Number(m) - 1, Number(d));
+    return isNaN(dt.getTime()) ? null : dt;
   }
+
+  // DD/MM/YYYY or DD-MM-YYYY (with optional HH:MM:SS)
+  const dmy = s.match(
+    /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/,
+  );
+  if (dmy) {
+    const [, dd, mm, yy, hh, mi, ss] = dmy;
+    let year = Number(yy);
+    if (year < 100) year += 2000;
+    const month = Number(mm);
+    const day = Number(dd);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const dt = new Date(
+      year,
+      month - 1,
+      day,
+      hh ? Number(hh) : 0,
+      mi ? Number(mi) : 0,
+      ss ? Number(ss) : 0,
+    );
+    if (isNaN(dt.getTime())) return null;
+    if (dt.getDate() !== day || dt.getMonth() !== month - 1) return null;
+    return dt;
+  }
+
+  // Fallback to native parser
+  const dt = new Date(s);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function formatActDate(dateStr: string): string {
+  const date = parseFlexibleDate(dateStr);
+  if (!date) return dateStr;
+  return date.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function humanizeCreatedAt(isoString: string): string {
