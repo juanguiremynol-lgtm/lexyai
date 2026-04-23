@@ -4,7 +4,8 @@
  * CPACA workflow: reads from Google Cloud SAMAI + SAMAI_ESTADOS APIs
  * Other workflows: reads from work_item_acts table (Supabase)
  *
- * CRITICAL: CGP → CPNU API, CPACA → SAMAI API, everything else → Supabase
+ * CRITICAL: CGP → CPNU API, CPACA → SAMAI API (live, no Supabase fallback),
+ * everything else → Supabase work_item_acts.
  */
 
 import { useState } from "react";
@@ -79,20 +80,29 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   const isCGP = workItem.workflow_type === "CGP";
   const isCPACA = workItem.workflow_type === "CPACA";
-  const useExternalApi = isCGP;
+  const useExternalApi = isCGP || isCPACA;
 
   // ─── Data source branching ──────────────────────────────────────────────
-  // CGP → Google Cloud CPNU API
-  // CPACA + Other workflows → Supabase work_item_acts (SAMAI data synced via edge function)
+  // CGP   → Google Cloud CPNU API (useCpnuActuaciones)
+  // CPACA → Google Cloud SAMAI + SAMAI_ESTADOS APIs (useSamaiActuaciones, live)
+  // Other → Supabase work_item_acts
   const cpnuQuery = useCpnuActuaciones(workItem.id, isCGP);
-  const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", false);
+  const samaiQuery = useSamaiActuaciones(workItem.id, workItem.radicado || "", isCPACA);
   const supabaseQuery = useSupabaseActs(workItem.id, !useExternalApi);
 
-  const acts = isCGP ? cpnuQuery.data : supabaseQuery.data;
-  const isLoading = isCGP ? cpnuQuery.isLoading : supabaseQuery.isLoading;
+  const acts = isCGP
+    ? cpnuQuery.data
+    : isCPACA
+      ? samaiQuery.data
+      : supabaseQuery.data;
+  const isLoading = isCGP
+    ? cpnuQuery.isLoading
+    : isCPACA
+      ? samaiQuery.isLoading
+      : supabaseQuery.isLoading;
 
   // ─── API label for badges ───────────────────────────────────────────────
-  const apiLabel = isCGP ? "CPNU API" : null;
+  const apiLabel = isCGP ? "CPNU API" : isCPACA ? "SAMAI API" : null;
 
   // ─── Resync mutation ────────────────────────────────────────────────────
   const resyncMutation = useMutation({
@@ -100,7 +110,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
       if (isCGP) {
         return resyncCpnuActuaciones(workItem.id);
       }
-      // Non-CGP/CPACA: use Supabase edge function
+      if (isCPACA) {
+        return resyncSamaiActuaciones(workItem.radicado || "");
+      }
+      // Other workflows: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
         body: { work_item_id: workItem.id },
       });
@@ -116,6 +129,19 @@ export function ActsTab({ workItem }: ActsTabProps) {
         });
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["cpnu-actuaciones", workItem.id] });
+        }, 3000);
+        return;
+      }
+
+      if (isCPACA) {
+        toast.success("Re-sincronización SAMAI iniciada", {
+          description: "Las actuaciones se actualizarán en unos momentos.",
+          duration: 5000,
+        });
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["samai-actuaciones", workItem.id, workItem.radicado || ""],
+          });
         }, 3000);
         return;
       }
