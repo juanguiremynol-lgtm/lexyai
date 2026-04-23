@@ -36,7 +36,7 @@ function mapToWorkItemAct(
   const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
 
   return {
-    id: raw.id,
+    id: String(raw.id),
     owner_id: "",
     work_item_id: workItemId,
     description,
@@ -53,7 +53,7 @@ function mapToWorkItemAct(
     despacho: raw.despacho || null,
     workflow_type: "CPACA",
     scrape_date: null,
-    hash_fingerprint: raw.id,
+    hash_fingerprint: String(raw.id),
     created_at: raw.fecha_registro || new Date().toISOString(),
     date_confidence: "high",
     raw_data: raw,
