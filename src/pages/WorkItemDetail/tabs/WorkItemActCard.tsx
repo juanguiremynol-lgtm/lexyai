@@ -320,6 +320,8 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
     || detailFallback;
   const hasAnnotation = !!displayAnnotation?.trim();
 
+  const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
+
   return (
     <div
       className={cn(
