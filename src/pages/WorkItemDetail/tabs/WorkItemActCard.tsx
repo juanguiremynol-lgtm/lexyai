@@ -7,6 +7,34 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+// ─── Attachment types ────────────────────────────────────────────────────────
+
+/** SAMAI attachment shape inside raw_data.anexos_documentos */
+interface SamaiAnexoDocumento {
+  urlVer?: string | null;
+  urlDescarga?: string | null;
+  descripcion?: string | null;
+  [key: string]: unknown;
+}
+
+function extractSamaiAttachments(
+  source: string | null,
+  sources: string[] | null,
+  rawData?: Record<string, unknown> | null,
+): SamaiAnexoDocumento[] {
+  if (!rawData) return [];
+  const isSamai =
+    source === "samai" ||
+    (sources?.some((s) => s?.toLowerCase() === "samai") ?? false);
+  if (!isSamai) return [];
+  const arr = rawData.anexos_documentos;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(
+    (x): x is SamaiAnexoDocumento =>
+      !!x && typeof x === "object" && (("urlVer" in x) || ("urlDescarga" in x)),
+  );
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface WorkItemAct {
