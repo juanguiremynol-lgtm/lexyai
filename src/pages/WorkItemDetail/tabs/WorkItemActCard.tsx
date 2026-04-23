@@ -7,6 +7,34 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+// ─── Attachment types ────────────────────────────────────────────────────────
+
+/** SAMAI attachment shape inside raw_data.anexos_documentos */
+interface SamaiAnexoDocumento {
+  urlVer?: string | null;
+  urlDescarga?: string | null;
+  descripcion?: string | null;
+  [key: string]: unknown;
+}
+
+function extractSamaiAttachments(
+  source: string | null,
+  sources: string[] | null,
+  rawData?: Record<string, unknown> | null,
+): SamaiAnexoDocumento[] {
+  if (!rawData) return [];
+  const isSamai =
+    source === "samai" ||
+    (sources?.some((s) => s?.toLowerCase() === "samai") ?? false);
+  if (!isSamai) return [];
+  const arr = rawData.anexos_documentos;
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(
+    (x): x is SamaiAnexoDocumento =>
+      !!x && typeof x === "object" && (("urlVer" in x) || ("urlDescarga" in x)),
+  );
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface WorkItemAct {
@@ -292,6 +320,8 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
     || detailFallback;
   const hasAnnotation = !!displayAnnotation?.trim();
 
+  const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
+
   return (
     <div
       className={cn(
@@ -395,6 +425,52 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
           </span>
         )}
       </div>
+
+      {/* Row 6: SAMAI attachments — anexos_documentos */}
+      {samaiAttachments.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-border/30">
+          <div className="text-xs font-medium text-foreground/70 mb-1.5">
+            📎 Documentos adjuntos ({samaiAttachments.length})
+          </div>
+          <ul className="space-y-1.5">
+            {samaiAttachments.map((doc, idx) => {
+              const desc = doc.descripcion?.trim() || `Documento ${idx + 1}`;
+              return (
+                <li
+                  key={idx}
+                  className="flex items-center gap-2 text-xs flex-wrap"
+                  title={doc.descripcion?.trim() || undefined}
+                >
+                  <span className="text-muted-foreground truncate max-w-[60%]">{desc}</span>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    {doc.urlVer && (
+                      <a
+                        href={doc.urlVer}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                      >
+                        👁️ Ver
+                      </a>
+                    )}
+                    {doc.urlDescarga && (
+                      <a
+                        href={doc.urlDescarga}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
+                      >
+                        ⬇️ Descargar
+                      </a>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
