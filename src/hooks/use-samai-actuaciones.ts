@@ -10,7 +10,7 @@ import { SAMAI_API_BASE } from "@/lib/api-urls";
 
 /** Raw shape returned by SAMAI /actuaciones endpoint */
 interface SamaiActuacionRaw {
-  id: string;
+  id: string | number;
   fecha_actuacion: string | null;
   actuacion: string | null;
   anotacion: string | null;
