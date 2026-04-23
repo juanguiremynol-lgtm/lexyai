@@ -110,7 +110,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
       if (isCGP) {
         return resyncCpnuActuaciones(workItem.id);
       }
-      // Non-CGP/CPACA: use Supabase edge function
+      if (isCPACA) {
+        return resyncSamaiActuaciones(workItem.radicado || "");
+      }
+      // Other workflows: use Supabase edge function
       const { data, error } = await supabase.functions.invoke("resync-actuaciones", {
         body: { work_item_id: workItem.id },
       });
@@ -126,6 +129,19 @@ export function ActsTab({ workItem }: ActsTabProps) {
         });
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["cpnu-actuaciones", workItem.id] });
+        }, 3000);
+        return;
+      }
+
+      if (isCPACA) {
+        toast.success("Re-sincronización SAMAI iniciada", {
+          description: "Las actuaciones se actualizarán en unos momentos.",
+          duration: 5000,
+        });
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["samai-actuaciones", workItem.id, workItem.radicado || ""],
+          });
         }, 3000);
         return;
       }
