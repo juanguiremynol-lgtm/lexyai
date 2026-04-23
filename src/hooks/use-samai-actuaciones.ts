@@ -95,12 +95,22 @@ export function useSamaiActuaciones(workItemId: string, radicado: string, enable
 
       // Combine and deduplicate by id
       const seen = new Set<string>();
+      const seenComposite = new Set<string>();
       const combined: WorkItemAct[] = [];
       for (const act of [...samaiActs, ...estadosActs]) {
-        if (!seen.has(act.id)) {
-          seen.add(act.id);
-          combined.push(act);
-        }
+        if (seen.has(act.id)) continue;
+        // Composite key: indice (if present) OR description+act_date.
+        // Catches duplicates where the same actuación arrives from both
+        // SAMAI and SAMAI_ESTADOS with different ids.
+        const raw = (act.raw_data ?? {}) as Record<string, unknown>;
+        const indice = raw["indice"] ?? raw["Indice"] ?? raw["índice"];
+        const compositeKey = indice != null
+          ? `idx:${String(indice)}`
+          : `desc:${(act.description || "").trim().toLowerCase()}|${act.act_date || ""}`;
+        if (seenComposite.has(compositeKey)) continue;
+        seen.add(act.id);
+        seenComposite.add(compositeKey);
+        combined.push(act);
       }
 
       // Sort: act_date DESC, fecha_registro DESC, id tie-breaker
