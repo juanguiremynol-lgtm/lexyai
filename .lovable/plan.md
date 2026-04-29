@@ -1,82 +1,31 @@
+# Ocultar botones vacíos y marcar "Documento clasificado" en anexos SAMAI
 
+## Qué cambia
+En `src/pages/WorkItemDetail/tabs/WorkItemActCard.tsx`, ajustar el render de la sección "Documentos adjuntos" (Row 6, líneas ~474–518) para que:
 
-## Plan: Arreglar `Marcar atendido` + resolver alertas de términos
+1. **Botón "Descargar" se oculta** si `urlDescarga` es `null`, `undefined`, o string vacío/whitespace.
+2. **Botón "Ver" se oculta** si `urlVer` es `null`, `undefined`, o string vacío/whitespace.
+3. Si la actuación tiene **`raw_data.estado === 'CLASIFICADA'`** y **ningún anexo** tiene URL válida (ni `urlVer` ni `urlDescarga`), en lugar de los botones se muestra un badge pequeño con el texto **"Documento clasificado"**.
 
-### Problema confirmado
+Nada más cambia: la condición para mostrar la sección, el conteo, el título "📎 Documentos adjuntos (N)", el tooltip con `descripcion`, y el resto del card siguen igual.
 
-En la consola/red:
+## Detalle técnico
 
-```
-PATCH https://andromeda-read-api-…/terminos/7/atender
-Error: Failed to fetch
-```
+- Helper local `hasUrl(u?: string | null) => !!u && u.trim().length > 0` para evaluar URLs vacías.
+- Por cada `doc` calcular `showVer = hasUrl(doc.urlVer)` y `showDescarga = hasUrl(doc.urlDescarga)`.
+- Condicionales `{showVer && (...)}` y `{showDescarga && (...)}` reemplazan los `{doc.urlVer && ...}` actuales.
+- Calcular una vez por card:
+  - `estado = (rawData?.estado as string | undefined)?.toUpperCase()`
+  - `anyValidUrl = samaiAttachments.some(d => hasUrl(d.urlVer) || hasUrl(d.urlDescarga))`
+- En cada `<li>`, si `!showVer && !showDescarga && estado === 'CLASIFICADA'` (o equivalentemente `!anyValidUrl && estado === 'CLASIFICADA'` aplicado a nivel de doc), renderizar un badge en el mismo slot:
+  ```tsx
+  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+    Documento clasificado
+  </span>
+  ```
+  Si no hay URLs válidas y el estado **no** es `CLASIFICADA`, el slot de botones queda vacío (no se inventa otro texto).
 
-`GET /terminos` y `GET /novedades` funcionan, pero el `PATCH` falla porque el servidor `andromeda-read-api` no responde al **preflight CORS (OPTIONS)** desde el origen del navegador. El método PATCH + `Content-Type: application/json` siempre dispara preflight. El navegador lo bloquea antes de enviar el cuerpo, por eso aparece como "Failed to fetch" sin status code.
-
-Adicionalmente, hoy al marcar atendido **no se resuelven** las alertas `TERMINO_CRITICO` / `TERMINO_VENCIDO` en `alert_instances` que generó el cron `sync-terminos-alertas` para ese mismo término.
-
-### Cambios
-
-#### 1. Nueva edge function proxy: `andromeda-terminos-proxy`
-
-Mismo patrón que el resto de proxies CORS del proyecto. Hace el `PATCH` server-side al `andromeda-read-api` (sin restricciones CORS) y de paso ejecuta la resolución de alertas, todo en una sola llamada atómica desde el cliente.
-
-Endpoint: `POST /functions/v1/andromeda-terminos-proxy`
-
-Body:
-```json
-{ "termino_id": 7, "radicado": "05001…00", "notas": "…" }
-```
-
-Lógica:
-1. Verificar JWT del usuario (rechazar si no autenticado).
-2. Llamar `PATCH https://andromeda-read-api-…/terminos/{termino_id}/atender` con `{ notas }`. Capturar status + body.
-3. Si el PATCH retorna 2xx (o `ok:true` en payload):
-   - Resolver alertas en el alcance del usuario:
-     ```sql
-     UPDATE alert_instances
-     SET status = 'RESOLVED',
-         resolved_at = now()
-     WHERE alert_type IN ('TERMINO_CRITICO','TERMINO_VENCIDO')
-       AND status NOT IN ('RESOLVED','DISMISSED','CANCELLED')
-       AND organization_id = <org del usuario>
-       AND entity_id IN (
-         SELECT id FROM work_items
-         WHERE radicado = <radicado normalizado>
-           AND organization_id = <org del usuario>
-           AND deleted_at IS NULL
-       )
-     ```
-   - Opcional: filtrar también por `payload->>'id' = termino_id::text` para no resolver términos hermanos del mismo expediente. Decisión: resolver **todas** las alertas del work_item por término atendido, ya que la API externa no expone múltiples términos abiertos del mismo radicado simultáneamente y simplifica el modelo.
-4. Responder siempre `200` con shape `{ ok: boolean, error?: string, alerts_resolved: number, upstream_status: number }` (patrón de error envelope ya conocido en el proyecto).
-
-Config: `verify_jwt = true` (default ok); usar `SUPABASE_SERVICE_ROLE_KEY` solo dentro de la función para el UPDATE. CORS headers estándar `*` en respuesta + handler `OPTIONS`.
-
-#### 2. Actualizar `src/lib/services/andromeda-terminos.ts`
-
-Reemplazar `atenderTermino` para invocar el proxy vía `supabase.functions.invoke("andromeda-terminos-proxy", { body: {...} })` en lugar del fetch directo. Pasar `radicado` además de `id` (el componente ya lo tiene en `TerminoItem`).
-
-Nuevo shape del return: `{ ok: boolean; alerts_resolved: number; error?: string }`.
-
-#### 3. Ajuste menor en `EstadosHoy.tsx`
-
-- En `atenderMutation.mutationFn` pasar también `radicado`.
-- En `onSuccess`:
-  - Toast "Término marcado como atendido — N alertas resueltas" (si `alerts_resolved > 0`).
-  - Invalidar también `["alerts"]` / `["notifications"]` para refrescar el badge de la campana.
-- En `onError`: usar `error.message` del envelope si viene.
-
-### Detalles técnicos
-
-- **Por qué proxy y no arreglar CORS upstream**: el `andromeda-read-api` está fuera del repo Lovable. Un proxy server-side es la solución estándar y ya implementada para casos análogos (`api-colombia-proxy`, `egress-proxy`).
-- **Idempotencia**: si el usuario hace doble click, el segundo PATCH puede devolver `ok:true` (ya atendido) o un error suave; el UPDATE de alertas es idempotente (filtra por `status NOT IN RESOLVED…`).
-- **Scope de seguridad**: el UPDATE se restringe a `organization_id` del JWT para evitar resolver alertas de otra organización aunque el `termino_id` sea adivinable.
-- **Normalización radicado**: usar el mismo cleaner que `judicial-data-normalization-standards` (trim + solo dígitos) antes del lookup en `work_items`.
-- **Error envelope**: el proxy nunca lanza 5xx al cliente — siempre 200 con `ok:false` + `error` para que `supabase.functions.invoke` no descarte el body.
-
-### Fuera de alcance
-
-- No se modifica `sync-terminos-alertas` (la generación de alertas sigue igual).
-- No se cambia el shape del endpoint upstream.
-- No se añade reintento automático ni cola — un fallo de upstream se reporta al usuario y queda para reintento manual.
-
+## Fuera de alcance
+- No se modifica `extractSamaiAttachments` ni el filtro que decide si la sección aparece.
+- No se cambia el flujo de fetch/dedup/sort en `useSamaiActuaciones`.
+- No se introduce nuevo dependencia ni componente.
