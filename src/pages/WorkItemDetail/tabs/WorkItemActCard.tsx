@@ -484,9 +484,11 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
             <ul className="space-y-1.5">
               {samaiAttachments.map((doc, idx) => {
                 const desc = doc.descripcion?.trim() || `Documento ${idx + 1}`;
-                const showVer = hasUrl(doc.urlVer);
-                const showDescarga = hasUrl(doc.urlDescarga);
-                const noUrls = !showVer && !showDescarga;
+                // Case C: when the act is CLASIFICADA, force-hide Ver/Descargar
+                // and always show the "Documento clasificado" badge instead.
+                const showVer = !isClasificada && hasUrl(doc.urlVer);
+                const showDescarga = !isClasificada && hasUrl(doc.urlDescarga);
+                const showBadge = isClasificada;
                 return (
                   <li
                     key={idx}
@@ -516,7 +518,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                           ⬇️ Descargar
                         </a>
                       )}
-                      {noUrls && isClasificada && (
+                      {showBadge && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
                           Documento clasificado
                         </span>

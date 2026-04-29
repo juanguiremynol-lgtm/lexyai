@@ -1,31 +1,40 @@
-# Ocultar botones vacíos y marcar "Documento clasificado" en anexos SAMAI
+## Objetivo
 
-## Qué cambia
-En `src/pages/WorkItemDetail/tabs/WorkItemActCard.tsx`, ajustar el render de la sección "Documentos adjuntos" (Row 6, líneas ~474–518) para que:
+Forzar el ocultamiento de los botones **Ver** y **Descargar** en cada anexo SAMAI cuando la actuación tenga `raw_data.estado === "CLASIFICADA"`, mostrando en su lugar siempre el badge **"Documento clasificado"** — sin importar lo que traigan `urlVer` / `urlDescarga`.
 
-1. **Botón "Descargar" se oculta** si `urlDescarga` es `null`, `undefined`, o string vacío/whitespace.
-2. **Botón "Ver" se oculta** si `urlVer` es `null`, `undefined`, o string vacío/whitespace.
-3. Si la actuación tiene **`raw_data.estado === 'CLASIFICADA'`** y **ningún anexo** tiene URL válida (ni `urlVer` ni `urlDescarga`), en lugar de los botones se muestra un badge pequeño con el texto **"Documento clasificado"**.
+Para actuaciones con cualquier otro estado (`REGISTRADA`, etc.), el comportamiento actual se mantiene: se muestran los botones solo si la URL correspondiente es no-vacía.
 
-Nada más cambia: la condición para mostrar la sección, el conteo, el título "📎 Documentos adjuntos (N)", el tooltip con `descripcion`, y el resto del card siguen igual.
+## Cambios
 
-## Detalle técnico
+**Archivo único**: `src/pages/WorkItemDetail/tabs/WorkItemActCard.tsx` (líneas 474–531).
 
-- Helper local `hasUrl(u?: string | null) => !!u && u.trim().length > 0` para evaluar URLs vacías.
-- Por cada `doc` calcular `showVer = hasUrl(doc.urlVer)` y `showDescarga = hasUrl(doc.urlDescarga)`.
-- Condicionales `{showVer && (...)}` y `{showDescarga && (...)}` reemplazan los `{doc.urlVer && ...}` actuales.
-- Calcular una vez por card:
-  - `estado = (rawData?.estado as string | undefined)?.toUpperCase()`
-  - `anyValidUrl = samaiAttachments.some(d => hasUrl(d.urlVer) || hasUrl(d.urlDescarga))`
-- En cada `<li>`, si `!showVer && !showDescarga && estado === 'CLASIFICADA'` (o equivalentemente `!anyValidUrl && estado === 'CLASIFICADA'` aplicado a nivel de doc), renderizar un badge en el mismo slot:
-  ```tsx
-  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-    Documento clasificado
-  </span>
-  ```
-  Si no hay URLs válidas y el estado **no** es `CLASIFICADA`, el slot de botones queda vacío (no se inventa otro texto).
+Lógica nueva por anexo:
 
-## Fuera de alcance
-- No se modifica `extractSamaiAttachments` ni el filtro que decide si la sección aparece.
-- No se cambia el flujo de fetch/dedup/sort en `useSamaiActuaciones`.
-- No se introduce nuevo dependencia ni componente.
+```text
+si isClasificada:
+    ocultar Ver
+    ocultar Descargar
+    mostrar badge "Documento clasificado"
+si NO isClasificada:
+    mostrar Ver       solo si urlVer       es string no vacío (con trim)
+    mostrar Descargar solo si urlDescarga  es string no vacío (con trim)
+    (sin badge)
+```
+
+### Detalle técnico
+
+```tsx
+const showVer       = !isClasificada && hasUrl(doc.urlVer);
+const showDescarga  = !isClasificada && hasUrl(doc.urlDescarga);
+const showBadge     = isClasificada;
+```
+
+- El helper `hasUrl` y la detección de `isClasificada` (uppercase) ya existen — solo se reordena la condición.
+- El badge de "Documento clasificado" ahora se renderiza **siempre que** `isClasificada`, no solo cuando faltan URLs.
+- No se tocan estilos, ni los demás campos de la card, ni la lógica de `extractSamaiAttachments`.
+
+## Verificación post-cambio
+
+1. Abrir un work item CPACA con anexos en estado `CLASIFICADA` → confirmar que solo aparece el badge ámbar.
+2. Abrir uno con anexos en estado `REGISTRADA` y URLs válidas → confirmar que aparecen Ver y Descargar como antes.
+3. Caso mixto (REGISTRADA con `urlDescarga` null) → solo Ver visible.
