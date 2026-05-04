@@ -3,7 +3,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CPNU_API_BASE = "https://cpnu-read-api-486431576619.us-central1.run.app";
+const CPNU_API_BASE = "https://cpnu-read-api-11974381924.us-central1.run.app";
 
 const VALID_ACTIONS = ["pausar", "reactivar", "cerrar", "eliminar"] as const;
 

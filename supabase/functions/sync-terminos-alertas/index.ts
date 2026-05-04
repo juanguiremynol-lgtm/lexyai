@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const TERMINOS_URL =
-  "https://andromeda-read-api-486431576619.us-central1.run.app/terminos";
+  "https://andromeda-read-api-11974381924.us-central1.run.app/terminos";
 
 interface TerminoApi {
   id: number | string;

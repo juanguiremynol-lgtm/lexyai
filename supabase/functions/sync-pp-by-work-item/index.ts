@@ -10,7 +10,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const PP_API_BASE = "https://pp-read-api-486431576619.us-central1.run.app";
+const PP_API_BASE = "https://pp-read-api-11974381924.us-central1.run.app";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
