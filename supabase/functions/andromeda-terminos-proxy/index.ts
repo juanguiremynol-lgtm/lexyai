@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const ANDROMEDA_API_BASE =
-  "https://andromeda-read-api-486431576619.us-central1.run.app";
+  "https://andromeda-read-api-11974381924.us-central1.run.app";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
