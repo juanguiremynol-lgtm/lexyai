@@ -1,40 +1,25 @@
-## Objetivo
+# Actualización de URLs de APIs al nuevo proyecto GCP
 
-Forzar el ocultamiento de los botones **Ver** y **Descargar** en cada anexo SAMAI cuando la actuación tenga `raw_data.estado === "CLASIFICADA"`, mostrando en su lugar siempre el badge **"Documento clasificado"** — sin importar lo que traigan `urlVer` / `urlDescarga`.
+## Contexto
 
-Para actuaciones con cualquier otro estado (`REGISTRADA`, etc.), el comportamiento actual se mantiene: se muestran los botones solo si la URL correspondiente es no-vacía.
+Las 4 APIs de lectura (Andromeda, CPNU, PP, SAMAI) migraron del proyecto GCP `486431576619` al `11974381924`. La URL antigua de Andromeda ya no responde, lo cual rompe `useAndromedaRadicado` y otros flujos.
 
-## Cambios
+Verificado: las constantes solo se referencian desde `src/lib/api-urls.ts`; no hay otros archivos con la cadena `486431576619` hardcodeada.
 
-**Archivo único**: `src/pages/WorkItemDetail/tabs/WorkItemActCard.tsx` (líneas 474–531).
+## Cambio
 
-Lógica nueva por anexo:
+**Archivo único**: `src/lib/api-urls.ts`
 
-```text
-si isClasificada:
-    ocultar Ver
-    ocultar Descargar
-    mostrar badge "Documento clasificado"
-si NO isClasificada:
-    mostrar Ver       solo si urlVer       es string no vacío (con trim)
-    mostrar Descargar solo si urlDescarga  es string no vacío (con trim)
-    (sin badge)
+Reemplazar las 4 constantes con las nuevas URLs:
+
+```ts
+export const CPNU_API_BASE = "https://cpnu-read-api-11974381924.us-central1.run.app";
+export const PP_API_BASE = "https://pp-read-api-11974381924.us-central1.run.app";
+export const SAMAI_API_BASE = "https://samai-read-api-11974381924.us-central1.run.app";
+export const ANDROMEDA_API_BASE = "https://andromeda-read-api-11974381924.us-central1.run.app";
 ```
 
-### Detalle técnico
+## Notas
 
-```tsx
-const showVer       = !isClasificada && hasUrl(doc.urlVer);
-const showDescarga  = !isClasificada && hasUrl(doc.urlDescarga);
-const showBadge     = isClasificada;
-```
-
-- El helper `hasUrl` y la detección de `isClasificada` (uppercase) ya existen — solo se reordena la condición.
-- El badge de "Documento clasificado" ahora se renderiza **siempre que** `isClasificada`, no solo cuando faltan URLs.
-- No se tocan estilos, ni los demás campos de la card, ni la lógica de `extractSamaiAttachments`.
-
-## Verificación post-cambio
-
-1. Abrir un work item CPACA con anexos en estado `CLASIFICADA` → confirmar que solo aparece el badge ámbar.
-2. Abrir uno con anexos en estado `REGISTRADA` y URLs válidas → confirmar que aparecen Ver y Descargar como antes.
-3. Caso mixto (REGISTRADA con `urlDescarga` null) → solo Ver visible.
+- Los consumidores (`useAndromedaRadicado`, `use-cpnu-actuaciones`, `use-pp-actuaciones`, `use-samai-actuaciones`, etc.) importan estas constantes y no requieren cambios.
+- Edge functions / secretos del backend NO se ven afectados por este archivo (esto es solo cliente). Si las funciones edge tienen URLs hardcodeadas al proyecto viejo, eso requeriría una revisión separada.
