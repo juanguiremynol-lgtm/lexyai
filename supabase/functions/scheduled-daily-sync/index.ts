@@ -824,7 +824,14 @@ async function syncOrganization(
         excludeIds: deadLetteredIds,
       });
 
-      if (pageItems.length === 0) break;
+      if (pageItems.length === 0) {
+        if (processedCount < expectedTotal && !failureReason) {
+          failureReason = "PAGINATION_GAP";
+          itemsSkipped = expectedTotal - processedCount;
+          console.warn(`[daily-sync] PAGINATION_GAP org=${orgId} processed=${processedCount}/${expectedTotal} cursor=${cursor?.slice(0, 8) ?? 'none'}`);
+        }
+        break;
+      }
 
       // ── Process each item with error isolation ──
       const roundFailures: FailedItem[] = [];
