@@ -71,10 +71,6 @@ export async function selectEligibleWorkItems(
     query = query.gt("id", options.afterId);
   }
 
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
-
   if (options?.onlyRecentlyAccessed) {
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     query = query.gte("updated_at", cutoff);
@@ -85,18 +81,24 @@ export async function selectEligibleWorkItems(
     query = query.lte("created_at", options.cutoffTime);
   }
 
+  // CRITICAL: excludeIds must be applied in SQL (before LIMIT), not in JS post-fetch.
+  // Otherwise a page can be entirely consumed by excluded rows, producing an empty
+  // result that breaks cursor-driven pagination loops.
+  if (options?.excludeIds && options.excludeIds.length > 0) {
+    const list = options.excludeIds.map((id) => `"${id}"`).join(",");
+    query = query.not("id", "in", `(${list})`);
+  }
+
+  if (options?.limit) {
+    query = query.limit(options.limit);
+  }
+
   const { data, error } = await query;
   if (error) throw error;
 
-  let items = (data || []).filter(
+  const items = (data || []).filter(
     (item: any) => item.radicado && item.radicado.replace(/\D/g, "").length === 23,
   );
-
-  // Item 3: Exclude dead-lettered items
-  if (options?.excludeIds && options.excludeIds.length > 0) {
-    const excludeSet = new Set(options.excludeIds);
-    items = items.filter((item: any) => !excludeSet.has(item.id));
-  }
 
   return items;
 }
