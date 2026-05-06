@@ -1,25 +1,27 @@
-# Actualización de URLs de APIs al nuevo proyecto GCP
+# Actualización de URLs de APIs al nuevo dominio Cloud Run
 
-## Contexto
+Reemplazar el host del proyecto GCP por el nuevo identificador `zcrd2ua7xq-uc.a.run.app` en todos los archivos donde aparece hardcodeado.
 
-Las 4 APIs de lectura (Andromeda, CPNU, PP, SAMAI) migraron del proyecto GCP `486431576619` al `11974381924`. La URL antigua de Andromeda ya no responde, lo cual rompe `useAndromedaRadicado` y otros flujos.
+## Archivos a modificar
 
-Verificado: las constantes solo se referencian desde `src/lib/api-urls.ts`; no hay otros archivos con la cadena `486431576619` hardcodeada.
+**Cliente (frontend)**
+- `src/lib/api-urls.ts` — actualizar las 4 constantes:
+  - `CPNU_API_BASE` → `https://cpnu-read-api-zcrd2ua7xq-uc.a.run.app`
+  - `PP_API_BASE` → `https://pp-read-api-zcrd2ua7xq-uc.a.run.app`
+  - `SAMAI_API_BASE` → `https://samai-read-api-zcrd2ua7xq-uc.a.run.app`
+  - `ANDROMEDA_API_BASE` → `https://andromeda-read-api-zcrd2ua7xq-uc.a.run.app`
+- `src/hooks/use-work-item-detail.ts` (línea 16) — tiene URL CPNU hardcodeada del proyecto viejo `486431576619`. Reemplazar por `import { CPNU_API_BASE } from "@/lib/api-urls"` y usar `${CPNU_API_BASE}/work-items`.
+- `src/hooks/use-work-items-list.ts` (línea 7) — mismo caso, reemplazar por la constante centralizada.
 
-## Cambio
+**Edge functions (4)**
+- `supabase/functions/andromeda-terminos-proxy/index.ts` (línea 5)
+- `supabase/functions/sync-terminos-alertas/index.ts` (línea 11)
+- `supabase/functions/cpnu-sync/index.ts` (línea 6)
+- `supabase/functions/sync-pp-by-work-item/index.ts` (línea 13)
 
-**Archivo único**: `src/lib/api-urls.ts`
-
-Reemplazar las 4 constantes con las nuevas URLs:
-
-```ts
-export const CPNU_API_BASE = "https://cpnu-read-api-11974381924.us-central1.run.app";
-export const PP_API_BASE = "https://pp-read-api-11974381924.us-central1.run.app";
-export const SAMAI_API_BASE = "https://samai-read-api-11974381924.us-central1.run.app";
-export const ANDROMEDA_API_BASE = "https://andromeda-read-api-11974381924.us-central1.run.app";
-```
+En cada una, reemplazar el host `*-11974381924.us-central1.run.app` por `*-zcrd2ua7xq-uc.a.run.app` (mismas constantes locales, solo cambia el dominio).
 
 ## Notas
 
-- Los consumidores (`useAndromedaRadicado`, `use-cpnu-actuaciones`, `use-pp-actuaciones`, `use-samai-actuaciones`, etc.) importan estas constantes y no requieren cambios.
-- Edge functions / secretos del backend NO se ven afectados por este archivo (esto es solo cliente). Si las funciones edge tienen URLs hardcodeadas al proyecto viejo, eso requeriría una revisión separada.
+- Otros archivos detectados con la cadena "run.app" (`externalProviderClient.ts`, componentes del wizard de proveedores, tests de SSRF) usan ejemplos genéricos o configuración por organización, no las 4 URLs canónicas — no requieren cambio.
+- Las edge functions se redeployan automáticamente.

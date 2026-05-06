@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { WorkItem } from "@/types/work-item";
 import type { WorkflowType } from "@/lib/workflow-constants";
 
-const CPNU_API_URL = "https://cpnu-read-api-486431576619.us-central1.run.app/work-items";
+const CPNU_API_URL = "https://cpnu-read-api-zcrd2ua7xq-uc.a.run.app/work-items";
 
 export interface WorkItemListFilters {
   search?: string;
