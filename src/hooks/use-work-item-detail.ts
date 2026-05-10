@@ -12,8 +12,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
-
-const CPNU_API_URL = "https://cpnu-read-api-zcrd2ua7xq-uc.a.run.app/work-items";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 interface WorkItemDetail {
   id: string;
@@ -348,17 +347,18 @@ export function useWorkItemDetail(id: string | undefined) {
 
   const workItem = workItemQuery.data;
 
-  // CPNU enrichment for CGP items
-  const isCpnuEligible = !!workItem && workItem.workflow_type === "CGP" && !!workItem.radicado;
+  // Andromeda radicado enrichment (replaces legacy CPNU /work-items list scan).
+  // Calls GET /radicados/:radicado for any item with a radicado.
+  const radicado = workItem?.radicado || null;
   const cpnuQuery = useQuery({
-    queryKey: ["cpnu-detail-enrichment", id],
+    queryKey: ["radicado-detail-enrichment", radicado],
     queryFn: async () => {
-      const res = await fetch(CPNU_API_URL);
+      const res = await fetch(`${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}`);
       if (!res.ok) return null;
-      const items: Record<string, unknown>[] = await res.json();
-      return items.find((i: any) => i.work_item_id === id) || null;
+      const body = await res.json();
+      return body?.radicado ?? body?.item ?? body ?? null;
     },
-    enabled: isCpnuEligible,
+    enabled: !!radicado,
     staleTime: 60_000,
   });
 

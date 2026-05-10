@@ -1,5 +1,17 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CPNU_API_BASE } from "@/lib/api-urls";
+/**
+ * Hook: useCpnuNovedades
+ *
+ * Reads novedades for a single radicado from the Andromeda Read API
+ * (`GET /radicados/:radicado/novedades?dias=N`) and filters to CPNU source.
+ *
+ * NOTE: The API does not currently expose a "mark as reviewed" endpoint for
+ * novedades, so `markAsReviewed` is a no-op kept for backwards-compatibility
+ * with existing UI. The button is hidden by the consumer panel until the
+ * backend supports it.
+ */
+
+import { useQuery } from "@tanstack/react-query";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 export interface Novedad {
   id: string;
@@ -11,35 +23,48 @@ export interface Novedad {
   created_at: string;
 }
 
-export function useCpnuNovedades(workItemId: string | undefined) {
-  const queryClient = useQueryClient();
+const DEFAULT_DIAS = 30;
+const CPNU_FUENTE = new Set(["CPNU"]);
 
-  const { data: novedades = [], isLoading } = useQuery({
-    queryKey: ["cpnu-novedades", workItemId],
+function mapApiNovedad(raw: any, idx: number): Novedad {
+  return {
+    id: String(raw?.id ?? `${raw?.radicado ?? "n"}-${idx}`),
+    tipo_novedad: raw?.tipo_novedad ?? raw?.fuente ?? "NOVEDAD",
+    valor_anterior: raw?.valor_anterior ?? null,
+    valor_nuevo: raw?.valor_nuevo ?? null,
+    descripcion: raw?.descripcion ?? "",
+    revisada: false,
+    created_at: raw?.creado_en ?? raw?.fecha ?? new Date().toISOString(),
+  };
+}
+
+export function useCpnuNovedades(radicado: string | null | undefined, dias = DEFAULT_DIAS) {
+  const query = useQuery({
+    queryKey: ["radicado-novedades", "CPNU", radicado, dias],
     queryFn: async (): Promise<Novedad[]> => {
-      const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/novedades`);
-      if (!res.ok) throw new Error(`Novedades API error: ${res.status}`);
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${dias}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn("[useCpnuNovedades] API error:", res.status);
+        return [];
+      }
       const body = await res.json();
-      const novedades = body?.novedades ?? [];
-      return Array.isArray(novedades) ? novedades : [];
+      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      return list
+        .filter((n) => CPNU_FUENTE.has(String(n?.fuente ?? "").toUpperCase()) || !n?.fuente)
+        .map(mapApiNovedad);
     },
-    enabled: !!workItemId,
+    enabled: !!radicado,
     staleTime: 60_000,
   });
 
-  const { mutate: markAsReviewed, isPending: isMarking } = useMutation({
-    mutationFn: async (novedadId: string) => {
-      const res = await fetch(
-        `${CPNU_API_BASE}/work-items/${workItemId}/novedades/${novedadId}/revisar`,
-        { method: "PATCH" }
-      );
-      if (!res.ok) throw new Error(`Mark reviewed error: ${res.status}`);
+  return {
+    novedades: query.data ?? [],
+    isLoading: query.isLoading,
+    markAsReviewed: (_id: string, opts?: { onSettled?: () => void }) => {
+      console.warn("[useCpnuNovedades] markAsReviewed: endpoint not supported by API");
+      opts?.onSettled?.();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cpnu-novedades", workItemId] });
-      queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
-    },
-  });
-
-  return { novedades, isLoading, markAsReviewed, isMarking };
+    isMarking: false,
+  };
 }

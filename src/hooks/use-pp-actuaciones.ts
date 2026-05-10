@@ -4,120 +4,93 @@
  * using the numeric pp_id, and maps them to the WorkItemAct interface for UI compatibility.
  */
 
+/**
+ * Hook: usePpActuaciones
+ *
+ * Reads PP-sourced actuaciones for a single radicado from the Andromeda
+ * Read API (`GET /radicados/:radicado/novedades?dias=N`) filtered to
+ * `fuente = PP`. Maps to the `WorkItemAct` shape used by the UI.
+ */
+
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { PP_API_BASE } from "@/lib/api-urls";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-/** Raw shape returned by GET /work-items/:ppId/actuaciones */
-interface PpActuacionRaw {
-  id: number;
-  fecha: string | null;            // "DD/MM/YYYY"
-  fecha_auto: string | null;
-  descripcion: string | null;
-  clase_proceso: string | null;
-  demandante: string | null;
-  demandado: string | null;
-  numero_auto: string | null;
-  juez: string | null;
-  texto_auto: string | null;
-  fuente: string | null;
-  gcs_url_auto: string | null;
-  gcs_url_tabla: string | null;
-  pdf_individual_url: string | null;
-  creado_en: string | null;
-  estado_numero: string | null;
-  estado_fecha: string | null;
-  estado_titulo: string | null;
-  estado_categoria: string | null;
+const DEFAULT_DIAS = 90;
+const PP_FUENTES = new Set(["PP", "PUBLICACIONES"]);
+
+function toDateOnly(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  return String(iso).slice(0, 10);
 }
 
-/** Parse "DD/MM/YYYY" → "YYYY-MM-DD", returns null on failure */
-function parseDDMMYYYY(raw: string | null | undefined): string | null {
-  if (!raw || !raw.trim()) return null;
-  const parts = raw.trim().split("/");
-  if (parts.length !== 3) return null;
-  const [dd, mm, yyyy] = parts;
-  if (!dd || !mm || !yyyy || yyyy.length !== 4) return null;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-}
-
-function mapToWorkItemAct(raw: PpActuacionRaw, workItemId: string): WorkItemAct {
-  const description = raw.descripcion?.trim() || "Sin descripción";
-  const actDate = parseDDMMYYYY(raw.fecha);
-
+function mapToWorkItemAct(raw: any, idx: number, radicado: string): WorkItemAct {
+  const description = raw?.descripcion?.trim() || "Sin descripción";
+  const id = String(raw?.id ?? `pp-${radicado}-${idx}`);
   return {
-    id: String(raw.id),
+    id,
     owner_id: "",
-    work_item_id: workItemId,
+    work_item_id: "",
     description,
-    event_summary: raw.estado_titulo || null,
-    act_date: actDate,
-    act_date_raw: raw.fecha || null,
+    event_summary: null,
+    act_date: toDateOnly(raw?.fecha),
+    act_date_raw: raw?.fecha ?? null,
     event_date: null,
-    act_type: raw.fuente || null,
+    act_type: raw?.clase_proceso ?? null,
     source: "pp",
     source_platform: "pp",
     source_url: null,
-    source_reference: raw.estado_numero || null,
+    source_reference: null,
     sources: ["pp"],
-    despacho: null,
-    workflow_type: raw.clase_proceso || null,
+    despacho: raw?.despacho ?? null,
+    workflow_type: raw?.clase_proceso ?? null,
     scrape_date: null,
-    hash_fingerprint: String(raw.id),
-    created_at: raw.creado_en || new Date().toISOString(),
+    hash_fingerprint: id,
+    created_at: raw?.creado_en ?? new Date().toISOString(),
     date_confidence: "high",
     raw_data: {
-      gcs_url_auto: raw.gcs_url_auto,
-      gcs_url_tabla: raw.gcs_url_tabla,
-      pdf_individual_url: raw.pdf_individual_url,
-      estado_categoria: raw.estado_categoria,
-      demandante: raw.demandante,
-      demandado: raw.demandado,
-      juez: raw.juez,
-      texto_auto: raw.texto_auto,
-      numero_auto: raw.numero_auto,
-      fecha_auto: raw.fecha_auto,
+      gcs_url_auto: raw?.gcs_url_auto ?? null,
+      gcs_url_tabla: raw?.gcs_url_tabla ?? null,
+      ...raw,
     },
-    detected_at: null,
+    detected_at: raw?.creado_en ?? null,
     changed_at: null,
-    instancia: raw.estado_categoria || null,
-    fecha_registro_source: raw.creado_en ? raw.creado_en.slice(0, 10) : null,
+    instancia: null,
+    fecha_registro_source: toDateOnly(raw?.creado_en),
     inicia_termino: null,
   };
 }
 
-export function usePpActuaciones(ppId: number | null, enabled = true) {
+export function usePpActuaciones(radicado: string | null | undefined, enabled = true) {
   return useQuery({
-    queryKey: ["pp-actuaciones", ppId],
+    queryKey: ["radicado-actuaciones", "PP", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/actuaciones`);
-      if (!res.ok) throw new Error(`PP Actuaciones API error: ${res.status}`);
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn("[usePpActuaciones] API error:", res.status);
+        return [];
+      }
       const body = await res.json();
-      const rawList: PpActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
-
-      const mapped = rawList.map((r) => mapToWorkItemAct(r, String(ppId)));
-
+      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const filtered = list.filter((n) => PP_FUENTES.has(String(n?.fuente ?? "").toUpperCase()));
+      const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
       mapped.sort((a, b) => {
         if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
-        return String(b.id).localeCompare(String(a.id));
+        return a.id.localeCompare(b.id);
       });
-
       return mapped;
     },
-    enabled: ppId != null && enabled,
+    enabled: !!radicado && enabled,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }
 
-/** Trigger a re-sync for a work item via PP Google Cloud API using numeric ppId */
-export async function resyncPpActuaciones(ppId: number): Promise<{ ok: boolean }> {
-  const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`PP sync error: ${res.status}`);
-  return res.json();
+/** No-op: per-item sync endpoint does not exist on the Andromeda API. */
+export async function resyncPpActuaciones(_radicado: string): Promise<{ ok: boolean }> {
+  console.warn("[resyncPpActuaciones] no-op: per-item sync endpoint does not exist");
+  return { ok: true };
 }

@@ -1,5 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PP_API_BASE } from "@/lib/api-urls";
+/**
+ * Hook: usePpNovedades
+ *
+ * Reads novedades for a single radicado from the Andromeda Read API
+ * (`GET /radicados/:radicado/novedades?dias=N`) and filters to PP source.
+ *
+ * NOTE: API has no "mark as reviewed" endpoint; `markAsReviewed` is a no-op.
+ */
+
+import { useQuery } from "@tanstack/react-query";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
 export interface Novedad {
   id: string;
@@ -11,35 +20,48 @@ export interface Novedad {
   created_at: string;
 }
 
-export function usePpNovedades(ppId: number | null) {
-  const queryClient = useQueryClient();
+const DEFAULT_DIAS = 30;
+const PP_FUENTES = new Set(["PP", "PUBLICACIONES"]);
 
-  const { data: novedades = [], isLoading } = useQuery({
-    queryKey: ["pp-novedades", ppId],
+function mapApiNovedad(raw: any, idx: number): Novedad {
+  return {
+    id: String(raw?.id ?? `${raw?.radicado ?? "n"}-${idx}`),
+    tipo_novedad: raw?.tipo_novedad ?? raw?.fuente ?? "PP",
+    valor_anterior: raw?.valor_anterior ?? null,
+    valor_nuevo: raw?.valor_nuevo ?? null,
+    descripcion: raw?.descripcion ?? "",
+    revisada: false,
+    created_at: raw?.creado_en ?? raw?.fecha ?? new Date().toISOString(),
+  };
+}
+
+export function usePpNovedades(radicado: string | null | undefined, dias = DEFAULT_DIAS) {
+  const query = useQuery({
+    queryKey: ["radicado-novedades", "PP", radicado, dias],
     queryFn: async (): Promise<Novedad[]> => {
-      const res = await fetch(`${PP_API_BASE}/work-items/${ppId}/novedades`);
-      if (!res.ok) throw new Error(`PP Novedades API error: ${res.status}`);
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${dias}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn("[usePpNovedades] API error:", res.status);
+        return [];
+      }
       const body = await res.json();
-      const novedades = body?.novedades ?? [];
-      return Array.isArray(novedades) ? novedades : [];
+      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      return list
+        .filter((n) => PP_FUENTES.has(String(n?.fuente ?? "").toUpperCase()))
+        .map(mapApiNovedad);
     },
-    enabled: ppId != null,
+    enabled: !!radicado,
     staleTime: 60_000,
   });
 
-  const { mutate: markAsReviewed, isPending: isMarking } = useMutation({
-    mutationFn: async (novedadId: string) => {
-      const res = await fetch(
-        `${PP_API_BASE}/work-items/${ppId}/novedades/${novedadId}/revisar`,
-        { method: "PATCH" }
-      );
-      if (!res.ok) throw new Error(`Mark reviewed error: ${res.status}`);
+  return {
+    novedades: query.data ?? [],
+    isLoading: query.isLoading,
+    markAsReviewed: (_id: string, opts?: { onSettled?: () => void }) => {
+      console.warn("[usePpNovedades] markAsReviewed: endpoint not supported by API");
+      opts?.onSettled?.();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pp-novedades", ppId] });
-      queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
-    },
-  });
-
-  return { novedades, isLoading, markAsReviewed, isMarking };
+    isMarking: false,
+  };
 }

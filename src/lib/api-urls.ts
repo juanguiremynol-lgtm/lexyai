@@ -1,7 +1,8 @@
 /**
- * Centralized external API URLs for Google Cloud services.
+ * Centralized external API URL.
+ *
+ * Andromeda Read API is the ONLY backend the frontend talks to directly.
+ * The legacy CPNU/PP/SAMAI base URLs and their `*-read-api/work-items*`
+ * endpoints no longer exist; all reads go through `andromeda-read-api`.
  */
-export const CPNU_API_BASE = "https://cpnu-read-api-11974381924.us-central1.run.app";
-export const PP_API_BASE = "https://pp-read-api-zcrd2ua7xq-uc.a.run.app";
-export const SAMAI_API_BASE = "https://samai-read-api-zcrd2ua7xq-uc.a.run.app";
 export const ANDROMEDA_API_BASE = "https://andromeda-read-api-11974381924.us-central1.run.app";

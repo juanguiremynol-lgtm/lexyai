@@ -4,113 +4,98 @@
  * and maps them to the WorkItemAct interface for UI compatibility.
  */
 
+/**
+ * Hook: useCpnuActuaciones
+ *
+ * Reads CGP "actuaciones" (CPNU-sourced novedades) for a single radicado from
+ * the Andromeda Read API (`GET /radicados/:radicado/novedades?dias=N`) and
+ * maps them into the `WorkItemAct` shape used by the UI.
+ *
+ * The API does NOT have a per-work-item `/actuaciones` endpoint; we derive
+ * actuaciones from novedades filtered by `fuente = CPNU`.
+ */
+
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { CPNU_API_BASE } from "@/lib/api-urls";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-/** Raw shape returned by GET /work-items/:id/actuaciones */
-interface CpnuActuacionRaw {
-  id: string;
-  id_reg_actuacion: number | null;
-  cons_actuacion: number | null;
-  llave_proceso: string | null;
-  fecha_actuacion: string | null;
-  actuacion: string | null;
-  anotacion: string | null;
-  fecha_inicial: string | null;
-  fecha_final: string | null;
-  fecha_registro: string | null;
-  con_documentos: boolean | null;
-  despacho: string | null;
-  instancia: string | null;
-  created_at: string | null;
-}
+const DEFAULT_DIAS = 90;
 
-/** Extract YYYY-MM-DD from an ISO timestamp or date string */
-function toDateOnly(iso: string | null): string | null {
+function toDateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  // Handle "2024-08-12T00:00:00.000Z" → "2024-08-12"
-  return iso.slice(0, 10);
+  return String(iso).slice(0, 10);
 }
 
-function mapToWorkItemAct(raw: CpnuActuacionRaw, workItemId: string): WorkItemAct {
-  // Build description: "ACTUACION - anotacion" matching existing parse logic
-  const actuacion = raw.actuacion?.trim() || "Sin descripción";
-  const anotacion = raw.anotacion?.trim() || null;
-  const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
-
+function mapToWorkItemAct(raw: any, idx: number, radicado: string): WorkItemAct {
+  const description = raw?.descripcion?.trim() || "Sin descripción";
+  const id = String(raw?.id ?? `cpnu-${radicado}-${idx}`);
   return {
-    id: raw.id,
+    id,
     owner_id: "",
-    work_item_id: workItemId,
+    work_item_id: "",
     description,
-    event_summary: anotacion,
-    act_date: toDateOnly(raw.fecha_actuacion),
-    act_date_raw: raw.fecha_actuacion || null,
+    event_summary: raw?.anotacion ?? null,
+    act_date: toDateOnly(raw?.fecha),
+    act_date_raw: raw?.fecha ?? null,
     event_date: null,
-    act_type: null,
+    act_type: raw?.tipo_novedad ?? null,
     source: "cpnu",
     source_platform: "cpnu",
     source_url: null,
-    source_reference: raw.cons_actuacion != null ? String(raw.cons_actuacion) : null,
+    source_reference: null,
     sources: ["cpnu"],
-    despacho: raw.despacho || null,
-    workflow_type: "CGP",
+    despacho: raw?.despacho ?? null,
+    workflow_type: raw?.workflow_type ?? "CGP",
     scrape_date: null,
-    hash_fingerprint: raw.id,
-    created_at: raw.fecha_registro || new Date().toISOString(),
+    hash_fingerprint: id,
+    created_at: raw?.creado_en ?? new Date().toISOString(),
     date_confidence: "high",
-    raw_data: {
-      llave_proceso: raw.llave_proceso,
-      con_documentos: raw.con_documentos,
-      id_reg_actuacion: raw.id_reg_actuacion,
-      fecha_final: raw.fecha_final,
-    },
-    detected_at: raw.created_at || null,
+    raw_data: raw ?? {},
+    detected_at: raw?.creado_en ?? null,
     changed_at: null,
-    instancia: raw.instancia || null,
-    fecha_registro_source: toDateOnly(raw.fecha_registro),
-    inicia_termino: toDateOnly(raw.fecha_inicial),
+    instancia: null,
+    fecha_registro_source: toDateOnly(raw?.creado_en),
+    inicia_termino: null,
   };
 }
 
-export function useCpnuActuaciones(workItemId: string, enabled = true) {
+export function useCpnuActuaciones(radicado: string | null | undefined, enabled = true) {
   return useQuery({
-    queryKey: ["cpnu-actuaciones", workItemId],
+    queryKey: ["radicado-actuaciones", "CPNU", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/actuaciones`);
-      if (!res.ok) throw new Error(`CPNU Actuaciones API error: ${res.status}`);
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn("[useCpnuActuaciones] API error:", res.status);
+        return [];
+      }
       const body = await res.json();
-      // API returns { ok, total, actuaciones: [...] } envelope
-      const rawList: CpnuActuacionRaw[] = Array.isArray(body) ? body : (body.actuaciones ?? []);
-
-      const mapped = rawList.map((r) => mapToWorkItemAct(r, workItemId));
-
-      // Sort: fecha_actuacion DESC, fecha_registro DESC, id (tie-breaker)
+      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const filtered = list.filter((n) => {
+        const f = String(n?.fuente ?? "").toUpperCase();
+        return f === "CPNU" || f === "";
+      });
+      const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
       mapped.sort((a, b) => {
         if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
-        const regA = a.fecha_registro_source || "";
-        const regB = b.fecha_registro_source || "";
-        if (regA !== regB) return regB.localeCompare(regA);
         return a.id.localeCompare(b.id);
       });
-
       return mapped;
     },
-    enabled: !!workItemId && enabled,
+    enabled: !!radicado && enabled,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }
 
-/** Trigger a re-sync for a CGP work item via the Google Cloud API */
-export async function resyncCpnuActuaciones(workItemId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${CPNU_API_BASE}/work-items/${workItemId}/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`CPNU sync error: ${res.status}`);
-  return res.json();
+/**
+ * No-op: the API does not expose a per-item sync endpoint. Re-sync happens
+ * server-side via the daily cron / sync-jobs. Returns `{ ok: true }` so
+ * existing UI keeps working until re-sync UX is removed.
+ */
+export async function resyncCpnuActuaciones(_radicado: string): Promise<{ ok: boolean }> {
+  console.warn("[resyncCpnuActuaciones] no-op: per-item sync endpoint does not exist");
+  return { ok: true };
 }

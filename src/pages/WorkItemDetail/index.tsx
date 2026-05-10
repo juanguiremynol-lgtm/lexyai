@@ -515,12 +515,11 @@ export default function WorkItemDetail() {
 
           {/* Novedades CPNU panel for CGP items */}
           {workItem.workflow_type === "CGP" && workItem.radicado && (
-            <NovedadesCpnuPanel workItemId={workItem.id} />
+            <NovedadesCpnuPanel radicado={workItem.radicado} />
           )}
 
-          {/* Novedades PP panel for ALL items with radicado and pp_id */}
           {workItem.radicado && (
-            <NovedadesPpPanel ppId={(workItem as any).pp_id ?? null} />
+            <NovedadesPpPanel radicado={workItem.radicado} />
           )}
 
           {/* Monitoring Status & Controls */}
