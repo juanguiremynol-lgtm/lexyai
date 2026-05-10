@@ -78,18 +78,14 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
 export function PublicacionesPpTab({ workItem }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const queryClient = useQueryClient();
-  const ppId = workItem.pp_id ?? null;
+  const radicado = workItem.radicado || null;
 
-  console.log("[PublicacionesPpTab] ppId:", ppId, "radicado:", workItem.radicado);
-
-  const { data: acts, isLoading, error } = usePpActuaciones(ppId, !!workItem.radicado);
-
-  console.log("[PublicacionesPpTab] acts:", acts?.length, "isLoading:", isLoading, "error:", error);
+  const { data: acts, isLoading } = usePpActuaciones(radicado, !!radicado);
 
   const resyncMutation = useMutation({
     mutationFn: () => {
-      if (ppId == null) throw new Error("No PP ID disponible");
-      return resyncPpActuaciones(ppId);
+      if (!radicado) throw new Error("No radicado disponible");
+      return resyncPpActuaciones(radicado);
     },
     onSuccess: () => {
       toast.success("Re-sincronización PP iniciada", {
