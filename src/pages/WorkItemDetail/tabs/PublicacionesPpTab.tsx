@@ -93,7 +93,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
         duration: 5000,
       });
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["pp-actuaciones", ppId] });
+        queryClient.invalidateQueries({ queryKey: ["radicado-actuaciones", "PP", radicado] });
       }, 3000);
     },
     onError: (err) => {
@@ -127,7 +127,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
     );
   }
 
-  if (ppId == null) {
+  if (false) {
     return (
       <Card>
         <CardContent className="py-12">
