@@ -98,7 +98,7 @@ export default function CGPDetailModule({ workItem }: Props) {
           </Card>
 
           {workItem.radicado && (
-            <NovedadesCpnuPanel workItemId={workItem.id} />
+            <NovedadesCpnuPanel radicado={workItem.radicado} />
           )}
         </div>
 
