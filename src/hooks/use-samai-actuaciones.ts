@@ -4,45 +4,40 @@
  * and maps them to the WorkItemAct interface for UI compatibility.
  */
 
+/**
+ * Hook: useSamaiActuaciones
+ *
+ * Reads CPACA actuaciones (SAMAI + SAMAI_ESTADOS sources) for a single
+ * radicado from the Andromeda Read API
+ * (`GET /radicados/:radicado/novedades?dias=N`) filtered to those fuentes,
+ * and maps to the `WorkItemAct` shape used by the UI.
+ */
+
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { SAMAI_API_BASE } from "@/lib/api-urls";
+import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-/** Raw shape returned by SAMAI /actuaciones endpoint */
-interface SamaiActuacionRaw {
-  id: string | number;
-  fecha_actuacion: string | null;
-  actuacion: string | null;
-  anotacion: string | null;
-  fecha_registro: string | null;
-  despacho: string | null;
-  created_at: string | null;
-  [key: string]: unknown;
-}
+const DEFAULT_DIAS = 90;
+const SAMAI_FUENTES = new Set(["SAMAI", "SAMAI_ESTADOS"]);
 
-/** Extract YYYY-MM-DD from an ISO timestamp or date string */
-function toDateOnly(iso: string | null): string | null {
+function toDateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  return iso.slice(0, 10);
+  return String(iso).slice(0, 10);
 }
 
-function mapToWorkItemAct(
-  raw: SamaiActuacionRaw,
-  workItemId: string,
-  source: "samai" | "samai_estados"
-): WorkItemAct {
-  const actuacion = raw.actuacion?.trim() || "Sin descripción";
-  const anotacion = raw.anotacion?.trim() || null;
-  const description = anotacion ? `${actuacion} - ${anotacion}` : actuacion;
-
+function mapToWorkItemAct(raw: any, idx: number, radicado: string): WorkItemAct {
+  const description = raw?.descripcion?.trim() || "Sin descripción";
+  const fuente = String(raw?.fuente ?? "SAMAI").toUpperCase();
+  const source = fuente === "SAMAI_ESTADOS" ? "samai_estados" : "samai";
+  const id = String(raw?.id ?? `${source}-${radicado}-${idx}`);
   return {
-    id: String(raw.id),
+    id,
     owner_id: "",
-    work_item_id: workItemId,
+    work_item_id: "",
     description,
-    event_summary: anotacion,
-    act_date: toDateOnly(raw.fecha_actuacion),
-    act_date_raw: raw.fecha_actuacion || null,
+    event_summary: null,
+    act_date: toDateOnly(raw?.fecha),
+    act_date_raw: raw?.fecha ?? null,
     event_date: null,
     act_type: null,
     source,
@@ -50,101 +45,60 @@ function mapToWorkItemAct(
     source_url: null,
     source_reference: null,
     sources: [source],
-    despacho: raw.despacho || null,
+    despacho: raw?.despacho ?? null,
     workflow_type: "CPACA",
     scrape_date: null,
-    hash_fingerprint: String(raw.id),
-    created_at: raw.fecha_registro || new Date().toISOString(),
+    hash_fingerprint: id,
+    created_at: raw?.creado_en ?? new Date().toISOString(),
     date_confidence: "high",
-    raw_data: raw,
-    detected_at: raw.created_at || null,
+    raw_data: raw ?? {},
+    detected_at: raw?.creado_en ?? null,
     changed_at: null,
     instancia: null,
-    fecha_registro_source: toDateOnly(raw.fecha_registro),
+    fecha_registro_source: toDateOnly(raw?.creado_en),
     inicia_termino: null,
   };
 }
 
-async function fetchSamaiEndpoint(
-  path: string,
-  radicado: string,
-  workItemId: string,
-  source: "samai" | "samai_estados"
-): Promise<WorkItemAct[]> {
-  const res = await fetch(`${SAMAI_API_BASE}/${path}/work-items/${radicado}/actuaciones`);
-  if (!res.ok) {
-    console.warn(`[${source}] Actuaciones API error: ${res.status}`);
-    return [];
-  }
-  const body = await res.json();
-  const rawList: SamaiActuacionRaw[] = Array.isArray(body)
-    ? body
-    : (body.actuaciones ?? []);
-  return rawList.map((r) => mapToWorkItemAct(r, workItemId, source));
-}
-
-export function useSamaiActuaciones(workItemId: string, radicado: string, enabled = true) {
+export function useSamaiActuaciones(radicado: string | null | undefined, enabled = true) {
   return useQuery({
-    queryKey: ["samai-actuaciones", workItemId, radicado],
+    queryKey: ["radicado-actuaciones", "SAMAI", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      // Fetch both SAMAI and SAMAI_ESTADOS in parallel
-      const [samaiActs, estadosActs] = await Promise.all([
-        fetchSamaiEndpoint("samai", radicado, workItemId, "samai"),
-        fetchSamaiEndpoint("samai-estados", radicado, workItemId, "samai_estados"),
-      ]);
-
-      // Combine and deduplicate by id
-      const seen = new Set<string>();
-      const seenComposite = new Set<string>();
-      const combined: WorkItemAct[] = [];
-      for (const act of [...samaiActs, ...estadosActs]) {
-        if (seen.has(act.id)) continue;
-        // Composite key: indice (if present) OR description+act_date.
-        // Catches duplicates where the same actuación arrives from both
-        // SAMAI and SAMAI_ESTADOS with different ids.
-        const raw = (act.raw_data ?? {}) as Record<string, unknown>;
-        const indice = raw["indice"] ?? raw["Indice"] ?? raw["índice"];
-        const compositeKey = indice != null
-          ? `idx:${String(indice)}`
-          : `desc:${(act.description || "").trim().toLowerCase()}|${act.act_date || ""}`;
-        if (seenComposite.has(compositeKey)) continue;
-        seen.add(act.id);
-        seenComposite.add(compositeKey);
-        combined.push(act);
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn("[useSamaiActuaciones] API error:", res.status);
+        return [];
       }
-
-      // Sort: act_date DESC, fecha_registro DESC, id tie-breaker
-      combined.sort((a, b) => {
-        if (a.act_date && b.act_date && a.act_date !== b.act_date)
-          return b.act_date.localeCompare(a.act_date);
+      const body = await res.json();
+      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const filtered = list.filter((n) => SAMAI_FUENTES.has(String(n?.fuente ?? "").toUpperCase()));
+      const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
+      // Dedupe by description + act_date
+      const seen = new Set<string>();
+      const dedup: WorkItemAct[] = [];
+      for (const a of mapped) {
+        const key = `${(a.description || "").trim().toLowerCase()}|${a.act_date || ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push(a);
+      }
+      dedup.sort((a, b) => {
+        if (a.act_date && b.act_date && a.act_date !== b.act_date) return b.act_date.localeCompare(a.act_date);
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
-        const regA = a.fecha_registro_source || "";
-        const regB = b.fecha_registro_source || "";
-        if (regA !== regB) return regB.localeCompare(regA);
         return a.id.localeCompare(b.id);
       });
-
-      return combined;
+      return dedup;
     },
-    enabled: !!workItemId && !!radicado && enabled,
+    enabled: !!radicado && enabled,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }
 
-/** Trigger a re-sync for a CPACA work item via the SAMAI Google Cloud APIs */
-export async function resyncSamaiActuaciones(radicado: string): Promise<{ ok: boolean }> {
-  const [samaiRes, estadosRes] = await Promise.all([
-    fetch(`${SAMAI_API_BASE}/samai/work-items/${radicado}/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }),
-    fetch(`${SAMAI_API_BASE}/samai-estados/work-items/${radicado}/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }),
-  ]);
-  if (!samaiRes.ok && !estadosRes.ok) throw new Error(`SAMAI sync error: ${samaiRes.status}/${estadosRes.status}`);
-  return { ok: samaiRes.ok || estadosRes.ok };
+/** No-op: per-item sync endpoint does not exist on the Andromeda API. */
+export async function resyncSamaiActuaciones(_radicado: string): Promise<{ ok: boolean }> {
+  console.warn("[resyncSamaiActuaciones] no-op: per-item sync endpoint does not exist");
+  return { ok: true };
 }
