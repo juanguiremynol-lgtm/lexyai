@@ -1,9 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { CheckCircle, Bell, ArrowRight, Loader2 } from "lucide-react";
+import { Bell, ArrowRight, Loader2 } from "lucide-react";
 import { usePpNovedades } from "@/hooks/use-pp-novedades";
-import { useState } from "react";
 
 interface Props {
   radicado: string | null;
@@ -68,20 +66,6 @@ export default function NovedadesPpPanel({ radicado }: Props) {
                       })}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 h-8 text-xs"
-                    disabled={isMarking && markingId === n.id}
-                    onClick={() => handleMark(n.id)}
-                  >
-                    {isMarking && markingId === n.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <CheckCircle className="h-3 w-3" />
-                    )}
-                    Revisada
-                  </Button>
                 </div>
               </div>
             ))}
