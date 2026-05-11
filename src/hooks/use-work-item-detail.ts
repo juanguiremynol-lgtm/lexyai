@@ -389,8 +389,14 @@ export function useWorkItemDetail(
   const cpnuQuery = useQuery({
     queryKey: ["radicado-detail-enrichment", radicado],
     queryFn: async () => {
-      const res = await fetch(`${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}`);
-      if (!res.ok) return null;
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}`;
+      console.info("[useWorkItemDetail] fetch", url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error(`[useWorkItemDetail] ${res.status} ${res.statusText} ${url}`, text);
+        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
+      }
       const body = await res.json();
       return body?.radicado ?? body?.item ?? body ?? null;
     },
