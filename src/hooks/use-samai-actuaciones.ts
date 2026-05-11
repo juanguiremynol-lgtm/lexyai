@@ -64,10 +64,12 @@ export function useSamaiActuaciones(radicado: string | null | undefined, enabled
     queryKey: ["radicado-actuaciones", "SAMAI", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
       const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
+      console.info("[useSamaiActuaciones] fetch", url);
       const res = await fetch(url);
       if (!res.ok) {
-        console.warn("[useSamaiActuaciones] API error:", res.status);
-        return [];
+        const text = await res.text().catch(() => "");
+        console.error(`[useSamaiActuaciones] ${res.status} ${res.statusText} ${url}`, text);
+        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
       }
       const body = await res.json();
       const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
