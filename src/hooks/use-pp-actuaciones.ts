@@ -16,7 +16,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-const DEFAULT_DIAS = 90;
+// NOTE: the unified /actuaciones endpoint currently only emits fuente
+// "CPNU" | "SAMAI". PP rows will appear here once the backend ingests them.
 const PP_FUENTES = new Set(["PP", "PUBLICACIONES"]);
 
 function toDateOnly(iso: string | null | undefined): string | null {
@@ -65,14 +66,14 @@ export function usePpActuaciones(radicado: string | null | undefined, enabled = 
   return useQuery({
     queryKey: ["radicado-actuaciones", "PP", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
       const res = await fetch(url);
       if (!res.ok) {
         console.warn("[usePpActuaciones] API error:", res.status);
         return [];
       }
       const body = await res.json();
-      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
       const filtered = list.filter((n) => PP_FUENTES.has(String(n?.fuente ?? "").toUpperCase()));
       const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
       mapped.sort((a, b) => {
