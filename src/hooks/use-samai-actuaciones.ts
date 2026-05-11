@@ -17,7 +17,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-const DEFAULT_DIAS = 90;
 const SAMAI_FUENTES = new Set(["SAMAI", "SAMAI_ESTADOS"]);
 
 function toDateOnly(iso: string | null | undefined): string | null {
@@ -64,14 +63,14 @@ export function useSamaiActuaciones(radicado: string | null | undefined, enabled
   return useQuery({
     queryKey: ["radicado-actuaciones", "SAMAI", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
       const res = await fetch(url);
       if (!res.ok) {
         console.warn("[useSamaiActuaciones] API error:", res.status);
         return [];
       }
       const body = await res.json();
-      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
       const filtered = list.filter((n) => SAMAI_FUENTES.has(String(n?.fuente ?? "").toUpperCase()));
       const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
       // Dedupe by description + act_date
