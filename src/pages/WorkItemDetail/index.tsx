@@ -490,30 +490,67 @@ export default function WorkItemDetail() {
             </Card>
           )}
 
-          {/* Sync Status */}
+          {/* Sync Status — driven by Andromeda Read API (sync.{cpnu,pp,samai,samai_estados}) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Estado de Sincronización</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Estado scrape:</span>
-                <Badge variant="outline" className="text-xs">
-                  {workItem.scrape_status || "NOT_ATTEMPTED"}
-                </Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total actuaciones:</span>
-                <span className="font-medium">{workItem.total_actuaciones || 0}</span>
-              </div>
-              {workItem.last_crawled_at && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Última sync:</span>
-                  <span className="text-xs">
-                    {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
-                  </span>
-                </div>
-              )}
+            <CardContent className="space-y-3 text-sm">
+              {(() => {
+                const sync = (workItem as any).sync ?? null;
+                const sources: Array<[string, string]> = [
+                  ["cpnu", "CPNU"],
+                  ["pp", "Publicaciones"],
+                  ["samai", "SAMAI"],
+                  ["samai_estados", "SAMAI Estados"],
+                ];
+                const visible = sources.filter(([k]) => sync?.[k]?.status);
+                if (!sync || visible.length === 0) {
+                  return (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Estado:</span>
+                      <Badge variant="outline" className="text-xs">NOT_ATTEMPTED</Badge>
+                    </div>
+                  );
+                }
+                return visible.map(([key, label]) => {
+                  const entry = sync[key];
+                  const status = entry?.status ?? "NOT_ATTEMPTED";
+                  const variant: "default" | "destructive" | "secondary" | "outline" =
+                    status === "SUCCESS" ? "default"
+                    : status === "ERROR" ? "destructive"
+                    : status === "NOT_FOUND" ? "secondary"
+                    : "outline";
+                  return (
+                    <div key={key} className="space-y-1 pb-2 border-b last:border-b-0 last:pb-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-xs uppercase tracking-wide">{label}</span>
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">Actuaciones:</span>
+                        <span className="text-right font-medium">{entry?.total_actuaciones ?? 0}</span>
+                        <span className="text-muted-foreground">Pendientes:</span>
+                        <span className="text-right font-medium">{entry?.novedades_pendientes ?? 0}</span>
+                        {entry?.ultima_actuacion && (
+                          <>
+                            <span className="text-muted-foreground">Última actuación:</span>
+                            <span className="text-right">{formatDate(entry.ultima_actuacion)}</span>
+                          </>
+                        )}
+                        {entry?.last_sync_at && (
+                          <>
+                            <span className="text-muted-foreground">Última sync:</span>
+                            <span className="text-right">
+                              {formatDistanceToNow(new Date(entry.last_sync_at), { addSuffix: true, locale: es })}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
               </p>
