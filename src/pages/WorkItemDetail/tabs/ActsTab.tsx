@@ -33,6 +33,7 @@ import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
+import { AlertCircle } from "lucide-react";
 
 interface ActsTabProps {
   workItem: WorkItem & { _source?: string };
@@ -100,6 +101,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
     : isCPACA
       ? samaiQuery.isLoading
       : supabaseQuery.isLoading;
+  const apiError = isCGP
+    ? cpnuQuery.error
+    : isCPACA
+      ? samaiQuery.error
+      : supabaseQuery.error;
 
   // ─── API label for badges ───────────────────────────────────────────────
   const apiLabel = isCGP ? "CPNU API" : isCPACA ? "SAMAI API" : null;
@@ -209,6 +215,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
   if (!acts || acts.length === 0) {
     return (
       <div className="space-y-4">
+        {apiError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-destructive">Error consultando Andromeda API</p>
+              <p className="text-destructive/90 font-mono text-xs mt-1 break-all">
+                {apiError instanceof Error ? apiError.message : String(apiError)}
+              </p>
+            </div>
+          </div>
+        )}
         <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
         <Card>
           <CardContent className="py-12">
@@ -242,6 +259,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   return (
     <div className="space-y-4">
+      {apiError && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <p className="font-medium text-destructive">Error consultando Andromeda API</p>
+            <p className="text-destructive/90 font-mono text-xs mt-1 break-all">
+              {apiError instanceof Error ? apiError.message : String(apiError)}
+            </p>
+          </div>
+        </div>
+      )}
       {/* Diff view for recent changes */}
       <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
 
@@ -263,6 +291,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
                 lastSyncedAt={workItem.last_synced_at ?? null}
                 monitoringEnabled={workItem.monitoring_enabled}
                 scrapeStatus={workItem.scrape_status}
+                sync={workItem.sync ?? null}
               />
             </div>
             <div className="flex items-center gap-2">
