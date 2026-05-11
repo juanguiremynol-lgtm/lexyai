@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import type { AndromedaSyncMap } from "@/hooks/useAndromedaRadicado";
 
 interface WorkItemDetail {
   id: string;
@@ -91,6 +92,9 @@ interface WorkItemDetail {
   clients: { id: string; name: string } | null;
   matters: { id: string; matter_name: string; practice_area?: string; sharepoint_url?: string } | null;
   _source: string;
+  // Andromeda Read API enrichment
+  sync?: AndromedaSyncMap | null;
+  api_work_item_id?: string | null;
 }
 
 async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
@@ -337,7 +341,34 @@ async function fetchHearings(workItemId: string): Promise<any[]> {
   return data || [];
 }
 
-export function useWorkItemDetail(id: string | undefined) {
+export function useWorkItemDetail(
+  idOrOptions: string | undefined | { id?: string; radicado?: string },
+) {
+  // Accept either a UUID (legacy) or `{ id, radicado }`. If only radicado is
+  // provided we resolve the local Supabase row by radicado first.
+  const opts = typeof idOrOptions === "string" || idOrOptions == null
+    ? { id: idOrOptions ?? undefined, radicado: undefined as string | undefined }
+    : idOrOptions;
+
+  // Resolve UUID from radicado when needed.
+  const radicadoLookup = useQuery({
+    queryKey: ["work-item-id-by-radicado", opts.radicado],
+    queryFn: async () => {
+      if (!opts.radicado) return null;
+      const { data } = await supabase
+        .from("work_items")
+        .select("id")
+        .eq("radicado", opts.radicado)
+        .is("deleted_at", null)
+        .maybeSingle();
+      return data?.id ?? null;
+    },
+    enabled: !!opts.radicado && !opts.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const id = opts.id ?? radicadoLookup.data ?? undefined;
+
   // Main work item query with polymorphic resolution
   const workItemQuery = useQuery({
     queryKey: ["work-item-detail", id],
@@ -347,9 +378,9 @@ export function useWorkItemDetail(id: string | undefined) {
 
   const workItem = workItemQuery.data;
 
-  // Andromeda radicado enrichment (replaces legacy CPNU /work-items list scan).
-  // Calls GET /radicados/:radicado for any item with a radicado.
-  const radicado = workItem?.radicado || null;
+  // Andromeda radicado enrichment. The API is the source of truth for sync
+  // status, totals and the canonical `work_item_id` in Cloud SQL.
+  const radicado = opts.radicado || workItem?.radicado || null;
   const cpnuQuery = useQuery({
     queryKey: ["radicado-detail-enrichment", radicado],
     queryFn: async () => {
@@ -359,7 +390,7 @@ export function useWorkItemDetail(id: string | undefined) {
       return body?.radicado ?? body?.item ?? body ?? null;
     },
     enabled: !!radicado,
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
 
   // Merge CPNU data into work item
@@ -367,6 +398,14 @@ export function useWorkItemDetail(id: string | undefined) {
     if (!workItem) return null;
     if (!cpnuQuery.data) return workItem;
     const cpnu = cpnuQuery.data as Record<string, unknown>;
+    const sync = (cpnu.sync ?? null) as AndromedaSyncMap | null;
+    const apiWorkItemId = (cpnu.work_item_id as string | undefined) ?? null;
+    const apiTotal =
+      (sync?.cpnu?.total_actuaciones as number | undefined) ??
+      (cpnu.total_actuaciones as number | undefined);
+    const apiLastSync =
+      (sync?.cpnu?.last_sync_at as string | undefined) ??
+      (cpnu.last_checked_at as string | undefined);
     return {
       ...workItem,
       cpnu_status: cpnu.cpnu_status ?? workItem.scrape_status,
@@ -378,8 +417,11 @@ export function useWorkItemDetail(id: string | undefined) {
       ultima_novedad_descripcion: cpnu.ultima_novedad_descripcion ?? null,
       ultima_novedad_revisada: cpnu.ultima_novedad_revisada ?? null,
       ultima_novedad_fecha: cpnu.ultima_novedad_fecha ?? null,
-      last_checked_at: (cpnu.last_checked_at as string) ?? workItem.last_checked_at,
-      total_actuaciones: (cpnu.total_actuaciones as number) ?? workItem.total_actuaciones,
+      last_checked_at: apiLastSync ?? workItem.last_checked_at,
+      last_synced_at: apiLastSync ?? workItem.last_synced_at,
+      total_actuaciones: apiTotal ?? workItem.total_actuaciones,
+      sync,
+      api_work_item_id: apiWorkItemId,
     } as WorkItemDetail;
   }, [workItem, cpnuQuery.data]);
 
