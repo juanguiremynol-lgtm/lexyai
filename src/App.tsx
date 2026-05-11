@@ -208,6 +208,7 @@ const App = () => (
             {/* Work Item routes - all point to unified detail page */}
             <Route path="items/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             <Route path="work-items/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
+            <Route path="radicados/:radicado" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="cgp/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="filings/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             <Route path="processes/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />

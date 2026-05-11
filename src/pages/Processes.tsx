@@ -433,7 +433,7 @@ export default function Processes() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Link to={`/app/work-items/${item.id}`}>
+                          <Link to={item.radicado ? `/app/radicados/${encodeURIComponent(item.radicado)}` : `/app/work-items/${item.id}`}>
                             <Button variant="ghost" size="sm">
                               <Eye className="h-4 w-4 mr-1" />
                               Ver

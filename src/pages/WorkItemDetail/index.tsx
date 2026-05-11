@@ -8,7 +8,7 @@
  * - Works with canonical work_items table
  */
 
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
 import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
@@ -55,7 +55,7 @@ import CpacaDetailModule from "./CpacaDetailModule";
 import type { WorkItem } from "@/types/work-item";
 
 export default function WorkItemDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { id, radicado: radicadoParam } = useParams<{ id?: string; radicado?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -67,7 +67,7 @@ export default function WorkItemDetail() {
     error,
     actuaciones,
     refetch,
-  } = useWorkItemDetail(id);
+  } = useWorkItemDetail(radicadoParam ? { radicado: radicadoParam } : id);
 
 
   // Toggle flag mutation
@@ -130,6 +130,13 @@ export default function WorkItemDetail() {
         </Button>
       </div>
     );
+  }
+
+  // If we entered through the legacy /app/work-items/:uuid route and the
+  // resolved row has a radicado, redirect to the canonical radicado-based URL
+  // so refreshes and shares use the stable identifier.
+  if (!radicadoParam && id && workItem.radicado) {
+    return <Navigate to={`/app/radicados/${encodeURIComponent(workItem.radicado)}`} replace />;
   }
 
   const formatDate = (dateStr: string | null) => {
@@ -483,30 +490,67 @@ export default function WorkItemDetail() {
             </Card>
           )}
 
-          {/* Sync Status */}
+          {/* Sync Status — driven by Andromeda Read API (sync.{cpnu,pp,samai,samai_estados}) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Estado de Sincronización</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Estado scrape:</span>
-                <Badge variant="outline" className="text-xs">
-                  {workItem.scrape_status || "NOT_ATTEMPTED"}
-                </Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total actuaciones:</span>
-                <span className="font-medium">{workItem.total_actuaciones || 0}</span>
-              </div>
-              {workItem.last_crawled_at && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Última sync:</span>
-                  <span className="text-xs">
-                    {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
-                  </span>
-                </div>
-              )}
+            <CardContent className="space-y-3 text-sm">
+              {(() => {
+                const sync = (workItem as any).sync ?? null;
+                const sources: Array<[string, string]> = [
+                  ["cpnu", "CPNU"],
+                  ["pp", "Publicaciones"],
+                  ["samai", "SAMAI"],
+                  ["samai_estados", "SAMAI Estados"],
+                ];
+                const visible = sources.filter(([k]) => sync?.[k]?.status);
+                if (!sync || visible.length === 0) {
+                  return (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Estado:</span>
+                      <Badge variant="outline" className="text-xs">NOT_ATTEMPTED</Badge>
+                    </div>
+                  );
+                }
+                return visible.map(([key, label]) => {
+                  const entry = sync[key];
+                  const status = entry?.status ?? "NOT_ATTEMPTED";
+                  const variant: "default" | "destructive" | "secondary" | "outline" =
+                    status === "SUCCESS" ? "default"
+                    : status === "ERROR" ? "destructive"
+                    : status === "NOT_FOUND" ? "secondary"
+                    : "outline";
+                  return (
+                    <div key={key} className="space-y-1 pb-2 border-b last:border-b-0 last:pb-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-xs uppercase tracking-wide">{label}</span>
+                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">Actuaciones:</span>
+                        <span className="text-right font-medium">{entry?.total_actuaciones ?? 0}</span>
+                        <span className="text-muted-foreground">Pendientes:</span>
+                        <span className="text-right font-medium">{entry?.novedades_pendientes ?? 0}</span>
+                        {entry?.ultima_actuacion && (
+                          <>
+                            <span className="text-muted-foreground">Última actuación:</span>
+                            <span className="text-right">{formatDate(entry.ultima_actuacion)}</span>
+                          </>
+                        )}
+                        {entry?.last_sync_at && (
+                          <>
+                            <span className="text-muted-foreground">Última sync:</span>
+                            <span className="text-right">
+                              {formatDistanceToNow(new Date(entry.last_sync_at), { addSuffix: true, locale: es })}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
               </p>
