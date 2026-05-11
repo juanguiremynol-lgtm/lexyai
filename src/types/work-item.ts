@@ -139,6 +139,10 @@ export interface WorkItem {
   ultima_novedad_descripcion?: string | null;
   ultima_novedad_revisada?: boolean | null;
   ultima_novedad_fecha?: string | null;
+
+  // Andromeda Read API enrichment
+  sync?: import("@/hooks/useAndromedaRadicado").AndromedaSyncMap | null;
+  api_work_item_id?: string | null;
 }
 
 // Work Item Act - actuaciones linked to work items

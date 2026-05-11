@@ -1,6 +1,9 @@
 /**
  * Sync Status Badge
- * Displays the sync status of a work item with provider details from external_sync_runs
+ * Displays the sync status of a work item.
+ * When a `sync` map (from the Andromeda Read API) is provided, renders a
+ * multi-source breakdown (CPNU / PP / SAMAI / SAMAI_ESTADOS).
+ * Falls back to the legacy single-source view when only `lastSyncedAt` is known.
  */
 
 import { Badge } from '@/components/ui/badge';
@@ -10,12 +13,11 @@ import {
   TooltipTrigger,
   TooltipProvider
 } from '@/components/ui/tooltip';
-import { RefreshCw, Clock, CheckCircle, XCircle, AlertTriangle, Database } from 'lucide-react';
+import { RefreshCw, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import type { AndromedaSyncMap, AndromedaSyncEntry } from '@/hooks/useAndromedaRadicado';
 
 interface SyncStatusBadgeProps {
   workItemId?: string;
@@ -24,41 +26,33 @@ interface SyncStatusBadgeProps {
   scrapeStatus?: string;
   className?: string;
   showProviderDetails?: boolean;
+  sync?: AndromedaSyncMap | null;
 }
 
-interface ProviderAttempt {
-  provider: string;
-  data_kind: string;
-  status: string;
-  latency_ms?: number;
-  inserted_count?: number;
+const SOURCE_LABELS: Record<keyof AndromedaSyncMap, string> = {
+  cpnu: 'CPNU',
+  pp: 'PP',
+  samai: 'SAMAI',
+  samai_estados: 'SAMAI Estados',
+};
+
+function pickPrimarySync(sync: AndromedaSyncMap): { key: string; entry: AndromedaSyncEntry } | null {
+  const order: (keyof AndromedaSyncMap)[] = ['cpnu', 'samai', 'pp', 'samai_estados'];
+  // Prefer any entry with a non-null status, in priority order.
+  for (const k of order) {
+    const e = sync[k];
+    if (e && e.status) return { key: k, entry: e };
+  }
+  return null;
 }
 
 export function SyncStatusBadge({
-  workItemId,
   lastSyncedAt,
   monitoringEnabled = true,
   scrapeStatus,
   className,
-  showProviderDetails = false,
+  sync,
 }: SyncStatusBadgeProps) {
-  const { data: latestRun } = useQuery({
-    queryKey: ['external-sync-run', workItemId],
-    queryFn: async () => {
-      if (!workItemId) return null;
-      const { data } = await supabase
-        .from('external_sync_runs')
-        .select('status, provider_attempts, duration_ms, started_at, total_inserted_acts, total_inserted_pubs, error_code')
-        .eq('work_item_id', workItemId)
-        .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data;
-    },
-    enabled: showProviderDetails && !!workItemId,
-    staleTime: 60_000,
-  });
-
   if (!monitoringEnabled) {
     return (
       <TooltipProvider>
@@ -71,6 +65,91 @@ export function SyncStatusBadge({
           </TooltipTrigger>
           <TooltipContent>
             La sincronización automática está desactivada para este proceso
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  // ─── New multi-source rendering when `sync` is provided ────────────────
+  if (sync) {
+    const entries = (Object.entries(sync) as [keyof AndromedaSyncMap, AndromedaSyncEntry | undefined][])
+      .filter(([, e]) => !!e);
+    const statuses = entries
+      .map(([, e]) => (e?.status || '').toUpperCase())
+      .filter(Boolean);
+    const hasError = statuses.some((s) => s === 'ERROR' || s === 'FAILED');
+    const allSuccess = statuses.length > 0 && statuses.every((s) => s === 'SUCCESS');
+    const allNull = statuses.length === 0;
+
+    const primary = pickPrimarySync(sync);
+    const lastSyncIso =
+      primary?.entry.last_sync_at ??
+      entries
+        .map(([, e]) => e?.last_sync_at)
+        .filter((d): d is string => !!d)
+        .sort()
+        .pop() ??
+      null;
+    const hoursSince = lastSyncIso
+      ? (Date.now() - new Date(lastSyncIso).getTime()) / (1000 * 60 * 60)
+      : Number.POSITIVE_INFINITY;
+
+    let variant: 'default' | 'secondary' | 'destructive' | 'outline' = 'outline';
+    let Icon: typeof CheckCircle = Clock;
+    if (hasError) {
+      variant = 'destructive';
+      Icon = AlertTriangle;
+    } else if (allSuccess && hoursSince <= 24) {
+      variant = 'default';
+      Icon = CheckCircle;
+    } else if (!allNull && hoursSince > 24) {
+      variant = 'secondary';
+      Icon = AlertTriangle;
+    }
+
+    const label = lastSyncIso
+      ? formatDistanceToNow(new Date(lastSyncIso), { addSuffix: true, locale: es })
+      : 'Sin sync';
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant={variant} className={cn('gap-1', className)}>
+              <Icon className="h-3 w-3" />
+              <span className="hidden sm:inline">{label}</span>
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="font-medium mb-1">Estado de sincronización</p>
+            <div className="space-y-1">
+              {entries.map(([k, e]) => {
+                if (!e) return null;
+                const last = e.last_sync_at
+                  ? formatDistanceToNow(new Date(e.last_sync_at), { addSuffix: true, locale: es })
+                  : '—';
+                return (
+                  <div key={k} className="text-xs flex flex-wrap items-center gap-1">
+                    <span className="font-medium">{SOURCE_LABELS[k]}:</span>
+                    <span className={cn(
+                      (e.status || '').toUpperCase() === 'ERROR' && 'text-destructive',
+                      (e.status || '').toUpperCase() === 'SUCCESS' && 'text-primary',
+                    )}>{e.status ?? 'N/A'}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span>{e.total_actuaciones ?? 0} acts</span>
+                    {(e.novedades_pendientes ?? 0) > 0 && (
+                      <>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-amber-600">{e.novedades_pendientes} pendientes</span>
+                      </>
+                    )}
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{last}</span>
+                  </div>
+                );
+              })}
+            </div>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -107,12 +186,6 @@ export function SyncStatusBadge({
   const lastSync = new Date(lastSyncedAt);
   const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
 
-  const providerSummary = latestRun?.provider_attempts
-    ? (latestRun.provider_attempts as unknown as ProviderAttempt[]).map((a) => (
-        `${a.provider}: ${a.status}${a.inserted_count ? ` (+${a.inserted_count})` : ''}`
-      )).join(' · ')
-    : null;
-
   const tooltipDetails = (
     <>
       <p className="font-medium">
@@ -121,22 +194,6 @@ export function SyncStatusBadge({
       <p className="text-xs text-muted-foreground">
         Última sync: {lastSync.toLocaleString('es-CO')}
       </p>
-      {latestRun && (
-        <div className="mt-1 space-y-0.5">
-          {latestRun.duration_ms != null && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Database className="h-3 w-3" />
-              {latestRun.total_inserted_acts || 0} acts, {latestRun.total_inserted_pubs || 0} pubs · {latestRun.duration_ms}ms
-            </p>
-          )}
-          {providerSummary && (
-            <p className="text-xs text-muted-foreground">{providerSummary}</p>
-          )}
-          {latestRun.error_code && (
-            <p className="text-xs text-destructive">{latestRun.error_code}</p>
-          )}
-        </div>
-      )}
     </>
   );
 
