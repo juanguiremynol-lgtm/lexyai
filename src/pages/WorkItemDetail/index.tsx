@@ -8,7 +8,7 @@
  * - Works with canonical work_items table
  */
 
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
 import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
@@ -55,7 +55,7 @@ import CpacaDetailModule from "./CpacaDetailModule";
 import type { WorkItem } from "@/types/work-item";
 
 export default function WorkItemDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { id, radicado: radicadoParam } = useParams<{ id?: string; radicado?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -67,7 +67,7 @@ export default function WorkItemDetail() {
     error,
     actuaciones,
     refetch,
-  } = useWorkItemDetail(id);
+  } = useWorkItemDetail(radicadoParam ? { radicado: radicadoParam } : id);
 
 
   // Toggle flag mutation
@@ -130,6 +130,13 @@ export default function WorkItemDetail() {
         </Button>
       </div>
     );
+  }
+
+  // If we entered through the legacy /app/work-items/:uuid route and the
+  // resolved row has a radicado, redirect to the canonical radicado-based URL
+  // so refreshes and shares use the stable identifier.
+  if (!radicadoParam && id && workItem.radicado) {
+    return <Navigate to={`/app/radicados/${encodeURIComponent(workItem.radicado)}`} replace />;
   }
 
   const formatDate = (dateStr: string | null) => {
