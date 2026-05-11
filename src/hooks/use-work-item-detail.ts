@@ -346,9 +346,14 @@ export function useWorkItemDetail(
 ) {
   // Accept either a UUID (legacy) or `{ id, radicado }`. If only radicado is
   // provided we resolve the local Supabase row by radicado first.
-  const opts = typeof idOrOptions === "string" || idOrOptions == null
-    ? { id: idOrOptions ?? undefined, radicado: undefined as string | undefined }
-    : idOrOptions;
+  let opts: { id?: string; radicado?: string };
+  if (typeof idOrOptions === "string") {
+    opts = { id: idOrOptions };
+  } else if (idOrOptions == null) {
+    opts = {};
+  } else {
+    opts = idOrOptions;
+  }
 
   // Resolve UUID from radicado when needed.
   const radicadoLookup = useQuery({
