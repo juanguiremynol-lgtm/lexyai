@@ -1,68 +1,49 @@
-## Diagnóstico confirmado
+# Migrar Actuaciones a `GET /radicados/:radicado/actuaciones`
 
-Los 16 work_items se saltan en silencio por dos bugs combinados:
+Verificado: el endpoint devuelve 42 actuaciones reales para `05001400301520240193000`. El endpoint `/estados` también responde (vacío por ahora).
 
-1. **Bug de paginación en `selectEligibleWorkItems`**: el filtro `excludeIds` se aplica en JS *después* del `LIMIT 5` del SQL. Las primeras 7 posiciones por `id ASC` son todas dead-lettered → el SQL trae 5 dead-letter → JS las filtra → `pageItems = []` → `break` inmediato → 16 skipped sin razón registrada.
-2. **Dead-letters obsoletos**: 12 items con `dead_lettered=true` que se marcaron durante la era de la URL anterior de CPNU; varios tienen `scrape_status=SUCCESS` y `consecutive_failures=0`.
+## Problema actual
 
-CPNU funciona (los logs lo confirman: `Provider cpnu returned 48 actuaciones`).
+Los hooks `use-cpnu-actuaciones`, `use-pp-actuaciones`, `use-samai-actuaciones` están leyendo de `/radicados/:r/novedades`, que solo devuelve **cambios detectados** (3 filas), no las actuaciones crudas (42 filas). Por eso la pestaña Actuaciones se ve casi vacía.
 
-## Cambios a aplicar
+## Cambios
 
-### Fix #1 — `supabase/functions/_shared/sync-eligibility.ts`
+### 1. `src/hooks/use-cpnu-actuaciones.ts`
+- Cambiar URL de `/novedades?dias=90` a `/actuaciones`.
+- Parsear `body.actuaciones` (no `body.novedades`).
+- Filtrar por `fuente === "CPNU"` en cliente.
+- Mapear nuevo schema:
+  - `descripcion` → `description`
+  - `anotacion` → `event_summary`
+  - `fecha` → `act_date` (slice a 10 chars) + `act_date_raw`
+  - `creado_en` → `detected_at` / `created_at`
+  - `con_documentos` → guardar en `raw_data`
+  - `fecha_inicial`/`fecha_final` → `raw_data`
 
-Mover `excludeIds` al WHERE del SQL (antes del `limit`) y eliminar el filtro JS post-fetch:
+### 2. `src/hooks/use-pp-actuaciones.ts`
+- Misma URL `/actuaciones`.
+- El nuevo schema solo lista `fuente: "CPNU"|"SAMAI"` — **PP no aparece**. Por ahora filtrar por `fuente === "PP"` (devolverá vacío) y dejar el hook listo para cuando PP se incorpore. Documentar en comentario.
 
-```ts
-if (options?.excludeIds && options.excludeIds.length > 0) {
-  const list = options.excludeIds.map(id => `"${id}"`).join(",");
-  query = query.not("id", "in", `(${list})`);
-}
-// luego limit, order, etc.
-```
+### 3. `src/hooks/use-samai-actuaciones.ts`
+- Misma URL `/actuaciones`.
+- Filtrar por `fuente === "SAMAI"` (y `SAMAI_ESTADOS` si llegara a aparecer).
+- Mantener la deduplicación por `description + act_date`.
 
-### Fix #2 — `supabase/functions/scheduled-daily-sync/index.ts` (línea ~827)
+### 4. Sin cambios a hooks de novedades
+`use-cpnu-novedades` y `use-pp-novedades` siguen apuntando a `/novedades` — esos representan diffs/cambios detectados, no actuaciones crudas. Es correcto.
 
-Endurecer el `break` de paginación para detectar el caso "página vacía pero quedan items por procesar":
+### 5. Estados (opcional, pequeño)
+No tocar en este PR. El endpoint `/estados` existe y responde vacío; cuando se quiera reemplazar la lectura de `work_item_publicaciones` por la API se hará en un cambio separado.
 
-```ts
-if (pageItems.length === 0) {
-  if (processedCount < expectedTotal) {
-    failureReason = "PAGINATION_GAP";
-    console.warn(`[daily-sync] PAGINATION_GAP org=${orgId} processed=${processedCount}/${expectedTotal}`);
-  }
-  break;
-}
-```
+## Verificación
 
-Esto deja el incidente observable si el bug volviera a aparecer por otra causa.
+1. Abrir `/app/work-items/91edd371-6ce7-4427-b837-36058410ab3f` (radicado `05001400301520240193000`).
+2. Network tab: confirmar `GET /radicados/05001400301520240193000/actuaciones` con 200.
+3. Pestaña Actuaciones: confirmar que se renderizan ~42 filas (las CPNU; SAMAI/PP siguen en 0).
+4. Sin errores 404 ni CORS en consola.
 
-### Reset de dead-letter (Opción B — agresiva)
+## Archivos a editar
 
-Vía `supabase--insert`:
-
-```sql
-UPDATE sync_item_failure_tracker
-SET dead_lettered = false,
-    consecutive_failures = 0,
-    last_dead_lettered_at = NULL
-WHERE organization_id = 'a0000000-0000-0000-0000-000000000001'
-  AND dead_lettered = true;
-```
-
-Si vuelven a fallar 5 veces consecutivas, el sistema los re-marcará automáticamente.
-
-### Re-disparar y verificar
-
-1. Desplegar las 2 edge functions modificadas (`scheduled-daily-sync`, y cualquiera que importe `_shared/sync-eligibility.ts` se redeploya solo).
-2. `POST /scheduled-daily-sync` con `{"scope":"MONITORING_ONLY","_scheduled":true}`.
-3. Consultar `auto_sync_daily_ledger` del último `run_id` y validar:
-   - `items_targeted` ≈ 28
-   - `items_succeeded > 0`
-   - status `SUCCESS` o `PARTIAL` (no `FAILED` con 0 procesados)
-
-## Detalles técnicos
-
-**Archivos editados**: 2 (`sync-eligibility.ts`, `scheduled-daily-sync/index.ts`)
-**Operaciones de datos**: 1 UPDATE en `sync_item_failure_tracker`
-**Sin cambios en**: schema, URLs de proveedores, orquestador, cron schedules.
+- `src/hooks/use-cpnu-actuaciones.ts`
+- `src/hooks/use-pp-actuaciones.ts`
+- `src/hooks/use-samai-actuaciones.ts`

@@ -19,8 +19,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
 import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 
-const DEFAULT_DIAS = 90;
-
 function toDateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
   return String(iso).slice(0, 10);
@@ -38,14 +36,14 @@ function mapToWorkItemAct(raw: any, idx: number, radicado: string): WorkItemAct 
     act_date: toDateOnly(raw?.fecha),
     act_date_raw: raw?.fecha ?? null,
     event_date: null,
-    act_type: raw?.tipo_novedad ?? null,
+    act_type: null,
     source: "cpnu",
     source_platform: "cpnu",
     source_url: null,
     source_reference: null,
     sources: ["cpnu"],
-    despacho: raw?.despacho ?? null,
-    workflow_type: raw?.workflow_type ?? "CGP",
+    despacho: null,
+    workflow_type: "CGP",
     scrape_date: null,
     hash_fingerprint: id,
     created_at: raw?.creado_en ?? new Date().toISOString(),
@@ -63,14 +61,14 @@ export function useCpnuActuaciones(radicado: string | null | undefined, enabled 
   return useQuery({
     queryKey: ["radicado-actuaciones", "CPNU", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${DEFAULT_DIAS}`;
+      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
       const res = await fetch(url);
       if (!res.ok) {
         console.warn("[useCpnuActuaciones] API error:", res.status);
         return [];
       }
       const body = await res.json();
-      const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
+      const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
       const filtered = list.filter((n) => {
         const f = String(n?.fuente ?? "").toUpperCase();
         return f === "CPNU" || f === "";
