@@ -116,9 +116,11 @@ async function fetchMonitoringMode(
     return buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, 200);
   }
 
-  // Step 2: If 404, try /buscar (may return cached or create async job)
-  if (response.status === 404) {
-    console.log(`${LOG_TAG} [monitoring] /snapshot 404, falling back to /buscar`);
+  // Step 2: If 404 or 400 (bad cached snapshot), try /buscar (may return cached or create async job).
+  // SAMAI started returning 400 for some valid radicados — treat as a snapshot miss and fall back
+  // to /buscar instead of failing the entire sync.
+  if (response.status === 404 || response.status === 400) {
+    console.log(`${LOG_TAG} [monitoring] /snapshot ${response.status}, falling back to /buscar`);
     return await buscarWithPolling(radicado, baseUrl, headers, apiKeyInfo, options, startTime);
   }
 
