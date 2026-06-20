@@ -101,7 +101,8 @@ async function fetchMonitoring(
 ): Promise<ProviderAdapterResult> {
   const cleanBase = baseUrl.replace(/\/+$/, '');
   const headers = buildHeaders(apiKeyInfo);
-  const timeoutMs = options.timeoutMs || 30_000;
+  // /historico does a live portal scrape that can take 60-90s; allow generous timeout.
+  const timeoutMs = options.timeoutMs || 120_000;
 
   // Strategy: /info → /historico → /buscar (async trigger)
   // /snapshot/<r> and /search/<r> do not exist on publicaciones-procesales-api.
@@ -111,11 +112,18 @@ async function fetchMonitoring(
     `${cleanBase}/historico/${radicado}`,
   ];
 
+  // /info is fast metadata; /historico is the scraping path that returns actuaciones.
+  // The upstream (publicaciones-procesales-api) has no /snapshot, /search, or /buscar
+  // routes — those calls 404. Walk endpoints in order and return on first hit.
   for (const url of endpoints) {
     const result = await fetchEndpoint(url, headers, timeoutMs, options.signal);
     if (result.ok && result.data) {
       const publicaciones = normalizePublicacionesResponse(result.data, options);
-      if (publicaciones.length > 0 || result.data.found) {
+      const hasContent = publicaciones.length > 0 ||
+        Array.isArray(result.data.actuaciones) ||
+        result.data.found ||
+        result.data.info_radicado;
+      if (hasContent) {
         return {
           provider: PROVIDER_KEY,
           status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
@@ -124,29 +132,13 @@ async function fetchMonitoring(
           metadata: extractPublicacionesMetadata(result.data),
           parties: null,
           durationMs: Date.now() - startTime,
-          httpStatus: 200,
+          httpStatus: result.httpStatus || 200,
         };
       }
     }
   }
 
-  // Last resort: /buscar async trigger with polling
-  const buscarResult = await tryBuscarWithPolling(cleanBase, radicado, headers, timeoutMs, options.signal);
-  if (buscarResult) {
-    const publicaciones = normalizePublicacionesResponse(buscarResult, options);
-    return {
-      provider: PROVIDER_KEY,
-      status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
-      actuaciones: [],
-      publicaciones,
-      metadata: extractPublicacionesMetadata(buscarResult),
-      parties: null,
-      durationMs: Date.now() - startTime,
-      httpStatus: 200,
-    };
-  }
-
-  return emptyResult('EMPTY', Date.now() - startTime, 'All endpoints exhausted');
+  return emptyResult('EMPTY', Date.now() - startTime, 'No publicaciones found');
 }
 
 // ═══════════════════════════════════════════
@@ -307,9 +299,13 @@ export function normalizePublicacionesResponse(
   data: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion[] {
+  // publicaciones-procesales-api /historico returns `actuaciones`; older endpoints
+  // used `publicaciones`. Accept either, plus a top-level array as a last resort.
   const rawPubs = Array.isArray(data?.publicaciones)
     ? data.publicaciones
-    : (Array.isArray(data) ? data : []);
+    : (Array.isArray(data?.actuaciones)
+      ? data.actuaciones
+      : (Array.isArray(data) ? data : []));
 
   return rawPubs
     .map((p: any) => normalizeOnePublicacion(p, options))
