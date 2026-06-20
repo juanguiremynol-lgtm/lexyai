@@ -92,36 +92,36 @@ async function fetchMonitoring(
   startTime: number,
 ): Promise<ProviderAdapterResult> {
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  const formatted = formatRadicadoForSamai(radicado);
   const headers = buildHeaders(apiKeyInfo);
   const timeout = options.timeoutMs || 90_000;
 
-  // Try /snapshot first, then /buscar
-  const endpoints = [
-    `${cleanBase}/snapshot?radicado=${encodeURIComponent(formatted)}`,
-    `${cleanBase}/buscar?radicado=${encodeURIComponent(formatted)}`,
-  ];
+  // POST /snapshot { radicado } — live, fresh data from samai-estados-api.
+  const url = `${cleanBase}/snapshot`;
+  const result = await fetchEndpoint(url, headers, timeout, options.signal, {
+    method: 'POST',
+    body: JSON.stringify({ radicado }),
+  });
 
-  for (const url of endpoints) {
-    const result = await fetchEndpoint(url, headers, timeout, options.signal);
-    if (result.ok && result.data) {
-      const publicaciones = normalizeSamaiEstadosResponse(result.data, options);
-      if (publicaciones.length > 0) {
-        return {
-          provider: PROVIDER_KEY,
-          status: 'SUCCESS',
-          actuaciones: [],
-          publicaciones,
-          metadata: null,
-          parties: null,
-          durationMs: Date.now() - startTime,
-          httpStatus: result.httpStatus,
-        };
-      }
-    }
+  if (result.ok && result.data) {
+    const publicaciones = normalizeSamaiEstadosResponse(result.data, options);
+    return {
+      provider: PROVIDER_KEY,
+      status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
+      actuaciones: [],
+      publicaciones,
+      metadata: null,
+      parties: null,
+      durationMs: Date.now() - startTime,
+      httpStatus: result.httpStatus,
+    };
   }
 
-  return emptyResult('EMPTY', Date.now() - startTime, 'No estados found');
+  return emptyResult(
+    result.httpStatus === 404 ? 'EMPTY' : 'ERROR',
+    Date.now() - startTime,
+    result.error || 'No estados found',
+    result.httpStatus,
+  );
 }
 
 // ═══════════════════════════════════════════
@@ -136,12 +136,14 @@ async function fetchDiscovery(
   startTime: number,
 ): Promise<ProviderAdapterResult> {
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  const formatted = formatRadicadoForSamai(radicado);
   const headers = buildHeaders(apiKeyInfo);
   const timeout = options.timeoutMs || 12_000;
 
-  const url = `${cleanBase}/buscar?radicado=${encodeURIComponent(formatted)}`;
-  const result = await fetchEndpoint(url, headers, timeout, options.signal);
+  const url = `${cleanBase}/snapshot`;
+  const result = await fetchEndpoint(url, headers, timeout, options.signal, {
+    method: 'POST',
+    body: JSON.stringify({ radicado }),
+  });
 
   if (!result.ok || !result.data) {
     return emptyResult(
@@ -189,6 +191,7 @@ export function formatRadicadoForSamai(radicado: string): string {
 function buildHeaders(apiKeyInfo: ApiKeyInfo): Record<string, string> {
   const headers: Record<string, string> = {
     'Accept': 'application/json',
+    'Content-Type': 'application/json',
   };
   if (apiKeyInfo.value) {
     headers['x-api-key'] = apiKeyInfo.value;
@@ -208,6 +211,7 @@ async function fetchEndpoint(
   headers: Record<string, string>,
   timeoutMs: number,
   signal?: AbortSignal,
+  init?: { method?: string; body?: BodyInit },
 ): Promise<EndpointResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -216,8 +220,14 @@ async function fetchEndpoint(
   }
 
   try {
-    console.log(`${LOG_TAG} GET ${url}`);
-    const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    const method = init?.method || 'GET';
+    console.log(`${LOG_TAG} ${method} ${url}`);
+    const resp = await fetch(url, {
+      method,
+      headers,
+      body: init?.body,
+      signal: controller.signal,
+    });
     clearTimeout(timeoutId);
 
     if (!resp.ok) {
@@ -247,7 +257,11 @@ export function normalizeSamaiEstadosResponse(
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion[] {
   const resultado = data?.result || data;
-  const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
+  // samai-estados-api POST /snapshot returns rows under `actuaciones`; older read-api
+  // responses used `estados`. Accept either to stay resilient across upstream shape changes.
+  const rawEstados = Array.isArray(resultado?.estados)
+    ? resultado.estados
+    : (Array.isArray(resultado?.actuaciones) ? resultado.actuaciones : []);
 
   return rawEstados
     .map((e: any) => normalizeOneEstado(e, options))

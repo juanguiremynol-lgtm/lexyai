@@ -96,11 +96,17 @@ async function fetchMonitoringMode(
 ): Promise<ProviderAdapterResult> {
   const { radicado } = options;
 
-  // Step 1: Try /snapshot (synchronous cached lookup)
-  const snapshotUrl = `${baseUrl}/snapshot?numero_radicacion=${radicado}`;
-  console.log(`${LOG_TAG} [monitoring] Calling /snapshot: ${snapshotUrl}`);
+  // POST /snapshot { radicado } — live, fresh data from samai-estados-api.
+  // (The previous GET /snapshot?numero_radicacion=... route does not exist on
+  // the deployed SAMAI service; param name was also wrong — must be "radicado".)
+  const snapshotUrl = `${baseUrl}/snapshot`;
+  console.log(`${LOG_TAG} [monitoring] POST /snapshot: ${snapshotUrl} radicado=${radicado.slice(0,4)}***`);
 
-  const response = await fetch(snapshotUrl, { method: 'GET', headers });
+  const response = await fetch(snapshotUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ radicado }),
+  });
 
   if (response.ok) {
     const data = await response.json();
@@ -108,24 +114,24 @@ async function fetchMonitoringMode(
     const rawActuaciones = result.actuaciones || [];
 
     if (rawActuaciones.length === 0) {
-      return makeEmptyResult('No actuaciones in SAMAI /snapshot response', startTime, 200);
+      return makeEmptyResult('No actuaciones in SAMAI /snapshot response', startTime, response.status);
     }
 
-    console.log(`${LOG_TAG} [monitoring] /snapshot found ${rawActuaciones.length} actuaciones`);
+    console.log(`${LOG_TAG} [monitoring] POST /snapshot found ${rawActuaciones.length} actuaciones`);
     const sujetos = result.sujetos_procesales ?? result.sujetos ?? [];
-    return buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, 200);
+    return buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, response.status);
   }
 
-  // Step 2: If 404 or 400 (bad cached snapshot), try /buscar (may return cached or create async job).
-  // SAMAI started returning 400 for some valid radicados — treat as a snapshot miss and fall back
-  // to /buscar instead of failing the entire sync.
-  if (response.status === 404 || response.status === 400) {
-    console.log(`${LOG_TAG} [monitoring] /snapshot ${response.status}, falling back to /buscar`);
-    return await buscarWithPolling(radicado, baseUrl, headers, apiKeyInfo, options, startTime);
+  // 404 is a clean "not found" from the live scraping service.
+  if (response.status === 404) {
+    return makeEmptyResult('Record not found in SAMAI', startTime, 404);
   }
-
-  // Other HTTP error
-  return makeErrorResult(`HTTP ${response.status}`, startTime, response.status);
+  const bodyText = await response.text().catch(() => '');
+  return makeErrorResult(
+    `SAMAI POST /snapshot HTTP ${response.status}: ${bodyText.slice(0, 200)}`,
+    startTime,
+    response.status,
+  );
 }
 
 // ═══════════════════════════════════════════
@@ -139,11 +145,16 @@ async function fetchDiscoveryMode(
   startTime: number,
 ): Promise<ProviderAdapterResult> {
   const { radicado } = options;
-  const buscarUrl = `${baseUrl}/buscar?numero_radicacion=${radicado}`;
-  console.log(`${LOG_TAG} [discovery] Calling /buscar: ${buscarUrl}`);
+  // Discovery also uses POST /snapshot — the live endpoint scrapes fresh data
+  // and returns synchronously, so a separate /buscar path is no longer needed.
+  const snapshotUrl = `${baseUrl}/snapshot`;
+  console.log(`${LOG_TAG} [discovery] POST /snapshot: ${snapshotUrl} radicado=${radicado.slice(0,4)}***`);
 
-  const response = await fetch(buscarUrl, { method: 'GET', headers });
-  const latencyMs = Date.now() - startTime;
+  const response = await fetch(snapshotUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ radicado }),
+  });
 
   if (!response.ok) {
     if (response.status === 404) {
@@ -152,47 +163,8 @@ async function fetchDiscoveryMode(
     return makeErrorResult(`SAMAI returned ${response.status}`, startTime, response.status);
   }
 
-  const buscarResult = await response.json();
-
-  // Check if /buscar returned an async scraping job
-  if ((buscarResult.jobId || buscarResult.job_id) && !buscarResult.result) {
-    const jobId = buscarResult.jobId || buscarResult.job_id;
-    console.log(`${LOG_TAG} [discovery] /buscar initiated scraping job: ${jobId}. Polling...`);
-
-    const rawPollUrl = buscarResult.poll_url || buscarResult.pollUrl || buscarResult.resultado_url || '';
-    const pollUrl = resolveAbsolutePollUrl(rawPollUrl, baseUrl, jobId);
-
-    const pollResult = await pollForResult(pollUrl, headers, 'SAMAI', DEFAULT_POLL_CONFIG);
-
-    if (pollResult.ok && pollResult.data) {
-      const resultData = (pollResult.data.result || pollResult.data.data || pollResult.data) as Record<string, unknown>;
-      const rawActs = (resultData.actuaciones ?? []) as Array<Record<string, unknown>>;
-      const sujetos = (resultData.sujetos_procesales ?? resultData.sujetos ?? []) as Array<Record<string, unknown>>;
-
-      if (rawActs.length > 0) {
-        console.log(`${LOG_TAG} [discovery] Polling completed: ${rawActs.length} actuaciones`);
-        return buildSuccessResult(resultData, rawActs, sujetos, options, startTime, 200);
-      }
-    }
-
-    // Polling failed/timed out
-    return {
-      provider: PROVIDER_KEY,
-      status: 'TIMEOUT' as ProviderStatus,
-      actuaciones: [],
-      publicaciones: [],
-      metadata: null,
-      parties: null,
-      durationMs: Date.now() - startTime,
-      errorMessage: `Scraping job ${jobId} did not complete in time`,
-      httpStatus: 408,
-      scrapingJobId: jobId,
-      scrapingPollUrl: pollUrl,
-    };
-  }
-
-  // /buscar returned data directly (cached or synchronous)
-  const proceso = buscarResult.result || buscarResult.data || buscarResult.proceso || buscarResult;
+  const json = await response.json();
+  const proceso = json.result || json.data || json.proceso || json;
   if (!proceso || Object.keys(proceso).length === 0) {
     return makeEmptyResult('No data in SAMAI response', startTime, 200);
   }
@@ -306,14 +278,23 @@ export function normalizeSamaiActuaciones(
 ): NormalizedActuacion[] {
   return rawActuaciones.map((act) => {
     const fecha = normalizeDate(
-      String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
+      String(
+        act.fechaActuacion ?? act.fecha_actuacion ?? act.fecha ?? act.fechaRegistro ??
+        act['Fecha Providencia'] ?? act['Fecha Estado'] ?? '',
+      ),
     );
-    const actuacion = String(act.actuacion || act.tipo_actuacion || '');
-    const anotacion = String(act.anotacion || act.descripcion || '') || null;
-    const fechaRegistro = normalizeDate(String(act.fechaRegistro || ''));
-    const estado = String(act.estado || '') || undefined;
-    const anexosCount = Number(act.anexos || 0) || undefined;
-    const indice = String(act.indice || '') || undefined;
+    const actuacion = String(
+      act.actuacion ?? act.tipo_actuacion ?? act['Actuación'] ?? act['Actuacion'] ?? '',
+    );
+    const anotacion = String(
+      act.anotacion ?? act.descripcion ?? act['Anotación'] ?? act['Anotacion'] ?? '',
+    ) || null;
+    const fechaRegistro = normalizeDate(
+      String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
+    );
+    const estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
+    const anexosCount = Number(act.anexos ?? 0) || undefined;
+    const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
 
     return {
       fecha_actuacion: fecha,

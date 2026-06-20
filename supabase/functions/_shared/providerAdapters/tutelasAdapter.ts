@@ -37,6 +37,8 @@ import {
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
 
+import { fetchFromCpnu } from './cpnuAdapter.ts';
+
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
@@ -74,33 +76,35 @@ export async function fetchFromTutelas(
   options: AdapterOptions,
 ): Promise<ProviderAdapterResult> {
   const startTime = Date.now();
-  const { radicado, mode, timeoutMs, signal } = options;
+  const { radicado } = options;
 
-  const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
-  const apiKeyInfo = await getApiKeyForProvider('tutelas');
-
-  if (!baseUrl) {
-    console.log(`${LOG_TAG} TUTELAS_BASE_URL not configured`);
-    return emptyResult('ERROR', Date.now() - startTime, 'TUTELAS_BASE_URL not configured');
-  }
-
-  // Determine identifier type
+  // There is no dedicated tutelas backend. All tutela radicados are tracked
+  // by the CPNU service (workflow_type='TUTELA'). Delegate to fetchFromCpnu
+  // for radicado-keyed lookups. T-code lookups (no radicado) have no upstream.
   const isTutelaCode = /^T\d/i.test(radicado);
-
-  try {
-    if (mode === 'monitoring') {
-      return await fetchMonitoring(radicado, isTutelaCode, baseUrl, apiKeyInfo, options, startTime);
-    } else {
-      return await fetchDiscovery(radicado, baseUrl, apiKeyInfo, options, startTime);
-    }
-  } catch (err: any) {
-    const isTimeout = err instanceof DOMException && err.name === 'AbortError';
-    return emptyResult(
-      isTimeout ? 'TIMEOUT' : 'ERROR',
-      Date.now() - startTime,
-      isTimeout ? 'Timeout' : (err.message || String(err)),
-    );
+  if (isTutelaCode) {
+    console.log(`${LOG_TAG} T-code lookup (${radicado.slice(0, 4)}***) has no upstream provider — returning EMPTY.`);
+    return emptyResult('EMPTY', Date.now() - startTime, 'No dedicated tutelas backend; T-code lookups unsupported');
   }
+
+  console.log(`${LOG_TAG} Delegating tutela radicado lookup to CPNU adapter.`);
+  const cpnuResult = await fetchFromCpnu(options);
+
+  // Re-tag the provider so downstream code attributes the records to 'tutelas'
+  // for accounting, while data itself comes from CPNU.
+  return {
+    ...cpnuResult,
+    provider: PROVIDER_KEY,
+    actuaciones: cpnuResult.actuaciones.map(a => ({
+      ...a,
+      source_platform: PROVIDER_KEY,
+      sources: [PROVIDER_KEY],
+    })),
+    metadata: cpnuResult.metadata
+      ? { ...cpnuResult.metadata, tipo_proceso: 'TUTELA' }
+      : cpnuResult.metadata,
+    durationMs: Date.now() - startTime,
+  };
 }
 
 // ═══════════════════════════════════════════
