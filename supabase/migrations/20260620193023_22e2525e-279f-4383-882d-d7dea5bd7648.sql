@@ -1,0 +1,1 @@
+UPDATE public.work_items SET monitoring_disabled_reason = NULL, consecutive_failures = 0 WHERE id = '292c69c1-ba2c-41cd-a6a1-0ccbc4425663';
