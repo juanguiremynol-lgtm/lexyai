@@ -257,7 +257,11 @@ export function normalizeSamaiEstadosResponse(
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion[] {
   const resultado = data?.result || data;
-  const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
+  // samai-estados-api POST /snapshot returns rows under `actuaciones`; older read-api
+  // responses used `estados`. Accept either to stay resilient across upstream shape changes.
+  const rawEstados = Array.isArray(resultado?.estados)
+    ? resultado.estados
+    : (Array.isArray(resultado?.actuaciones) ? resultado.actuaciones : []);
 
   return rawEstados
     .map((e: any) => normalizeOneEstado(e, options))
