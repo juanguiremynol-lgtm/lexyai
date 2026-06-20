@@ -103,10 +103,12 @@ async function fetchMonitoring(
   const headers = buildHeaders(apiKeyInfo);
   const timeoutMs = options.timeoutMs || 30_000;
 
-  // Strategy: /snapshot → /search → /buscar (async trigger)
+  // Strategy: /info → /historico → /buscar (async trigger)
+  // /snapshot/<r> and /search/<r> do not exist on publicaciones-procesales-api.
+  // /info/<r> returns decoded radicado info; /historico/<r> returns scraped actuaciones.
   const endpoints = [
-    `${cleanBase}/snapshot/${radicado}`,
-    `${cleanBase}/search/${radicado}`,
+    `${cleanBase}/info/${radicado}`,
+    `${cleanBase}/historico/${radicado}`,
   ];
 
   for (const url of endpoints) {
@@ -162,7 +164,7 @@ async function fetchDiscovery(
   const headers = buildHeaders(apiKeyInfo);
   const timeoutMs = options.timeoutMs || 20_000;
 
-  const url = `${cleanBase}/snapshot/${radicado}`;
+  const url = `${cleanBase}/info/${radicado}`;
   const result = await fetchEndpoint(url, headers, timeoutMs, options.signal);
 
   if (!result.ok || !result.data) {
