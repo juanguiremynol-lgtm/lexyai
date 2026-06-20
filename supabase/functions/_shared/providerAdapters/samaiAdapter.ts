@@ -278,14 +278,23 @@ export function normalizeSamaiActuaciones(
 ): NormalizedActuacion[] {
   return rawActuaciones.map((act) => {
     const fecha = normalizeDate(
-      String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
+      String(
+        act.fechaActuacion ?? act.fecha_actuacion ?? act.fecha ?? act.fechaRegistro ??
+        act['Fecha Providencia'] ?? act['Fecha Estado'] ?? '',
+      ),
     );
-    const actuacion = String(act.actuacion || act.tipo_actuacion || '');
-    const anotacion = String(act.anotacion || act.descripcion || '') || null;
-    const fechaRegistro = normalizeDate(String(act.fechaRegistro || ''));
-    const estado = String(act.estado || '') || undefined;
-    const anexosCount = Number(act.anexos || 0) || undefined;
-    const indice = String(act.indice || '') || undefined;
+    const actuacion = String(
+      act.actuacion ?? act.tipo_actuacion ?? act['Actuación'] ?? act['Actuacion'] ?? '',
+    );
+    const anotacion = String(
+      act.anotacion ?? act.descripcion ?? act['Anotación'] ?? act['Anotacion'] ?? '',
+    ) || null;
+    const fechaRegistro = normalizeDate(
+      String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
+    );
+    const estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
+    const anexosCount = Number(act.anexos ?? 0) || undefined;
+    const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
 
     return {
       fecha_actuacion: fecha,
