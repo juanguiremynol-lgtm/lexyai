@@ -22,7 +22,7 @@ const EMAIL_GATEWAY_API_KEY = Deno.env.get("EMAIL_GATEWAY_API_KEY");
 
 // Retry backoff intervals in minutes
 const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
-const MAX_ATTEMPTS = 8;
+export const MAX_ATTEMPTS = 8;
 const BATCH_SIZE = 10;
 
 interface EmailOutboxRow {
@@ -318,6 +318,43 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // ─── Reaper: rescue orphaned SENDING rows before main loop ───
+    try {
+      const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const orFilter = `last_attempt_at.is.null,last_attempt_at.lt.${cutoff}`;
+
+      // 1. Flip permanently-exhausted orphans to FAILED so they don't loop
+      const { data: failedRows, error: failErr } = await supabase
+        .from("email_outbox")
+        .update({
+          status: "FAILED",
+          failed_permanent: true,
+          error: "Reaper: exceeded max_attempts while stuck in SENDING",
+        })
+        .eq("status", "SENDING")
+        .gte("attempts", MAX_ATTEMPTS)
+        .or(orFilter)
+        .select("id");
+
+      // 2. Reset eligible orphans to PENDING
+      const { data: rescuedRows, error: rescueErr } = await supabase
+        .from("email_outbox")
+        .update({ status: "PENDING", last_attempt_at: null })
+        .eq("status", "SENDING")
+        .lt("attempts", MAX_ATTEMPTS)
+        .or(orFilter)
+        .select("id");
+
+      console.info("[reaper]", {
+        rescued_to_pending: rescuedRows?.length ?? 0,
+        flipped_to_failed: failedRows?.length ?? 0,
+        rescue_error: rescueErr?.message,
+        fail_error: failErr?.message,
+      });
+    } catch (reaperErr) {
+      console.error("[reaper] crashed (non-fatal):", reaperErr);
+    }
+
     // Resolve active provider from DB config (set via Email Provider Wizard)
     const provider = await resolveActiveProvider(supabase);
     result.provider_used = provider?.type || (EMAIL_GATEWAY_BASE_URL ? "gateway_fallback" : "none");
