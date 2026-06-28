@@ -18,6 +18,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
+import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { generateActuacionFingerprint as canonicalFingerprint } from "../_shared/syncOrchestrator.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
