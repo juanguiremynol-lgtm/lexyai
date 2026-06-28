@@ -386,6 +386,7 @@ Deno.serve(async (req) => {
       .in("status", ["PENDING", "FAILED"])
       .lte("next_attempt_at", now)
       .lt("attempts", MAX_ATTEMPTS)
+      .eq("failed_permanent", false)
       .order("next_attempt_at", { ascending: true })
       .limit(BATCH_SIZE);
 
