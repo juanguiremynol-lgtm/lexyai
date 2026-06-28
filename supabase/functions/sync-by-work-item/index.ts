@@ -3539,4 +3539,4 @@ Deno.serve(withSyncTimeline(async (req) => {
       traceId
     );
   }
-});
+}, { function_name: "sync-by-work-item", default_operation: "acts" }));
