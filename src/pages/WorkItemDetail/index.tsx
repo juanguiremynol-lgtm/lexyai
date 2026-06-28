@@ -38,6 +38,7 @@ import { HearingsTab } from "@/components/hearings/HearingsTab";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
+import { SyncTimelineTab } from "@/components/work-items/SyncTimelineTab";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -363,7 +364,7 @@ export default function WorkItemDetail() {
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
-            <TabsList className="grid w-full grid-cols-7">
+            <TabsList className="grid w-full grid-cols-8">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -401,6 +402,10 @@ export default function WorkItemDetail() {
                 <Scale className="h-4 w-4" />
                 Audiencias
               </TabsTrigger>
+              <TabsTrigger value="sync" className="gap-2">
+                <Clock className="h-4 w-4" />
+                Sync
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="actuaciones" className="mt-4">
@@ -429,6 +434,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="audiencias" className="mt-4">
               <HearingsTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="sync" className="mt-4">
+              <SyncTimelineTab workItemId={extendedWorkItem.id} />
             </TabsContent>
           </Tabs>
         </div>

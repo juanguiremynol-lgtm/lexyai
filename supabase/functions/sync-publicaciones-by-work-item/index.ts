@@ -23,6 +23,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -495,7 +496,7 @@ function generatePublicacionFingerprint(
 
 // ============= MAIN HANDLER =============
 
-Deno.serve(async (req) => {
+Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1343,4 +1344,4 @@ Deno.serve(async (req) => {
       500
     );
   }
-});
+}, { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" }));

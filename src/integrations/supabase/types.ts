@@ -13924,6 +13924,90 @@ export type Database = {
           },
         ]
       }
+      work_item_sync_timeline: {
+        Row: {
+          adapter_version: string | null
+          created_at: string
+          deploy_sha: string | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string
+          function_name: string | null
+          id: string
+          latency_ms: number | null
+          metadata: Json
+          operation: string
+          organization_id: string | null
+          provider: string
+          records_inserted: number
+          records_skipped: number
+          started_at: string | null
+          status: string
+          sync_run_id: string | null
+          work_item_id: string
+          workflow_type: string | null
+        }
+        Insert: {
+          adapter_version?: string | null
+          created_at?: string
+          deploy_sha?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string
+          function_name?: string | null
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json
+          operation?: string
+          organization_id?: string | null
+          provider: string
+          records_inserted?: number
+          records_skipped?: number
+          started_at?: string | null
+          status: string
+          sync_run_id?: string | null
+          work_item_id: string
+          workflow_type?: string | null
+        }
+        Update: {
+          adapter_version?: string | null
+          created_at?: string
+          deploy_sha?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string
+          function_name?: string | null
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json
+          operation?: string
+          organization_id?: string | null
+          provider?: string
+          records_inserted?: number
+          records_skipped?: number
+          started_at?: string | null
+          status?: string
+          sync_run_id?: string | null
+          work_item_id?: string
+          workflow_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_tasks: {
         Row: {
           alert_cadence_days: number | null
