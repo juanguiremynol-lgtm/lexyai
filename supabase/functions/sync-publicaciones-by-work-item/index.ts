@@ -23,6 +23,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
