@@ -396,10 +396,16 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Mark as sending
+        // Atomic flip to SENDING: status + last_attempt_at + attempts increment
+        // in a single UPDATE so a mid-send crash leaves a recoverable orphan
+        // (last_attempt_at set, attempts incremented) instead of a silent stuck row.
         await supabase
           .from("email_outbox")
-          .update({ status: "SENDING" })
+          .update({
+            status: "SENDING",
+            last_attempt_at: now,
+            attempts: email.attempts + 1,
+          })
           .eq("id", email.id);
 
         // Send via resolved provider
