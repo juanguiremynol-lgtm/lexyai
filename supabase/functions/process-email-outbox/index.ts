@@ -319,37 +319,52 @@ Deno.serve(async (req) => {
 
   try {
     // ─── Reaper: rescue orphaned SENDING rows before main loop ───
+    // NOTE: We avoid PostgREST .or() with ISO timestamps because its filter
+    // parser splits on '.' and ',' and would misread the timestamp as columns.
     try {
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      const orFilter = `last_attempt_at.is.null,last_attempt_at.lt.${cutoff}`;
+      let rescuedTotal = 0;
+      let failedTotal = 0;
+      const errs: string[] = [];
 
-      // 1. Flip permanently-exhausted orphans to FAILED so they don't loop
-      const { data: failedRows, error: failErr } = await supabase
-        .from("email_outbox")
-        .update({
-          status: "FAILED",
-          failed_permanent: true,
-          error: "Reaper: exceeded max_attempts while stuck in SENDING",
-        })
-        .eq("status", "SENDING")
-        .gte("attempts", MAX_ATTEMPTS)
-        .or(orFilter)
-        .select("id");
+      // Branch A: orphans with last_attempt_at IS NULL (legacy rows)
+      // Branch B: orphans with last_attempt_at < cutoff (stuck > 10 min)
+      // For each branch, first flip exhausted to FAILED, then reset rest to PENDING.
+      const runBranch = async (apply: (q: any) => any) => {
+        const failQ = apply(
+          supabase
+            .from("email_outbox")
+            .update({
+              status: "FAILED",
+              failed_permanent: true,
+              error: "Reaper: exceeded max_attempts while stuck in SENDING",
+            })
+            .eq("status", "SENDING")
+            .gte("attempts", MAX_ATTEMPTS),
+        ).select("id");
+        const { data: f, error: fe } = await failQ;
+        if (fe) errs.push(`fail: ${fe.message}`);
+        failedTotal += f?.length ?? 0;
 
-      // 2. Reset eligible orphans to PENDING
-      const { data: rescuedRows, error: rescueErr } = await supabase
-        .from("email_outbox")
-        .update({ status: "PENDING", last_attempt_at: null })
-        .eq("status", "SENDING")
-        .lt("attempts", MAX_ATTEMPTS)
-        .or(orFilter)
-        .select("id");
+        const rescueQ = apply(
+          supabase
+            .from("email_outbox")
+            .update({ status: "PENDING", last_attempt_at: null })
+            .eq("status", "SENDING")
+            .lt("attempts", MAX_ATTEMPTS),
+        ).select("id");
+        const { data: r, error: re } = await rescueQ;
+        if (re) errs.push(`rescue: ${re.message}`);
+        rescuedTotal += r?.length ?? 0;
+      };
+
+      await runBranch((q) => q.is("last_attempt_at", null));
+      await runBranch((q) => q.lt("last_attempt_at", cutoff));
 
       console.info("[reaper]", {
-        rescued_to_pending: rescuedRows?.length ?? 0,
-        flipped_to_failed: failedRows?.length ?? 0,
-        rescue_error: rescueErr?.message,
-        fail_error: failErr?.message,
+        rescued_to_pending: rescuedTotal,
+        flipped_to_failed: failedTotal,
+        errors: errs.length ? errs : undefined,
       });
     } catch (reaperErr) {
       console.error("[reaper] crashed (non-fatal):", reaperErr);
