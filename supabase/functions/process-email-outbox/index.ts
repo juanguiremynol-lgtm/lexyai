@@ -22,7 +22,7 @@ const EMAIL_GATEWAY_API_KEY = Deno.env.get("EMAIL_GATEWAY_API_KEY");
 
 // Retry backoff intervals in minutes
 const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
-const MAX_ATTEMPTS = 8;
+export const MAX_ATTEMPTS = 8;
 const BATCH_SIZE = 10;
 
 interface EmailOutboxRow {
@@ -318,6 +318,58 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // ─── Reaper: rescue orphaned SENDING rows before main loop ───
+    // NOTE: We avoid PostgREST .or() with ISO timestamps because its filter
+    // parser splits on '.' and ',' and would misread the timestamp as columns.
+    try {
+      const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      let rescuedTotal = 0;
+      let failedTotal = 0;
+      const errs: string[] = [];
+
+      // Branch A: orphans with last_attempt_at IS NULL (legacy rows)
+      // Branch B: orphans with last_attempt_at < cutoff (stuck > 10 min)
+      // For each branch, first flip exhausted to FAILED, then reset rest to PENDING.
+      const runBranch = async (apply: (q: any) => any) => {
+        const failQ = apply(
+          supabase
+            .from("email_outbox")
+            .update({
+              status: "FAILED",
+              failed_permanent: true,
+              error: "Reaper: exceeded max_attempts while stuck in SENDING",
+            })
+            .eq("status", "SENDING")
+            .gte("attempts", MAX_ATTEMPTS),
+        ).select("id");
+        const { data: f, error: fe } = await failQ;
+        if (fe) errs.push(`fail: ${fe.message}`);
+        failedTotal += f?.length ?? 0;
+
+        const rescueQ = apply(
+          supabase
+            .from("email_outbox")
+            .update({ status: "PENDING", last_attempt_at: null })
+            .eq("status", "SENDING")
+            .lt("attempts", MAX_ATTEMPTS),
+        ).select("id");
+        const { data: r, error: re } = await rescueQ;
+        if (re) errs.push(`rescue: ${re.message}`);
+        rescuedTotal += r?.length ?? 0;
+      };
+
+      await runBranch((q) => q.is("last_attempt_at", null));
+      await runBranch((q) => q.lt("last_attempt_at", cutoff));
+
+      console.info("[reaper]", {
+        rescued_to_pending: rescuedTotal,
+        flipped_to_failed: failedTotal,
+        errors: errs.length ? errs : undefined,
+      });
+    } catch (reaperErr) {
+      console.error("[reaper] crashed (non-fatal):", reaperErr);
+    }
+
     // Resolve active provider from DB config (set via Email Provider Wizard)
     const provider = await resolveActiveProvider(supabase);
     result.provider_used = provider?.type || (EMAIL_GATEWAY_BASE_URL ? "gateway_fallback" : "none");
