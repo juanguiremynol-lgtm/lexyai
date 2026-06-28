@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { AddSourceDialog } from "./AddSourceDialog";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 interface WorkItemSourcesTabProps {
   workItemId: string;
@@ -69,6 +70,9 @@ export function WorkItemSourcesTab({ workItemId, organizationId }: WorkItemSourc
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [expandedTraces, setExpandedTraces] = useState<string | null>(null);
+  // Manual sync is reserved for platform admins. Regular users rely on the
+  // autonomous cron pipeline (scheduled-daily-sync / global-master-sync).
+  const { isPlatformAdmin } = usePlatformAdmin();
 
   // Load sources
   const { data: sources = [], isLoading: sourcesLoading } = useQuery({
@@ -252,19 +256,22 @@ export function WorkItemSourcesTab({ workItemId, organizationId }: WorkItemSourc
                   </div>
 
                   <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => syncMutation.mutate(src.id)}
-                      disabled={syncingId === src.id || isDisabled}
-                    >
-                      {syncingId === src.id ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3 w-3 mr-1" />
-                      )}
-                      Sincronizar
-                    </Button>
+                    {isPlatformAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => syncMutation.mutate(src.id)}
+                        disabled={syncingId === src.id || isDisabled}
+                        title="Solo platform admin — sincronización manual"
+                      >
+                        {syncingId === src.id ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                        )}
+                        Sincronizar
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -274,7 +281,7 @@ export function WorkItemSourcesTab({ workItemId, organizationId }: WorkItemSourc
                       Trazas
                       <ChevronDown className={`h-3 w-3 ml-1 transition-transform ${expandedTraces === src.id ? "rotate-180" : ""}`} />
                     </Button>
-                    {!isDisabled && (
+                    {!isDisabled && isPlatformAdmin && (
                       <Button
                         variant="ghost"
                         size="sm"
