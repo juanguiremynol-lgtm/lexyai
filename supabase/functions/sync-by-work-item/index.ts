@@ -1219,7 +1219,7 @@ async function executeViaOrchestrator(
 
 // ============= MAIN HANDLER =============
 
-Deno.serve(async (req) => {
+Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
