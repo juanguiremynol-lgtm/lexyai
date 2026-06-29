@@ -4,7 +4,7 @@ import { DivergentesSection } from "@/components/icarus-reconciliation/Divergent
 import { YaExistenSection } from "@/components/icarus-reconciliation/YaExistenSection";
 import { ImportItemCard } from "@/components/icarus-reconciliation/ImportItemCard";
 import { useIcarusReconciliation } from "@/hooks/use-icarus-reconciliation";
-import { ICARUS_BATCH } from "@/lib/data/icarus-reconciliation-batch";
+import { ICARUS_RECONCILIATION_BATCH } from "@/lib/data/icarus-reconciliation-batch";
 
 export default function ImportWorkItemsPage() {
   const { data, isLoading, error } = useIcarusReconciliation();
@@ -29,7 +29,7 @@ export default function ImportWorkItemsPage() {
       {data && (
         <>
           <ReconciliationSummary
-            total={ICARUS_BATCH.length}
+            total={ICARUS_RECONCILIATION_BATCH.length}
             faltantes={data.faltantes.length}
             divergentes={data.divergentes.length}
             yaExisten={data.yaExisten.length}
