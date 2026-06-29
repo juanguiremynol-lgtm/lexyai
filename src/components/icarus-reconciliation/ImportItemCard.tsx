@@ -22,7 +22,7 @@ import type {
 } from "@/lib/icarus-reconciliation/types";
 
 const WORKFLOW_OPTIONS: WorkflowType[] = [
-  "CGP", "CPACA", "LABORAL", "TUTELA", "PENAL_906", "GOV_PROCEDURE", "PETICION", "GENERIC",
+  "CGP", "CPACA", "LABORAL", "TUTELA", "PENAL_906", "GOV_PROCEDURE", "PETICION",
 ];
 
 interface Props {
