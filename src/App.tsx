@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OrganizationProvider, SubscriptionProvider, ImpersonationProvider } from "@/contexts";
 import { TenantRouteGuard, PlatformRouteGuard } from "@/components/auth";
+import ImportWorkItemsPage from "@/pages/admin/ImportWorkItemsPage";
 import { TenantLayout } from "@/components/layout/TenantLayout";
 import { PlatformLayout } from "@/components/layout/PlatformLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
@@ -303,7 +304,17 @@ const App = () => (
               </OrganizationProvider>
             } />
           </Route>
-          
+
+          {/* Superadmin-only ICARUS bulk import (lives outside /platform). */}
+          <Route
+            path="/admin/import-work-items"
+            element={
+              <PlatformRouteGuard>
+                <ErrorBoundary><ImportWorkItemsPage /></ErrorBoundary>
+              </PlatformRouteGuard>
+            }
+          />
+
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
         </Routes>
