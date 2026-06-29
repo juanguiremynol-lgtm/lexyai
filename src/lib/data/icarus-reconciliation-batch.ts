@@ -29,7 +29,7 @@ export const ICARUS_RECONCILIATION_BATCH: BatchItem[] = [
   { radicado: "05001333301020240013900", despacho: "Juzgado 010 Administrativo Medellín", demandantes: ["Wilson Eduardo Ramirez Osorio"], demandados: ["Municipio de Liborina"], suggested_workflow_type: "CPACA" },
   { radicado: "05001333300320250013300", despacho: "Juzgado 003 Administrativo Medellín", demandantes: ["Juan Guillermo Restrepo Maya"], demandados: ["Municipio de Rionegro"], suggested_workflow_type: "CPACA" },
   { radicado: "05001310301420260005900", despacho: "Juzgado 014 Civil Circuito Medellín", demandantes: ["Martha Celenny Gaviria Hernández"], demandados: ["Fundacion Oasis Universal"], suggested_workflow_type: "CGP" },
-  { radicado: "05001310300520260012300", despacho: "Juzgado 005 Civil Circuito Medellín", demandantes: ["Beatriz Elena Ruiz Gonzalez", "Michelle Allen Ruiz"], demandados: ["Empresas Publicas de Medellín"], suggested_workflow_type: "CGP" },
+  { radicado: "05001310300520260012300", despacho: "JUZGADO 005 ADMINISTRATIVO DE MEDELLÍN - ANTIOQUIA", demandantes: ["Beatriz Elena Ruiz Gonzalez", "Michelle Allen Ruiz"], demandados: ["Empresas Publicas de Medellín"], suggested_workflow_type: "CPACA" },
   { radicado: "05001400300220250105400", despacho: "Juzgado 002 Civil Municipal Medellín", demandantes: ["Johana Andrea Marin Jaramillo"], demandados: ["Bancolombia"], suggested_workflow_type: "CGP" },
   // La Ceja items: court name says "Asuntos Laborales" but cases are civil; stay as CGP.
   { radicado: "05376311200120230029200", despacho: "Juzgado 001 Civil Circuito Asuntos Laborales La Ceja", demandantes: ["Angela Maria Martinez Ruiz y otros"], demandados: ["Luz Marina Martinez Ruiz y otros"], suggested_workflow_type: "CGP" },
