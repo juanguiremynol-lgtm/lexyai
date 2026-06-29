@@ -25,7 +25,7 @@ async function resolveOrgAndProfile() {
 
   const { data: profile, error: pErr } = await supabase
     .from("profiles")
-    .select("organization_id, full_name, first_name, last_name")
+    .select("organization_id, full_name, email")
     .eq("id", user.id)
     .maybeSingle();
   if (pErr) throw pErr;
@@ -33,11 +33,7 @@ async function resolveOrgAndProfile() {
     throw new Error("Tu perfil no tiene organization_id. Configúralo antes de importar.");
   }
 
-  const displayName =
-    profile.full_name ||
-    [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim() ||
-    user.email ||
-    "Superadmin";
+  const displayName = profile.full_name || profile.email || user.email || "Superadmin";
 
   return {
     userId: user.id,
@@ -132,10 +128,11 @@ export function useBulkImportWorkItem() {
             workflow_type: workflowType,
             source: "ICARUS_IMPORT",
             radicado: item.radicado,
-            raw_courthouse_input: despacho,
+            raw_courthouse_input: { despacho },
             title,
             client_id: clientId,
             monitoring_enabled: true,
+            stage: "RADICADO",
           })
           .select("id")
           .single();
