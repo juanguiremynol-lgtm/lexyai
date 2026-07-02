@@ -263,8 +263,10 @@ const handler = async (req: Request): Promise<Response> => {
         severity = "WARN";
       }
 
-      // Create in-app alert
-      const { error: alertError } = await supabase.from("peticion_alerts").insert({
+      // Create in-app alert (skipped in dry-run)
+      const { error: alertError } = dryRun
+        ? { error: null }
+        : await supabase.from("peticion_alerts").insert({
         owner_id: peticion.owner_id,
         peticion_id: peticion.id,
         alert_type: isProrogation
