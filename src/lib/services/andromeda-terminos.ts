@@ -4,8 +4,8 @@
  * Fetches and updates legal deadlines (términos) from the Andromeda Read API.
  */
 
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
 import { supabase } from "@/integrations/supabase/client";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 export type TerminoAlerta = "VENCIDO" | "URGENTE" | "PROXIMO" | "VIGENTE" | string;
 export type TerminoPrioridad = "CRITICA" | "ALTA" | "NORMAL" | string;
@@ -41,12 +41,12 @@ interface TerminosResponse {
 }
 
 export async function fetchTerminos(): Promise<TerminoItem[]> {
-  const res = await fetch(`${ANDROMEDA_API_BASE}/terminos`);
-  if (!res.ok) {
-    console.error("[andromeda-terminos] API error:", res.status, res.statusText);
+  const res = await andromedaProxy<TerminosResponse>("/terminos");
+  if (!res.ok || !res.body) {
+    console.error("[andromeda-terminos] proxy error:", res.error);
     return [];
   }
-  const json: TerminosResponse = await res.json();
+  const json = res.body;
   if (!json.ok) return [];
   return json.terminos || [];
 }

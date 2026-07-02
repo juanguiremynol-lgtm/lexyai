@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 export interface Novedad {
   id: string;
@@ -39,13 +39,12 @@ export function usePpNovedades(radicado: string | null | undefined, dias = DEFAU
   const query = useQuery({
     queryKey: ["radicado-novedades", "PP", radicado, dias],
     queryFn: async (): Promise<Novedad[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${dias}`;
-      const res = await fetch(url);
+      const res = await andromedaProxy<any>(`/radicados/${radicado!}/novedades`, { dias });
       if (!res.ok) {
-        console.warn("[usePpNovedades] API error:", res.status);
+        console.warn("[usePpNovedades] proxy error:", res.error);
         return [];
       }
-      const body = await res.json();
+      const body = res.body ?? {};
       const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
       return list
         .filter((n) => PP_FUENTES.has(String(n?.fuente ?? "").toUpperCase()))

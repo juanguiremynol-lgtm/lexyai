@@ -22,7 +22,7 @@ import {
   type TerminoItem,
 } from "@/lib/services/andromeda-terminos";
 import { TerminoCard } from "@/components/terminos/TerminoCard";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,9 +92,10 @@ export default function EstadosHoy() {
     queryKey: ["estados-hoy-andromeda", debouncedSearch],
     queryFn: async () => {
       const { desde, hasta } = getAndromedaFallbackRange();
-      const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
-      const res = await fetch(url);
-      const json: NovedadesResponse = res.ok ? await res.json() : { ok: false, total: 0, novedades: [] };
+      const res = await andromedaProxy<NovedadesResponse>("/novedades", { desde, hasta });
+      const json: NovedadesResponse = res.ok && res.body
+        ? res.body
+        : { ok: false, total: 0, novedades: [] };
       let novedades: NovedadItem[] = json.ok ? json.novedades || [] : [];
 
       // Filter: only PP and SAMAI_ESTADOS (case-insensitive)

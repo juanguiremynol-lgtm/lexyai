@@ -6,7 +6,7 @@
  * because the sync cron runs at ~2 AM COT.
  */
 
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 import { getColombiaDate, getColombiaToday, type HoyWindow } from "@/lib/colombia-date-utils";
 
 export interface NovedadItem {
@@ -76,13 +76,12 @@ async function fetchNovedadesByRange(
   fuentes?: string[],
   search?: string
 ): Promise<{ items: NovedadItem[]; total: number }> {
-  const url = `${ANDROMEDA_API_BASE}/novedades?desde=${desde}&hasta=${hasta}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("[andromeda-novedades] API error:", res.status, res.statusText);
+  const res = await andromedaProxy<NovedadesResponse>("/novedades", { desde, hasta });
+  if (!res.ok || !res.body) {
+    console.error("[andromeda-novedades] proxy error:", res.error);
     return { items: [], total: 0 };
   }
-  const json: NovedadesResponse = await res.json();
+  const json = res.body;
   if (!json.ok) return { items: [], total: 0 };
 
   let items = json.novedades || [];

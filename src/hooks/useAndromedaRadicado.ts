@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 export interface AndromedaRadicadoData {
   despacho_nombre?: string | null;
@@ -42,13 +42,11 @@ export function useAndromedaRadicado(radicado: string | null, enabled: boolean) 
     retry: 1,
     queryFn: async () => {
       if (!radicado) return null;
-      const res = await fetch(
-        `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado)}`,
-      );
-      if (!res.ok) return null;
-      const body = await res.json();
+      const res = await andromedaProxy<Record<string, unknown>>(`/radicados/${radicado}`);
+      if (!res.ok || !res.body) return null;
+      const body = res.body as Record<string, unknown>;
       // API returns { ok, radicado: {...} }
-      return (body?.radicado ?? body) as AndromedaRadicadoData;
+      return ((body?.radicado as AndromedaRadicadoData) ?? (body as unknown as AndromedaRadicadoData));
     },
   });
 }

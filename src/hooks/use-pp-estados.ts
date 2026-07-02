@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 export interface PpEstado {
   fuente: string;
@@ -35,15 +35,12 @@ export function usePpEstados(radicado: string | null | undefined, enabled = true
   return useQuery({
     queryKey: ["radicado-estados", radicado],
     queryFn: async (): Promise<PpEstado[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/estados`;
-      console.info("[usePpEstados] fetch", url);
-      const res = await fetch(url);
+      const res = await andromedaProxy<PpEstadosResponse>(`/radicados/${radicado!}/estados`);
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error(`[usePpEstados] ${res.status} ${res.statusText} ${url}`, text);
-        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
+        console.error(`[usePpEstados] proxy error`, res.error);
+        throw new Error(`Andromeda proxy: ${res.error || "unknown"}`);
       }
-      const body = (await res.json()) as PpEstadosResponse;
+      const body = (res.body ?? {}) as PpEstadosResponse;
       console.info("[usePpEstados] response", { total: body?.total, count: body?.estados?.length });
       return Array.isArray(body?.estados) ? body.estados : [];
     },

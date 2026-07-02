@@ -14,7 +14,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 // NOTE: the unified /actuaciones endpoint currently only emits fuente
 // "CPNU" | "SAMAI". PP rows will appear here once the backend ingests them.
@@ -66,15 +66,12 @@ export function usePpActuaciones(radicado: string | null | undefined, enabled = 
   return useQuery({
     queryKey: ["radicado-actuaciones", "PP", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
-      console.info("[usePpActuaciones] fetch", url);
-      const res = await fetch(url);
+      const res = await andromedaProxy<any>(`/radicados/${radicado!}/actuaciones`);
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error(`[usePpActuaciones] ${res.status} ${res.statusText} ${url}`, text);
-        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
+        console.error(`[usePpActuaciones] proxy error`, res.error);
+        throw new Error(`Andromeda proxy: ${res.error || "unknown"}`);
       }
-      const body = await res.json();
+      const body = res.body ?? {};
       const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
       const filtered = list.filter((n) => PP_FUENTES.has(String(n?.fuente ?? "").toUpperCase()));
       const mapped = filtered.map((r, i) => mapToWorkItemAct(r, i, radicado!));
