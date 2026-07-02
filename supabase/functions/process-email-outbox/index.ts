@@ -449,17 +449,29 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Atomic flip to SENDING: status + last_attempt_at + attempts increment
-        // in a single UPDATE so a mid-send crash leaves a recoverable orphan
-        // (last_attempt_at set, attempts incremented) instead of a silent stuck row.
-        await supabase
+        // Atomic conditional claim: only flip if row is still PENDING/FAILED.
+        // Two overlapping cron runs both SELECTing the same row won't both
+        // send — only the UPDATE that actually returned the row wins.
+        // The reaper (above) rescues SENDING rows stuck > 10 min.
+        const { data: claimed, error: claimErr } = await supabase
           .from("email_outbox")
           .update({
             status: "SENDING",
             last_attempt_at: now,
             attempts: email.attempts + 1,
           })
-          .eq("id", email.id);
+          .eq("id", email.id)
+          .in("status", ["PENDING", "FAILED"])
+          .select("id");
+
+        if (claimErr) {
+          console.error(`[process-email-outbox] Claim error for ${email.id}:`, claimErr);
+          continue;
+        }
+        if (!claimed || claimed.length === 0) {
+          console.log(`[process-email-outbox] Email ${email.id} already claimed by another worker, skipping`);
+          continue;
+        }
 
         // Send via resolved provider
         const sendResult = await sendEmail(email, provider);

@@ -171,6 +171,18 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Parse dry_run flag from body (defaults to false)
+    let dryRun = false;
+    try {
+      if (req.method === "POST") {
+        const body = await req.json().catch(() => ({}));
+        dryRun = body?.dry_run === true;
+      } else {
+        dryRun = new URL(req.url).searchParams.get("dry_run") === "true";
+      }
+    } catch (_) { /* ignore */ }
+    if (dryRun) console.log("[hearing-reminders] DRY RUN mode — nothing will be enqueued");
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
@@ -285,6 +297,12 @@ const handler = async (req: Request): Promise<Response> => {
           continue;
         }
 
+        if (dryRun) {
+          console.log(`[hearing-reminders] [DRY RUN] Would enqueue: hearing=${hearing.id}, days=${daysUntil}, to=${recipientEmail}, subject="${subject}"`);
+          emailsQueued.push(hearing.id);
+          continue;
+        }
+
         // Enqueue email into email_outbox (do NOT send directly)
         const { data: outboxRow, error: insertError } = await supabase
           .from("email_outbox")
@@ -352,11 +370,14 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         success: true,
+        dry_run: dryRun,
         emailsQueued: emailsQueued.length,
         alertsCreated: alertsCreated.length,
         hearingIds: emailsQueued,
         errors: errors.length > 0 ? errors : undefined,
-        message: "Emails enqueued for batch processing via process-email-outbox",
+        message: dryRun
+          ? "DRY RUN: no emails enqueued, see logs for candidates"
+          : "Emails enqueued for batch processing via process-email-outbox",
       }),
       {
         status: 200,
