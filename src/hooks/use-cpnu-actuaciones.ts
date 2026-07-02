@@ -17,7 +17,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { WorkItemAct } from "@/pages/WorkItemDetail/tabs/WorkItemActCard";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 function toDateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -61,15 +61,12 @@ export function useCpnuActuaciones(radicado: string | null | undefined, enabled 
   return useQuery({
     queryKey: ["radicado-actuaciones", "CPNU", radicado],
     queryFn: async (): Promise<WorkItemAct[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/actuaciones`;
-      console.info("[useCpnuActuaciones] fetch", url);
-      const res = await fetch(url);
+      const res = await andromedaProxy<any>(`/radicados/${radicado!}/actuaciones`);
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error(`[useCpnuActuaciones] ${res.status} ${res.statusText} ${url}`, text);
-        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
+        console.error(`[useCpnuActuaciones] proxy error`, res.error);
+        throw new Error(`Andromeda proxy: ${res.error || "unknown"}`);
       }
-      const body = await res.json();
+      const body = res.body ?? {};
       const list: any[] = Array.isArray(body) ? body : (body?.actuaciones ?? body?.items ?? []);
       const filtered = list.filter((n) => {
         const f = String(n?.fuente ?? "").toUpperCase();

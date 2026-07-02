@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Activity, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -109,9 +109,9 @@ function PortalBadges({
 }
 
 async function fetchSalud(): Promise<SaludResponse> {
-  const res = await fetch(`${ANDROMEDA_API_BASE}/salud`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const res = await andromedaProxy<SaludResponse>("/salud");
+  if (!res.ok || !res.body) throw new Error(res.error || "salud_error");
+  return res.body;
 }
 
 function StatCard({

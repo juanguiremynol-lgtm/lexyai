@@ -11,7 +11,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 
 export interface Novedad {
   id: string;
@@ -42,13 +42,12 @@ export function useCpnuNovedades(radicado: string | null | undefined, dias = DEF
   const query = useQuery({
     queryKey: ["radicado-novedades", "CPNU", radicado, dias],
     queryFn: async (): Promise<Novedad[]> => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}/novedades?dias=${dias}`;
-      const res = await fetch(url);
+      const res = await andromedaProxy<any>(`/radicados/${radicado!}/novedades`, { dias });
       if (!res.ok) {
-        console.warn("[useCpnuNovedades] API error:", res.status);
+        console.warn("[useCpnuNovedades] proxy error:", res.error);
         return [];
       }
-      const body = await res.json();
+      const body = res.body ?? {};
       const list: any[] = Array.isArray(body) ? body : (body?.novedades ?? body?.items ?? []);
       return list
         .filter((n) => CPNU_FUENTE.has(String(n?.fuente ?? "").toUpperCase()) || !n?.fuente)

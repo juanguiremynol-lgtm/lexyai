@@ -12,7 +12,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ANDROMEDA_API_BASE } from "@/lib/api-urls";
+import { andromedaProxy } from "@/lib/andromeda-proxy";
 import type { AndromedaSyncMap } from "@/hooks/useAndromedaRadicado";
 
 interface WorkItemDetail {
@@ -389,15 +389,12 @@ export function useWorkItemDetail(
   const cpnuQuery = useQuery({
     queryKey: ["radicado-detail-enrichment", radicado],
     queryFn: async () => {
-      const url = `${ANDROMEDA_API_BASE}/radicados/${encodeURIComponent(radicado!)}`;
-      console.info("[useWorkItemDetail] fetch", url);
-      const res = await fetch(url);
+      const res = await andromedaProxy<any>(`/radicados/${radicado!}`);
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error(`[useWorkItemDetail] ${res.status} ${res.statusText} ${url}`, text);
-        throw new Error(`Andromeda API ${res.status}: ${text.slice(0, 200)}`);
+        console.error(`[useWorkItemDetail] proxy error`, res.error);
+        throw new Error(`Andromeda proxy: ${res.error || "unknown"}`);
       }
-      const body = await res.json();
+      const body = res.body ?? {};
       return body?.radicado ?? body?.item ?? body ?? null;
     },
     enabled: !!radicado,
