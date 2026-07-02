@@ -144,6 +144,18 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Parse dry_run flag from body (defaults to false)
+    let dryRun = false;
+    try {
+      if (req.method === "POST") {
+        const body = await req.json().catch(() => ({}));
+        dryRun = body?.dry_run === true;
+      } else {
+        dryRun = new URL(req.url).searchParams.get("dry_run") === "true";
+      }
+    } catch (_) { /* ignore */ }
+    if (dryRun) console.log("[peticion-reminders] DRY RUN mode — nothing will be enqueued");
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -290,6 +302,12 @@ const handler = async (req: Request): Promise<Response> => {
         ? `[URGENTE] Petición VENCIDA: ${peticion.subject}`
         : `[ATENIA] Petición vence en ${daysUntil} día${daysUntil !== 1 ? "s" : ""}: ${peticion.subject}`;
 
+      if (dryRun) {
+        console.log(`[peticion-reminders] [DRY RUN] Would enqueue: peticion=${peticion.id}, days=${daysUntil}, to=${recipientEmail}, subject="${subject}"`);
+        emailsQueued.push(peticion.id);
+        continue;
+      }
+
       try {
         // Enqueue email into email_outbox (do NOT send directly)
         const { data: outboxRow, error: insertError } = await supabase
@@ -346,11 +364,14 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         success: true,
+        dry_run: dryRun,
         alertsCreated: alertsCreated.length,
         emailsQueued: emailsQueued.length,
         peticionIds: emailsQueued,
         errors: errors.length > 0 ? errors : undefined,
-        message: "Emails enqueued for batch processing via process-email-outbox",
+        message: dryRun
+          ? "DRY RUN: no emails enqueued, see logs for candidates"
+          : "Emails enqueued for batch processing via process-email-outbox",
       }),
       {
         status: 200,
