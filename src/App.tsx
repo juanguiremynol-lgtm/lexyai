@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OrganizationProvider, SubscriptionProvider, ImpersonationProvider } from "@/contexts";
 import { TenantRouteGuard, PlatformRouteGuard } from "@/components/auth";
@@ -10,6 +10,11 @@ import ImportWorkItemsPage from "@/pages/admin/ImportWorkItemsPage";
 import { TenantLayout } from "@/components/layout/TenantLayout";
 import { PlatformLayout } from "@/components/layout/PlatformLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
+
+const LegacyClientRedirect = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/app/clients/${id}`} replace />;
+};
 
 // Pages
 import Auth from "./pages/Auth";
@@ -168,7 +173,7 @@ const App = () => (
           {/* Legacy root redirects to app (for authenticated users) */}
           <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />
           <Route path="/clients" element={<Navigate to="/app/clients" replace />} />
-          <Route path="/clients/:id" element={<Navigate to="/app/clients/:id" replace />} />
+          <Route path="/clients/:id" element={<LegacyClientRedirect />} />
           <Route path="/processes" element={<Navigate to="/app/processes" replace />} />
           <Route path="/hearings" element={<Navigate to="/app/hearings" replace />} />
           <Route path="/tasks" element={<Navigate to="/app/tasks" replace />} />
