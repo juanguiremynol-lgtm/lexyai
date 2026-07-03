@@ -11,6 +11,11 @@ import { TenantLayout } from "@/components/layout/TenantLayout";
 import { PlatformLayout } from "@/components/layout/PlatformLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 
+const LegacyClientRedirect = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/app/clients/${id}`} replace />;
+};
+
 // Pages
 import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
