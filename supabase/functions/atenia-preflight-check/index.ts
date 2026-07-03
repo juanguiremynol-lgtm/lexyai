@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
     const { data: connectors } = await supabase
       .from("provider_connectors")
       .select("id, name, key")
-      .eq("is_active", true);
+      .eq("is_enabled", true);
 
     for (const connector of connectors ?? []) {
       const { data: instances } = await supabase
