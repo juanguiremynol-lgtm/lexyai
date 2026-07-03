@@ -91,6 +91,17 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     expected_active: true,
     notes: "Drains sync retry queue (PUB_RETRY, ACT_RETRY)",
   },
+  {
+    jobname: "cpnu-job-poller",
+    label: "Poller Jobs CPNU",
+    schedule_utc: "*/3 * * * *",
+    schedule_cot: "Cada 3 min",
+    edge_function: "cpnu-job-poller",
+    role: "SYNC",
+    critical: false,
+    expected_active: true,
+    notes: "Poll async /resultado/{jobId} de CPNU para work_items con scrape_status=IN_PROGRESS. Reemplaza polling inline que causaba timeouts >60s en Edge Functions.",
+  },
 
   // ── AI & ANALYSIS ──
   {

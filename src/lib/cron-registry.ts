@@ -109,6 +109,23 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
       downstream: ["atenia_ai_remediation_queue", "external_sync_runs"],
     },
   },
+  {
+    jobname: "cpnu-job-poller",
+    label: "Poller Jobs CPNU",
+    schedule_utc: "*/3 * * * *",
+    schedule_cot: "Cada 3 min",
+    edge_function: "cpnu-job-poller",
+    role: "SYNC",
+    critical: false,
+    expected_active: true,
+    notes: "Poll async /resultado/{jobId} de CPNU para work_items con scrape_status=IN_PROGRESS. Reemplaza polling inline que causaba timeouts >60s en Edge Functions.",
+    wiring: {
+      orchestrator_phase: null,
+      is_orchestrator_job: false,
+      providers_impacted: ["cpnu"],
+      downstream: ["work_items", "work_item_acts"],
+    },
+  },
 
   // ── AI & ANALYSIS ──
   {
