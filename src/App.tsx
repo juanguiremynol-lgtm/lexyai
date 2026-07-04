@@ -18,6 +18,7 @@ const LegacyClientRedirect = () => {
 
 // Pages
 import Auth from "./pages/Auth";
+import OAuthConsent from "./pages/OAuthConsent";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import VerifyAlertEmail from "./pages/VerifyAlertEmail";
