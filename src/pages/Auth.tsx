@@ -116,7 +116,7 @@ export default function Auth() {
       );
 
       const { error } = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: window.location.origin,
+        redirect_uri: absolutePostAuthTarget,
       });
       if (error) throw error;
     } catch (error: any) {
