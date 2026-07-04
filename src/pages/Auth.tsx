@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import logo from "@/assets/andromeda-logo.png";
 import { ShieldAlert } from "lucide-react";
 import { TermsAcceptanceModal } from "@/components/legal/TermsAcceptanceModal";
@@ -24,6 +24,14 @@ export default function Auth() {
   const [enrollmentOpen, setEnrollmentOpen] = useState(true);
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Preserve return target (e.g. /.lovable/oauth/consent?authorization_id=...)
+  // through password login, signup email confirmation, and social OAuth.
+  const rawNext = searchParams.get("next");
+  const safeNext =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
+  const postAuthTarget = safeNext ?? "/dashboard";
+  const absolutePostAuthTarget = `${window.location.origin}${postAuthTarget}`;
 
   // Terms acceptance state
   const [showTerms, setShowTerms] = useState(false);
