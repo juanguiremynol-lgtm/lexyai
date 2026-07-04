@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "sdk_version": "0.20.0",
+  "path": "/functions/v1/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "andromeda-mcp",
+      "version": "0.1.0",
+      "title": "Andromeda Legal"
+    },
+    "tools": [
+      {
+        "name": "list_work_items",
+        "title": "Listar asuntos (work items)",
+        "description": "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": "string",
+              "description": "Free-text match on radicado, título, partes, o autoridad."
+            },
+            "workflow_type": {
+              "type": "string",
+              "description": "Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Max rows to return (default 25)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_work_item",
+        "title": "Detalle de asunto",
+        "description": "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "work_item UUID."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado exacto (23-dígitos u otro formato)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_recent_estados",
+        "title": "Novedades judiciales recientes",
+        "description": "Lists the most recent judicial estados / actuaciones detected across the signed-in user's monitored matters, ordered by detected_at desc.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "description": "Ventana en días (default 3)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo filas (default 25)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import logo from "@/assets/andromeda-logo.png";
 import { ShieldAlert } from "lucide-react";
 import { TermsAcceptanceModal } from "@/components/legal/TermsAcceptanceModal";
@@ -24,6 +24,14 @@ export default function Auth() {
   const [enrollmentOpen, setEnrollmentOpen] = useState(true);
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Preserve return target (e.g. /.lovable/oauth/consent?authorization_id=...)
+  // through password login, signup email confirmation, and social OAuth.
+  const rawNext = searchParams.get("next");
+  const safeNext =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
+  const postAuthTarget = safeNext ?? "/dashboard";
+  const absolutePostAuthTarget = `${window.location.origin}${postAuthTarget}`;
 
   // Terms acceptance state
   const [showTerms, setShowTerms] = useState(false);
@@ -108,7 +116,7 @@ export default function Auth() {
       );
 
       const { error } = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: window.location.origin,
+        redirect_uri: absolutePostAuthTarget,
       });
       if (error) throw error;
     } catch (error: any) {
@@ -161,13 +169,13 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Bienvenido a Andromeda");
-        navigate("/dashboard");
+        navigate(postAuthTarget);
       } else {
         const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
+            emailRedirectTo: absolutePostAuthTarget,
             data: { full_name: fullName },
           },
         });
@@ -183,7 +191,7 @@ export default function Auth() {
         }
 
         toast.success("Cuenta creada exitosamente");
-        navigate("/dashboard");
+        navigate(postAuthTarget);
       }
     } catch (error: any) {
       toast.error(error.message || "Error de autenticación");

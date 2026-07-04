@@ -18,6 +18,7 @@ const LegacyClientRedirect = () => {
 
 // Pages
 import Auth from "./pages/Auth";
+import OAuthConsent from "./pages/OAuthConsent";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import VerifyAlertEmail from "./pages/VerifyAlertEmail";
@@ -153,6 +154,9 @@ const App = () => (
           <Route path="/verify-alert-email" element={<VerifyAlertEmail />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
+
+          {/* Lovable-hosted OAuth 2.1 consent screen for MCP clients */}
+          <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
           
           {/* Public routes with PublicLayout */}
           <Route element={<PublicLayout />}>
