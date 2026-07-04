@@ -169,13 +169,13 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Bienvenido a Andromeda");
-        navigate("/dashboard");
+        navigate(postAuthTarget);
       } else {
         const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
+            emailRedirectTo: absolutePostAuthTarget,
             data: { full_name: fullName },
           },
         });
@@ -191,7 +191,7 @@ export default function Auth() {
         }
 
         toast.success("Cuenta creada exitosamente");
-        navigate("/dashboard");
+        navigate(postAuthTarget);
       }
     } catch (error: any) {
       toast.error(error.message || "Error de autenticación");
