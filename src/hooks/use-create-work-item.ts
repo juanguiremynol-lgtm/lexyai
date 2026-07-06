@@ -195,16 +195,26 @@ export function useCreateWorkItem() {
     onSuccess: async (workItem) => {
       toast.success("Asunto creado exitosamente");
       
-      // Background sync: trigger publicaciones + actuaciones sync for items with valid radicado
-      // Fire-and-forget — don't block creation flow
+      // Background sync: trigger publicaciones + actuaciones sync only for
+      // online-sync-eligible workflows (CGP, CPACA, LABORAL, PENAL_906, TUTELA).
+      // Fire-and-forget — don't block creation flow.
       const radicadoDigits = (workItem.radicado || '').replace(/\D/g, '');
-      if (workItem.id && radicadoDigits.length === 23) {
+      const eligibleForOnlineSync = isOnlineSyncEligible(workItem.workflow_type);
+      if (workItem.id && radicadoDigits.length === 23 && eligibleForOnlineSync) {
         supabase.functions.invoke("sync-publicaciones-by-work-item", {
           body: { work_item_id: workItem.id },
+        }).then(({ data }) => {
+          if (data && data.ok === false) {
+            console.log("[use-create-work-item] publicaciones sync degraded:", data.status ?? data.reason);
+          }
         }).catch(err => console.warn("[use-create-work-item] Background publicaciones sync failed:", err));
 
         supabase.functions.invoke("sync-by-work-item", {
           body: { work_item_id: workItem.id },
+        }).then(({ data }) => {
+          if (data && data.ok === false) {
+            console.log("[use-create-work-item] actuaciones sync degraded:", data.status ?? data.reason);
+          }
         }).catch(err => console.warn("[use-create-work-item] Background actuaciones sync failed:", err));
       }
 
