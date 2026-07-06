@@ -1032,6 +1032,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           
           if (parsedFecha && (!newestDate || parsedFecha > newestDate)) {
             newestDate = parsedFecha;
+            newestInsertedFingerprint = fingerprint;
           }
 
           // Track inserted publication for response
