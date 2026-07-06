@@ -38,6 +38,7 @@ import { HearingsTab } from "@/components/hearings/HearingsTab";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
+import { externalDisplayModeFor } from "@/lib/externalSyncDisplay";
 import { SyncTimelineTab } from "@/components/work-items/SyncTimelineTab";
 
 // Import work item components
