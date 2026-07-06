@@ -1,3 +1,6 @@
+import { isColombianHoliday } from "@/lib/colombian-holidays";
+
+// Marker to trigger import ordering; keeping the block below unchanged.
 /**
  * Unified Ticker Data Service
  * 
