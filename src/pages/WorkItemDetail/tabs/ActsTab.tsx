@@ -1,11 +1,9 @@
 /**
  * Acts Tab - Shows actuaciones for the work item
- * CGP workflow: reads from Google Cloud CPNU API
- * CPACA workflow: reads from Google Cloud SAMAI + SAMAI_ESTADOS APIs
- * Other workflows: reads from work_item_acts table (Supabase)
- *
- * CRITICAL: CGP → CPNU API, CPACA → SAMAI API (live, no Supabase fallback),
- * everything else → Supabase work_item_acts.
+ * Canonical source (all workflows): work_item_acts (Supabase).
+ * External providers (CPNU / SAMAI / Publicaciones) write into work_item_acts
+ * via the sync pipeline. Re-sync buttons still target the provider-specific
+ * edge function so we refetch upstream data on demand.
  */
 
 import { useState } from "react";
@@ -81,34 +79,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   const isCGP = workItem.workflow_type === "CGP";
   const isCPACA = workItem.workflow_type === "CPACA";
-  const useExternalApi = isCGP || isCPACA;
 
   // ─── Data source branching ──────────────────────────────────────────────
-  // CGP   → Google Cloud CPNU API (useCpnuActuaciones)
-  // CPACA → Google Cloud SAMAI + SAMAI_ESTADOS APIs (useSamaiActuaciones, live)
-  // Other → Supabase work_item_acts
-  const cpnuQuery = useCpnuActuaciones(workItem.radicado || null, isCGP);
-  const samaiQuery = useSamaiActuaciones(workItem.radicado || null, isCPACA);
-  const supabaseQuery = useSupabaseActs(workItem.id, !useExternalApi);
-
-  const acts = isCGP
-    ? cpnuQuery.data
-    : isCPACA
-      ? samaiQuery.data
-      : supabaseQuery.data;
-  const isLoading = isCGP
-    ? cpnuQuery.isLoading
-    : isCPACA
-      ? samaiQuery.isLoading
-      : supabaseQuery.isLoading;
-  const apiError = isCGP
-    ? cpnuQuery.error
-    : isCPACA
-      ? samaiQuery.error
-      : supabaseQuery.error;
+  // All workflows read the canonical work_item_acts table. Provider APIs
+  // (CPNU/SAMAI/Publicaciones) feed this table through the sync pipeline.
+  const supabaseQuery = useSupabaseActs(workItem.id, true);
+  const acts = supabaseQuery.data;
+  const isLoading = supabaseQuery.isLoading;
+  const apiError = supabaseQuery.error;
 
   // ─── API label for badges ───────────────────────────────────────────────
-  const apiLabel = isCGP ? "CPNU API" : isCPACA ? "SAMAI API" : null;
+  const apiLabel = isCGP ? "CPNU" : isCPACA ? "SAMAI" : null;
 
   // ─── Resync mutation ────────────────────────────────────────────────────
   const resyncMutation = useMutation({
