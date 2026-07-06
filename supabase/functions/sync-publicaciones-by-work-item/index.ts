@@ -1168,7 +1168,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
       result.status = 'ERROR';
-      return jsonResponse(result, fetchResult.httpStatus || 500);
+      // Never propagate upstream 5xx/unreachable as our own 500 —
+      // callers (login sync, work-item creation) must degrade gracefully.
+      const upstream = fetchResult.httpStatus;
+      const structuredStatus =
+        upstream === 401 || upstream === 403 ? 'auth_error' :
+        upstream === 404 ? 'route_mismatch' :
+        upstream && upstream >= 500 ? 'provider_5xx' :
+        'provider_unavailable';
+      (result as any).status = structuredStatus;
+      (result as any).reason = fetchResult.error;
+      return jsonResponse(result, 200);
     }
 
     // Handle empty result (valid response but no publications)
