@@ -586,9 +586,20 @@ function generatePublicacionFingerprint(
   key: string | undefined,
   title: string
 ): string {
-  // Use asset_id as primary (guaranteed unique)
-  const uniqueId = assetId || key || title;
-  const data = `${workItemId}|${uniqueId}`;
+  // STABLE NATURAL KEY (2026-07-06 fix):
+  // Do NOT use asset_id/key from providers — those values drift across snapshots
+  // (SAMAI /snapshot returns a fresh identifier each call), which produced
+  // duplicate rows on every re-sync. Fingerprint by (workItemId + normalized title)
+  // so a second run of the same event collides with the existing row.
+  const normTitle = (title || 'untitled')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\.pdf$/i, '')
+    .trim();
+  // Assets/keys are intentionally ignored to guarantee stability.
+  void assetId; void key;
+  const data = `${workItemId}|${normTitle}`;
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
