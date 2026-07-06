@@ -35,12 +35,12 @@ export function WorkItemBulkDeleteDialog({
           </div>
           <AlertDialogDescription className="space-y-3">
             <p>
-              Estás a punto de eliminar permanentemente{" "}
-              <strong>{selectedCount} elemento{selectedCount !== 1 ? "s" : ""}</strong>.
+              Vas a archivar <strong>{selectedCount} asunto{selectedCount !== 1 ? "s" : ""}</strong>.
             </p>
 
-            <p className="text-destructive font-medium">
-              Esta acción eliminará todos los datos asociados y no se puede deshacer.
+            <p className="text-muted-foreground text-sm">
+              Dejarán de aparecer en tus vistas y de sincronizarse. Podrás recuperarlos con Andro IA
+              en los próximos <strong>10 días</strong>; después se eliminarán definitivamente.
             </p>
           </AlertDialogDescription>
         </AlertDialogHeader>

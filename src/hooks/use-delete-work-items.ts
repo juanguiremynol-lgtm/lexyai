@@ -1,7 +1,21 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { logAudit } from "@/lib/audit-log";
+/**
+ * useDeleteWorkItems — Unified DELETE hook for dashboard / pipeline / detail views.
+ *
+ * IMPORTANT: Per platform policy (see mem://architecture/work-item-centric-governance
+ * "No hard deletes for users"), every user-triggered delete from the app must be a
+ * SOFT delete with 10-day recovery. This hook is therefore a thin wrapper over
+ * useSoftDeleteWorkItems that preserves the historical return shape
+ * ({ deleted_count, deleted_ids, storage_files_deleted, errors, ok }) so existing
+ * call sites do not have to change.
+ *
+ * The only surfaces allowed to invoke the true hard-purge edge function are:
+ *   - Recycle Bin (ArchivedItemsSection)
+ *   - Admin data lifecycle (AdminDataLifecycleTab)
+ *   - Master delete (settings)
+ * They must use `useHardPurgeWorkItems` from `./use-hard-purge-work-items`.
+ */
+
+import { useSoftDeleteWorkItems } from "./use-soft-delete-work-items";
 
 interface DeleteResult {
   ok: boolean;
@@ -16,113 +30,47 @@ interface UseDeleteWorkItemsOptions {
   onError?: (error: Error) => void;
 }
 
-// Queries to invalidate after deletion
-const INVALIDATE_QUERIES = [
-  "work-items",
-  "work-item-detail",
-  "cgp-items",
-  "cgp-work-items",
-  "peticiones",
-  "tutelas",
-  "cpaca-processes",
-  "monitored-processes",
-  "admin-processes",
-  "filings",
-  "alerts",
-  "alert-instances",
-  "tasks",
-  "documents",
-  "process-events",
-  "admin-archived-work-items",
-];
-
 export function useDeleteWorkItems(options?: UseDeleteWorkItemsOptions) {
-  const queryClient = useQueryClient();
-
-  const mutation = useMutation({
-    mutationFn: async (workItemIds: string[]): Promise<DeleteResult> => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const { data, error } = await supabase.functions.invoke<DeleteResult>("delete-work-items", {
-        body: { work_item_ids: workItemIds, mode: "HARD_DELETE" },
-      });
-
-      if (error) {
-        throw new Error(error.message || "Error al eliminar");
-      }
-
-      if (!data) {
-        throw new Error("No se recibió respuesta del servidor");
-      }
-
-      // Log audit for bulk purge
-      if (data.deleted_count > 0 && user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("organization_id")
-          .eq("id", user.id)
-          .single();
-
-        if (profile?.organization_id) {
-          await logAudit({
-            organizationId: profile.organization_id,
-            action: "RECYCLE_BIN_PURGED",
-            entityType: "work_item",
-            metadata: {
-              purged_count: data.deleted_count,
-              purged_ids: data.deleted_ids,
-              storage_files_deleted: data.storage_files_deleted,
-              errors_count: data.errors.length,
-            },
-          });
-        }
-      }
-
-      return data;
+  const soft = useSoftDeleteWorkItems({
+    onSuccess: (softResult) => {
+      const compatResult: DeleteResult = {
+        ok: softResult.success,
+        deleted_count: softResult.archived_count,
+        deleted_ids: softResult.archived_ids,
+        errors: softResult.errors,
+        storage_files_deleted: 0,
+      };
+      options?.onSuccess?.(compatResult);
     },
-    onSuccess: (result) => {
-      // Invalidate all relevant queries
-      INVALIDATE_QUERIES.forEach((key) => {
-        queryClient.invalidateQueries({ queryKey: [key] });
-      });
-
-      // Show success message
-      if (result.deleted_count > 0) {
-        const storageMsg = result.storage_files_deleted > 0 
-          ? ` (${result.storage_files_deleted} archivos)` 
-          : "";
-        toast.success(
-          `${result.deleted_count} elemento${result.deleted_count !== 1 ? "s" : ""} eliminado${result.deleted_count !== 1 ? "s" : ""}${storageMsg}`
-        );
-      }
-
-      // Show partial errors if any
-      if (result.errors.length > 0) {
-        toast.warning(`${result.errors.length} elemento(s) no pudieron ser eliminados`);
-      }
-
-      options?.onSuccess?.(result);
-    },
-    onError: (error: Error) => {
-      toast.error(`Error al eliminar: ${error.message}`);
-      options?.onError?.(error);
-    },
+    onError: options?.onError,
   });
 
-  // Helper for single item delete
-  const deleteSingle = (workItemId: string) => {
-    return mutation.mutateAsync([workItemId]);
+  const deleteSingle = async (workItemId: string): Promise<DeleteResult> => {
+    const r = await soft.archiveSingle(workItemId);
+    return {
+      ok: r.success,
+      deleted_count: r.archived_count,
+      deleted_ids: r.archived_ids,
+      errors: r.errors,
+      storage_files_deleted: 0,
+    };
   };
 
-  // Helper for bulk delete
-  const bulkDelete = (workItemIds: string[]) => {
-    return mutation.mutateAsync(workItemIds);
+  const bulkDelete = async (workItemIds: string[]): Promise<DeleteResult> => {
+    const r = await soft.archiveBulk(workItemIds);
+    return {
+      ok: r.success,
+      deleted_count: r.archived_count,
+      deleted_ids: r.archived_ids,
+      errors: r.errors,
+      storage_files_deleted: 0,
+    };
   };
 
   return {
-    ...mutation,
+    ...soft,
     deleteSingle,
     bulkDelete,
-    isDeleting: mutation.isPending,
+    isDeleting: soft.isArchiving,
   };
 }

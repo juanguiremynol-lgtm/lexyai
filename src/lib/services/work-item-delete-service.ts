@@ -92,7 +92,7 @@ export async function softDeleteWorkItem(
   const purgeAfter = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000); // +10 days
 
   // 3. Set soft delete fields on work_items
-  const { error: updateError } = await supabase
+  const { data: updated, error: updateError } = await supabase
     .from("work_items")
     .update({
       deleted_at: now.toISOString(),
@@ -101,9 +101,17 @@ export async function softDeleteWorkItem(
       delete_reason: reason ?? null,
       monitoring_enabled: false,
     })
-    .eq("id", workItemId);
+    .eq("id", workItemId)
+    .select("id");
 
   if (updateError) return { success: false, error: updateError.message };
+  if (!updated || updated.length === 0) {
+    // RLS silently blocked the update — surface a clear message instead of a false success.
+    return {
+      success: false,
+      error: "No tienes permiso para eliminar este asunto o ya fue eliminado.",
+    };
+  }
 
   // 4. Create soft delete log entry (denormalized snapshot for Atenia AI recovery)
   await supabase.from("work_item_soft_deletes").insert({

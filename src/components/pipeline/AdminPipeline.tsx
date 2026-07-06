@@ -23,6 +23,7 @@ import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   GOV_PROCEDURE_STAGES,
   getStageOrderForWorkflow,
@@ -174,26 +175,21 @@ export function AdminPipeline() {
     onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { data, error } = await supabase.functions.invoke("delete-work-items", {
-        body: { work_item_ids: ids, mode: "SOFT_DELETE" },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (result) => {
+  // Bulk soft-delete via unified hook.
+  const { archiveBulk, isArchiving: isBulkDeleting } = useSoftDeleteWorkItems({
+    onSuccess: () => {
       INVALIDATE_QUERIES.forEach(queryKey => {
         queryClient.invalidateQueries({ queryKey });
       });
       setSelectedIds(new Set());
       setIsSelectionMode(false);
       setDeleteDialog(false);
-      toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} archivado${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => toast.error("Error al archivar elementos"),
   });
+  const bulkDeleteMutation = {
+    isPending: isBulkDeleting,
+    mutate: (ids: string[]) => archiveBulk(ids),
+  };
 
   // Selection handlers
   const toggleSelectionMode = () => {

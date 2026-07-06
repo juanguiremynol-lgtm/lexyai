@@ -165,6 +165,39 @@ async function deleteWorkItemDependents(
   await serviceClient.from("work_item_mappings").delete().eq("legacy_filing_id", workItemId);
   await serviceClient.from("work_item_mappings").delete().eq("legacy_process_id", workItemId);
 
+  // ── FK-blocking dependents (no CASCADE / SET NULL on work_items.id) ──
+  // These MUST be cleared or the final DELETE on work_items fails with a
+  // foreign-key violation and the whole purge attempt is rolled back.
+  await serviceClient.from("desacato_incidents").delete().eq("tutela_id", workItemId);
+  await serviceClient.from("desacato_incidents").delete().eq("linked_work_item_id", workItemId);
+  await serviceClient.from("user_data_alerts").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("atenia_ai_user_reports").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("atenia_deep_dives").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("ghost_verification_runs").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("atenia_e2e_test_registry").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("atenia_e2e_test_results").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("work_item_publicaciones").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("work_item_soft_deletes").delete().eq("work_item_id", workItemId);
+
+  // Finalized documents that hard-purge should sweep with the work item.
+  const { data: genDocs } = await serviceClient
+    .from("generated_documents")
+    .select("id, source_pdf_path")
+    .eq("work_item_id", workItemId);
+  if (genDocs && genDocs.length > 0) {
+    for (const g of genDocs as Array<{ id: string; source_pdf_path: string | null }>) {
+      if (g.source_pdf_path) {
+        try {
+          await serviceClient.storage.from("lexdocket").remove([g.source_pdf_path]);
+          storageFilesDeleted++;
+        } catch (e) {
+          console.log(`[delete-work-items] Storage delete failed for ${g.source_pdf_path}:`, e);
+        }
+      }
+    }
+    await serviceClient.from("generated_documents").delete().eq("work_item_id", workItemId);
+  }
+
   return { storageFilesDeleted };
 }
 

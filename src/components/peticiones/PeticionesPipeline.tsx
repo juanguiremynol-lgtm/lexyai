@@ -10,6 +10,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -189,26 +190,21 @@ export function PeticionesPipeline() {
     onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { data, error } = await supabase.functions.invoke("delete-work-items", {
-        body: { work_item_ids: ids, mode: "HARD_DELETE" },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (result) => {
+  // Bulk soft-delete via unified hook (10-day recovery).
+  const { archiveBulk, isArchiving: isBulkDeleting } = useSoftDeleteWorkItems({
+    onSuccess: () => {
       INVALIDATE_QUERIES.forEach(queryKey => {
         queryClient.invalidateQueries({ queryKey });
       });
       setSelectedIds(new Set());
       setIsSelectionMode(false);
       setDeleteDialog(false);
-      toast.success(`${result?.deleted_count || 0} peticion${result?.deleted_count !== 1 ? "es" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => toast.error("Error al eliminar peticiones"),
   });
+  const bulkDeleteMutation = {
+    isPending: isBulkDeleting,
+    mutate: (ids: string[]) => archiveBulk(ids),
+  };
 
   // Handle stage drop from Kanban
   const handleStageDrop = useCallback(async (

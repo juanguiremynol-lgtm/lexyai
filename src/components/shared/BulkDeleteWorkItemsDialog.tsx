@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,8 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertTriangle, Loader2, Trash2, FileText, Scale, Send, Gavel, Landmark, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 interface BulkDeleteItem {
   id: string;
@@ -55,37 +53,18 @@ export function BulkDeleteWorkItemsDialog({
   workItemIds,
   onDeleted,
 }: BulkDeleteWorkItemsDialogProps) {
-  const queryClient = useQueryClient();
   const [understood, setUnderstood] = useState(false);
   const [confirmText, setConfirmText] = useState("");
 
   // Support both interfaces
   const items: BulkDeleteItem[] = externalItems || (workItemIds?.map(id => ({ id })) || []);
-  
-  // Internal mutation for simplified interface
-  const deleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { data, error } = await supabase.functions.invoke("delete-work-items", {
-        body: { work_item_ids: ids },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      toast.success(`${items.length} proceso${items.length !== 1 ? "s" : ""} eliminado${items.length !== 1 ? "s" : ""}`);
-      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["processes"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      onDeleted?.();
-    },
-    onError: (error) => {
-      console.error("Error deleting work items:", error);
-      toast.error("Error al eliminar: " + (error.message || "Error desconocido"));
-    },
+
+  // Internal soft-delete mutation for simplified interface (10-day recovery).
+  const { archiveBulk, isArchiving } = useSoftDeleteWorkItems({
+    onSuccess: () => onDeleted?.(),
   });
 
-  const isDeleting = externalIsDeleting || deleteMutation.isPending;
+  const isDeleting = externalIsDeleting || isArchiving;
   const count = items.length;
   const requiredText = `DELETE ${count}`;
   const isValid = understood && confirmText === requiredText;
@@ -112,11 +91,11 @@ export function BulkDeleteWorkItemsDialog({
   const handleConfirm = () => {
     if (isValid && !isDeleting) {
       if (onConfirm) {
-        // Use external handler
+        // Use external handler (caller controls whether it's soft or hard)
         onConfirm();
       } else if (workItemIds) {
-        // Use internal mutation
-        deleteMutation.mutate(workItemIds);
+        // Default path: soft delete with 10-day recovery
+        void archiveBulk(workItemIds);
       }
     }
   };
@@ -134,7 +113,7 @@ export function BulkDeleteWorkItemsDialog({
               <Trash2 className="h-5 w-5" />
             </div>
             <AlertDialogTitle className="text-lg">
-              Eliminar {count} elemento{count !== 1 ? "s" : ""} permanentemente
+              Eliminar {count} asunto{count !== 1 ? "s" : ""}
             </AlertDialogTitle>
           </div>
           <AlertDialogDescription asChild>
@@ -201,12 +180,12 @@ export function BulkDeleteWorkItemsDialog({
                 <div className="flex items-start gap-2 text-destructive">
                   <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
-                    <p className="font-medium">Esta acción eliminará permanentemente:</p>
+                    <p className="font-medium">Los asuntos seleccionados serán archivados:</p>
                     <ul className="list-disc list-inside text-muted-foreground mt-1 space-y-0.5">
-                      <li>Todos los documentos y archivos adjuntos</li>
-                      <li>Actuaciones, eventos y términos</li>
-                      <li>Alertas, tareas y recordatorios</li>
-                      <li>Historial de monitoreo</li>
+                      <li>Dejarán de aparecer en tus vistas y de sincronizarse.</li>
+                      <li>Actuaciones, estados, alertas y tareas dejarán de ser visibles.</li>
+                      <li>Podrás recuperarlos con Andro IA en los próximos <strong>10 días</strong>.</li>
+                      <li>Después de ese plazo se eliminarán definitivamente.</li>
                     </ul>
                   </div>
                 </div>
@@ -225,7 +204,7 @@ export function BulkDeleteWorkItemsDialog({
                     htmlFor="bulk-understand"
                     className="text-sm font-normal cursor-pointer leading-relaxed"
                   >
-                    Entiendo que esta acción es <strong>permanente e irreversible</strong>
+                    Entiendo que los asuntos serán archivados y se eliminarán definitivamente después de <strong>10 días</strong>.
                   </Label>
                 </div>
 
