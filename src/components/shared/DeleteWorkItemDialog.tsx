@@ -65,7 +65,7 @@ export function DeleteWorkItemDialog({
               <Trash2 className="h-5 w-5" />
             </div>
             <AlertDialogTitle className="text-lg">
-              ¿Eliminar permanentemente?
+              ¿Eliminar este asunto?
             </AlertDialogTitle>
           </div>
           <AlertDialogDescription className="space-y-4 pt-4">
@@ -80,13 +80,12 @@ export function DeleteWorkItemDialog({
               <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="text-sm space-y-1">
-                  <p className="font-medium">Esta acción eliminará permanentemente:</p>
+                  <p className="font-medium">El asunto será archivado:</p>
                   <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                    <li>Todos los documentos y archivos adjuntos</li>
-                    <li>Actuaciones y eventos del expediente</li>
-                    <li>Alertas, tareas y recordatorios</li>
-                    <li>Términos y plazos calculados</li>
-                    <li>Historial de monitoreo y evidencias</li>
+                    <li>Dejará de aparecer en tus vistas y de sincronizarse.</li>
+                    <li>Actuaciones, estados, alertas y tareas dejarán de ser visibles.</li>
+                    <li>Podrás recuperarlo con Andro IA en los próximos <strong>10 días</strong>.</li>
+                    <li>Después de ese plazo se eliminará definitivamente.</li>
                   </ul>
                 </div>
               </div>
@@ -104,7 +103,7 @@ export function DeleteWorkItemDialog({
                   htmlFor="understand"
                   className="text-sm font-normal cursor-pointer leading-relaxed"
                 >
-                  Entiendo que esta acción es <strong>permanente e irreversible</strong>
+                  Entiendo que el asunto será archivado y se eliminará definitivamente después de <strong>10 días</strong>.
                 </Label>
               </div>
 
@@ -142,7 +141,7 @@ export function DeleteWorkItemDialog({
             ) : (
               <>
                 <Trash2 className="h-4 w-4 mr-2" />
-                Eliminar permanentemente
+                Eliminar asunto
               </>
             )}
           </AlertDialogAction>
