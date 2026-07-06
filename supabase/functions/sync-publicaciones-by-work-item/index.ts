@@ -24,6 +24,10 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import {
+  fetchFromSamaiEstados,
+  formatRadicadoForSamai,
+} from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,8 +63,25 @@ type SyncResult = {
   errors: string[];
   inserted: InsertedPublication[];
   status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR';
-  result_code?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  // New canonical taxonomy — replaces the ambiguous SUCCESS + 0/0 outcome
+  // that hid the SAMAI Estados contract mismatch for ~3 months.
+  result_code?:
+    | 'SUCCESS_WITH_DATA'
+    | 'SUCCESS_EMPTY'
+    | 'PENDING_UPSTREAM'
+    | 'CONTRACT_MISMATCH'
+    | 'ERROR';
   provider_latency_ms?: number;
+  samai_estados_summary?: {
+    called: boolean;
+    status?: string;
+    http_status?: number;
+    duration_ms?: number;
+    raw_count?: number;
+    merged_new?: number;
+    contract_mismatch?: boolean;
+    error?: string;
+  };
 };
 
 type PublicacionV3 = {
@@ -751,116 +772,154 @@ Deno.serve(withSyncTimeline(async (req) => {
     result.provider_latency_ms = fetchResult.latencyMs;
 
     // ============= CPACA WORKFLOW: SAMAI ESTADOS ENRICHMENT =============
-    // For CPACA, SAMAI Estados is PRIMARY for estados data. If publicaciones
-    // returned results, we still merge SAMAI Estados to catch records that only
-    // exist there (e.g., MemorialWeb PDFs). If publicaciones is empty, SAMAI
-    // Estados becomes the sole source.
+    // For CPACA, SAMAI Estados is PRIMARY for estados data. We ALWAYS call it
+    // via the shared adapter (fetchFromSamaiEstados) so the sync pipeline uses
+    // the exact same contract as admin-diagnose-estados. Records are merged
+    // with Publicaciones results and deduplicated downstream by hash_fingerprint.
+    //
+    // History: from ~Apr 2026 to Jul 2026 this block issued a hand-rolled
+    //   GET /snapshot?radicado=... call whose response shape never matched the
+    //   real API. Every run reported `SUCCESS inserted_pubs=0 skipped_pubs=0`
+    //   without any error signal, freezing every CPACA estados feed silently.
+    //   The wrapper below enforces a strict contract check so that a CONTRACT
+    //   MISMATCH can never again masquerade as "no news".
     if (workItem.workflow_type === 'CPACA') {
       const samaiEstadosBaseUrl = Deno.env.get('SAMAI_ESTADOS_BASE_URL');
-      if (samaiEstadosBaseUrl) {
-        console.log(`[sync-pub] CPACA workflow: calling SAMAI Estados as primary source`);
-        const samaiStart = Date.now();
-        try {
-          // Dynamic import to avoid breaking non-CPACA flows if adapter unavailable
-          const samaiHeaders: Record<string, string> = { 'Accept': 'application/json' };
-          const samaiApiKey = Deno.env.get('SAMAI_ESTADOS_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-          if (samaiApiKey) samaiHeaders['x-api-key'] = samaiApiKey;
+      const samaiStart = Date.now();
+      const samaiSummary: NonNullable<SyncResult['samai_estados_summary']> = {
+        called: false,
+      };
 
-          // Format radicado for SAMAI: XX-XXX-XX-XX-XXX-XXXX-XXXXX-XX
-          const digits = normalizedRadicado.replace(/\D/g, '');
-          const formattedForSamai = digits.length === 23
-            ? `${digits.slice(0,2)}-${digits.slice(2,5)}-${digits.slice(5,7)}-${digits.slice(7,9)}-${digits.slice(9,12)}-${digits.slice(12,16)}-${digits.slice(16,21)}-${digits.slice(21,23)}`
-            : normalizedRadicado;
-
-          const cleanSamaiBase = samaiEstadosBaseUrl.replace(/\/+$/, '');
-          const samaiEndpoints = [
-            `${cleanSamaiBase}/snapshot?radicado=${encodeURIComponent(formattedForSamai)}`,
-            `${cleanSamaiBase}/buscar?radicado=${encodeURIComponent(formattedForSamai)}`,
-          ];
-
-          let samaiEstados: any[] = [];
-          for (const samaiUrl of samaiEndpoints) {
-            try {
-              console.log(`[sync-pub] SAMAI Estados GET ${samaiUrl}`);
-              const controller = new AbortController();
-              const tid = setTimeout(() => controller.abort(), 60_000);
-              const samaiResp = await fetch(samaiUrl, { method: 'GET', headers: samaiHeaders, signal: controller.signal });
-              clearTimeout(tid);
-
-              if (samaiResp.ok) {
-                const samaiData = await samaiResp.json();
-                // Extract estados from response (handles result.estados or estados at top level)
-                const resultado = samaiData?.result || samaiData;
-                const rawEstados = Array.isArray(resultado?.estados)
-                  ? resultado.estados
-                  : Array.isArray(resultado?.actuaciones)
-                    ? resultado.actuaciones
-                    : [];
-                console.log(`[sync-pub] SAMAI Estados returned ${rawEstados.length} estados`);
-
-                if (rawEstados.length > 0) {
-                  // Convert SAMAI estados to PublicacionV3 format for unified ingestion
-                  for (const e of rawEstados) {
-                    const fecha = e['Fecha Providencia'] ?? e['Fecha Estado'] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? '';
-                    const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
-                    const docNotif = e['Docum. a notif.'] ?? e['Documento a notificar'] ?? '';
-                    const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? docNotif ?? '');
-                    const docUrl = e.pdf_url || e.pdfUrl || e.url_descarga || e.url_pdf || e.documento_url || e.documentUrl || e.Documento || e.url || '';
-                    const hashDoc = e.hash_documento || '';
-
-                    // Generate a synthetic PublicacionV3
-                    samaiEstados.push({
-                      key: `samai_estado_${fecha}_${actuacion.slice(0, 30)}`,
-                      tipo: actuacion || 'Estado',
-                      titulo: actuacion || anotacion || 'Estado SAMAI',
-                      fecha_publicacion: fecha,
-                      pdf_url: (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https')) ? docUrl : undefined,
-                      tipo_evento: 'Estado Electrónico',
-                      asset_id: hashDoc ? `samai_${hashDoc}` : `samai_${fecha}_${actuacion.slice(0, 20).replace(/\s+/g, '_')}`,
-                      clasificacion: {
-                        categoria: 'Estado Electrónico',
-                        descripcion: anotacion || actuacion,
-                        es_descargable: !!(docUrl && typeof docUrl === 'string' && docUrl.includes('.pdf')),
-                      },
-                      _source_provider: 'samai_estados',
-                    });
-                  }
-                  break; // Got data from first working endpoint
-                }
-              }
-            } catch (samaiEndpointErr: any) {
-              console.warn(`[sync-pub] SAMAI endpoint error: ${samaiEndpointErr?.message}`);
-            }
-          }
-
-          if (samaiEstados.length > 0) {
-            console.log(`[sync-pub] CPACA: merging ${samaiEstados.length} SAMAI estados with ${fetchResult.publicaciones.length} publicaciones`);
-            // Deduplicate: don't add SAMAI estados that already exist in publicaciones (by date+title overlap)
-            const existingKeys = new Set(fetchResult.publicaciones.map(p => {
-              const pFecha = p.fecha_publicacion || '';
-              const pTitle = (p.titulo || '').slice(0, 30).toLowerCase();
-              return `${pFecha}|${pTitle}`;
-            }));
-
-            for (const se of samaiEstados) {
-              const seKey = `${se.fecha_publicacion || ''}|${(se.titulo || '').slice(0, 30).toLowerCase()}`;
-              if (!existingKeys.has(seKey)) {
-                fetchResult.publicaciones.push(se as PublicacionV3);
-                existingKeys.add(seKey);
-              }
-            }
-            fetchResult.found = true;
-            fetchResult.ok = true;
-            console.log(`[sync-pub] CPACA: total after merge = ${fetchResult.publicaciones.length}`);
-          }
-
-          const samaiDuration = Date.now() - samaiStart;
-          console.log(`[sync-pub] SAMAI Estados call completed in ${samaiDuration}ms`);
-        } catch (samaiErr: any) {
-          console.warn(`[sync-pub] SAMAI Estados enrichment failed (non-blocking): ${samaiErr?.message}`);
-        }
+      if (!samaiEstadosBaseUrl) {
+        console.warn(
+          `[sync-pub][samai_estados] SAMAI_ESTADOS_BASE_URL not configured — CPACA estados enrichment DISABLED. wi=${work_item_id}`
+        );
+        samaiSummary.error = 'SAMAI_ESTADOS_BASE_URL not configured';
+        result.samai_estados_summary = samaiSummary;
       } else {
-        console.log(`[sync-pub] SAMAI_ESTADOS_BASE_URL not configured, skipping SAMAI Estados for CPACA`);
+        samaiSummary.called = true;
+        // formatRadicadoForSamai is exported by the adapter for logging parity
+        // with admin-diagnose-estados; the adapter itself forwards the raw
+        // radicado inside the POST body.
+        const formattedForLog = formatRadicadoForSamai(normalizedRadicado);
+        console.log(
+          `[sync-pub][samai_estados] START wi=${work_item_id} radicado=${normalizedRadicado} formatted=${formattedForLog}`
+        );
+
+        try {
+          const samaiRes = await fetchFromSamaiEstados({
+            radicado: normalizedRadicado,
+            mode: 'monitoring',
+            workItemId: work_item_id,
+            timeoutMs: 90_000,
+          });
+
+          samaiSummary.status = samaiRes.status;
+          samaiSummary.http_status = samaiRes.httpStatus;
+          samaiSummary.duration_ms = samaiRes.durationMs;
+          samaiSummary.raw_count = samaiRes.publicaciones.length;
+          samaiSummary.error = samaiRes.errorMessage;
+
+          console.log(
+            `[sync-pub][samai_estados] END wi=${work_item_id} status=${samaiRes.status} ` +
+              `http=${samaiRes.httpStatus ?? 'n/a'} duration_ms=${samaiRes.durationMs} ` +
+              `raw_count=${samaiRes.publicaciones.length}` +
+              (samaiRes.errorMessage ? ` error="${samaiRes.errorMessage}"` : '')
+          );
+
+          // ── Contract-mismatch sanity check ────────────────────────────
+          // If the adapter reports EMPTY but this work_item's actuaciones
+          // feed has a recent "Fijación estado" act (last 45 days) that has
+          // NO matching row in work_item_publicaciones, we treat this as a
+          // CONTRACT_MISMATCH rather than "no news". A silent 0/0 is what
+          // let the previous bug hide for 3 months.
+          if (samaiRes.status === 'EMPTY' && samaiRes.publicaciones.length === 0) {
+            try {
+              const cutoffIso = new Date(Date.now() - 45 * 86400_000).toISOString();
+              const { data: recentFijaciones } = await supabase
+                .from('work_item_acts' as any)
+                .select('act_date, description')
+                .eq('work_item_id', work_item_id)
+                .gte('act_date', cutoffIso.slice(0, 10))
+                .or(
+                  "description.ilike.%fijaci_n%estado%,description.ilike.%fijaci_n en estado%,description.ilike.%fija estado%"
+                )
+                .limit(3);
+
+              if (recentFijaciones && recentFijaciones.length > 0) {
+                samaiSummary.contract_mismatch = true;
+                const msg =
+                  `[CONTRACT_MISMATCH] SAMAI Estados returned EMPTY but ${recentFijaciones.length} recent ` +
+                  `"Fijación estado" actuacion(es) exist for wi=${work_item_id}. Upstream contract likely changed.`;
+                console.error(msg);
+                result.warnings.push(msg);
+              }
+            } catch (mismatchErr: any) {
+              console.warn(
+                `[sync-pub][samai_estados] contract-mismatch probe failed (non-blocking): ${mismatchErr?.message}`
+              );
+            }
+          }
+
+          // ── Merge results into fetchResult.publicaciones (PublicacionV3) ──
+          if (samaiRes.publicaciones.length > 0) {
+            const existingKeys = new Set(
+              fetchResult.publicaciones.map((p) => {
+                const pFecha = p.fecha_publicacion || '';
+                const pTitle = (p.titulo || '').slice(0, 30).toLowerCase();
+                return `${pFecha}|${pTitle}`;
+              })
+            );
+
+            let mergedNew = 0;
+            for (const np of samaiRes.publicaciones) {
+              const pubFecha = np.fecha_fijacion || '';
+              const pubTitle = (np.title || '').slice(0, 30).toLowerCase();
+              const key = `${pubFecha}|${pubTitle}`;
+              if (existingKeys.has(key)) continue;
+
+              const hashDoc = np.hash_fingerprint;
+              const v3: PublicacionV3 = {
+                key: `samai_estado_${pubFecha}_${(np.tipo_publicacion || '').slice(0, 30)}`,
+                tipo: np.tipo_publicacion || 'Estado',
+                titulo: np.title || np.tipo_publicacion || 'Estado SAMAI',
+                fecha_publicacion: pubFecha || null,
+                pdf_url: np.pdf_url,
+                tipo_evento: 'Estado Electrónico',
+                asset_id: `samai_${hashDoc}`,
+                clasificacion: {
+                  categoria: 'Estado Electrónico',
+                  descripcion:
+                    (np as any).raw_data?.['Anotación'] ||
+                    (np as any).raw_data?.anotacion ||
+                    np.tipo_publicacion,
+                  es_descargable: !!(np.pdf_url && np.pdf_url.toLowerCase().includes('.pdf')),
+                },
+                _source_provider: 'samai_estados',
+              } as PublicacionV3;
+              fetchResult.publicaciones.push(v3);
+              existingKeys.add(key);
+              mergedNew++;
+            }
+            samaiSummary.merged_new = mergedNew;
+            if (mergedNew > 0) {
+              fetchResult.found = true;
+              fetchResult.ok = true;
+            }
+            console.log(
+              `[sync-pub][samai_estados] MERGE wi=${work_item_id} candidates=${samaiRes.publicaciones.length} ` +
+                `merged_new=${mergedNew} total_after=${fetchResult.publicaciones.length}`
+            );
+          }
+        } catch (samaiErr: any) {
+          samaiSummary.error = samaiErr?.message || String(samaiErr);
+          samaiSummary.duration_ms = Date.now() - samaiStart;
+          console.warn(
+            `[sync-pub][samai_estados] adapter threw (non-blocking): ${samaiSummary.error}`
+          );
+        }
+
+        result.samai_estados_summary = samaiSummary;
       }
     }
 
@@ -876,9 +935,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (fetchResult.publicaciones.length === 0) {
       result.ok = true;
       result.status = fetchResult.resultCode === 'NO_DATA' ? 'NO_DATA' : 'EMPTY';
-      result.result_code = 'NO_DATA';
-      result.warnings.push('No publications found for this radicado');
-      console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
+      // Canonical taxonomy:
+      //   PENDING_UPSTREAM   → /historico still cold (NO_DATA) and SAMAI Estados
+          //                     didn't fill the gap (Step 3 will schedule a re-scrape)
+      //   CONTRACT_MISMATCH  → SAMAI Estados adapter flagged shape drift
+      //   SUCCESS_EMPTY      → both sources answered and confirmed no news
+      if (result.samai_estados_summary?.contract_mismatch) {
+        result.result_code = 'CONTRACT_MISMATCH';
+      } else if (fetchResult.resultCode === 'NO_DATA') {
+        result.result_code = 'PENDING_UPSTREAM';
+      } else {
+        result.result_code = 'SUCCESS_EMPTY';
+      }
+      result.warnings.push(`No publications found (result_code=${result.result_code})`);
+      console.log(
+        `[sync-pub] EMPTY for ${normalizedRadicado} → result_code=${result.result_code} ` +
+        `samai_raw=${result.samai_estados_summary?.raw_count ?? 'n/a'}`
+      );
 
       // ============= COVERAGE GAP DETECTION =============
       // Primary provider returned empty — check if any fallback providers return data
@@ -1236,14 +1309,27 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (result.inserted_count > 0) {
         result.ok = true;
         result.status = 'SUCCESS'; // Some inserted, some errored — still "ok" overall
+        result.result_code = 'SUCCESS_WITH_DATA';
         result.warnings.push(`${result.errors.length} RPC error(s) occurred but ${result.inserted_count} publications were inserted`);
       } else {
         result.ok = false;
         result.status = 'ERROR'; // Nothing inserted AND errors present — this is a failure
+        result.result_code = 'ERROR';
       }
     } else {
       result.ok = true;
       result.status = 'SUCCESS';
+      // If we reach here with 0 inserted, 0 skipped and no errors it means the
+      // sources genuinely had nothing new — treat as SUCCESS_EMPTY. If we did
+      // insert or dedup at least one record, it's SUCCESS_WITH_DATA. This closes
+      // the loophole that let SAMAI drift produce a silent SUCCESS 0/0.
+      if (result.inserted_count === 0 && result.skipped_count === 0) {
+        result.result_code = result.samai_estados_summary?.contract_mismatch
+          ? 'CONTRACT_MISMATCH'
+          : 'SUCCESS_EMPTY';
+      } else {
+        result.result_code = 'SUCCESS_WITH_DATA';
+      }
     }
 
     // Set initial sync completion marker (idempotent: only on first successful sync)
@@ -1367,17 +1453,37 @@ Deno.serve(withSyncTimeline(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: result.provider_latency_ms || 0,
         status: result.ok ? 'SUCCESS' : (result.errors.length > 0 ? 'FAILED' : 'PARTIAL'),
-        provider_attempts: [{
-          provider: 'publicaciones',
-          data_kind: 'ESTADOS',
-          status: result.ok ? 'success' : 'error',
-          latency_ms: result.provider_latency_ms || 0,
-          inserted_count: result.inserted_count,
-          skipped_count: result.skipped_count,
-        }],
+        provider_attempts: [
+          {
+            provider: 'publicaciones',
+            data_kind: 'ESTADOS',
+            status: result.ok ? 'success' : 'error',
+            latency_ms: result.provider_latency_ms || 0,
+            inserted_count: result.inserted_count,
+            skipped_count: result.skipped_count,
+            result_code: result.result_code,
+          },
+          ...(result.samai_estados_summary
+            ? [{
+                provider: 'samai_estados',
+                data_kind: 'ESTADOS',
+                status: result.samai_estados_summary.status || 'unknown',
+                http_status: result.samai_estados_summary.http_status,
+                latency_ms: result.samai_estados_summary.duration_ms || 0,
+                raw_count: result.samai_estados_summary.raw_count,
+                merged_new: result.samai_estados_summary.merged_new,
+                contract_mismatch: result.samai_estados_summary.contract_mismatch || false,
+                error: result.samai_estados_summary.error,
+              }]
+            : []),
+        ],
         total_inserted_pubs: result.inserted_count,
         total_skipped_pubs: result.skipped_count,
-        error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+        error_message: result.errors.length > 0
+          ? result.errors.join('; ').slice(0, 500)
+          : (result.samai_estados_summary?.contract_mismatch
+              ? `CONTRACT_MISMATCH: SAMAI Estados EMPTY with recent Fijación actuaciones (${result.samai_estados_summary.raw_count ?? 0} raw)`
+              : null),
       });
     } catch (_traceErr) { /* best-effort */ }
 
