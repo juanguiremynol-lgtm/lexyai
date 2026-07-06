@@ -151,3 +151,34 @@ SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 20;
 ```sql
 SELECT cron.unschedule('job-name-here');
 ```
+
+## Watchdog / intraday queue pump
+
+`atenia-ai-supervisor` doubles as the intraday consumer of
+`atenia_ai_remediation_queue`. There is **no dedicated queue-drain cron** —
+the WATCHDOG job runs it as a side effect.
+
+| Aspect                          | Value |
+| ------------------------------- | ----- |
+| Cron job                        | `WATCHDOG` (invokes `atenia-ai-supervisor` with `mode=WATCHDOG`) |
+| Cadence                         | Every ~10 minutes |
+| Also runs                       | `PROCESS_QUEUE` → `runQueueWorker()` on each tick |
+| Queue drain per run             | `MAX_QUEUE_DRAIN_PER_RUN = 5` (see `atenia_ai_claim_queue` call in `runQueueWorker`, `atenia-ai-supervisor/index.ts` ~line 1174) |
+| Effective throughput            | ≤ 30 remediation jobs/hour per action type |
+| Action types handled            | `RETRY_ACTS`, `RETRY_PUBS`, `RETRY_PUBS_HEAVY`, `RUN_INTEGRATION_HEALTH` |
+| Single-flight guard             | `atenia_ai_try_start_task('ATENIA_PROCESS_QUEUE', ttl=900s)` prevents overlapping runs |
+
+**Why documented here:** the pump is invisible unless you read the supervisor
+source — it does not appear as a standalone `cron.job` row. If you need higher
+drain throughput, raise `_limit` in `runQueueWorker` rather than adding a
+second consumer (duplicate consumers race on `atenia_ai_claim_queue`).
+
+Related manual triggers:
+
+```bash
+# Force a single queue drain (bypasses cron cadence)
+curl -X POST "$SUPABASE_URL/functions/v1/atenia-ai-supervisor" \
+  -H "Authorization: Bearer $ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"PROCESS_QUEUE"}'
+```
