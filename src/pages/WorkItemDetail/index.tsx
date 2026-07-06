@@ -363,8 +363,9 @@ export default function WorkItemDetail() {
           <CourthouseEmailDisplay workItem={extendedWorkItem as any} />
 
           {/* Tabs for Actuaciones, Estados, Notas */}
+          {(() => { /* category gating: Estados is CPACA-only, Publicaciones is non-CPACA only */ return null; })()}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
-            <TabsList className="grid w-full grid-cols-8">
+            <TabsList className={`grid w-full ${workItem.workflow_type === 'CPACA' ? 'grid-cols-7' : 'grid-cols-7'}`}>
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -372,20 +373,24 @@ export default function WorkItemDetail() {
                   {actuaciones.length}
                 </Badge>
               </TabsTrigger>
-              <TabsTrigger value="publicaciones" className="gap-2">
-                <Newspaper className="h-4 w-4" />
-                Publicaciones
-                {pubCounts && pubCounts.pub > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.pub}</Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="estados" className="gap-2">
-                <Newspaper className="h-4 w-4" />
-                Estados
-                {pubCounts && pubCounts.estados > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.estados}</Badge>
-                )}
-              </TabsTrigger>
+              {workItem.workflow_type !== 'CPACA' && (
+                <TabsTrigger value="publicaciones" className="gap-2">
+                  <Newspaper className="h-4 w-4" />
+                  Publicaciones
+                  {pubCounts && pubCounts.pub > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.pub}</Badge>
+                  )}
+                </TabsTrigger>
+              )}
+              {workItem.workflow_type === 'CPACA' && (
+                <TabsTrigger value="estados" className="gap-2">
+                  <Newspaper className="h-4 w-4" />
+                  Estados
+                  {pubCounts && pubCounts.estados > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.estados}</Badge>
+                  )}
+                </TabsTrigger>
+              )}
               <TabsTrigger value="documentos" className="gap-2">
                 <FileText className="h-4 w-4" />
                 Documentos
@@ -412,13 +417,17 @@ export default function WorkItemDetail() {
               <ActsTab workItem={extendedWorkItem} />
             </TabsContent>
 
-            <TabsContent value="publicaciones" className="mt-4">
-              <PublicacionesPpTab workItem={extendedWorkItem} />
-            </TabsContent>
+            {workItem.workflow_type !== 'CPACA' && (
+              <TabsContent value="publicaciones" className="mt-4">
+                <PublicacionesPpTab workItem={extendedWorkItem} />
+              </TabsContent>
+            )}
 
-            <TabsContent value="estados" className="mt-4">
-              <EstadosTab workItem={extendedWorkItem} />
-            </TabsContent>
+            {workItem.workflow_type === 'CPACA' && (
+              <TabsContent value="estados" className="mt-4">
+                <EstadosTab workItem={extendedWorkItem} />
+              </TabsContent>
+            )}
 
             <TabsContent value="alertas" className="mt-4">
               <AlertsTasksTab workItem={extendedWorkItem} />
