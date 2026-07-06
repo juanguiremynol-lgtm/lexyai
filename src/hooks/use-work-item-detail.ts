@@ -303,13 +303,15 @@ async function fetchProcessEvents(id: string): Promise<any[]> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchActuaciones(id: string): Promise<any[]> {
-  // Try work_item_id
+  // Canonical source: work_item_acts (the legacy `actuaciones` table is no
+  // longer written to by the sync pipeline — reading it caused the detail
+  // view to report 0 even when acts existed).
   const { data } = await (supabase
-    .from("actuaciones") as any)
+    .from("work_item_acts") as any)
     .select("*")
     .eq("work_item_id", id)
-    .order("act_date", { ascending: false });
-  
+    .order("act_date", { ascending: false, nullsFirst: false });
+
   return data || [];
 }
 
