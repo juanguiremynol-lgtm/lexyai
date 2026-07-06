@@ -823,14 +823,29 @@ Deno.serve(withSyncTimeline(async (req) => {
       const coverageGapOutcome = 'COVERAGE_GAP';
       console.log(`[sync-pub] COVERAGE_GAP_DETECTED: workflow=${workItem.workflow_type}, radicado=${normalizedRadicado}, provider=publicaciones`);
 
-      // Persist coverage gap signal (upsert: increment occurrences on repeated syncs)
+      // Persist coverage gap signal — single upsert with atomic occurrences increment.
+      // Previous impl called a non-existent RPC then did an update with `occurrences: undefined`
+      // which nulled the counter; consolidated into one correct upsert here.
       try {
-        const { error: gapError } = await supabase.rpc('upsert_coverage_gap' as any, {} as any);
-        // rpc not available, use raw upsert
-      } catch (_gapRpcErr) {}
+        const nowIso = new Date().toISOString();
+        const responsePayload = {
+          found: false,
+          totalResultados: 0,
+          latency_ms: fetchResult.latencyMs,
+          timestamp: nowIso,
+        };
 
-      // Direct upsert to work_item_coverage_gaps
-      try {
+        // Read current occurrences (if any) so we can increment atomically on upsert
+        const { data: existingGap } = await supabase
+          .from('work_item_coverage_gaps' as any)
+          .select('occurrences')
+          .eq('work_item_id', work_item_id)
+          .eq('data_kind', 'ESTADOS')
+          .eq('provider_key', 'publicaciones')
+          .maybeSingle();
+
+        const nextOccurrences = ((existingGap as any)?.occurrences ?? 0) + 1;
+
         await supabase
           .from('work_item_coverage_gaps' as any)
           .upsert({
@@ -841,36 +856,12 @@ Deno.serve(withSyncTimeline(async (req) => {
             provider_key: 'publicaciones',
             radicado: normalizedRadicado,
             despacho: null,
-            last_seen_at: new Date().toISOString(),
-            occurrences: 1,
+            last_seen_at: nowIso,
+            occurrences: nextOccurrences,
             last_http_status: fetchResult.httpStatus || 200,
-            last_response_redacted: {
-              found: false,
-              totalResultados: 0,
-              latency_ms: fetchResult.latencyMs,
-              timestamp: new Date().toISOString(),
-            },
+            last_response_redacted: responsePayload,
             status: 'OPEN',
           } as any, { onConflict: 'work_item_id,data_kind,provider_key' } as any);
-
-        // Increment occurrences if already exists (the upsert sets to 1 on first insert)
-        // We need a second update to increment
-        await supabase
-          .from('work_item_coverage_gaps' as any)
-          .update({
-            last_seen_at: new Date().toISOString(),
-            occurrences: undefined, // will be handled below
-            last_http_status: fetchResult.httpStatus || 200,
-            last_response_redacted: {
-              found: false,
-              totalResultados: 0,
-              latency_ms: fetchResult.latencyMs,
-              timestamp: new Date().toISOString(),
-            },
-          } as any)
-          .eq('work_item_id', work_item_id)
-          .eq('data_kind', 'ESTADOS')
-          .eq('provider_key', 'publicaciones');
 
         console.log(`[sync-pub] Coverage gap persisted for ${work_item_id}`);
       } catch (gapErr: any) {
