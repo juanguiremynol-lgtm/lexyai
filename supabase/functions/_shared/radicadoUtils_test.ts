@@ -234,3 +234,23 @@ Deno.test("calculateNextBusinessDay skips weekend", () => {
   // 2025-01-13 is Monday → next business day is Tuesday 2025-01-14
   assertEquals(calculateNextBusinessDay("2025-01-13"), "2025-01-14");
 });
+
+Deno.test("calculateNextBusinessDay skips Colombian holiday", () => {
+  // 2025-12-31 (Wed) desfijación → naive next day is Thu 2026-01-01 (Año Nuevo).
+  // With holidays supplied, must skip to Fri 2026-01-02.
+  const holidays = new Set(["2026-01-01"]);
+  assertEquals(
+    calculateNextBusinessDay("2025-12-31", holidays),
+    "2026-01-02",
+  );
+});
+
+Deno.test("calculateNextBusinessDay skips holiday chained with weekend", () => {
+  // Desfijación Thu 2026-07-16. Next day Fri 2026-07-17.
+  // If Fri is a holiday, next candidate is Sat/Sun (weekend) → Mon 2026-07-20.
+  const holidays = new Set(["2026-07-17"]);
+  assertEquals(
+    calculateNextBusinessDay("2026-07-16", holidays),
+    "2026-07-20",
+  );
+});
