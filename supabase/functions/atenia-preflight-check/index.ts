@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     for (const connector of connectors ?? []) {
       const { data: instances } = await supabase
         .from("provider_instances")
-        .select("id, is_enabled, scope, config")
+        .select("id, is_enabled, scope, base_url, auth_type, connector_id, name, rpm_limit, timeout_ms")
         .eq("connector_id", connector.id)
         .eq("is_enabled", true)
         .limit(1);
@@ -145,21 +145,35 @@ Deno.serve(async (req) => {
         .select("*", { count: "exact", head: true })
         .eq("connector_id", connector.id);
 
-      const baseUrl = (instance.config as any)?.base_url;
+      const baseUrl = (instance as any).base_url;
       let connOk = false;
       let connLatency = 0;
+      let probeClass:
+        | "reachable_ok"
+        | "reachable_auth_failed"
+        | "route_not_found"
+        | "unreachable"
+        | "timeout"
+        | "no_base_url" = "no_base_url";
 
       if (baseUrl) {
         try {
           const t0 = Date.now();
           const res = await fetch(baseUrl, {
             method: "HEAD",
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(5000),
           });
           connLatency = Date.now() - t0;
           connOk = res.status < 500;
-        } catch {
+          if (res.status === 401 || res.status === 403) probeClass = "reachable_auth_failed";
+          else if (res.status === 404) probeClass = "route_not_found";
+          else if (res.status < 500) probeClass = "reachable_ok";
+          else probeClass = "unreachable";
+        } catch (err) {
           connOk = false;
+          probeClass = (err instanceof Error && err.name === "TimeoutError")
+            ? "timeout"
+            : "unreachable";
         }
       }
 
@@ -174,7 +188,7 @@ Deno.serve(async (req) => {
           connectivity: {
             ok: connOk,
             latency_ms: connLatency,
-            error: !baseUrl ? "No base URL configured" : (!connOk ? "Connection failed" : undefined),
+            error: !baseUrl ? "No base URL configured" : (!connOk ? `Connection failed (${probeClass})` : undefined),
           },
           authentication: {
             ok: secretOk,
@@ -194,7 +208,7 @@ Deno.serve(async (req) => {
         },
         overall: allOk ? "PASS" : connOk ? "WARN" : "FAIL",
         failure_reason: !allOk
-          ? `Failed: ${[!connOk && "connectivity", !secretOk && "authentication", !mappingOk && "data_shape"].filter(Boolean).join(", ")}`
+          ? `Failed: ${[!connOk && `connectivity(${probeClass})`, !secretOk && "authentication", !mappingOk && "data_shape"].filter(Boolean).join(", ")}`
           : undefined,
       });
     }

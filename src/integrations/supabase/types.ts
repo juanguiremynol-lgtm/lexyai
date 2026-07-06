@@ -9963,10 +9963,12 @@ export type Database = {
       }
       platform_job_heartbeats: {
         Row: {
+          correlation_id: string | null
           created_at: string
           duration_ms: number | null
           error_code: string | null
           error_message: string | null
+          error_summary: string | null
           finished_at: string | null
           id: string
           invoked_by: string
@@ -9974,12 +9976,17 @@ export type Database = {
           metadata: Json
           started_at: string
           status: string
+          trigger_source: string | null
+          work_item_id: string | null
+          workflow_type: string | null
         }
         Insert: {
+          correlation_id?: string | null
           created_at?: string
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
+          error_summary?: string | null
           finished_at?: string | null
           id?: string
           invoked_by?: string
@@ -9987,12 +9994,17 @@ export type Database = {
           metadata?: Json
           started_at?: string
           status?: string
+          trigger_source?: string | null
+          work_item_id?: string | null
+          workflow_type?: string | null
         }
         Update: {
+          correlation_id?: string | null
           created_at?: string
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
+          error_summary?: string | null
           finished_at?: string | null
           id?: string
           invoked_by?: string
@@ -10000,6 +10012,9 @@ export type Database = {
           metadata?: Json
           started_at?: string
           status?: string
+          trigger_source?: string | null
+          work_item_id?: string | null
+          workflow_type?: string | null
         }
         Relationships: []
       }

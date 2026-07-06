@@ -38,6 +38,7 @@ import { HearingsTab } from "@/components/hearings/HearingsTab";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
+import { externalDisplayModeFor } from "@/lib/externalSyncDisplay";
 import { SyncTimelineTab } from "@/components/work-items/SyncTimelineTab";
 
 // Import work item components
@@ -362,10 +363,14 @@ export default function WorkItemDetail() {
           {/* Courthouse Email Resolution */}
           <CourthouseEmailDisplay workItem={extendedWorkItem as any} />
 
-          {/* Tabs for Actuaciones, Estados, Notas */}
-          {(() => { /* category gating: Estados is CPACA-only, Publicaciones is non-CPACA only */ return null; })()}
+          {/* Tabs — external-sync tab (Estados/Publicaciones/none) is decided by
+              a single mapping in src/lib/externalSyncDisplay.ts. Never hardcode
+              per-category tab logic here. */}
+          {(() => { return null; })()}
+          {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
-            <TabsList className={`grid w-full ${workItem.workflow_type === 'CPACA' ? 'grid-cols-7' : 'grid-cols-7'}`}>
+            {(() => null)()}
+            <TabsList className={`grid w-full ${externalDisplayModeFor(workItem.workflow_type) === 'none' ? 'grid-cols-6' : 'grid-cols-7'}`}>
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -373,7 +378,7 @@ export default function WorkItemDetail() {
                   {actuaciones.length}
                 </Badge>
               </TabsTrigger>
-              {workItem.workflow_type !== 'CPACA' && (
+              {externalDisplayModeFor(workItem.workflow_type) === 'publicaciones' && (
                 <TabsTrigger value="publicaciones" className="gap-2">
                   <Newspaper className="h-4 w-4" />
                   Publicaciones
@@ -382,7 +387,7 @@ export default function WorkItemDetail() {
                   )}
                 </TabsTrigger>
               )}
-              {workItem.workflow_type === 'CPACA' && (
+              {externalDisplayModeFor(workItem.workflow_type) === 'estados' && (
                 <TabsTrigger value="estados" className="gap-2">
                   <Newspaper className="h-4 w-4" />
                   Estados
@@ -417,13 +422,13 @@ export default function WorkItemDetail() {
               <ActsTab workItem={extendedWorkItem} />
             </TabsContent>
 
-            {workItem.workflow_type !== 'CPACA' && (
+            {externalDisplayModeFor(workItem.workflow_type) === 'publicaciones' && (
               <TabsContent value="publicaciones" className="mt-4">
                 <PublicacionesPpTab workItem={extendedWorkItem} />
               </TabsContent>
             )}
 
-            {workItem.workflow_type === 'CPACA' && (
+            {externalDisplayModeFor(workItem.workflow_type) === 'estados' && (
               <TabsContent value="estados" className="mt-4">
                 <EstadosTab workItem={extendedWorkItem} />
               </TabsContent>

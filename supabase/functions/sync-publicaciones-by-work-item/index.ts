@@ -28,6 +28,10 @@ import {
   fetchFromSamaiEstados,
   formatRadicadoForSamai,
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
+import {
+  isOnlineSyncEligible,
+  SYNC_COOLDOWN_MS,
+} from "../_shared/onlineSyncEligibility.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -811,13 +815,30 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado')
+      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at')
       .eq('id', work_item_id)
       .maybeSingle();
 
     if (workItemError || !workItem) {
       console.log(`[sync-pub] Work item not found: ${work_item_id}`);
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
+    }
+
+    // ============= CATEGORY ELIGIBILITY GATE =============
+    // GOV_PROCEDURE / PETICION / unknown categories must never be dispatched
+    // to Cloud Run. Return ok:true, status:not_applicable — this is a
+    // successful coordinator outcome, NOT a failure. Callers must not count it.
+    if (!isOnlineSyncEligible(workItem.workflow_type)) {
+      console.log(`[sync-pub] Category not eligible: ${workItem.workflow_type} (wi=${work_item_id})`);
+      return jsonResponse({
+        ok: true,
+        status: 'not_applicable',
+        reason: 'category_not_online_sync_eligible',
+        work_item_id,
+        workflow_type: workItem.workflow_type,
+        inserted_count: 0,
+        skipped_count: 0,
+      });
     }
 
     // ============= MULTI-TENANT SECURITY: Verify user is member of org =============
@@ -842,6 +863,28 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.log(`[sync-pub] Access verified: user ${userId} has role ${membership.role}`);
     }
 
+    // ============= COOLDOWN GATE =============
+    // Prevent stampede on Cloud Run after outage recovery. Scheduled jobs and
+    // login-triggered syncs respect the cooldown. Manual "refresh now" bypasses
+    // via a future flag; today _scheduled=false counts as manual.
+    const manualBypass = !_scheduled && !isServiceRole && (payload as any)?._force === true;
+    if (!manualBypass && workItem.last_synced_at) {
+      const ageMs = Date.now() - new Date(workItem.last_synced_at as string).getTime();
+      if (ageMs >= 0 && ageMs < SYNC_COOLDOWN_MS) {
+        console.log(`[sync-pub] Cooldown active (age=${Math.round(ageMs/1000)}s < ${SYNC_COOLDOWN_MS/1000}s) wi=${work_item_id}`);
+        return jsonResponse({
+          ok: true,
+          status: 'skipped_recent_sync',
+          reason: 'cooldown_active',
+          work_item_id,
+          workflow_type: workItem.workflow_type,
+          last_synced_at: workItem.last_synced_at,
+          inserted_count: 0,
+          skipped_count: 0,
+        });
+      }
+    }
+
     // ============= VALIDATE RADICADO =============
     if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
       return errorResponse(
@@ -858,11 +901,24 @@ Deno.serve(withSyncTimeline(async (req) => {
     const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
 
     if (!baseUrl) {
-      return errorResponse('PROVIDER_NOT_CONFIGURED', 'PUBLICACIONES_BASE_URL not configured', 500);
+      // Never surface 500 for config problems — degrade cleanly.
+      return jsonResponse({
+        ok: false,
+        status: 'configuration_error',
+        reason: 'missing_base_url',
+        work_item_id,
+        workflow_type: workItem.workflow_type,
+      }, 200);
     }
 
     if (!apiKey) {
-      return errorResponse('PROVIDER_NOT_CONFIGURED', 'API key not configured', 500);
+      return jsonResponse({
+        ok: false,
+        status: 'auth_error',
+        reason: 'missing_api_key',
+        work_item_id,
+        workflow_type: workItem.workflow_type,
+      }, 200);
     }
 
     const result: SyncResult = {
@@ -1112,7 +1168,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
       result.status = 'ERROR';
-      return jsonResponse(result, fetchResult.httpStatus || 500);
+      // Never propagate upstream 5xx/unreachable as our own 500 —
+      // callers (login sync, work-item creation) must degrade gracefully.
+      const upstream = fetchResult.httpStatus;
+      const structuredStatus =
+        upstream === 401 || upstream === 403 ? 'auth_error' :
+        upstream === 404 ? 'route_mismatch' :
+        upstream && upstream >= 500 ? 'provider_5xx' :
+        'provider_unavailable';
+      (result as any).status = structuredStatus;
+      (result as any).reason = fetchResult.error;
+      return jsonResponse(result, 200);
     }
 
     // Handle empty result (valid response but no publications)
@@ -1768,10 +1834,12 @@ Deno.serve(withSyncTimeline(async (req) => {
 
   } catch (err) {
     console.error('[sync-pub] Unhandled error:', err);
-    return errorResponse(
-      'INTERNAL_ERROR',
-      err instanceof Error ? err.message : 'An unexpected error occurred',
-      500
-    );
+    // Never bubble a 500 to user-facing callers. Return a structured
+    // degraded response so login/creation flows do not fail hard.
+    return jsonResponse({
+      ok: false,
+      status: 'internal_error',
+      reason: err instanceof Error ? err.message : 'An unexpected error occurred',
+    }, 200);
   }
 }, { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" }));
