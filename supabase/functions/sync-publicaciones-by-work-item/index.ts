@@ -935,9 +935,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (fetchResult.publicaciones.length === 0) {
       result.ok = true;
       result.status = fetchResult.resultCode === 'NO_DATA' ? 'NO_DATA' : 'EMPTY';
-      result.result_code = 'NO_DATA';
-      result.warnings.push('No publications found for this radicado');
-      console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
+      // Canonical taxonomy:
+      //   PENDING_UPSTREAM   → /historico still cold (NO_DATA) and SAMAI Estados
+          //                     didn't fill the gap (Step 3 will schedule a re-scrape)
+      //   CONTRACT_MISMATCH  → SAMAI Estados adapter flagged shape drift
+      //   SUCCESS_EMPTY      → both sources answered and confirmed no news
+      if (result.samai_estados_summary?.contract_mismatch) {
+        result.result_code = 'CONTRACT_MISMATCH';
+      } else if (fetchResult.resultCode === 'NO_DATA') {
+        result.result_code = 'PENDING_UPSTREAM';
+      } else {
+        result.result_code = 'SUCCESS_EMPTY';
+      }
+      result.warnings.push(`No publications found (result_code=${result.result_code})`);
+      console.log(
+        `[sync-pub] EMPTY for ${normalizedRadicado} → result_code=${result.result_code} ` +
+        `samai_raw=${result.samai_estados_summary?.raw_count ?? 'n/a'}`
+      );
 
       // ============= COVERAGE GAP DETECTION =============
       // Primary provider returned empty — check if any fallback providers return data
@@ -1295,14 +1309,27 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (result.inserted_count > 0) {
         result.ok = true;
         result.status = 'SUCCESS'; // Some inserted, some errored — still "ok" overall
+        result.result_code = 'SUCCESS_WITH_DATA';
         result.warnings.push(`${result.errors.length} RPC error(s) occurred but ${result.inserted_count} publications were inserted`);
       } else {
         result.ok = false;
         result.status = 'ERROR'; // Nothing inserted AND errors present — this is a failure
+        result.result_code = 'ERROR';
       }
     } else {
       result.ok = true;
       result.status = 'SUCCESS';
+      // If we reach here with 0 inserted, 0 skipped and no errors it means the
+      // sources genuinely had nothing new — treat as SUCCESS_EMPTY. If we did
+      // insert or dedup at least one record, it's SUCCESS_WITH_DATA. This closes
+      // the loophole that let SAMAI drift produce a silent SUCCESS 0/0.
+      if (result.inserted_count === 0 && result.skipped_count === 0) {
+        result.result_code = result.samai_estados_summary?.contract_mismatch
+          ? 'CONTRACT_MISMATCH'
+          : 'SUCCESS_EMPTY';
+      } else {
+        result.result_code = 'SUCCESS_WITH_DATA';
+      }
     }
 
     // Set initial sync completion marker (idempotent: only on first successful sync)
