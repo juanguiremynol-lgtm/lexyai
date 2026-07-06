@@ -174,6 +174,8 @@ export function useLoginSync(): UseLoginSyncResult {
         let successCount = 0;
         let publicacionesCount = 0;
         let errorCount = 0;
+        let skippedCount = 0;
+        let notApplicableCount = 0;
 
         for (let i = 0; i < eligibleItems.length; i++) {
           const workItem = eligibleItems[i];
@@ -191,13 +193,27 @@ export function useLoginSync(): UseLoginSyncResult {
               }),
             ]);
 
-            // Track results
-            if (actsResult.status === 'fulfilled' && actsResult.value.data?.ok) {
-              successCount++;
-            }
-            if (pubsResult.status === 'fulfilled' && pubsResult.value.data?.ok) {
-              publicacionesCount++;
-            }
+            // Track results — treat degraded/no-op statuses distinctly from errors
+            const classify = (r: PromiseSettledResult<any>): 'ok' | 'skipped' | 'not_applicable' | 'error' => {
+              if (r.status !== 'fulfilled') return 'error';
+              const d = r.value?.data;
+              if (!d) return 'error';
+              if (d.ok === true) return 'ok';
+              const status = d.status ?? d.reason ?? '';
+              if (status === 'skipped_recent_sync' || status === 'cooldown') return 'skipped';
+              if (status === 'not_applicable') return 'not_applicable';
+              return 'error';
+            };
+            const actsClass = classify(actsResult);
+            const pubsClass = classify(pubsResult);
+            if (actsClass === 'ok') successCount++;
+            else if (actsClass === 'skipped') skippedCount++;
+            else if (actsClass === 'not_applicable') notApplicableCount++;
+            else if (actsClass === 'error') errorCount++;
+            if (pubsClass === 'ok') publicacionesCount++;
+            else if (pubsClass === 'skipped') skippedCount++;
+            else if (pubsClass === 'not_applicable') notApplicableCount++;
+            else if (pubsClass === 'error') errorCount++;
 
             console.log(`[useLoginSync] Synced item ${i + 1}/${eligibleItems.length}: ${workItem.id}`);
 
@@ -247,7 +263,7 @@ export function useLoginSync(): UseLoginSyncResult {
           }
         }
 
-        console.log('[useLoginSync] Completed:', { successCount, publicacionesCount, errorCount });
+        console.log('[useLoginSync] Completed:', { successCount, publicacionesCount, skippedCount, notApplicableCount, errorCount });
 
       } catch (err) {
         console.error('[useLoginSync] Error:', err);
