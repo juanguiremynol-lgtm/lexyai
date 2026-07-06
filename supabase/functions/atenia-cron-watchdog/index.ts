@@ -14,6 +14,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { startHeartbeat, finishHeartbeat, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
+import { ONLINE_SYNC_ELIGIBLE_LIST } from "../_shared/onlineSyncEligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,10 +48,29 @@ function minutesSince(d: Date | string): number {
 // ---- Config ----
 const HEARTBEAT_MAX_GAP_MINUTES = 35;
 const STALE_RUNNING_LEASE_SECONDS = 900; // 15 min
-const MAX_QUEUE_DRAIN_PER_RUN = 20;
+const MAX_QUEUE_DRAIN_PER_RUN = 5;
 const COVERAGE_ALERT_THRESHOLD = 80; // percent
 const BACKLOG_ALERT_THRESHOLD = 500;
 const DAILY_ENQUEUE_DEADLINE_HOUR = 10; // alert if not done by 10:00 COT
+// Wall-clock budget: keep well below the platform Edge Function timeout so the
+// coordinator returns HTTP 200 with partial results instead of a gateway 504.
+const TIME_BUDGET_MS = 45_000;
+
+/** Fire an HTTP POST to a Lovable Cloud edge function without awaiting completion.
+ *  Used to delegate heavy work (Cloud Run dispatch, queue draining, downstream
+ *  syncs) so this coordinator stays bounded and never times out. */
+function dispatchAsync(url: string, serviceKey: string, body: unknown): void {
+  fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  }).catch((err) => {
+    console.warn("[watchdog] dispatchAsync failed:", (err as Error)?.message ?? err);
+  });
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -64,6 +84,9 @@ Deno.serve(async (req) => {
   const results: Record<string, unknown> = {};
   const alerts: Array<{ title: string; message: string; severity: string }> = [];
   const bogotaHour = getBogotaHour();
+  const runStartMs = Date.now();
+  const timeUp = () => Date.now() - runStartMs > TIME_BUDGET_MS;
+  (results as any).partial = false;
 
   // ── Record watchdog platform heartbeat ──
   const wdHbHandle = await startHeartbeat(admin, "atenia-cron-watchdog", "cron");
@@ -104,32 +127,20 @@ Deno.serve(async (req) => {
     const claim = claimData?.[0];
     if (claim?.ok && claim?.run_id) {
       console.log("[watchdog] DAILY_ENQUEUE not yet done — triggering now");
-      try {
-        const resp = await fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${serviceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ scope: "MONITORING_ONLY", _scheduled: true }),
-        });
-        const body = await resp.json().catch(() => ({ status: resp.status }));
-
-        await admin.rpc("atenia_finish_cron", {
-          p_run_id: claim.run_id,
-          p_status: resp.ok ? "OK" : "FAILED",
-          p_details: { triggered_by: "watchdog", result: body },
-        });
-        results.daily_enqueue = { triggered: true, ok: resp.ok };
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await admin.rpc("atenia_finish_cron", {
-          p_run_id: claim.run_id,
-          p_status: "FAILED",
-          p_details: { triggered_by: "watchdog", error: msg.slice(0, 500) },
-        });
-        results.daily_enqueue = { triggered: true, ok: false, error: msg.slice(0, 200) };
-      }
+      // Fire-and-forget: awaiting the daily sync (which fans out to Cloud Run
+      // per org) is what caused the 504s. Release the lease now so it does not
+      // block future watchdog invocations; the target function is idempotent.
+      dispatchAsync(
+        `${supabaseUrl}/functions/v1/scheduled-daily-sync`,
+        serviceKey,
+        { scope: "MONITORING_ONLY", _scheduled: true, _watchdog_run_id: claim.run_id },
+      );
+      await admin.rpc("atenia_finish_cron", {
+        p_run_id: claim.run_id,
+        p_status: "OK",
+        p_details: { triggered_by: "watchdog", async_dispatch: true },
+      });
+      results.daily_enqueue = { triggered: true, ok: true, async: true };
     } else {
       // Check if it's late and never ran
       const { data: dailyRun } = await admin
@@ -162,20 +173,14 @@ Deno.serve(async (req) => {
 
     if (pending > 0) {
       console.log(`[watchdog] Queue backlog: ${pending} pending — draining up to ${MAX_QUEUE_DRAIN_PER_RUN}`);
-      try {
-        const resp = await fetch(`${supabaseUrl}/functions/v1/atenia-ai-supervisor`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${serviceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ mode: "PROCESS_QUEUE", max: MAX_QUEUE_DRAIN_PER_RUN }),
-        });
-        const body = await resp.json().catch(() => ({ status: resp.status }));
-        results.queue_drain = { ok: resp.ok, result: body };
-      } catch (err: unknown) {
-        results.queue_drain = { ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 200) };
-      }
+      // Fire-and-forget: supervisor's PROCESS_QUEUE claims a small bounded
+      // batch and dispatches heavy remediation to Cloud Run. We must not wait.
+      dispatchAsync(
+        `${supabaseUrl}/functions/v1/atenia-ai-supervisor`,
+        serviceKey,
+        { mode: "PROCESS_QUEUE", max: MAX_QUEUE_DRAIN_PER_RUN },
+      );
+      results.queue_drain = { ok: true, async: true, requested_max: MAX_QUEUE_DRAIN_PER_RUN };
     }
 
     if (pending > BACKLOG_ALERT_THRESHOLD) {
@@ -202,20 +207,13 @@ Deno.serve(async (req) => {
 
     if (hbGap > HEARTBEAT_MAX_GAP_MINUTES) {
       console.log(`[watchdog] Heartbeat gap ${Math.round(hbGap)}min > ${HEARTBEAT_MAX_GAP_MINUTES}min — triggering`);
-      try {
-        const resp = await fetch(`${supabaseUrl}/functions/v1/atenia-ai-supervisor`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${serviceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ mode: "HEARTBEAT" }),
-        });
-        const body = await resp.json().catch(() => ({ status: resp.status }));
-        results.heartbeat = { triggered: true, gap_minutes: Math.round(hbGap), ok: resp.ok };
-      } catch (err: unknown) {
-        results.heartbeat = { triggered: true, gap_minutes: Math.round(hbGap), ok: false };
-      }
+      // Fire-and-forget to break the watchdog↔supervisor circular wait.
+      dispatchAsync(
+        `${supabaseUrl}/functions/v1/atenia-ai-supervisor`,
+        serviceKey,
+        { mode: "HEARTBEAT" },
+      );
+      results.heartbeat = { triggered: true, gap_minutes: Math.round(hbGap), ok: true, async: true };
     } else {
       results.heartbeat = { triggered: false, gap_minutes: Math.round(hbGap) };
     }
@@ -298,11 +296,15 @@ Deno.serve(async (req) => {
     const STUCK_TTL_MINUTES = 30;
     const stuckCutoff = new Date(Date.now() - STUCK_TTL_MINUTES * 60 * 1000).toISOString();
 
-    const { data: stuckSources } = await admin
+    // Only enforce SCRAPING_PENDING convergence for online-sync-eligible work
+    // items. Procesos administrativos and Derechos de petición never go to
+    // external scraping so they cannot be "stuck" in that sense.
+    const { data: stuckSources } = timeUp() ? { data: [] as any[] } : await admin
       .from("work_item_sources")
-      .select("id, work_item_id, organization_id, scrape_status, last_error_code, updated_at, consecutive_failures")
+      .select("id, work_item_id, organization_id, scrape_status, last_error_code, updated_at, consecutive_failures, work_items!inner(workflow_type)")
       .eq("scrape_status", "SCRAPING_PENDING")
       .lt("updated_at", stuckCutoff)
+      .in("work_items.workflow_type", ONLINE_SYNC_ELIGIBLE_LIST)
       .limit(50);
 
     let stuckRemediated = 0;
@@ -310,6 +312,7 @@ Deno.serve(async (req) => {
 
     if (stuckSources && stuckSources.length > 0) {
       for (const src of stuckSources) {
+        if (timeUp()) { (results as any).partial = true; break; }
         // Check if there's an active retry queued
         const { data: retryRow } = await admin
           .from("sync_retry_queue")
@@ -520,7 +523,8 @@ Deno.serve(async (req) => {
       .select("organization_id")
       .eq("monitoring_enabled", true)
       .is("deleted_at", null)
-      .not("radicado", "is", null);
+      .not("radicado", "is", null)
+      .in("workflow_type", ONLINE_SYNC_ELIGIBLE_LIST);
 
     const activeOrgIds = [...new Set((activeOrgs ?? []).map((o: any) => o.organization_id).filter(Boolean))];
 
@@ -586,6 +590,7 @@ Deno.serve(async (req) => {
       .eq("monitoring_enabled", true)
       .is("deleted_at", null)
       .not("radicado", "is", null)
+      .in("workflow_type", ONLINE_SYNC_ELIGIBLE_LIST)
       .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`);
 
     const staleCount = criticallyStaleCount ?? 0;
@@ -620,6 +625,7 @@ Deno.serve(async (req) => {
         .eq("monitoring_enabled", true)
         .is("deleted_at", null)
         .not("radicado", "is", null)
+        .in("workflow_type", ONLINE_SYNC_ELIGIBLE_LIST)
         .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`)
         .order("last_synced_at", { ascending: true, nullsFirst: true })
         .limit(30);
@@ -848,6 +854,7 @@ Deno.serve(async (req) => {
         .is("last_synced_at", null)
         .is("last_attempted_sync_at", null)
         .not("radicado", "is", null)
+        .in("workflow_type", ONLINE_SYNC_ELIGIBLE_LIST)
         .limit(20);
 
       const GHOST_MAX_ATTEMPTS = 2;
