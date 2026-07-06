@@ -194,6 +194,90 @@ Deno.serve(async (req) => {
       detail: emailAlertDetail,
     });
 
+    // Check 6: ESTADOS_FRESHNESS — the estados/publicaciones pipeline was
+    // silently dead for months while the acts chain reported SUCCESS.
+    // WARNING when (a) ACTIVE work items with valid 23-digit radicado exist
+    // AND zero publicaciones inserted platform-wide in the last 7 days, OR
+    // (b) estados-provider error rate exceeds 50% over the last 24h.
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const oneDayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+      const { count: activeWithRadicado } = await supabase
+        .from("work_items")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .not("radicado", "is", null);
+
+      const { count: recentPubs } = await supabase
+        .from("work_item_publicaciones")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", sevenDaysAgo);
+
+      const noInsertsGap =
+        (activeWithRadicado ?? 0) > 0 && (recentPubs ?? 0) === 0;
+
+      // Provider error rate proxy: read provider_sync_traces for estados/pub-related stages
+      const { data: traces } = await supabase
+        .from("provider_sync_traces")
+        .select("ok, stage")
+        .gte("created_at", oneDayAgo)
+        .in("stage", ["publicaciones", "samai_estados", "estados", "ESTADOS", "PUBLICACIONES"]);
+
+      const traceRows = traces || [];
+      const failed = traceRows.filter((t: any) => t.ok === false).length;
+      const errorRatePct =
+        traceRows.length > 0 ? Math.round((failed / traceRows.length) * 100) : 0;
+      const highErrorRate = traceRows.length >= 10 && errorRatePct > 50;
+
+      const freshnessOk = !noInsertsGap && !highErrorRate;
+      checks.push({
+        name: "ESTADOS_FRESHNESS",
+        ok: freshnessOk,
+        detail: freshnessOk
+          ? `Publicaciones OK: ${recentPubs ?? 0} inserts en 7d, error rate 24h=${errorRatePct}% (${traceRows.length} traces)`
+          : noInsertsGap
+            ? `⚠️ Sin publicaciones nuevas en 7 días con ${activeWithRadicado} asuntos activos con radicado`
+            : `⚠️ Tasa de error de proveedor de estados=${errorRatePct}% en 24h (${traceRows.length} intentos)`,
+      });
+
+      // Emit one deduped admin notification per day on WARNING
+      if (!freshnessOk) {
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: existing } = await supabase
+          .from("admin_notifications")
+          .select("id")
+          .eq("type", "ESTADOS_FRESHNESS_WARNING")
+          .gte("created_at", `${today}T00:00:00Z`)
+          .limit(1);
+
+        if (!existing || existing.length === 0) {
+          // Emit under a real org — pick any active org
+          const { data: anyOrg } = await supabase
+            .from("organizations")
+            .select("id")
+            .limit(1)
+            .maybeSingle();
+          if (anyOrg?.id) {
+            await supabase.from("admin_notifications").insert({
+              organization_id: anyOrg.id,
+              type: "ESTADOS_FRESHNESS_WARNING",
+              title: "Publicaciones/estados sin novedad reciente",
+              message: noInsertsGap
+                ? `Sin publicaciones nuevas en 7 días con ${activeWithRadicado} asuntos activos con radicado. Verifique el proveedor de publicaciones/estados.`
+                : `Tasa de error del proveedor de estados=${errorRatePct}% en 24h.`,
+            });
+          }
+        }
+      }
+    } catch (freshErr) {
+      checks.push({
+        name: "ESTADOS_FRESHNESS",
+        ok: false,
+        detail: `Freshness check error: ${(freshErr as Error).message}`,
+      });
+    }
+
     const allHealthy = checks.every((c) => c.ok);
 
     // If unhealthy, send urgent admin notification

@@ -501,26 +501,35 @@ Deno.serve(async (req) => {
           // Merge item_timeout_counts from this run for the next continuation
           const mergedTimeoutCounts = { ...inheritedTimeoutCounts, ...(partialResult.item_timeout_counts || {}) };
           console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId} (skipped=${ledgerRow?.items_skipped ?? '?'}, reason=${ledgerRow?.failure_reason ?? 'none'})`);
-          fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${supabaseServiceKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              org_id: partialResult.org_id,
-              resume_after_id: cursor,
-              is_continuation: true,
-              continuation_of: partialResult.ledger_id,
-              continuation_count: nextCount,
-              run_cutoff_time: effectiveCutoff,
-              chain_id: chainId,
-              trigger_source: triggerSource,
-              manual_initiator_user_id: manualInitiatorUserId,
-              is_overflow: isOverflow,
-              item_timeout_counts: mergedTimeoutCounts,
-            }),
-          }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
+          try {
+            await fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${supabaseServiceKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                org_id: partialResult.org_id,
+                resume_after_id: cursor,
+                is_continuation: true,
+                continuation_of: partialResult.ledger_id,
+                continuation_count: nextCount,
+                run_cutoff_time: effectiveCutoff,
+                chain_id: chainId,
+                trigger_source: triggerSource,
+                manual_initiator_user_id: manualInitiatorUserId,
+                is_overflow: isOverflow,
+                item_timeout_counts: mergedTimeoutCounts,
+              }),
+            });
+          } catch (contDispatchErr) {
+            console.warn(`[daily-sync] Continuation trigger failed:`, contDispatchErr);
+            try {
+              await supabase.from("auto_sync_daily_ledger").update({
+                last_error: `continuation_dispatch: ${(contDispatchErr as Error).message}`,
+              }).eq("id", partialResult.ledger_id);
+            } catch (_ledgerErr) { /* non-blocking */ }
+          }
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: true,
           }).eq("id", partialResult.ledger_id);
@@ -537,9 +546,13 @@ Deno.serve(async (req) => {
 
     // Fire-and-forget Atenia AI post-sync (only after non-continuation completes)
     if (!isContinuation || partialOrgs.length === 0) {
-      supabase.functions.invoke("atenia-ai-supervisor", {
-        body: { mode: "POST_DAILY_SYNC" },
-      }).catch(() => {});
+      try {
+        await supabase.functions.invoke("atenia-ai-supervisor", {
+          body: { mode: "POST_DAILY_SYNC" },
+        });
+      } catch (supErr) {
+        console.warn("[daily-sync] Supervisor invoke failed:", (supErr as Error).message);
+      }
     }
 
     responsePayload = {

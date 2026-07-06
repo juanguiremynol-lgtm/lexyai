@@ -16,20 +16,20 @@
 
 ### 🔴 P1 — High Risk (signing/billing pipeline, data loss possible)
 
-**T1: scheduled-daily-sync — `.catch()` on continuation trigger & supervisor invoke**
+**T1: scheduled-daily-sync — `.catch()` on continuation trigger & supervisor invoke** ✅
 - File: `supabase/functions/scheduled-daily-sync/index.ts` (lines ~368, ~387)
 - Risk: Silent failure on continuation dispatch = stalled daily sync chain; supervisor not invoked = missed post-sync alerts
-- Fix: Wrap in try/catch, log error, set ledger `last_error`
+- Fix: Wrap in try/catch, log error, set ledger `last_error` — DONE 2026-07-05
 
-**T2: andro-diagnose — `.catch(() => {})` on action audit insert**
+**T2: andro-diagnose — `.catch(() => {})` on action audit insert** ✅
 - File: `supabase/functions/andro-diagnose/index.ts` (line ~470)
 - Risk: Audit trail silently dropped — compliance gap
-- Fix: `try { await ... } catch { console.warn(...) }`
+- Fix: `try { await ... } catch { console.warn(...) }` — DONE 2026-07-05
 
-**T3: demo-telemetry — `.catch(() => {})` on batch insert**
+**T3: demo-telemetry — `.catch(() => {})` on batch insert** ✅
 - File: `supabase/functions/demo-telemetry/index.ts` (line ~349)
 - Risk: Low (telemetry), but pattern spreads; fix for consistency
-- Fix: try/catch
+- Fix: try/catch — DONE 2026-07-05
 
 ### 🟡 P2 — Medium Risk (data enrichment, non-critical paths)
 

@@ -459,15 +459,19 @@ Deno.serve(async (req) => {
     }
 
     // Log action
-    await adminClient.from("atenia_assistant_actions").insert({
-      organization_id: orgId,
-      user_id: user.id,
-      action_type: `DIAGNOSE_${playbook}`,
-      work_item_id: workItemId || null,
-      input: { playbook, work_item_id: workItemId },
-      result: { summary: result.summary },
-      status: "EXECUTED",
-    }).catch(() => {});
+    try {
+      await adminClient.from("atenia_assistant_actions").insert({
+        organization_id: orgId,
+        user_id: user.id,
+        action_type: `DIAGNOSE_${playbook}`,
+        work_item_id: workItemId || null,
+        input: { playbook, work_item_id: workItemId },
+        result: { summary: result.summary },
+        status: "EXECUTED",
+      });
+    } catch (auditErr) {
+      console.warn("[andro-diagnose] audit insert failed:", (auditErr as Error).message);
+    }
 
     return new Response(JSON.stringify({ ok: true, ...result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
