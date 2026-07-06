@@ -113,7 +113,7 @@ export function BulkDeleteWorkItemsDialog({
               <Trash2 className="h-5 w-5" />
             </div>
             <AlertDialogTitle className="text-lg">
-              Eliminar {count} elemento{count !== 1 ? "s" : ""} permanentemente
+              Eliminar {count} asunto{count !== 1 ? "s" : ""}
             </AlertDialogTitle>
           </div>
           <AlertDialogDescription asChild>
