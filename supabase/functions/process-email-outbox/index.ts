@@ -581,6 +581,16 @@ Deno.serve(async (req) => {
             })
             .eq("id", email.id);
 
+          // Provider auth failure guard — one deduped admin notification per day
+          if (sendResult.statusCode === 401 || sendResult.statusCode === 403) {
+            await emitProviderAuthAlert(
+              supabase,
+              email.organization_id,
+              result.provider_used || "resend",
+              errorMessage,
+            );
+          }
+
           if (isMaxed) {
             await supabase.from("audit_logs").insert({
               organization_id: email.organization_id,
