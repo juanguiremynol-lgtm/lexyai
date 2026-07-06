@@ -1,6 +1,3 @@
-import { isColombianHoliday } from "@/lib/colombian-holidays";
-
-// Marker to trigger import ordering; keeping the block below unchanged.
 /**
  * Unified Ticker Data Service
  * 
@@ -20,6 +17,7 @@ import { isColombianHoliday } from "@/lib/colombian-holidays";
 
 import { supabase } from '@/integrations/supabase/client';
 import { getWindowBounds } from '@/lib/colombia-date-utils';
+import { isColombianHoliday } from '@/lib/colombian-holidays';
 import { filterToLatestTickerItems } from './latest-estado-selector';
 
 // ============= TYPES =============
