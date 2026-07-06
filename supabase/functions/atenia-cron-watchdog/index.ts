@@ -60,7 +60,7 @@ const TIME_BUDGET_MS = 45_000;
  *  Used to delegate heavy work (Cloud Run dispatch, queue draining, downstream
  *  syncs) so this coordinator stays bounded and never times out. */
 function dispatchAsync(url: string, serviceKey: string, body: unknown): void {
-  fetch(url, {
+  const p = fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${serviceKey}`,
@@ -70,6 +70,15 @@ function dispatchAsync(url: string, serviceKey: string, body: unknown): void {
   }).catch((err) => {
     console.warn("[watchdog] dispatchAsync failed:", (err as Error)?.message ?? err);
   });
+  // Ensure the request survives after this coordinator returns its HTTP response.
+  // EdgeRuntime.waitUntil is provided by the Supabase Edge runtime; guard for local runs.
+  try {
+    // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions runtime
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(p);
+    }
+  } catch { /* noop */ }
 }
 
 Deno.serve(async (req) => {

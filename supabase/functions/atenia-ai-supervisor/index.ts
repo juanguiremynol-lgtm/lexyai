@@ -2211,7 +2211,7 @@ Deno.serve(async (req) => {
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
           const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-          fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
+          const _wdPromise = fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${serviceKey}`,
@@ -2219,6 +2219,13 @@ Deno.serve(async (req) => {
             },
             body: JSON.stringify({ light: true }),
           }).catch(() => { /* fire-and-forget */ });
+          try {
+            // @ts-ignore - Supabase Edge runtime
+            if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+              // @ts-ignore
+              EdgeRuntime.waitUntil(_wdPromise);
+            }
+          } catch { /* noop */ }
           watchdogLightResult = { ok: true, async: true };
 
           // Check consecutive watchdog cron_runs for escalation (cheap query,
