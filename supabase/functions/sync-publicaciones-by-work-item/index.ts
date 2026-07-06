@@ -1453,17 +1453,37 @@ Deno.serve(withSyncTimeline(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: result.provider_latency_ms || 0,
         status: result.ok ? 'SUCCESS' : (result.errors.length > 0 ? 'FAILED' : 'PARTIAL'),
-        provider_attempts: [{
-          provider: 'publicaciones',
-          data_kind: 'ESTADOS',
-          status: result.ok ? 'success' : 'error',
-          latency_ms: result.provider_latency_ms || 0,
-          inserted_count: result.inserted_count,
-          skipped_count: result.skipped_count,
-        }],
+        provider_attempts: [
+          {
+            provider: 'publicaciones',
+            data_kind: 'ESTADOS',
+            status: result.ok ? 'success' : 'error',
+            latency_ms: result.provider_latency_ms || 0,
+            inserted_count: result.inserted_count,
+            skipped_count: result.skipped_count,
+            result_code: result.result_code,
+          },
+          ...(result.samai_estados_summary
+            ? [{
+                provider: 'samai_estados',
+                data_kind: 'ESTADOS',
+                status: result.samai_estados_summary.status || 'unknown',
+                http_status: result.samai_estados_summary.http_status,
+                latency_ms: result.samai_estados_summary.duration_ms || 0,
+                raw_count: result.samai_estados_summary.raw_count,
+                merged_new: result.samai_estados_summary.merged_new,
+                contract_mismatch: result.samai_estados_summary.contract_mismatch || false,
+                error: result.samai_estados_summary.error,
+              }]
+            : []),
+        ],
         total_inserted_pubs: result.inserted_count,
         total_skipped_pubs: result.skipped_count,
-        error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+        error_message: result.errors.length > 0
+          ? result.errors.join('; ').slice(0, 500)
+          : (result.samai_estados_summary?.contract_mismatch
+              ? `CONTRACT_MISMATCH: SAMAI Estados EMPTY with recent Fijación actuaciones (${result.samai_estados_summary.raw_count ?? 0} raw)`
+              : null),
       });
     } catch (_traceErr) { /* best-effort */ }
 
