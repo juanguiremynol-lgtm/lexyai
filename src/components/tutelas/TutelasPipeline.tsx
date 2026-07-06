@@ -24,6 +24,7 @@ import { WorkItemBulkActionsBar } from "@/components/pipeline/WorkItemBulkAction
 import { WorkItemBulkDeleteDialog } from "@/components/pipeline/WorkItemBulkDeleteDialog";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   TUTELA_STAGES,
   type TutelaStage,
@@ -264,26 +265,21 @@ export function TutelasPipeline() {
     onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { data, error } = await supabase.functions.invoke("delete-work-items", {
-        body: { work_item_ids: ids, mode: "HARD_DELETE" },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (result) => {
+  // Bulk soft-delete via unified hook (10-day recovery). Hard purge lives in the Recycle Bin.
+  const { archiveBulk, isArchiving: isBulkDeleting } = useSoftDeleteWorkItems({
+    onSuccess: () => {
       INVALIDATE_QUERIES.forEach(queryKey => {
         queryClient.invalidateQueries({ queryKey });
       });
       setSelectedIds(new Set());
       setIsSelectionMode(false);
       setDeleteDialog(false);
-      toast.success(`${result?.deleted_count || 0} tutela${result?.deleted_count !== 1 ? "s" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => toast.error("Error al eliminar tutelas"),
   });
+  const bulkDeleteMutation = {
+    isPending: isBulkDeleting,
+    mutate: (ids: string[]) => archiveBulk(ids),
+  };
 
   // Selection handlers
   const toggleSelectionMode = () => {
