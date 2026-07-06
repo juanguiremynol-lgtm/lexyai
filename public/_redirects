@@ -6,5 +6,13 @@
 /demo/*    /demo/index.html  200
 /prueba/*  /prueba/index.html  200
 
+# MCP server proxy (convenience — canonical URL is the Supabase function URL below)
+/mcp                                        https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp                                        200
+/mcp/*                                      https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp/:splat                                 200
+/.well-known/oauth-protected-resource       https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp/.well-known/oauth-protected-resource   200
+/.well-known/oauth-protected-resource/mcp   https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp/.well-known/oauth-protected-resource   200
+/.well-known/oauth-authorization-server     https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/.well-known/oauth-authorization-server          200
+/.well-known/openid-configuration           https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/.well-known/openid-configuration                200
+
 # General SPA fallback for all other routes
 /*  /index.html  200
