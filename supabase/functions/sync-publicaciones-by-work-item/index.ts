@@ -28,6 +28,10 @@ import {
   fetchFromSamaiEstados,
   formatRadicadoForSamai,
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
+import {
+  isOnlineSyncEligible,
+  SYNC_COOLDOWN_MS,
+} from "../_shared/onlineSyncEligibility.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
