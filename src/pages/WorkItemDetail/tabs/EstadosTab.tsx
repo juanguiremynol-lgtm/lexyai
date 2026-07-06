@@ -36,7 +36,7 @@ interface EstadosTabProps {
 function fuenteLabel(fuente: string): { label: string; variant: "default" | "secondary" | "outline" | "info" } {
   const f = (fuente || "").toUpperCase();
   if (f === "PP" || f === "PUBLICACIONES") return { label: "Rama Judicial", variant: "info" };
-  if (f === "SAMAI_ESTADOS" || f === "SAMAI") return { label: "SAMAI Estados", variant: "secondary" };
+  if (f === "SAMAI_ESTADOS" || f === "SAMAI") return { label: "Estados CPACA", variant: "secondary" };
   return { label: fuente || "Desconocido", variant: "outline" };
 }
 
@@ -147,8 +147,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 </Badge>
               </CardTitle>
               <CardDescription className="mt-1">
-                Estados electrónicos de la Rama Judicial (Publicaciones Procesales) y SAMAI
-                (CPACA). Los términos legales inician el día hábil siguiente a la fecha de
+        Estados electrónicos de la Rama Judicial (Publicaciones Procesales) y de la
+                jurisdicción contencioso administrativa (CPACA). Los términos legales inician el día hábil siguiente a la fecha de
                 desfijación.
               </CardDescription>
             </div>
