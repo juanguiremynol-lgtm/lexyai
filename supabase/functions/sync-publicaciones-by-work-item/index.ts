@@ -1235,76 +1235,6 @@ Deno.serve(withSyncTimeline(async (req) => {
             console.warn('[sync-pub] Failed to create alert:', alertErr);
           }
 
-          // ============= QUEUE ATTACHMENT DOWNLOAD (DURABLE) =============
-          // Persist estado even without PDF. Queue PDF download as separate job.
-          if (pub.pdf_url && typeof pub.pdf_url === 'string' && pub.pdf_url.startsWith('https')) {
-            try {
-              const filename = pub.pdf_url.split('/').pop() || pub.titulo || 'attachment.pdf';
-
-              // Resolve the real publicacion UUID via the natural key (work_item_id + fingerprint).
-              // The RPC does not return row ids, so we look it up post-upsert. Required because
-              // estado_attachment_queue.publicacion_id is a UUID FK — passing a literal string
-              // silently failed the upsert (onConflict included publicacion_id).
-              const { data: pubRow, error: pubLookupErr } = await supabase
-                .from('work_item_publicaciones')
-                .select('id')
-                .eq('work_item_id', work_item_id)
-                .eq('hash_fingerprint', fingerprint)
-                .maybeSingle();
-
-              if (pubLookupErr || !pubRow?.id) {
-                result.attachment_enqueue_failed = (result.attachment_enqueue_failed || 0) + 1;
-                console.warn(JSON.stringify({
-                  tag: '[sync-pub]',
-                  event: 'attachment_enqueue_failed',
-                  reason: 'publicacion_lookup_failed',
-                  work_item_id,
-                  fingerprint,
-                  error: pubLookupErr?.message || 'row_not_found',
-                }));
-              } else {
-                const { error: enqueueErr } = await supabase
-                  .from('estado_attachment_queue')
-                  .upsert({
-                    work_item_id,
-                    publicacion_id: pubRow.id,
-                    organization_id: workItem.organization_id,
-                    remote_url: pub.pdf_url,
-                    filename: filename.slice(0, 255),
-                    status: 'pending',
-                    attempt_count: 0,
-                    max_attempts: 5,
-                    next_retry_at: new Date().toISOString(),
-                  }, { onConflict: 'publicacion_id,remote_url' } as any);
-
-                if (enqueueErr) {
-                  result.attachment_enqueue_failed = (result.attachment_enqueue_failed || 0) + 1;
-                  console.warn(JSON.stringify({
-                    tag: '[sync-pub]',
-                    event: 'attachment_enqueue_failed',
-                    reason: 'upsert_error',
-                    work_item_id,
-                    publicacion_id: pubRow.id,
-                    remote_url: pub.pdf_url,
-                    error: enqueueErr.message,
-                  }));
-                } else {
-                  result.attachment_enqueued = (result.attachment_enqueued || 0) + 1;
-                  console.log(`[sync-pub] 📎 Queued attachment download: ${filename.slice(0, 60)} → pub ${pubRow.id}`);
-                }
-              }
-            } catch (attachErr: any) {
-              result.attachment_enqueue_failed = (result.attachment_enqueue_failed || 0) + 1;
-              console.warn(JSON.stringify({
-                tag: '[sync-pub]',
-                event: 'attachment_enqueue_failed',
-                reason: 'exception',
-                work_item_id,
-                fingerprint,
-                error: attachErr?.message || String(attachErr),
-              }));
-            }
-          }
         } else if (counts.updated_count > 0) {
           console.log(`[sync-pub] ♻️ Provenance merged for: ${pub.titulo}`);
           result.skipped_count++;
@@ -1315,6 +1245,107 @@ Deno.serve(withSyncTimeline(async (req) => {
           // Neither inserted, updated, nor skipped — this is an anomaly
           console.warn(`[sync-pub] ⚠️ RPC returned zero counts for ${pub.titulo}: ${JSON.stringify(counts)}`);
           result.errors.push(`Anomaly: zero counts for ${pub.titulo}`);
+        }
+
+        // ============= QUEUE ATTACHMENT DOWNLOAD (DURABLE) =============
+        // Runs on ANY successful RPC outcome (inserted / updated / skipped) so
+        // idempotent re-syncs still materialize PDFs that were missing before.
+        // The enqueue itself is idempotent via UNIQUE(publicacion_id, remote_url).
+        const rowExists =
+          (counts.inserted_count || 0) +
+            (counts.updated_count || 0) +
+            (counts.skipped_count || 0) >
+          0;
+        if (
+          rowExists &&
+          pub.pdf_url &&
+          typeof pub.pdf_url === 'string' &&
+          pub.pdf_url.startsWith('https')
+        ) {
+          try {
+            const filename =
+              pub.pdf_url.split('/').pop() || pub.titulo || 'attachment.pdf';
+
+            // Resolve the real publicacion UUID via the natural key
+            // (work_item_id + fingerprint). The RPC does not return row ids,
+            // so we look it up post-upsert. Required because
+            // estado_attachment_queue.publicacion_id is a UUID FK — passing a
+            // literal string silently failed the upsert (onConflict included
+            // publicacion_id).
+            const { data: pubRow, error: pubLookupErr } = await supabase
+              .from('work_item_publicaciones')
+              .select('id')
+              .eq('work_item_id', work_item_id)
+              .eq('hash_fingerprint', fingerprint)
+              .maybeSingle();
+
+            if (pubLookupErr || !pubRow?.id) {
+              result.attachment_enqueue_failed =
+                (result.attachment_enqueue_failed || 0) + 1;
+              console.warn(
+                JSON.stringify({
+                  tag: '[sync-pub]',
+                  event: 'attachment_enqueue_failed',
+                  reason: 'publicacion_lookup_failed',
+                  work_item_id,
+                  fingerprint,
+                  error: pubLookupErr?.message || 'row_not_found',
+                }),
+              );
+            } else {
+              const { error: enqueueErr } = await supabase
+                .from('estado_attachment_queue')
+                .upsert(
+                  {
+                    work_item_id,
+                    publicacion_id: pubRow.id,
+                    organization_id: workItem.organization_id,
+                    remote_url: pub.pdf_url,
+                    filename: filename.slice(0, 255),
+                    status: 'pending',
+                    attempt_count: 0,
+                    max_attempts: 5,
+                    next_retry_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'publicacion_id,remote_url' } as any,
+                );
+
+              if (enqueueErr) {
+                result.attachment_enqueue_failed =
+                  (result.attachment_enqueue_failed || 0) + 1;
+                console.warn(
+                  JSON.stringify({
+                    tag: '[sync-pub]',
+                    event: 'attachment_enqueue_failed',
+                    reason: 'upsert_error',
+                    work_item_id,
+                    publicacion_id: pubRow.id,
+                    remote_url: pub.pdf_url,
+                    error: enqueueErr.message,
+                  }),
+                );
+              } else {
+                result.attachment_enqueued =
+                  (result.attachment_enqueued || 0) + 1;
+                console.log(
+                  `[sync-pub] 📎 Queued attachment download: ${filename.slice(0, 60)} → pub ${pubRow.id}`,
+                );
+              }
+            }
+          } catch (attachErr: any) {
+            result.attachment_enqueue_failed =
+              (result.attachment_enqueue_failed || 0) + 1;
+            console.warn(
+              JSON.stringify({
+                tag: '[sync-pub]',
+                event: 'attachment_enqueue_failed',
+                reason: 'exception',
+                work_item_id,
+                fingerprint,
+                error: attachErr?.message || String(attachErr),
+              }),
+            );
+          }
         }
       }
     }
