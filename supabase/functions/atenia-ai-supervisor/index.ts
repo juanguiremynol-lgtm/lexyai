@@ -2129,7 +2129,17 @@ Deno.serve(async (req) => {
               .select("organization_id")
               .eq("monitoring_enabled", true)
               .not("organization_id", "is", null)
-              .not("radicado", "is", null);
+              .not("radicado", "is", null)
+              // Only audit orgs that actually have online-sync-eligible work
+              // items (CGP, CPACA, LABORAL, PENAL_906, TUTELA). Procesos
+              // administrativos and derechos de petición never sync online.
+              .in("workflow_type", [
+                "CGP",
+                "CPACA",
+                "LABORAL",
+                "PENAL_906",
+                "TUTELA",
+              ]);
 
             const orgIds = [
               ...new Set(
@@ -2193,25 +2203,27 @@ Deno.serve(async (req) => {
       }
 
       // ─── Watchdog-light: enforce coverage invariant from heartbeat ───
-      // Only run if we have time left (< 45s elapsed)
+      // Fire-and-forget: the watchdog is itself a scheduled coordinator on a
+      // 10-min pg_cron cadence. Awaiting it here creates a circular wait
+      // (watchdog → supervisor(HEARTBEAT) → watchdog) that produced 504s.
       let watchdogLightResult: unknown = null;
       if (Date.now() - startTime < 45000) {
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
           const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-          const resp = await fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
+          fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${serviceKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ light: true }),
-          });
-          const body = await resp.json().catch(() => ({ status: resp.status }));
-          watchdogLightResult = { ok: resp.ok, result: body };
+          }).catch(() => { /* fire-and-forget */ });
+          watchdogLightResult = { ok: true, async: true };
 
-          // Track consecutive watchdog failures for auto-escalation
-          if (!resp.ok) {
+          // Check consecutive watchdog cron_runs for escalation (cheap query,
+          // no synchronous fetch involved).
+          {
             // Check how many consecutive failures
             const { data: recentWdRuns } = await supabase
               .from("atenia_cron_runs")
@@ -2223,7 +2235,7 @@ Deno.serve(async (req) => {
             const consecutiveFailures = (recentWdRuns || [])
               .filter((r: any) => r.status === "FAILED").length;
 
-            if (consecutiveFailures >= 2) {
+            if (consecutiveFailures >= 3) {
               // Auto-escalate: create CRITICAL alert
               await logAction(supabase, {
                 actor: "ATENIA",
@@ -2231,9 +2243,9 @@ Deno.serve(async (req) => {
                 action_type: "WATCHDOG_ESCALATION",
                 autonomy_tier: "ACT",
                 reason_code: "CONSECUTIVE_WATCHDOG_FAILURES",
-                summary: `Watchdog ha fallado ${consecutiveFailures + 1} veces consecutivas. Escalación automática.`,
-                reasoning: `Watchdog ha fallado ${consecutiveFailures + 1} veces consecutivas. Escalación automática.`,
-                evidence: { consecutive_failures: consecutiveFailures + 1, last_result: body },
+                summary: `Watchdog ha fallado ${consecutiveFailures} veces consecutivas. Escalación automática.`,
+                reasoning: `Watchdog ha fallado ${consecutiveFailures} veces consecutivas. Escalación automática.`,
+                evidence: { consecutive_failures: consecutiveFailures },
                 is_reversible: false,
               });
 
@@ -2245,7 +2257,7 @@ Deno.serve(async (req) => {
                   owner_id: "00000000-0000-0000-0000-000000000000",
                   severity: "CRITICAL",
                   title: "🚨 Watchdog con fallos consecutivos",
-                  message: `El watchdog ha fallado ${consecutiveFailures + 1} veces seguidas. Requiere intervención manual.`,
+                  message: `El watchdog ha fallado ${consecutiveFailures} veces seguidas. Requiere intervención manual.`,
                   status: "PENDING",
                   fired_at: new Date().toISOString(),
                   alert_type: "WATCHDOG_ESCALATION",
