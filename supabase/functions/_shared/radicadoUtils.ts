@@ -660,18 +660,50 @@ export function resolveApiKeyFromEnvList(envKeys: string[]): string | null {
 /**
  * Calculate the next business day after a given date.
  * In Colombian legal terms, términos begin the day AFTER fecha_desfijacion.
- * Skips weekends (Saturday = 6, Sunday = 0).
+ * Skips weekends (Saturday = 6, Sunday = 0) AND Colombian holidays passed as
+ * an ISO-date Set (`YYYY-MM-DD`). Holidays are the caller's responsibility
+ * because this file has no DB access — use `loadColombianHolidays(supabase)`
+ * to build the Set once per invocation.
  */
-export function calculateNextBusinessDay(dateStr: string | undefined | null): string | null {
+export function calculateNextBusinessDay(
+  dateStr: string | undefined | null,
+  holidays?: ReadonlySet<string>,
+): string | null {
   const parsed = parseColombianDate(dateStr);
   if (!parsed) return null;
 
   const d = new Date(parsed + 'T12:00:00Z');
   d.setDate(d.getDate() + 1);
 
-  while (d.getDay() === 0 || d.getDay() === 6) {
+  const isHoliday = (dt: Date) =>
+    holidays ? holidays.has(dt.toISOString().split('T')[0]) : false;
+
+  while (d.getDay() === 0 || d.getDay() === 6 || isHoliday(d)) {
     d.setDate(d.getDate() + 1);
   }
 
   return d.toISOString().split('T')[0];
+}
+
+/**
+ * Load Colombian holidays for the years surrounding `centerDate` (default: today)
+ * as a Set of ISO date strings (`YYYY-MM-DD`). Safe for a Deno edge function.
+ *
+ * `supabase` is a Supabase client (typed as `any` because this file is used
+ * from many functions each with their own generated types).
+ */
+export async function loadColombianHolidays(
+  supabase: any,
+  centerDate: Date = new Date(),
+): Promise<Set<string>> {
+  const year = centerDate.getUTCFullYear();
+  const { data, error } = await supabase
+    .from('colombian_holidays')
+    .select('holiday_date')
+    .gte('holiday_date', `${year - 1}-01-01`)
+    .lte('holiday_date', `${year + 1}-12-31`);
+  if (error || !Array.isArray(data)) return new Set();
+  return new Set(
+    data.map((r: any) => String(r.holiday_date).slice(0, 10)),
+  );
 }
