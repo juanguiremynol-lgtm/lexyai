@@ -1141,25 +1141,35 @@ Deno.serve(withSyncTimeline(async (req) => {
       const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
 
       // ── Upsert via RPC with explicit sources[] array merge ──
+      // Date semantics (2026-07-06 fix):
+      //  * SAMAI (samai_estados) reports the fecha del auto, NOT the fijacion date.
+      //    Route it to fecha_providencia and leave fecha_fijacion NULL so terms
+      //    computation does not treat it as a fijación.
+      //  * Publicaciones reports the real fijacion date → fecha_fijacion.
+      const sourceProvider = (pub as any)._source_provider || 'publicaciones';
+      const isSamai = sourceProvider === 'samai_estados';
+      const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
         records: JSON.stringify([{
           work_item_id,
           organization_id: workItem.organization_id,
-          source: (pub as any)._source_provider || 'publicaciones',
+          source: sourceProvider,
           title: pub.titulo || pub.key || 'Sin título',
           annotation: pub.clasificacion?.descripcion || null,
           pdf_url: pub.pdf_url || null,
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
-          fecha_fijacion: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
+          published_at: isoDate,
+          fecha_fijacion: isSamai ? null : isoDate,
+          fecha_providencia: isSamai ? isoDate : null,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: 'publicaciones_v3',
-          sources: [(pub as any)._source_provider || 'publicaciones'],
+          sources: [sourceProvider],
         }]),
       });
 
