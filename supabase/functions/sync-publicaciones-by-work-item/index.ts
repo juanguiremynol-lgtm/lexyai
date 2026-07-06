@@ -6,9 +6,9 @@
  * ============================================================
  * v3 SYNCHRONOUS API — NO JOB QUEUES, NO POLLING
  * ============================================================
- * The publicaciones API (v3.0.0-simple) is now fully synchronous:
- *   GET /snapshot/{radicado} → returns publications directly (may take 10-30s)
- *   GET /search/{radicado}   → legacy compatibility endpoint
+ * The publicaciones API (pp-scraper v3.1.0) is synchronous:
+ *   GET  /historico/{radicado}     → returns actuaciones/publicaciones directly
+ *   POST /procesar-radicado        → full processing fallback
  * 
  * Features:
  * - Multi-tenant safe: validates user is member of work_item's organization
@@ -58,7 +58,8 @@ type SyncResult = {
   warnings: string[];
   errors: string[];
   inserted: InsertedPublication[];
-  status?: 'SUCCESS' | 'EMPTY' | 'ERROR';
+  status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR';
+  result_code?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
   provider_latency_ms?: number;
 };
 
@@ -87,6 +88,7 @@ type FetchResultV3 = {
   latencyMs: number;
   httpStatus?: number;
   found?: boolean;
+  resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
 };
 
 // ============= HELPERS =============
@@ -227,10 +229,9 @@ function extractDateFromTitle(title: string): string | undefined {
 }
 
 /**
- * Try /buscar endpoint as final fallback (for APIs that require async trigger)
- * This is the CPNU-style pattern where /buscar triggers scraping and returns a jobId
+ * Try POST /procesar-radicado as final fallback for the pp-scraper v3.1.0 API.
  */
-async function tryBuscarFallback(
+async function tryProcesarFallback(
   baseUrl: string,
   radicado: string,
   headers: Record<string, string>
@@ -238,74 +239,45 @@ async function tryBuscarFallback(
   const startTime = Date.now();
   
   try {
-    // Try /buscar?radicado={radicado} (query param style)
-    const buscarUrl = `${baseUrl}/buscar?radicado=${radicado}`;
-    console.log(`[sync-pub] Trying /buscar: ${buscarUrl}`);
+    const procesarUrl = `${baseUrl}/procesar-radicado`;
+    console.log(`[sync-pub] Trying POST /procesar-radicado`);
     
-    const buscarResponse = await fetch(buscarUrl, {
-      method: 'GET',
+    const procesarResponse = await fetch(procesarUrl, {
+      method: 'POST',
       headers,
+      body: JSON.stringify({ radicado }),
     });
     
-    if (!buscarResponse.ok) {
-      console.log(`[sync-pub] /buscar returned ${buscarResponse.status}`);
-      return null;
-    }
-    
-    const buscarData = await buscarResponse.json();
-    
-    // Check if /buscar returned data directly (cached)
-    if (buscarData.found && buscarData.publicaciones?.length > 0) {
-      console.log(`[sync-pub] /buscar returned cached data directly`);
-      return extractPublicacionesFromResponse(buscarData, Date.now() - startTime);
-    }
-    
-    // Check if /buscar returned a job ID for polling
-    const jobId = buscarData.jobId || buscarData.job_id || buscarData.id;
-    const pollUrl = buscarData.poll_url || buscarData.pollUrl || (jobId ? `${baseUrl}/resultado/${jobId}` : null);
-    
-    if (jobId && pollUrl) {
-      console.log(`[sync-pub] /buscar initiated scraping job: ${jobId}. Polling...`);
-      
-      // Poll for result
-      const maxAttempts = 10;
-      const pollInterval = 3000;
-      
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        
-        try {
-          console.log(`[sync-pub] Poll ${attempt}/${maxAttempts}: ${pollUrl}`);
-          const pollResponse = await fetch(pollUrl, { method: 'GET', headers });
-          
-          if (pollResponse.ok) {
-            const pollData = await pollResponse.json();
-            const status = String(pollData.status || '').toLowerCase();
-            
-            if (['done', 'completed', 'success', 'finished'].includes(status)) {
-              console.log(`[sync-pub] Polling completed!`);
-              const resultData = pollData.result || pollData;
-              if (resultData.publicaciones?.length > 0 || resultData.found) {
-                return extractPublicacionesFromResponse(resultData, Date.now() - startTime);
-              }
-            }
-            
-            if (['failed', 'error'].includes(status)) {
-              console.log(`[sync-pub] Polling job failed`);
-              break;
-            }
-          }
-        } catch (pollErr) {
-          console.warn(`[sync-pub] Poll error:`, pollErr);
-        }
+    if (!procesarResponse.ok) {
+      console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status}`);
+      const latencyMs = Date.now() - startTime;
+      if (procesarResponse.status === 404) {
+        return {
+          ok: true,
+          publicaciones: [],
+          error: 'NO_DATA: /procesar-radicado returned 404',
+          latencyMs,
+          httpStatus: 404,
+          found: false,
+          resultCode: 'NO_DATA',
+        };
       }
+      return {
+        ok: false,
+        publicaciones: [],
+        error: `HTTP ${procesarResponse.status}`,
+        latencyMs,
+        httpStatus: procesarResponse.status,
+        found: false,
+        resultCode: 'ERROR',
+      };
     }
     
-    // No data obtained
-    return null;
+    const procesarData = await procesarResponse.json();
+    return extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
     
   } catch (err) {
-    console.warn(`[sync-pub] /buscar fallback error:`, err);
+    console.warn(`[sync-pub] /procesar-radicado fallback error:`, err);
     return null;
   }
 }
@@ -315,10 +287,9 @@ async function tryBuscarFallback(
 /**
  * Fetch publications using v3 synchronous API
  * 
- * Strategy: Call /snapshot/{radicado} directly (synchronous scraping)
- * This may take 10-30 seconds as it scrapes Rama Judicial live
- * If /snapshot fails, try /search/{radicado} as fallback
- * If both fail, try /buscar (async trigger) with polling
+ * Strategy: Call /historico/{radicado} directly (synchronous scraping)
+ * This may take 10-90 seconds as it scrapes Rama Judicial live.
+ * If that route is not available, try POST /procesar-radicado.
  */
 /**
  * Fetch a single endpoint with timeout and retry
@@ -328,7 +299,7 @@ async function fetchWithTimeoutAndRetry(
   headers: Record<string, string>,
   timeoutMs: number = 45000,
   maxAttempts: number = 2,
-): Promise<{ ok: boolean; response?: Response; error?: string; latencyMs: number }> {
+): Promise<{ ok: boolean; response?: Response; error?: string; latencyMs: number; httpStatus?: number }> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -345,12 +316,12 @@ async function fetchWithTimeoutAndRetry(
       const latencyMs = Date.now() - startMs;
 
       if (response.ok) {
-        return { ok: true, response, latencyMs };
+        return { ok: true, response, latencyMs, httpStatus: response.status };
       }
 
       if (response.status === 404) {
         console.log(`[sync-pub] 404 from ${url}`);
-        return { ok: false, error: `HTTP 404`, latencyMs };
+        return { ok: false, error: `HTTP 404`, latencyMs, httpStatus: 404 };
       }
 
       // Server error — retry after delay
@@ -360,7 +331,7 @@ async function fetchWithTimeoutAndRetry(
         continue;
       }
 
-      return { ok: false, error: `HTTP ${response.status}`, latencyMs };
+      return { ok: false, error: `HTTP ${response.status}`, latencyMs, httpStatus: response.status };
     } catch (error: any) {
       clearTimeout(timeoutId);
       const latencyMs = Date.now() - startMs;
@@ -393,22 +364,24 @@ async function fetchPublicaciones(
   // Clean base URL
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  // STRATEGY: Try /snapshot (30s timeout, 1 attempt), then /search (30s, 1 attempt)
-  // Total worst-case: ~60s for both endpoints, well within the 110s safety timeout.
-  // Previous 45s×2 per endpoint (180s worst case) caused safety timeout hits.
+  // pp-scraper v3.1.0 route contract (verified by OpenAPI):
+  //   GET /historico/{radicado}
+  // Legacy /snapshot, /search and /buscar routes return 404 on this service.
   const endpoints = [
-    `${cleanBaseUrl}/snapshot/${radicado}`,
-    `${cleanBaseUrl}/search/${radicado}`,
+    `${cleanBaseUrl}/historico/${radicado}`,
   ];
+
+  const endpointStatuses: Array<number | null> = [];
 
   for (const url of endpoints) {
     const result = await fetchWithTimeoutAndRetry(url, headers, 30000, 1);
+    endpointStatuses.push(result.httpStatus ?? null);
 
     if (result.ok && result.response) {
       try {
         const data = await result.response.json();
         const latencyMs = Date.now() - startTime;
-        console.log(`[sync-pub] Success from ${url}: found=${data.found}, totalResultados=${data.totalResultados}`);
+        console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
         return extractPublicacionesFromResponse(data, latencyMs);
       } catch (_jsonErr) {
         console.warn(`[sync-pub] Invalid JSON from ${url}`);
@@ -426,20 +399,35 @@ async function fetchPublicaciones(
     console.log(`[sync-pub] ${url} failed: ${result.error}, trying next endpoint`);
   }
 
-  // All primary endpoints exhausted — try /buscar async trigger as last resort
-  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /buscar fallback`);
-  const buscarResult = await tryBuscarFallback(cleanBaseUrl, radicado, headers);
-  if (buscarResult) {
-    return buscarResult;
+  // All primary endpoints exhausted — try POST /procesar-radicado as last resort.
+  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback`);
+  const procesarResult = await tryProcesarFallback(cleanBaseUrl, radicado, headers);
+  if (procesarResult) {
+    return procesarResult;
   }
 
   const totalLatency = Date.now() - startTime;
+  const only404 = endpointStatuses.length > 0 && endpointStatuses.every(status => status === 404);
+  if (only404) {
+    console.log(`[sync-pub] All endpoints returned 404 for radicado ${radicado}; treating as NO_DATA (${totalLatency}ms)`);
+    return {
+      ok: true,
+      publicaciones: [],
+      error: 'NO_DATA: all endpoints returned 404',
+      latencyMs: totalLatency,
+      httpStatus: 404,
+      found: false,
+      resultCode: 'NO_DATA',
+    };
+  }
+
   console.error(`[sync-pub] ALL endpoints exhausted for radicado ${radicado} (${totalLatency}ms)`);
   return {
     ok: false,
     publicaciones: [],
-    error: `All endpoints exhausted (tried /snapshot, /search, /buscar) after ${totalLatency}ms`,
+    error: `All endpoints exhausted (tried /historico, /procesar-radicado) after ${totalLatency}ms`,
     latencyMs: totalLatency,
+    resultCode: 'ERROR',
   };
 }
 
@@ -450,25 +438,59 @@ function extractPublicacionesFromResponse(
   data: any,
   latencyMs: number
 ): FetchResultV3 {
-  // v3 API returns: { found: boolean, publicaciones: [], totalResultados: number }
-  if (!data.found || !data.publicaciones || data.publicaciones.length === 0) {
+  // pp-scraper returns { actuaciones: [], total_actuaciones_encontradas }.
+  // Older adapters returned { publicaciones: [], found, totalResultados }.
+  const rawPublicaciones = Array.isArray(data?.publicaciones)
+    ? data.publicaciones
+    : Array.isArray(data?.actuaciones)
+      ? data.actuaciones
+      : Array.isArray(data)
+        ? data
+        : [];
+
+  if (rawPublicaciones.length === 0) {
     console.log(`[sync-pub] No publications found for this radicado`);
     return { 
       ok: true, 
       publicaciones: [], 
       latencyMs,
       found: false,
+      httpStatus: 200,
+      resultCode: 'NO_DATA',
     };
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
 
-  console.log(`[sync-pub] Found ${data.publicaciones.length} publications`);
+  const publicaciones = rawPublicaciones.map((p: any): PublicacionV3 => {
+    const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
+    const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
+    const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
+    return {
+      key,
+      tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
+      asset_id: p.asset_id || p.id || p.hash_documento || key,
+      url: p.entry_url || p.url || p.enlace,
+      titulo: title,
+      fecha_publicacion: p.fecha_publicacion || p.fecha_hora_inicio || p.fechaFijacion || p.fechaPublicacion || p.fecha || p.fecha_actuacion || p.fecha_estado || null,
+      fecha_hora_inicio: p.fecha_hora_inicio || null,
+      tipo_evento: p.tipo_evento || p.tipo || 'Estado Electrónico',
+      pdf_url: typeof pdfUrl === 'string' ? pdfUrl : undefined,
+      clasificacion: p.clasificacion || {
+        categoria: p.tipo_evento || p.tipo || 'Estado Electrónico',
+        descripcion: p.descripcion || p.anotacion || title,
+        es_descargable: typeof pdfUrl === 'string' && pdfUrl.length > 0,
+      },
+    };
+  });
+
+  console.log(`[sync-pub] Found ${publicaciones.length} publications`);
   return { 
     ok: true, 
-    publicaciones: data.publicaciones as PublicacionV3[], 
+    publicaciones, 
     latencyMs,
     found: true,
     httpStatus: 200,
+    resultCode: 'SUCCESS',
   };
 }
 
@@ -812,7 +834,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Handle empty result (valid response but no publications)
     if (fetchResult.publicaciones.length === 0) {
       result.ok = true;
-      result.status = 'EMPTY';
+      result.status = fetchResult.resultCode === 'NO_DATA' ? 'NO_DATA' : 'EMPTY';
+      result.result_code = 'NO_DATA';
       result.warnings.push('No publications found for this radicado');
       console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
 
