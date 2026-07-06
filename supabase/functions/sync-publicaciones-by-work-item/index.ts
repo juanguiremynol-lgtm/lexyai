@@ -930,16 +930,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       await supabase.from('provider_sync_traces' as any).insert({
         work_item_id,
         organization_id: workItem.organization_id,
-        provider_key: 'publicaciones',
         stage: rescrapeDecision.triggered
           ? 'RESCRAPE_TRIGGERED'
           : (rescrapeDecision.reason === 'gate_suppressed' ? 'RESCRAPE_SUPPRESSED' : 'RESCRAPE_NOT_NEEDED'),
-        subchain_kind: 'ESTADOS',
-        data_kind: 'ESTADOS',
-        outcome: rescrapeDecision.reason,
-        http_status: rescrapeDecision.httpStatus ?? fetchResult.httpStatus ?? null,
+        result_code: rescrapeDecision.reason,
+        ok: rescrapeDecision.reason !== 'trigger_error',
         latency_ms: fetchResult.latencyMs,
-        metadata: {
+        payload: {
+          provider_key: 'publicaciones',
+          subchain_kind: 'ESTADOS',
+          data_kind: 'ESTADOS',
+          http_status: rescrapeDecision.httpStatus ?? fetchResult.httpStatus ?? null,
           radicado: normalizedRadicado,
           workflow: workItem.workflow_type,
           gate_allow: gateStatus.allow,
