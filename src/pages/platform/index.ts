@@ -35,3 +35,4 @@ export { default as PlatformGenericSigningPage } from "./PlatformGenericSigningP
 export { default as PlatformGenericSigningDocsPage } from "./PlatformGenericSigningDocsPage";
 export { default as PlatformHearingsCatalogPage } from "./PlatformHearingsCatalogPage";
 export { default as PlatformNotificationDispatchPage } from "./PlatformNotificationDispatchPage";
+export { default as PlatformWhatsAppPage } from "./PlatformWhatsAppPage";

@@ -28,6 +28,7 @@ import {
   UserPlus,
   Printer,
   PenTool,
+  MessageCircle,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -82,6 +83,7 @@ const platformNavItems = [
   { title: "Docs Firma Genérica", url: "/platform/generic-signing-docs", icon: FileText },
   { title: "Catálogo Audiencias", url: "/platform/hearings-catalog", icon: Calendar },
   { title: "Email Dispatch", url: "/platform/notification-dispatch", icon: Mail },
+  { title: "WhatsApp", url: "/platform/whatsapp", icon: MessageCircle },
 ];
 
 export function PlatformSidebar() {
