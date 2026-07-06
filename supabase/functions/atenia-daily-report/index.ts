@@ -61,7 +61,7 @@ async function toolProviderStatus(sb: any): Promise<Record<string, unknown>> {
   const today = todayCOT();
   const { data: traces } = await sb
     .from("provider_sync_traces")
-    .select("provider, success, error_code, latency_ms")
+    .select("provider_instance_id, ok, result_code, latency_ms, provider_instances(name, connector_id, provider_connectors(name))")
     .gte("created_at", `${today}T00:00:00Z`)
     .limit(500);
 
@@ -69,12 +69,16 @@ async function toolProviderStatus(sb: any): Promise<Record<string, unknown>> {
 
   const providers: Record<string, { total: number; errors: number; avgLatency: number; errorCodes: Record<string, number> }> = {};
   for (const t of traces) {
-    const p = t.provider || "unknown";
+    // Derive provider name from provider_instances relationship (no direct column exists).
+    const p =
+      (t as any)?.provider_instances?.provider_connectors?.name ||
+      (t as any)?.provider_instances?.name ||
+      "unknown_provider";
     if (!providers[p]) providers[p] = { total: 0, errors: 0, avgLatency: 0, errorCodes: {} };
     providers[p].total++;
-    if (!t.success) {
+    if (t.ok === false) {
       providers[p].errors++;
-      const code = t.error_code || "UNKNOWN";
+      const code = t.result_code || "UNKNOWN";
       providers[p].errorCodes[code] = (providers[p].errorCodes[code] || 0) + 1;
     }
     providers[p].avgLatency += (t.latency_ms || 0);
@@ -120,12 +124,19 @@ async function toolCronWatchdogStatus(sb: any): Promise<Record<string, unknown>>
 async function toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
   const { data } = await sb
     .from("sync_item_failure_tracker")
-    .select("work_item_id, organization_id, consecutive_failures, last_failure_reason, dead_lettered, provider")
+    .select("work_item_id, organization_id, consecutive_failures, last_failure_reason, dead_lettered, work_items(workflow_type, radicado)")
     .eq("dead_lettered", true)
     .order("consecutive_failures", { ascending: false })
     .limit(50);
 
-  return { dead_lettered_items: data || [], count: (data || []).length };
+  // Derive category from work_items relationship — this table has no `provider` column.
+  const enriched = (data || []).map((r: any) => ({
+    ...r,
+    workflow_type: r?.work_items?.workflow_type ?? "unknown",
+    radicado: r?.work_items?.radicado ?? null,
+    work_items: undefined,
+  }));
+  return { dead_lettered_items: enriched, count: enriched.length };
 }
 
 async function toolPerOrgKPIs(sb: any): Promise<Record<string, unknown>> {
