@@ -5,6 +5,7 @@ import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constant
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
 import { registerAndSyncCpnu, registerAndSyncPp, registerAndSyncSamai } from "@/lib/cpnu/register-and-sync";
+import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
