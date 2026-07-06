@@ -24,6 +24,10 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import {
+  fetchFromSamaiEstados,
+  formatRadicadoForSamai,
+} from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,8 +63,25 @@ type SyncResult = {
   errors: string[];
   inserted: InsertedPublication[];
   status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR';
-  result_code?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  // New canonical taxonomy — replaces the ambiguous SUCCESS + 0/0 outcome
+  // that hid the SAMAI Estados contract mismatch for ~3 months.
+  result_code?:
+    | 'SUCCESS_WITH_DATA'
+    | 'SUCCESS_EMPTY'
+    | 'PENDING_UPSTREAM'
+    | 'CONTRACT_MISMATCH'
+    | 'ERROR';
   provider_latency_ms?: number;
+  samai_estados_summary?: {
+    called: boolean;
+    status?: string;
+    http_status?: number;
+    duration_ms?: number;
+    raw_count?: number;
+    merged_new?: number;
+    contract_mismatch?: boolean;
+    error?: string;
+  };
 };
 
 type PublicacionV3 = {
