@@ -885,10 +885,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     const PUB_SAFETY_TIMEOUT_MS = 110_000; // 110s — leave 40s buffer for DB writes + response
     const functionStartTime = Date.now();
 
+    // ── Fix B (Paso 3): evaluate re-scrape gate BEFORE the fetch, so the
+    // decision travels with the request. We capture the decision via callback
+    // and log it to provider_sync_traces below.
+    const gateStatus = await checkRescrapeGate(supabase, work_item_id);
+    let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
+    console.log(
+      `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${gateStatus.allow} ` +
+        `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,
+    );
+
     let fetchResult: FetchResultV3;
     try {
       fetchResult = await Promise.race([
-        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey),
+        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
+          allow: gateStatus.allow,
+          onDecision: (d) => { rescrapeDecision = d; },
+        }),
         new Promise<FetchResultV3>((_, reject) => 
           setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
         ),
@@ -908,6 +921,38 @@ Deno.serve(withSyncTimeline(async (req) => {
       };
     }
     result.provider_latency_ms = fetchResult.latencyMs;
+
+    // ── Persist gate ledger + trace ONLY when we actually fired the trigger ──
+    if (rescrapeDecision.triggered) {
+      await recordRescrapeTrigger(supabase, work_item_id, normalizedRadicado, rescrapeDecision);
+    }
+    try {
+      await supabase.from('provider_sync_traces' as any).insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        provider_key: 'publicaciones',
+        stage: rescrapeDecision.triggered
+          ? 'RESCRAPE_TRIGGERED'
+          : (rescrapeDecision.reason === 'gate_suppressed' ? 'RESCRAPE_SUPPRESSED' : 'RESCRAPE_NOT_NEEDED'),
+        subchain_kind: 'ESTADOS',
+        data_kind: 'ESTADOS',
+        outcome: rescrapeDecision.reason,
+        http_status: rescrapeDecision.httpStatus ?? fetchResult.httpStatus ?? null,
+        latency_ms: fetchResult.latencyMs,
+        metadata: {
+          radicado: normalizedRadicado,
+          workflow: workItem.workflow_type,
+          gate_allow: gateStatus.allow,
+          gate_last_triggered_at: gateStatus.lastTriggeredAt,
+          gate_hours_since_last: gateStatus.hoursSince,
+          cooldown_hours: RESCRAPE_COOLDOWN_MS / 3_600_000,
+          fetch_result_code: fetchResult.resultCode,
+          decision_error: rescrapeDecision.error ?? null,
+        },
+      } as any);
+    } catch (traceErr: any) {
+      console.warn(`[sync-pub] Failed to write rescrape trace: ${traceErr?.message}`);
+    }
 
     // ============= CPACA WORKFLOW: SAMAI ESTADOS ENRICHMENT =============
     // For CPACA, SAMAI Estados is PRIMARY for estados data. We ALWAYS call it
