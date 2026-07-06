@@ -1,94 +1,104 @@
-## Implementation Plan — Atenia/Andrómeda Reliability Hardening
 
-Before writing code, this plan lists what I will change, the migrations I will add, and the assumptions/conflicts I found between the spec and the actual repo. I will only proceed after approval.
+## 0. Confirming your architecture summary
 
-### Assumptions and conflicts with the spec
+Yes — your description matches the codebase:
+- Andrómeda Legal is the web app (React + Supabase).
+- Users are lawyers; the domain entity is `work_items`.
+- Judicial data (actuaciones, estados, publicaciones) is scraped/normalized by external services on Google Cloud Run.
+- Supabase Edge Functions are thin coordinators (`sync-by-work-item`, `sync-publicaciones-by-work-item`, `atenia-cron-watchdog`, `atenia-ai-supervisor`, `atenia-daily-report`, etc.).
+- Category eligibility is centralized in `_shared/onlineSyncEligibility.ts` (CGP, CPACA, LABORAL, PENAL_906, TUTELA are online-sync eligible; GOV_PROCEDURE and PETICION are internal-only).
 
-1. **`provider_sync_traces.provider` and `sync_item_failure_tracker.provider`** — the spec says these don't exist. I need to verify this by inspecting the live schema before writing the fix. If they do exist (schema summary shows `provider_sync_traces: 12 columns`), the daily-report code may actually be correct and the failure is elsewhere. I will treat "remove/derive provider" as conditional on confirming the column is truly missing.
-2. **`provider_instances.config`** — generated types confirm no `config` column. This is a straight code fix (remove the select).
-3. **`PENAL_906`** — schema likely uses this as the only penal workflow type; I will audit distinct `workflow_type` values in `work_items` and only expand `_shared/onlineSyncEligibility.ts` if other penal enums exist.
-4. **`job_runs` telemetry table** — spec calls for a new table. The repo already has `platform_job_heartbeats`, `atenia_cron_runs`, and `sync_traces`. I will reuse `platform_job_heartbeats` for dispatch/liveness telemetry (extending it with `correlation_id`, `trigger_source`, `work_item_id`, `workflow_type` if missing) rather than adding a redundant `job_runs` table.
-5. **Frontend/backend eligibility consistency check** — I will add `src/lib/externalSyncDisplay.ts` mirroring `_shared/onlineSyncEligibility.ts` and a vitest that asserts they match.
-6. **"Do not modify Cloud Run"** — respected. I will only produce the diagnostic handoff if Supabase-side fixes don't resolve the 500s.
-7. **Scope guard** — this spec is very large (touches ~6.7k lines across 5 core functions plus callers, migrations, UI mapping, tests). I will implement it in the order below and stop for feedback if any assumption above turns out wrong when I inspect the code.
+The WhatsApp agent will plug into this model without moving scraping into Supabase and without creating a second orchestration layer.
 
-### Files to modify
+## 1. Provider choice
 
-**Shared / new modules**
-- `supabase/functions/_shared/onlineSyncEligibility.ts` — audit against actual `workflow_type` values; add helpers `resolveCloudRunRoute(workflow, purpose)` and `SYNC_COOLDOWN_MS`.
-- `supabase/functions/_shared/jobTelemetry.ts` (new) — thin wrapper over `platform_job_heartbeats` for dispatch/started/finished/duplicate.
-- `supabase/functions/_shared/dispatchAsync.ts` (new or extract from watchdog) — wrap `fetch` in `EdgeRuntime.waitUntil`, insert a `dispatched` row, add idempotency key.
-- `supabase/functions/_shared/cloudRunProbe.ts` (new) — short-timeout probe returning `{reachable_ok | reachable_auth_failed | route_not_found | unreachable | timeout}`.
-- `src/lib/externalSyncDisplay.ts` (new) — single frontend mapping `workflow_type → "estados" | "publicaciones" | "none"`.
-- `src/lib/__tests__/externalSyncDisplay.test.ts` (new) — consistency assertion.
+**Meta WhatsApp Business Cloud API** (default, as you specified). All provider I/O goes through a single adapter `supabase/functions/_shared/whatsappProvider.ts` (send text, send interactive buttons, verify signature, check 24h window). A future Twilio swap only replaces this file.
 
-**Part 0 — watchdog/supervisor hardening**
-- `supabase/functions/atenia-cron-watchdog/index.ts` — wrap dispatches in `EdgeRuntime.waitUntil`; add idempotency guard; rotate section order via `cron_state` cursor; dynamic drain within time budget; emit `skipped_due_to_time_budget` and queue-depth metrics; use jobTelemetry.
-- `supabase/functions/atenia-ai-supervisor/index.ts` — same waitUntil wrapping; persist HEARTBEAT liveness row; PROCESS_QUEUE idempotency.
+## 2. Migrations (one migration file)
 
-**Part 1 — daily report**
-- `supabase/functions/atenia-daily-report/index.ts` — replace non-existent `provider` selects with derivation via `provider_instances`/`work_items.workflow_type`; add sections for queue depth, oldest queued age, skipped-time-budget, unknown-workflow-type counts, job-run summary.
+New tables (all with GRANTs + RLS + `service_role` full access; admin-of-org read/write policies via `has_role` + org membership):
 
-**Part 2 — publicaciones sync**
-- `supabase/functions/sync-publicaciones-by-work-item/index.ts` — full refactor:
-  - Import eligibility; deny non-eligible with `ok:true, status:not_applicable`.
-  - Validate config/secrets first; classified errors (`configuration_error`, `auth_error`, `route_mismatch`, `provider_unavailable`, `provider_timeout`, `provider_5xx`, `bad_payload`, `category_not_applicable`).
-  - Never return HTTP 500 for upstream failure — return 200/202 with `ok:false, status:degraded`.
-  - Per-work-item cooldown (30 min default, bypass on explicit manual refresh flag).
-  - Correlation IDs; persist attempt telemetry.
-  - Route CPACA to the CPACA/SAMAI Estados service, not the general publicaciones endpoints (fixes the fast `/snapshot,/search,/buscar` exhaustion).
-- Callers updated to branch on response body:
-  - `src/hooks/useLoginSync.ts`
-  - `src/hooks/use-create-work-item.ts`
-  - `src/components/**/NewTutelaDialog.tsx`
-  - `src/lib/services/auto-sync-service.ts`
-  - Any scheduled callers under `supabase/functions/scheduled-*`.
+- `whatsapp_identities` — phone→user/org binding, verification lifecycle.
+- `whatsapp_conversations` — per-phone conversation state (`bot_active | needs_human | human_active | closed`), `current_flow`, `selected_work_item_id`, `opted_out`.
+- `whatsapp_messages` — inbound/outbound log, `wa_message_id UNIQUE` (dedupe), `correlation_id`, delivery status.
+- `whatsapp_leads` — new-prospect capture with status.
+- `whatsapp_bot_settings` — single-row config (bot enabled, business hours, admin email, admin WA numbers, rate limits, cooldown minutes, service knowledge base text).
+- `whatsapp_audit_log` — every data-tool call (phone, user, org, tool, work_item_id, correlation_id, ts).
+- `whatsapp_verification_attempts` — email-code fallback attempts for the 3-strike / 1h lockout.
 
-**Part 3 — preflight**
-- `supabase/functions/atenia-preflight-check/index.ts` — remove `config` from select; use current schema fields; add Cloud Run probe per enabled instance; structured readiness output.
+Extends: adds a `whatsapp_link_codes` table (hashed, 15-min TTL) for the in-app linking flow (§3.2).
 
-**UI tab enforcement**
-- `src/pages/WorkItemDetail/index.tsx` — consume `externalSyncDisplay` instead of inline `workflow_type === 'CPACA'` check.
-- Audit and remove any other hardcoded per-category tab logic.
+After apply: regenerate `src/integrations/supabase/types.ts`.
 
-**Cross-cutting audit (grep + fix)**
-- `provider_sync_traces.provider`, `sync_item_failure_tracker.provider`, `provider_instances.config`, hardcoded category lists, GOV_PROC/PETICION dispatch paths.
+## 3. Edge Functions (new)
 
-### Migrations
+Placed under `supabase/functions/`:
 
-1. **`YYYYMMDD_platform_job_heartbeats_extend.sql`** — add `correlation_id text`, `trigger_source text`, `work_item_id uuid`, `workflow_type text`, `error_summary text` to `platform_job_heartbeats` if missing; index on `(job_name, status, started_at)`; unique partial index for idempotency `(job_name, correlation_id) where correlation_id is not null`.
-2. **`YYYYMMDD_cleanup_ineligible_sync_rows.sql`** — mark existing GOV_PROC/PETICION rows in `sync_retry_queue`, `sync_item_failure_tracker`, `atenia_ai_remediation_queue`, `work_item_coverage_gaps` as `cancelled_not_applicable` (add status value if enum) without hard-deleting. Preserve audit trail.
-3. **`YYYYMMDD_cron_state_section_cursor.sql`** — add row in `cron_state` for watchdog section-rotation cursor (if `cron_state` supports arbitrary keys already, skip).
-4. Only add a `provider_sync_traces.provider` / `sync_item_failure_tracker.provider` migration if inspection confirms the columns are truly missing AND derivation from relational data is impossible. Default plan: derive, do not add.
+- `whatsapp-webhook/` — GET verify handshake (`WHATSAPP_VERIFY_TOKEN`), POST HMAC-SHA256 signature validation (`WHATSAPP_APP_SECRET`), dedupe by `wa_message_id`, upsert conversation, insert inbound message, then `EdgeRuntime.waitUntil(dispatchAsync(...))` to `whatsapp-agent`. Returns 200 in <1s.
+- `whatsapp-agent/` — the AI agent. Loads conversation state + last 20 messages, runs the tool-calling loop (max 5 iterations), calls tools scoped to the verified identity's org, sends replies via the provider adapter, writes audit + outbound message rows, updates conversation state. Bounded timeout.
+- `whatsapp-admin-send/` — invoked by the admin inbox UI to send a human reply (pauses bot, respects 24h window).
+- `_shared/whatsappProvider.ts` — send text / interactive / template; verify signature; last-inbound-timestamp helper for 24h window.
+- `_shared/whatsappTools.ts` — the read-only + write tools (find_work_items, get_work_item_overview, get_latest_actuacion, get_recent_actuaciones, get_latest_estado (CPACA-gated), get_latest_publicacion (publicaciones-gated), get_upcoming_deadlines, request_refresh, create_lead, escalate_to_human). Every tool takes `{ orgId, userId }` — never trusts model-supplied scope. Category checks import `_shared/onlineSyncEligibility.ts`; mismatches return `{ status: "not_applicable", reason }`, never errors.
+- `_shared/whatsappIdentity.ts` — verify code / consume code / email-code fallback with 3-attempt + 1h lockout.
 
-Supabase types will regenerate automatically after each migration is approved and applied.
+Reused: `sync-publicaciones-by-work-item` for the bounded refresh tool (respects cooldown; surfaces `skipped_recent_sync` / `not_applicable`).
 
-### Deliverables produced alongside code
+## 4. AI model
 
-- **Category mapping table** (section 4) — added as `docs/sync-routing-map.md`.
-- **Routing map** (section 7.0) — same doc, second table.
-- **Diagnostic handoff** (section 7.9) — produced only if, after all Supabase-side fixes, Cloud Run probes still fail. I will call `code--exec` to run the new preflight probe against the live services and produce the handoff document only if warranted.
+Use the Lovable AI Gateway via AI SDK (`@ai-sdk/openai-compatible`) — no user API key needed. Default model: `google/gemini-3-flash-preview` (fast, tool-calling, cheap). Uses `stopWhen: stepCountIs(5)` per §5. System prompt in Spanish, warm-professional tone, hard rules (no legal advice, no fabrication, org-scoped only, `not_applicable` phrasing for category mismatches).
 
-### Execution order
+## 5. Frontend (admin UI)
 
-1. Inspect actual schema for the three "missing column" claims and distinct `workflow_type` values.
-2. Land shared modules + frontend mapping + tests.
-3. Migration 1 (heartbeats extension).
-4. Fix preflight (Part 3) — smallest, unblocks probe reuse.
-5. Fix daily report (Part 1).
-6. Refactor `sync-publicaciones-by-work-item` + callers (Part 2).
-7. Harden watchdog + supervisor (Part 0).
-8. Migration 2 (cleanup ineligible rows).
-9. UI tab enforcement + audit sweep.
-10. Verify: run tests, hit preflight, hit publicaciones sync for an ineligible category, confirm structured responses.
+New route `/platform/whatsapp` (Super Admin) + `/admin/whatsapp` (org admin) — mirrors existing platform page patterns:
 
-### What I will not do
+- `WhatsAppInboxPage` — conversation list + thread view + "Tomar conversación" / "Devolver al bot" buttons.
+- `WhatsAppLeadsPage` — leads table with status.
+- `WhatsAppIdentitiesPage` — verified numbers, unlink/block.
+- `WhatsAppSettingsPage` — edits `whatsapp_bot_settings` (incl. global on/off).
+- User settings: `LinkWhatsAppSection` in the existing profile page — generates a 6-digit code, shows expiry, lists linked numbers with unlink.
 
-- Not move scraping into Supabase.
-- Not modify Cloud Run services.
-- Not add a parallel `job_runs` table if `platform_job_heartbeats` suffices.
-- Not revert the recent watchdog/supervisor async changes.
-- Not hard-delete any historical rows.
-- Not redesign Atenia or the Work Item Detail page.
+Uses shadcn components, Spanish UI copy, semantic tokens (no hardcoded colors).
 
-Approve this plan and I will execute in the order above, stopping to flag any assumption that turns out wrong during inspection.
+## 6. Secrets to add (via `add_secret`, after your confirmation)
+
+- `WHATSAPP_ACCESS_TOKEN` (permanent Meta token)
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_VERIFY_TOKEN` (owner-chosen string for the GET handshake)
+- `WHATSAPP_APP_SECRET` (Meta app secret, for POST signature validation)
+
+`LOVABLE_API_KEY` is already provisioned for the AI call.
+
+## 7. Observability
+
+- Structured logs everywhere with `correlation_id` linking webhook → agent → tool → send.
+- `job_runs` telemetry for the async agent dispatch (`dispatched|started|finished|failed|timed_out`).
+- `atenia-daily-report` gains a WhatsApp section: conversations started, msgs in/out, leads created, verifications ok/fail, escalations, AI failures, tool errors, rate-limit hits, outside-24h attempts.
+
+## 8. Out of scope (extension points marked in code)
+
+- Proactive outbound notifications ("hay una nueva actuación") — requires Meta-approved message templates. Left as a stub in `whatsappProvider.ts` with a clear comment.
+- Media (audio/image/document) inbound → polite text reply + human handoff.
+- Admin-WhatsApp notification channel is config-flagged; reliable channels are in-app + email.
+
+## 9. Conflicts / assumptions to flag
+
+- **Admin email for notifications**: I'll wire this to an existing outbound email path if one exists in the codebase (`email_outbox` / `email-outbox-processor`), otherwise store on settings and mark it as delivered via in-app notification only until confirmed. I'll verify during implementation.
+- **`user_roles` / org admin check**: I'll reuse the existing `has_role` + `organization_memberships` pattern already used across the codebase.
+- **Business hours**: default `Mon–Fri 08:00–18:00 America/Bogota`, editable in settings.
+- **Rate limits**: default 20 msgs / 5 min per phone; configurable in settings.
+- **AI provider**: I'm using Lovable AI Gateway (no extra key). If you want a specific model (e.g. `openai/gpt-5-mini`), say so.
+- **No hard delete of WA data**: aligns with the project's soft-delete rule.
+
+## 10. Implementation order (after you approve)
+
+1. Migration + regenerate types.
+2. `_shared/whatsappProvider.ts`, `_shared/whatsappIdentity.ts`, `_shared/whatsappTools.ts`.
+3. `whatsapp-webhook` + `whatsapp-agent` + `whatsapp-admin-send` edge functions.
+4. Admin UI pages + user-settings linking section.
+5. `atenia-daily-report` WhatsApp section.
+6. Request the 4 WhatsApp secrets via `add_secret`.
+7. Deliver setup guide (Meta app creation, webhook URL, verify token, secrets list) + test checklist.
+
+---
+
+Approve this plan (or tell me what to adjust — model choice, business hours default, whether to skip the org-admin UI and keep it Super-Admin-only, etc.) and I'll implement in the order above.
