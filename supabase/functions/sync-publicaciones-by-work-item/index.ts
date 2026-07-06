@@ -950,6 +950,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // ============= INGEST PUBLICATIONS WITH DEDUPLICATION =============
     let newestDate: string | null = null;
+    let newestInsertedFingerprint: string | null = null;
     const attemptedPubFingerprints: string[] = []; // Track fingerprints for post-insert verification
 
     for (const pub of fetchResult.publicaciones) {
