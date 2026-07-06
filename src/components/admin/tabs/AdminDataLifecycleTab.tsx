@@ -46,7 +46,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { useRestoreWorkItems } from "@/hooks/use-restore-work-items";
-import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { useHardPurgeWorkItems } from "@/hooks/use-hard-purge-work-items";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { cn } from "@/lib/utils";
 import { logAudit } from "@/lib/audit-log";
@@ -118,7 +118,7 @@ export function AdminDataLifecycleTab() {
     onSuccess: () => setSelectedWorkItems(new Set()),
   });
 
-  const { bulkDelete, isDeleting } = useDeleteWorkItems({
+  const { purgeBulk: bulkDelete, isPurging: isDeleting } = useHardPurgeWorkItems({
     onSuccess: () => {
       setSelectedWorkItems(new Set());
       setHardDeleteDialogOpen(false);
