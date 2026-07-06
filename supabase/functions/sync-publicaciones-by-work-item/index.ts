@@ -1108,11 +1108,14 @@ Deno.serve(withSyncTimeline(async (req) => {
       const parsedFecha = parseDate(fechaPublicacion);
 
       // Generate unique fingerprint using asset_id (guaranteed unique per publication)
+      // Include event date so that repeated titles across different dates
+      // (e.g. "Auto que ordena requerir" on 2024-11-29 and 2025-02-07) do NOT collide.
+      const dateKey = parsedFecha || fechaFromTitle || '0000-00-00';
       const fingerprint = generatePublicacionFingerprint(
         work_item_id,
         pub.asset_id,
         pub.key,
-        pub.titulo || 'untitled'
+        `${dateKey}||${pub.titulo || 'untitled'}`
       );
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
