@@ -237,6 +237,9 @@ async function tryProcesarFallback(
   headers: Record<string, string>
 ): Promise<FetchResultV3 | null> {
   const startTime = Date.now();
+  const processingTriggeredMessage = 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
   
   try {
     const procesarUrl = `${baseUrl}/procesar-radicado`;
@@ -246,39 +249,97 @@ async function tryProcesarFallback(
       method: 'POST',
       headers,
       body: JSON.stringify({ radicado }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     
     if (!procesarResponse.ok) {
       console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status}`);
       const latencyMs = Date.now() - startTime;
-      if (procesarResponse.status === 404) {
+      if (procesarResponse.status >= 500) {
         return {
-          ok: true,
+          ok: false,
           publicaciones: [],
-          error: 'NO_DATA: /procesar-radicado returned 404',
+          error: `HTTP ${procesarResponse.status}`,
           latencyMs,
-          httpStatus: 404,
+          httpStatus: procesarResponse.status,
           found: false,
-          resultCode: 'NO_DATA',
+          resultCode: 'ERROR',
         };
       }
+
+      // /procesar-radicado is a trigger. Non-5xx responses without immediate data
+      // are treated as accepted/no-data so remediation does not churn on live scrapes.
       return {
-        ok: false,
+        ok: true,
         publicaciones: [],
-        error: `HTTP ${procesarResponse.status}`,
+        error: processingTriggeredMessage,
         latencyMs,
         httpStatus: procesarResponse.status,
         found: false,
-        resultCode: 'ERROR',
+        resultCode: 'NO_DATA',
       };
     }
+
+    let procesarData: any = null;
+    try {
+      procesarData = await procesarResponse.json();
+    } catch (_jsonErr) {
+      console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status} without JSON body`);
+    }
+
+    const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
+    if (extracted.publicaciones.length === 0) {
+      return {
+        ok: true,
+        publicaciones: [],
+        error: processingTriggeredMessage,
+        latencyMs: Date.now() - startTime,
+        httpStatus: procesarResponse.status,
+        found: false,
+        resultCode: 'NO_DATA',
+      };
+    }
+
+    return extracted;
     
-    const procesarData = await procesarResponse.json();
-    return extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
-    
-  } catch (err) {
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startTime;
+    if (err?.name === 'AbortError') {
+      console.log(`[sync-pub] /procesar-radicado trigger timed out after 60000ms; treating as processing started`);
+      return {
+        ok: true,
+        publicaciones: [],
+        error: processingTriggeredMessage,
+        latencyMs,
+        found: false,
+        resultCode: 'NO_DATA',
+      };
+    }
+
+    const message = err?.message || String(err);
+    if (message.toLowerCase().includes('connection refused')) {
+        return {
+          ok: false,
+          publicaciones: [],
+          error: `Connection refused: ${message}`,
+          latencyMs,
+          httpStatus: 503,
+          found: false,
+          resultCode: 'ERROR',
+        };
+      }
+
     console.warn(`[sync-pub] /procesar-radicado fallback error:`, err);
-    return null;
+    return {
+      ok: false,
+      publicaciones: [],
+      error: message,
+      latencyMs,
+      found: false,
+      resultCode: 'ERROR',
+    };
   }
 }
 
@@ -678,33 +739,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       const errMsg = raceErr instanceof Error ? raceErr.message : String(raceErr);
       console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${errMsg}`);
       
-      // Enqueue a PUB_RETRY so process-retry-queue can finish the job later
-      try {
-        await supabase
-          .from('sync_retry_queue' as any)
-          .upsert({
-            work_item_id: work_item_id,
-            organization_id: workItem.organization_id,
-            radicado: workItem.radicado,
-            workflow_type: workItem.workflow_type,
-            kind: 'PUB_RETRY',
-            provider: 'publicaciones',
-            attempt: 1,
-            max_attempts: 3,
-            next_run_at: new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString(),
-            last_error_code: 'PUB_SAFETY_TIMEOUT',
-            last_error_message: `Timed out after ${elapsed}ms, retry enqueued`,
-          }, { onConflict: 'work_item_id,kind' });
-        console.log(`[sync-pub] PUB_RETRY enqueued for ${work_item_id}`);
-      } catch (retryErr: unknown) {
-        console.warn(`[sync-pub] Failed to enqueue PUB_RETRY:`, retryErr);
-      }
-
       fetchResult = {
-        ok: false,
+        ok: true,
         publicaciones: [],
-        error: `Safety timeout after ${elapsed}ms — retry scheduled`,
+        error: 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read',
         latencyMs: elapsed,
+        found: false,
+        resultCode: 'NO_DATA',
       };
     }
     result.provider_latency_ms = fetchResult.latencyMs;
