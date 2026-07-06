@@ -342,11 +342,15 @@ Deno.serve(async (req: Request) => {
 
       if (!check.allowed) {
         // Log rate-limit event
-        await logEvents(supabase, [{
-          event_name: "demo_rate_limited",
-          session_id: sessionId || undefined,
-          route: sanitizeString(body.route, 50) || undefined,
-        }], ipHash).catch(() => {});
+        try {
+          await logEvents(supabase, [{
+            event_name: "demo_rate_limited",
+            session_id: sessionId || undefined,
+            route: sanitizeString(body.route, 50) || undefined,
+          }], ipHash);
+        } catch (logErr) {
+          console.warn("[demo-telemetry] rate-limit log failed:", (logErr as Error).message);
+        }
 
         return json({
           allowed: false,
