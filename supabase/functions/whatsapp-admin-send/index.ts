@@ -49,8 +49,12 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
   if (!conv) return new Response("not_found", { status: 404 });
 
-  const { data: isPlatform } = await sb.rpc("is_platform_admin_uid", { _uid: user.id } as never).single();
-  let allowed = Boolean(isPlatform);
+  const { data: platformRow } = await sb
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  let allowed = Boolean(platformRow);
   if (!allowed && (conv as { organization_id: string | null }).organization_id) {
     const { data: membership } = await sb
       .from("organization_memberships")
