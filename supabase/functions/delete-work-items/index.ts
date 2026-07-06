@@ -182,16 +182,16 @@ async function deleteWorkItemDependents(
   // Finalized documents that hard-purge should sweep with the work item.
   const { data: genDocs } = await serviceClient
     .from("generated_documents")
-    .select("id, pdf_storage_path")
+    .select("id, source_pdf_path")
     .eq("work_item_id", workItemId);
   if (genDocs && genDocs.length > 0) {
-    for (const g of genDocs as Array<{ id: string; pdf_storage_path: string | null }>) {
-      if (g.pdf_storage_path) {
+    for (const g of genDocs as Array<{ id: string; source_pdf_path: string | null }>) {
+      if (g.source_pdf_path) {
         try {
-          await serviceClient.storage.from("lexdocket").remove([g.pdf_storage_path]);
+          await serviceClient.storage.from("lexdocket").remove([g.source_pdf_path]);
           storageFilesDeleted++;
         } catch (e) {
-          console.log(`[delete-work-items] Storage delete failed for ${g.pdf_storage_path}:`, e);
+          console.log(`[delete-work-items] Storage delete failed for ${g.source_pdf_path}:`, e);
         }
       }
     }
