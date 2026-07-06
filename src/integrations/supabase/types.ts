@@ -14358,6 +14358,7 @@ export type Database = {
           entry_url: string | null
           fecha_desfijacion: string | null
           fecha_fijacion: string | null
+          fecha_providencia: string | null
           hash_fingerprint: string
           id: string
           is_archived: boolean | null
@@ -14399,6 +14400,7 @@ export type Database = {
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
+          fecha_providencia?: string | null
           hash_fingerprint: string
           id?: string
           is_archived?: boolean | null
@@ -14440,6 +14442,7 @@ export type Database = {
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
+          fecha_providencia?: string | null
           hash_fingerprint?: string
           id?: string
           is_archived?: boolean | null

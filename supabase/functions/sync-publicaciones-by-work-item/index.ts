@@ -586,9 +586,20 @@ function generatePublicacionFingerprint(
   key: string | undefined,
   title: string
 ): string {
-  // Use asset_id as primary (guaranteed unique)
-  const uniqueId = assetId || key || title;
-  const data = `${workItemId}|${uniqueId}`;
+  // STABLE NATURAL KEY (2026-07-06 fix):
+  // Do NOT use asset_id/key from providers — those values drift across snapshots
+  // (SAMAI /snapshot returns a fresh identifier each call), which produced
+  // duplicate rows on every re-sync. Fingerprint by (workItemId + normalized title)
+  // so a second run of the same event collides with the existing row.
+  const normTitle = (title || 'untitled')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\.pdf$/i, '')
+    .trim();
+  // Assets/keys are intentionally ignored to guarantee stability.
+  void assetId; void key;
+  const data = `${workItemId}|${normTitle}`;
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -1097,11 +1108,14 @@ Deno.serve(withSyncTimeline(async (req) => {
       const parsedFecha = parseDate(fechaPublicacion);
 
       // Generate unique fingerprint using asset_id (guaranteed unique per publication)
+      // Include event date so that repeated titles across different dates
+      // (e.g. "Auto que ordena requerir" on 2024-11-29 and 2025-02-07) do NOT collide.
+      const dateKey = parsedFecha || fechaFromTitle || '0000-00-00';
       const fingerprint = generatePublicacionFingerprint(
         work_item_id,
         pub.asset_id,
         pub.key,
-        pub.titulo || 'untitled'
+        `${dateKey}||${pub.titulo || 'untitled'}`
       );
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
@@ -1127,25 +1141,35 @@ Deno.serve(withSyncTimeline(async (req) => {
       const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
 
       // ── Upsert via RPC with explicit sources[] array merge ──
+      // Date semantics (2026-07-06 fix):
+      //  * SAMAI (samai_estados) reports the fecha del auto, NOT the fijacion date.
+      //    Route it to fecha_providencia and leave fecha_fijacion NULL so terms
+      //    computation does not treat it as a fijación.
+      //  * Publicaciones reports the real fijacion date → fecha_fijacion.
+      const sourceProvider = (pub as any)._source_provider || 'publicaciones';
+      const isSamai = sourceProvider === 'samai_estados';
+      const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
         records: JSON.stringify([{
           work_item_id,
           organization_id: workItem.organization_id,
-          source: (pub as any)._source_provider || 'publicaciones',
+          source: sourceProvider,
           title: pub.titulo || pub.key || 'Sin título',
           annotation: pub.clasificacion?.descripcion || null,
           pdf_url: pub.pdf_url || null,
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
-          fecha_fijacion: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
+          published_at: isoDate,
+          fecha_fijacion: isSamai ? null : isoDate,
+          fecha_providencia: isSamai ? isoDate : null,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: 'publicaciones_v3',
-          sources: [(pub as any)._source_provider || 'publicaciones'],
+          sources: [sourceProvider],
         }]),
       });
 
