@@ -155,6 +155,52 @@ async function sendViaResend(email: EmailOutboxRow, config: Record<string, strin
   }
 }
 
+// ═══════════════════════════════════════════
+// PROVIDER AUTH FAILURE GUARD
+// A provider 401 means our credential is dead. Emit exactly ONE deduped
+// admin_notifications entry per calendar day so silent credential rot cannot
+// happen again. Dedupe key = (organization_id, type, YYYY-MM-DD).
+// ═══════════════════════════════════════════
+async function emitProviderAuthAlert(
+  supabase: any,
+  organizationId: string,
+  provider: string,
+  errorMessage: string,
+): Promise<void> {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const startOfDay = `${today}T00:00:00Z`;
+    const endOfDay = `${today}T23:59:59Z`;
+    const notifType = "EMAIL_PROVIDER_AUTH_FAILED";
+
+    const { data: existing } = await supabase
+      .from("admin_notifications")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("type", notifType)
+      .gte("created_at", startOfDay)
+      .lte("created_at", endOfDay)
+      .limit(1);
+
+    if (existing && existing.length > 0) return;
+
+    await supabase.from("admin_notifications").insert({
+      organization_id: organizationId,
+      type: notifType,
+      title: `Credencial del proveedor de correo (${provider}) rechazada`,
+      message:
+        `El proveedor ${provider} devolvió 401 (credencial inválida o expirada). ` +
+        `Actualice la clave en Configuración → Correo → Proveedor. ` +
+        `Detalle: ${errorMessage.slice(0, 240)}`,
+    });
+  } catch (alertErr) {
+    console.warn(
+      "[process-email-outbox] Failed to emit provider auth alert:",
+      (alertErr as Error).message,
+    );
+  }
+}
+
 async function sendViaSendGrid(email: EmailOutboxRow, config: Record<string, string>, fromAddress: string): Promise<SendResult> {
   const apiKey = config["SENDGRID_API_KEY"];
   if (!apiKey) return { success: false, error: "SENDGRID_API_KEY not configured", error_code: "PROVIDER_NOT_CONFIGURED" };
