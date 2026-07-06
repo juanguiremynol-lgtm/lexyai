@@ -69,6 +69,7 @@ interface DiagnosticEntry {
   technical_detail: string;
   suggested_action?: string;
   auto_remediated?: boolean;
+  skip_pubs_retry?: boolean;
 }
 
 interface ProviderHealth {
@@ -1140,17 +1141,21 @@ async function remediate(
         reason_code: "OMITIDO",
         priority: 50,
       });
-      await enqueueJob(supabase, {
-        work_item_id: d.work_item_id,
-        organization_id: orgId,
-        action_type: "RETRY_PUBS",
-        reason_code: "OMITIDO",
-        priority: 40,
-      });
+      if (!d.skip_pubs_retry) {
+        await enqueueJob(supabase, {
+          work_item_id: d.work_item_id,
+          organization_id: orgId,
+          action_type: "RETRY_PUBS",
+          reason_code: "OMITIDO",
+          priority: 40,
+        });
+      }
       actions.push({
         action: "ENQUEUE_RETRY",
         work_item_id: d.work_item_id,
-        reason: "Item omitido — reintento encolado",
+        reason: d.skip_pubs_retry
+          ? "Item omitido — publicaciones NO_DATA; solo reintento de actuaciones encolado"
+          : "Item omitido — reintento encolado",
         result: "QUEUED",
       });
     }
@@ -1644,6 +1649,22 @@ async function auditOrganization(
 
   const traceData: SyncTrace[] = (traces || []) as unknown as SyncTrace[];
 
+  const { data: pubNoDataTimeline } = await supabase
+    .from("work_item_sync_timeline" as any)
+    .select("work_item_id, status, error_code, records_inserted")
+    .eq("function_name", "sync-publicaciones-by-work-item")
+    .gte("created_at", dayStart)
+    .lte("created_at", dayEnd)
+    .in("status", ["empty", "success"])
+    .eq("records_inserted", 0)
+    .limit(1000);
+
+  const pubNoDataItemIds = new Set(
+    ((pubNoDataTimeline || []) as Array<{ work_item_id?: string | null }>)
+      .map((row) => row.work_item_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
   const { data: workItems } = await supabase
     .from("work_items")
     .select(
@@ -1706,9 +1727,12 @@ async function auditOrganization(
         severity: "AVISO",
         category: "OMITIDO",
         message_es: `El radicado ${(ghost.radicado as string) || "desconocido"} tiene monitoreo activo pero no fue consultado hoy.`,
-        technical_detail: `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
+        technical_detail: pubNoDataItemIds.has(ghost.id as string)
+          ? `No sync_traces found for work_item ${ghost.id} on ${runDate}; publicaciones returned NO_DATA today`
+          : `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
         suggested_action:
           "Se reintentará en la próxima ventana o vía cola de remediación.",
+        skip_pubs_retry: pubNoDataItemIds.has(ghost.id as string),
       });
     }
   }

@@ -3,9 +3,8 @@
  *
  * SINGLE SOURCE OF TRUTH for all Publicaciones HTTP calls and response normalization.
  * Supports two modes:
- *   - 'monitoring': Uses /snapshot/{radicado} (preferred), falls back to /search/{radicado},
- *     then /buscar with async polling. For ongoing sync of monitored work items.
- *   - 'discovery': Uses /snapshot/{radicado} for demo/creation wizard previews.
+ *   - 'monitoring': Uses /historico/{radicado}. For ongoing sync of monitored work items.
+ *   - 'discovery': Uses /info/{radicado} for demo/creation wizard previews.
  *
  * Previously duplicated in:
  *   - sync-publicaciones-by-work-item/index.ts (monitoring path — ~300 lines)
@@ -104,11 +103,10 @@ async function fetchMonitoring(
   // /historico does a live portal scrape that can take 60-90s; allow generous timeout.
   const timeoutMs = options.timeoutMs || 120_000;
 
-  // Strategy: /info → /historico → /buscar (async trigger)
+  // Strategy: /historico. /info is metadata-only and must not short-circuit monitoring.
   // /snapshot/<r> and /search/<r> do not exist on publicaciones-procesales-api.
   // /info/<r> returns decoded radicado info; /historico/<r> returns scraped actuaciones.
   const endpoints = [
-    `${cleanBase}/info/${radicado}`,
     `${cleanBase}/historico/${radicado}`,
   ];
 
@@ -121,8 +119,8 @@ async function fetchMonitoring(
       const publicaciones = normalizePublicacionesResponse(result.data, options);
       const hasContent = publicaciones.length > 0 ||
         Array.isArray(result.data.actuaciones) ||
-        result.data.found ||
-        result.data.info_radicado;
+        Array.isArray(result.data.publicaciones) ||
+        result.data.found;
       if (hasContent) {
         return {
           provider: PROVIDER_KEY,
@@ -319,24 +317,25 @@ function normalizeOnePublicacion(
   // Extract date
   let fecha: string | null | undefined = normalizeDate(
     p.fecha_publicacion ?? p.fecha_hora_inicio ?? p.fechaFijacion ??
-    p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro,
+    p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro ??
+    p.fecha_actuacion ?? p.fecha_estado,
   );
-  const tituloStr = String(p.titulo || '');
+  const tituloStr = String(p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || '');
   if (!fecha && tituloStr) fecha = extractDateFromTitle(tituloStr) || null;
-  const pdfUrl = String(p.pdf_url || p.url || '');
+  const pdfUrl = String(p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url || '');
   if (!fecha && pdfUrl) {
     const m = pdfUrl.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
     if (m) fecha = `${m[1]}-${m[2]}-${m[3]}`;
   }
 
   // Extract tipo
-  let tipo = String(p.tipo_evento || '');
+  let tipo = String(p.tipo_evento || p.tipo_actuacion || '');
   if (!tipo || tipo === 'null') {
     if (/^ESTADOS?\b/i.test(tituloStr)) tipo = 'Estado Electrónico';
     else if (/^EDICTO/i.test(tituloStr)) tipo = 'Edicto';
     else if (/^NOTIFICACI/i.test(tituloStr)) tipo = 'Notificación';
     else if (/^TRASLADO/i.test(tituloStr)) tipo = 'Traslado';
-    else tipo = truncate(String(p.tipo || 'Estado'), 80) || 'Estado';
+    else tipo = truncate(String(p.tipo || p.actuacion || 'Estado'), 80) || 'Estado';
   }
 
   const cleanTitle = tituloStr.replace(/\.pdf$/i, '').trim();
@@ -348,7 +347,7 @@ function normalizeOnePublicacion(
   const attachments = extractAttachments(p, PROVIDER_KEY);
 
   // Fingerprint
-  const assetId = p.asset_id || p.key || '';
+  const assetId = p.asset_id || p.id || p.hash_documento || p.key || '';
   const fingerprint = computePublicacionFingerprint(
     options?.workItemId || '',
     assetId,
@@ -367,11 +366,11 @@ function normalizeOnePublicacion(
     hash_fingerprint: fingerprint,
     source_platform: PROVIDER_KEY,
     sources: [PROVIDER_KEY],
-    juzgado: p.juzgado || p.despacho || undefined,
+    juzgado: p.juzgado || p.despacho || p.nombre_despacho || undefined,
     pdf_url: pdfUrl || undefined,
     entry_url: p.entry_url || p.url || undefined,
-    asset_id: p.asset_id || undefined,
-    key: p.key || undefined,
+    asset_id: p.asset_id || p.id || p.hash_documento || undefined,
+    key: p.key || p.id || undefined,
     terminos_inician: undefined, // Calculated by caller
     attachments: attachments.length > 0 ? attachments : undefined,
     clasificacion: p.clasificacion || undefined,
