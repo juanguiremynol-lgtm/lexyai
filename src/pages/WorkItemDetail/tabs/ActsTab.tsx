@@ -115,7 +115,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
           duration: 5000,
         });
         setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["cpnu-actuaciones", workItem.id] });
+          queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
         }, 3000);
         return;
       }
@@ -126,9 +126,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
           duration: 5000,
         });
         setTimeout(() => {
-          queryClient.invalidateQueries({
-            queryKey: ["samai-actuaciones", workItem.id, workItem.radicado || ""],
-          });
+          queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
         }, 3000);
         return;
       }
