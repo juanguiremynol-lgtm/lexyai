@@ -1110,22 +1110,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ============= UPDATE WORK_ITEM BASELINE =============
     if (result.inserted_count > 0) {
       try {
-        const { data: allPubs } = await supabase
-          .from('work_item_publicaciones')
-          .select('id, title, published_at, pdf_url, tipo_publicacion')
-          .eq('work_item_id', work_item_id)
-          .order('published_at', { ascending: false, nullsFirst: false })
-          .limit(1);
-        
-        if (allPubs && allPubs.length > 0) {
-          const latestPub = allPubs[0];
-          const latestFingerprint = generatePublicacionFingerprint(
-            work_item_id,
-            undefined,
-            undefined,
-            latestPub.title
-          );
-          
+        // Use the fingerprint we actually inserted (asset_id-based).
+        // Previously this recomputed with (undefined, undefined, title) which
+        // produced a fingerprint that never matched the stored row, so the
+        // baseline was effectively orphaned.
+        const latestFingerprint = newestInsertedFingerprint;
+        if (latestFingerprint) {
           await supabase
             .from('work_items')
             .update({
