@@ -104,6 +104,7 @@ import {
   PlatformGenericSigningDocsPage,
   PlatformHearingsCatalogPage,
   PlatformNotificationDispatchPage,
+  PlatformWhatsAppPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
