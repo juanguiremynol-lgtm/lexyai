@@ -520,7 +520,15 @@ Deno.serve(async (req) => {
               is_overflow: isOverflow,
               item_timeout_counts: mergedTimeoutCounts,
             }),
-          }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
+          });
+          } catch (contDispatchErr) {
+            console.warn(`[daily-sync] Continuation trigger failed:`, contDispatchErr);
+            try {
+              await supabase.from("auto_sync_daily_ledger").update({
+                last_error: `continuation_dispatch: ${(contDispatchErr as Error).message}`,
+              }).eq("id", partialResult.ledger_id);
+            } catch (_ledgerErr) { /* non-blocking */ }
+          }
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: true,
           }).eq("id", partialResult.ledger_id);
@@ -537,9 +545,13 @@ Deno.serve(async (req) => {
 
     // Fire-and-forget Atenia AI post-sync (only after non-continuation completes)
     if (!isContinuation || partialOrgs.length === 0) {
-      supabase.functions.invoke("atenia-ai-supervisor", {
-        body: { mode: "POST_DAILY_SYNC" },
-      }).catch(() => {});
+      try {
+        await supabase.functions.invoke("atenia-ai-supervisor", {
+          body: { mode: "POST_DAILY_SYNC" },
+        });
+      } catch (supErr) {
+        console.warn("[daily-sync] Supervisor invoke failed:", (supErr as Error).message);
+      }
     }
 
     responsePayload = {
