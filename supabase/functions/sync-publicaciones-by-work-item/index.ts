@@ -1834,10 +1834,12 @@ Deno.serve(withSyncTimeline(async (req) => {
 
   } catch (err) {
     console.error('[sync-pub] Unhandled error:', err);
-    return errorResponse(
-      'INTERNAL_ERROR',
-      err instanceof Error ? err.message : 'An unexpected error occurred',
-      500
-    );
+    // Never bubble a 500 to user-facing callers. Return a structured
+    // degraded response so login/creation flows do not fail hard.
+    return jsonResponse({
+      ok: false,
+      status: 'internal_error',
+      reason: err instanceof Error ? err.message : 'An unexpected error occurred',
+    }, 200);
   }
 }, { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" }));
