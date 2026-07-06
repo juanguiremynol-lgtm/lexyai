@@ -436,7 +436,8 @@ async function fetchWithTimeoutAndRetry(
 async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
-  apiKey: string
+  apiKey: string,
+  rescrapeGate?: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void },
 ): Promise<FetchResultV3> {
   const startTime = Date.now();
   const headers: Record<string, string> = {
@@ -484,9 +485,42 @@ async function fetchPublicaciones(
   }
 
   // All primary endpoints exhausted — try POST /procesar-radicado as last resort.
-  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback`);
+  //
+  // Fix B (Paso 3) — RE-SCRAPE GUARDRAIL: only fire this trigger when the
+  // caller says the gate allows it. The gate is time-boxed (see cron_state
+  // `pub_rescrape:<work_item_id>`) so we cannot hammer the upstream. When
+  // suppressed we return NO_DATA cleanly — the NEXT scheduled sync will
+  // re-read /historico and pick up whatever the trigger produced. There is
+  // NO in-run re-fetch, so this cannot loop.
+  if (rescrapeGate && !rescrapeGate.allow) {
+    const decision: RescrapeDecision = {
+      triggered: false,
+      reason: 'gate_suppressed',
+    };
+    rescrapeGate.onDecision?.(decision);
+    console.log(`[sync-pub] Re-scrape gate SUPPRESSED for ${radicado} (cooldown active)`);
+    const totalLatency = Date.now() - startTime;
+    return {
+      ok: true,
+      publicaciones: [],
+      error: 'NO_DATA: /historico cold; re-scrape suppressed by gate (cooldown active)',
+      latencyMs: totalLatency,
+      httpStatus: 200,
+      found: false,
+      resultCode: 'NO_DATA',
+    };
+  }
+
+  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback (gate=${rescrapeGate ? 'allowed' : 'ungated'})`);
   const procesarResult = await tryProcesarFallback(cleanBaseUrl, radicado, headers);
   if (procesarResult) {
+    const decision: RescrapeDecision = {
+      triggered: true,
+      reason: procesarResult.ok ? 'trigger_accepted' : 'trigger_error',
+      httpStatus: procesarResult.httpStatus,
+      error: procesarResult.error,
+    };
+    rescrapeGate?.onDecision?.(decision);
     return procesarResult;
   }
 
