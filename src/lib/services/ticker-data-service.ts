@@ -66,8 +66,13 @@ function calculateNextBusinessDay(dateStr: string | null | undefined): string | 
   
   d.setDate(d.getDate() + 1);
   
-  // Skip weekends (0 = Sunday, 6 = Saturday)
-  while (d.getDay() === 0 || d.getDay() === 6) {
+  // Skip weekends (0 = Sunday, 6 = Saturday) AND Colombian holidays.
+  // Colombian legal deadlines never start on a festivo.
+  while (
+    d.getDay() === 0 ||
+    d.getDay() === 6 ||
+    isColombianHoliday(d).isHoliday
+  ) {
     d.setDate(d.getDate() + 1);
   }
   
