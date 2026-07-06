@@ -114,6 +114,95 @@ type FetchResultV3 = {
   resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
 };
 
+// ── Fix B (Paso 3) — Re-scrape gate types ──
+type RescrapeDecision = {
+  triggered: boolean;
+  reason:
+    | 'gate_suppressed'
+    | 'trigger_accepted'
+    | 'trigger_error'
+    | 'not_evaluated';
+  httpStatus?: number;
+  error?: string;
+};
+
+const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
+
+/**
+ * Check whether we may fire POST /procesar-radicado for this work_item.
+ * Uses `cron_state` as a per-work-item cooldown ledger — SUPPRESS if the
+ * last trigger was < RESCRAPE_COOLDOWN_MS ago. Best-effort: on read error
+ * we default to ALLOW so a transient DB glitch cannot freeze re-scrapes.
+ */
+async function checkRescrapeGate(
+  supabase: any,
+  workItemId: string,
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null }> {
+  const key = `pub_rescrape:${workItemId}`;
+  try {
+    const { data } = await supabase
+      .from('cron_state')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    const lastIso = data?.value?.last_triggered_at as string | undefined;
+    if (!lastIso) return { allow: true, lastTriggeredAt: null, hoursSince: null };
+    const lastMs = Date.parse(lastIso);
+    if (!Number.isFinite(lastMs)) return { allow: true, lastTriggeredAt: null, hoursSince: null };
+    const deltaMs = Date.now() - lastMs;
+    const hours = deltaMs / 3_600_000;
+    return {
+      allow: deltaMs >= RESCRAPE_COOLDOWN_MS,
+      lastTriggeredAt: lastIso,
+      hoursSince: Number(hours.toFixed(2)),
+    };
+  } catch (_e) {
+    return { allow: true, lastTriggeredAt: null, hoursSince: null };
+  }
+}
+
+/**
+ * Persist the gate ledger (best-effort). Called ONLY when we actually
+ * fired the /procesar-radicado trigger, so the cooldown reflects real
+ * upstream calls — not suppressed decisions.
+ */
+async function recordRescrapeTrigger(
+  supabase: any,
+  workItemId: string,
+  radicado: string,
+  decision: RescrapeDecision,
+): Promise<void> {
+  const key = `pub_rescrape:${workItemId}`;
+  try {
+    // Read current attempts counter for observability
+    const { data: existing } = await supabase
+      .from('cron_state')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    const attempts = ((existing?.value?.attempts as number | undefined) ?? 0) + 1;
+    await supabase
+      .from('cron_state')
+      .upsert(
+        {
+          key,
+          value: {
+            last_triggered_at: new Date().toISOString(),
+            radicado,
+            attempts,
+            last_decision: decision.reason,
+            last_http_status: decision.httpStatus ?? null,
+            last_error: decision.error ?? null,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' } as any,
+      );
+  } catch (e: any) {
+    console.warn(`[sync-pub] Failed to persist rescrape gate: ${e?.message}`);
+  }
+}
+
 // ============= HELPERS =============
 
 function jsonResponse(data: object, status: number = 200): Response {
