@@ -114,6 +114,95 @@ type FetchResultV3 = {
   resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
 };
 
+// ── Fix B (Paso 3) — Re-scrape gate types ──
+type RescrapeDecision = {
+  triggered: boolean;
+  reason:
+    | 'gate_suppressed'
+    | 'trigger_accepted'
+    | 'trigger_error'
+    | 'not_evaluated';
+  httpStatus?: number;
+  error?: string;
+};
+
+const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
+
+/**
+ * Check whether we may fire POST /procesar-radicado for this work_item.
+ * Uses `cron_state` as a per-work-item cooldown ledger — SUPPRESS if the
+ * last trigger was < RESCRAPE_COOLDOWN_MS ago. Best-effort: on read error
+ * we default to ALLOW so a transient DB glitch cannot freeze re-scrapes.
+ */
+async function checkRescrapeGate(
+  supabase: any,
+  workItemId: string,
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null }> {
+  const key = `pub_rescrape:${workItemId}`;
+  try {
+    const { data } = await supabase
+      .from('cron_state')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    const lastIso = data?.value?.last_triggered_at as string | undefined;
+    if (!lastIso) return { allow: true, lastTriggeredAt: null, hoursSince: null };
+    const lastMs = Date.parse(lastIso);
+    if (!Number.isFinite(lastMs)) return { allow: true, lastTriggeredAt: null, hoursSince: null };
+    const deltaMs = Date.now() - lastMs;
+    const hours = deltaMs / 3_600_000;
+    return {
+      allow: deltaMs >= RESCRAPE_COOLDOWN_MS,
+      lastTriggeredAt: lastIso,
+      hoursSince: Number(hours.toFixed(2)),
+    };
+  } catch (_e) {
+    return { allow: true, lastTriggeredAt: null, hoursSince: null };
+  }
+}
+
+/**
+ * Persist the gate ledger (best-effort). Called ONLY when we actually
+ * fired the /procesar-radicado trigger, so the cooldown reflects real
+ * upstream calls — not suppressed decisions.
+ */
+async function recordRescrapeTrigger(
+  supabase: any,
+  workItemId: string,
+  radicado: string,
+  decision: RescrapeDecision,
+): Promise<void> {
+  const key = `pub_rescrape:${workItemId}`;
+  try {
+    // Read current attempts counter for observability
+    const { data: existing } = await supabase
+      .from('cron_state')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    const attempts = ((existing?.value?.attempts as number | undefined) ?? 0) + 1;
+    await supabase
+      .from('cron_state')
+      .upsert(
+        {
+          key,
+          value: {
+            last_triggered_at: new Date().toISOString(),
+            radicado,
+            attempts,
+            last_decision: decision.reason,
+            last_http_status: decision.httpStatus ?? null,
+            last_error: decision.error ?? null,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' } as any,
+      );
+  } catch (e: any) {
+    console.warn(`[sync-pub] Failed to persist rescrape gate: ${e?.message}`);
+  }
+}
+
 // ============= HELPERS =============
 
 function jsonResponse(data: object, status: number = 200): Response {
@@ -436,7 +525,8 @@ async function fetchWithTimeoutAndRetry(
 async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
-  apiKey: string
+  apiKey: string,
+  rescrapeGate?: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void },
 ): Promise<FetchResultV3> {
   const startTime = Date.now();
   const headers: Record<string, string> = {
@@ -484,9 +574,42 @@ async function fetchPublicaciones(
   }
 
   // All primary endpoints exhausted — try POST /procesar-radicado as last resort.
-  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback`);
+  //
+  // Fix B (Paso 3) — RE-SCRAPE GUARDRAIL: only fire this trigger when the
+  // caller says the gate allows it. The gate is time-boxed (see cron_state
+  // `pub_rescrape:<work_item_id>`) so we cannot hammer the upstream. When
+  // suppressed we return NO_DATA cleanly — the NEXT scheduled sync will
+  // re-read /historico and pick up whatever the trigger produced. There is
+  // NO in-run re-fetch, so this cannot loop.
+  if (rescrapeGate && !rescrapeGate.allow) {
+    const decision: RescrapeDecision = {
+      triggered: false,
+      reason: 'gate_suppressed',
+    };
+    rescrapeGate.onDecision?.(decision);
+    console.log(`[sync-pub] Re-scrape gate SUPPRESSED for ${radicado} (cooldown active)`);
+    const totalLatency = Date.now() - startTime;
+    return {
+      ok: true,
+      publicaciones: [],
+      error: 'NO_DATA: /historico cold; re-scrape suppressed by gate (cooldown active)',
+      latencyMs: totalLatency,
+      httpStatus: 200,
+      found: false,
+      resultCode: 'NO_DATA',
+    };
+  }
+
+  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback (gate=${rescrapeGate ? 'allowed' : 'ungated'})`);
   const procesarResult = await tryProcesarFallback(cleanBaseUrl, radicado, headers);
   if (procesarResult) {
+    const decision: RescrapeDecision = {
+      triggered: true,
+      reason: procesarResult.ok ? 'trigger_accepted' : 'trigger_error',
+      httpStatus: procesarResult.httpStatus,
+      error: procesarResult.error,
+    };
+    rescrapeGate?.onDecision?.(decision);
     return procesarResult;
   }
 
@@ -762,10 +885,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     const PUB_SAFETY_TIMEOUT_MS = 110_000; // 110s — leave 40s buffer for DB writes + response
     const functionStartTime = Date.now();
 
+    // ── Fix B (Paso 3): evaluate re-scrape gate BEFORE the fetch, so the
+    // decision travels with the request. We capture the decision via callback
+    // and log it to provider_sync_traces below.
+    const gateStatus = await checkRescrapeGate(supabase, work_item_id);
+    let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
+    console.log(
+      `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${gateStatus.allow} ` +
+        `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,
+    );
+
     let fetchResult: FetchResultV3;
     try {
       fetchResult = await Promise.race([
-        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey),
+        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
+          allow: gateStatus.allow,
+          onDecision: (d) => { rescrapeDecision = d; },
+        }),
         new Promise<FetchResultV3>((_, reject) => 
           setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
         ),
@@ -785,6 +921,38 @@ Deno.serve(withSyncTimeline(async (req) => {
       };
     }
     result.provider_latency_ms = fetchResult.latencyMs;
+
+    // ── Persist gate ledger + trace ONLY when we actually fired the trigger ──
+    if (rescrapeDecision.triggered) {
+      await recordRescrapeTrigger(supabase, work_item_id, normalizedRadicado, rescrapeDecision);
+    }
+    try {
+      await supabase.from('provider_sync_traces' as any).insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        provider_key: 'publicaciones',
+        stage: rescrapeDecision.triggered
+          ? 'RESCRAPE_TRIGGERED'
+          : (rescrapeDecision.reason === 'gate_suppressed' ? 'RESCRAPE_SUPPRESSED' : 'RESCRAPE_NOT_NEEDED'),
+        subchain_kind: 'ESTADOS',
+        data_kind: 'ESTADOS',
+        outcome: rescrapeDecision.reason,
+        http_status: rescrapeDecision.httpStatus ?? fetchResult.httpStatus ?? null,
+        latency_ms: fetchResult.latencyMs,
+        metadata: {
+          radicado: normalizedRadicado,
+          workflow: workItem.workflow_type,
+          gate_allow: gateStatus.allow,
+          gate_last_triggered_at: gateStatus.lastTriggeredAt,
+          gate_hours_since_last: gateStatus.hoursSince,
+          cooldown_hours: RESCRAPE_COOLDOWN_MS / 3_600_000,
+          fetch_result_code: fetchResult.resultCode,
+          decision_error: rescrapeDecision.error ?? null,
+        },
+      } as any);
+    } catch (traceErr: any) {
+      console.warn(`[sync-pub] Failed to write rescrape trace: ${traceErr?.message}`);
+    }
 
     // ============= CPACA WORKFLOW: SAMAI ESTADOS ENRICHMENT =============
     // For CPACA, SAMAI Estados is PRIMARY for estados data. We ALWAYS call it
