@@ -46,6 +46,48 @@ Deno.serve(async (req) => {
 
   const results: any = { radicado, current_base_host: currentBase ? new URL(currentBase).host : null, samai_x_api_key_present: !!samaiKey, samai_estados_api_key_present: !!estadosKey, samai_feed_api_key_present: !!feedKey };
 
+  // Optional: trigger sync-by-work-item for a given work_item_id.
+  const workItemId = url.searchParams.get("work_item_id");
+  if (workItemId) {
+    const supaUrl = Deno.env.get("SUPABASE_URL")!;
+    const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const t0 = Date.now();
+    try {
+      const r = await fetch(`${supaUrl}/functions/v1/sync-by-work-item`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${svc}`,
+          apikey: svc,
+        },
+        body: JSON.stringify({ work_item_id: workItemId, _scheduled: true, force_refresh: true, allow_buscar: true }),
+      });
+      const text = await r.text();
+      let parsed: unknown = null; try { parsed = JSON.parse(text); } catch { parsed = text; }
+      results.sync_by_work_item = { http_status: r.status, duration_ms: Date.now() - t0, work_item_id: workItemId, result: parsed };
+    } catch (e: any) {
+      results.sync_by_work_item = { error: e?.message || String(e), duration_ms: Date.now() - t0 };
+    }
+    // Trigger publicaciones sync too
+    const t1 = Date.now();
+    try {
+      const r = await fetch(`${supaUrl}/functions/v1/sync-publicaciones-by-work-item`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${svc}`,
+          apikey: svc,
+        },
+        body: JSON.stringify({ work_item_id: workItemId, _scheduled: true }),
+      });
+      const text = await r.text();
+      let parsed: unknown = null; try { parsed = JSON.parse(text); } catch { parsed = text; }
+      results.sync_publicaciones = { http_status: r.status, duration_ms: Date.now() - t1, result: parsed };
+    } catch (e: any) {
+      results.sync_publicaciones = { error: e?.message || String(e), duration_ms: Date.now() - t1 };
+    }
+  }
+
   // (a) current adapter route
   if (currentBase) {
     results.current_post_snapshot = await probe(`${currentBase}/snapshot`, samaiKey, "POST", { radicado });
