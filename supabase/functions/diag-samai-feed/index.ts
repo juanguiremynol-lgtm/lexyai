@@ -1,6 +1,6 @@
 // Ephemeral diagnostic: probes CURRENT SAMAI_BASE_URL and samai-read-api for a radicado.
 // Requires ADMIN_FORCE_SYNC_TOKEN in x-admin-token header. Returns counts + first item date.
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const READ_API = "https://samai-read-api-11974381924.us-central1.run.app";
 
