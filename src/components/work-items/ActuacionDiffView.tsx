@@ -80,61 +80,51 @@ export function ActuacionDiffView({ workItemId, dataKind }: DiffViewProps) {
   const diffEntries = useMemo<DiffEntry[]>(() => {
     if (!allRecords || allRecords.length === 0) return [];
 
-    // Find the most recent sync batch by looking at created_at gaps
-    // Records created within 5 minutes of each other are considered same batch
-    const sorted = [...allRecords].sort((a, b) => 
+    // "Recent changes" = rows created in the last ingestion batch (created_at
+    // within the 5-minute window of the most recent record).
+    //
+    // IMPORTANT: We deliberately do NOT emit "removed" entries anymore.
+    // The sync pipeline never destructively reconciles: a snapshot with
+    // fewer items than exist in DB does not archive anything (see
+    // supabase/functions/sync-by-work-item — no `is_archived=true` writes on
+    // sync paths). Historical rows outside the latest batch remain valid
+    // observations of prior snapshots; presenting them as "eliminados" was
+    // a false alarm caused by upstream partial snapshots. This widget now
+    // only surfaces additions.
+    const sorted = [...allRecords].sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
+    if (sorted.length === 0) return [];
 
-    if (sorted.length <= 1) return [];
+    const BATCH_GAP_MS = 5 * 60 * 1000;
+    const latestTs = new Date(sorted[0].created_at).getTime();
+    const latestBatch = sorted.filter(
+      (r) => latestTs - new Date(r.created_at).getTime() <= BATCH_GAP_MS,
+    );
+    // If everything was ingested in a single batch (initial sync), there is
+    // nothing to diff — the batch itself IS the initial load.
+    if (latestBatch.length === sorted.length) return [];
 
-    // Find the batch boundary: first significant gap (>5 min) in created_at
-    const BATCH_GAP_MS = 5 * 60 * 1000; // 5 minutes
-    let batchBoundary = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      const gap = new Date(sorted[i - 1].created_at).getTime() - new Date(sorted[i].created_at).getTime();
-      if (gap > BATCH_GAP_MS) {
-        batchBoundary = i;
-        break;
-      }
-    }
-
-    if (batchBoundary === sorted.length) return []; // All same batch, no diff
-
-    const latestBatch = new Set(sorted.slice(0, batchBoundary).map(r => r.description?.trim().toLowerCase()));
-    const previousBatch = new Set(sorted.slice(batchBoundary).map(r => r.description?.trim().toLowerCase()));
+    const olderKeys = new Set(
+      sorted
+        .slice(latestBatch.length)
+        .map((r) => `${(r.description || "").trim().toLowerCase()}|${r.date || ""}`),
+    );
 
     const entries: DiffEntry[] = [];
-
-    // New entries (in latest but not in previous)
-    for (const record of sorted.slice(0, batchBoundary)) {
-      const key = record.description?.trim().toLowerCase();
+    for (const record of latestBatch) {
+      const key = `${(record.description || "").trim().toLowerCase()}|${record.date || ""}`;
+      if (olderKeys.has(key)) continue;
       entries.push({
         id: record.id,
         description: record.description || "",
         date: record.date,
         source: record.source || null,
-        changeType: previousBatch.has(key) ? "unchanged" : "added",
+        changeType: "added",
         created_at: record.created_at,
       });
     }
-
-    // Removed entries (in previous but not in latest) — rare but possible
-    for (const record of sorted.slice(batchBoundary)) {
-      const key = record.description?.trim().toLowerCase();
-      if (!latestBatch.has(key)) {
-        entries.push({
-          id: record.id,
-          description: record.description || "",
-          date: record.date,
-          source: record.source || null,
-          changeType: "removed",
-          created_at: record.created_at,
-        });
-      }
-    }
-
-    return entries.filter(e => e.changeType !== "unchanged");
+    return entries;
   }, [allRecords, dataKind]);
 
   const handleOpen = () => {
