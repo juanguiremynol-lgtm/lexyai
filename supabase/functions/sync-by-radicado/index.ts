@@ -55,6 +55,23 @@ interface SyncResponse {
   error?: string;
   code?: string;
   attempts?: AttemptLog[];
+  pp_lookup?: PpLookupResult;
+}
+
+/**
+ * Result of the lightweight PP GET /lookup/{radicado} preflight.
+ * Runs in LOOKUP mode alongside the usual provider fan-out.
+ *
+ *   found         → PP has data cached for this radicado.
+ *   processing    → radicado is valid, scrape auto-triggered by the API.
+ *   not_in_portal → confirmed absent after a real scan (NOT a 504).
+ *   unknown       → the endpoint was unreachable or unconfigured (non-terminal).
+ */
+interface PpLookupResult {
+  status: 'found' | 'processing' | 'not_in_portal' | 'unknown';
+  http_status?: number;
+  latency_ms: number;
+  error?: string;
 }
 
 interface ProcessData {
