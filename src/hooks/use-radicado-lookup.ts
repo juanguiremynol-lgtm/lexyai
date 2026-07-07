@@ -51,6 +51,12 @@ export interface LookupResult {
     error?: string;
     events_found?: number;
   }>;
+  pp_lookup?: {
+    status: 'found' | 'processing' | 'not_in_portal' | 'unknown';
+    http_status?: number;
+    latency_ms: number;
+    error?: string;
+  };
   error?: string;
   code?: string;
 }
@@ -207,11 +213,18 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         classification_reason: data.classification_reason || '',
         process_data: data.process_data,
         attempts: data.attempts,
+        pp_lookup: data.pp_lookup,
       };
 
       setResult(lookupResult);
       
-      if (data.found_in_source) {
+      // Treat PP "found" or "processing" as a valid preview even if the
+      // discovery providers (CPNU/SAMAI/TUTELAS) returned nothing — the
+      // publications sync will drain the record after creation.
+      const ppOk =
+        data.pp_lookup?.status === 'found' ||
+        data.pp_lookup?.status === 'processing';
+      if (data.found_in_source || ppOk) {
         setStatus('success');
       } else {
         setStatus('not_found');
