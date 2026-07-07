@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import type { WorkItem } from "@/types/work-item";
 import { usePpEstados, type PpEstado } from "@/hooks/use-pp-estados";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useMemo } from "react";
 
 interface EstadosTabProps {
   workItem: WorkItem;
@@ -119,6 +122,56 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   const radicado = workItem.radicado || null;
   const { data: estados, isLoading, isFetching, error, refetch } = usePpEstados(radicado, !!radicado);
 
+  // Also read local work_item_publicaciones so rows persisted from other
+  // sources (e.g. Publicaciones Procesales legacy syncs) remain visible in
+  // this tab even when the Andromeda Read API returns fewer rows. The
+  // provider gating applies to WHICH providers we sync, NOT to WHICH rows
+  // we display: any pub already stored for this work item is legally
+  // relevant and must be surfaced.
+  const { data: localPubs } = useQuery({
+    queryKey: ["work-item-publicaciones-local", workItem.id],
+    queryFn: async () => {
+      const { data, error: qErr } = await supabase
+        .from("work_item_publicaciones")
+        .select("id, title, source, fecha_fijacion, pdf_url, created_at")
+        .eq("work_item_id", workItem.id)
+        .eq("is_archived", false);
+      if (qErr) throw qErr;
+      return data ?? [];
+    },
+    enabled: !!workItem.id,
+    staleTime: 60 * 1000,
+  });
+
+  const mergedEstados = useMemo<PpEstado[]>(() => {
+    const fromApi = Array.isArray(estados) ? estados : [];
+    const seen = new Set<string>();
+    const out: PpEstado[] = [];
+    for (const e of fromApi) {
+      const key = `${(e.descripcion || "").trim().toLowerCase()}|${e.fecha || ""}`;
+      seen.add(key);
+      out.push(e);
+    }
+    for (const p of localPubs ?? []) {
+      const desc = (p.title || "").trim();
+      const fecha = (p.fecha_fijacion || "").toString();
+      const key = `${desc.toLowerCase()}|${fecha}`;
+      if (seen.has(key)) continue;
+      out.push({
+        fuente: (p.source || "PUBLICACIONES").toUpperCase(),
+        id: `local-${p.id}`,
+        fecha,
+        descripcion: desc || "Sin descripción",
+        gcs_url_auto: null,
+        gcs_url_tabla: null,
+        pdf_url: p.pdf_url || null,
+        titulo_original: null,
+        estado_numero: null,
+      });
+    }
+    return out;
+  }, [estados, localPubs]);
+
   if (!radicado) {
     return (
       <Card>
@@ -143,7 +196,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 <Scale className="h-5 w-5" />
                 Estados Procesales
                 <Badge variant="secondary" className="ml-1">
-                  {estados?.length ?? 0} registros
+                  {mergedEstados.length} registros
                 </Badge>
               </CardTitle>
               <CardDescription className="mt-1">
@@ -187,7 +240,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
             </Card>
           ))}
         </div>
-      ) : !estados || estados.length === 0 ? (
+      ) : mergedEstados.length === 0 ? (
         !error && (
           <Card>
             <CardContent className="py-12 text-center">
@@ -201,7 +254,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         )
       ) : (
         <div className="space-y-3">
-          {estados.map((estado) => (
+          {mergedEstados.map((estado) => (
             <EstadoRow key={`${estado.fuente}-${estado.id}`} estado={estado} />
           ))}
         </div>
