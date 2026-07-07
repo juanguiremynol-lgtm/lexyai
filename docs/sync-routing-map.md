@@ -37,10 +37,29 @@ Unknown workflow types are denied by default and counted under
 | PENAL_906       | actuación         | CPNU                      | `/snapshot`                                          | `sync-by-work-item`                         |
 | TUTELA          | actuación         | TUTELAS API               | `/buscar?radicado=…`                                 | `sync-by-work-item` (TUTELAS fallback CPNU) |
 | TUTELA          | publicación       | PUBLICACIONES             | `/historico/{radicado}`                              | `sync-publicaciones-by-work-item`           |
-| CPACA           | actuación         | SAMAI                     | `/buscar?numero_radicacion=…`                        | `sync-by-work-item`                         |
+| CPACA           | actuación         | SAMAI Read API (feed)     | `GET /buscar?numero_radicacion=…` (returns `feedCombinado`) | `sync-by-work-item`                  |
 | CPACA           | estado            | SAMAI Estados adapter     | (adapter in `_shared/providerAdapters/samaiEstadosAdapter.ts`) | `sync-publicaciones-by-work-item` — routed to SAMAI Estados path |
 | GOV_PROCEDURE   | —                 | (none — deny at coordinator) | —                                                | returns `ok:true, status:not_applicable`    |
 | PETICION        | —                 | (none — deny at coordinator) | —                                                | returns `ok:true, status:not_applicable`    |
+
+### SAMAI acts branch — service split (2026-07-07)
+
+Cloud Shell split SAMAI into two Cloud Run services:
+
+| Service                                                          | Purpose                                                | Env var                 | API key env var          |
+| ---------------------------------------------------------------- | ------------------------------------------------------ | ----------------------- | ------------------------ |
+| `samai-read-api-11974381924.us-central1.run.app`                 | **Acts feed** (`feedCombinado` = actuaciones ∪ estados) | `SAMAI_FEED_BASE_URL`  | `SAMAI_FEED_API_KEY` (opt; falls back to `SAMAI_X_API_KEY`) |
+| `samai-estados-api-11974381924.us-central1.run.app`              | Estados board only (2-row `POST /snapshot`)             | `SAMAI_BASE_URL` (legacy) / `SAMAI_ESTADOS_BASE_URL` | `SAMAI_X_API_KEY` / `SAMAI_ESTADOS_API_KEY` |
+
+`samaiAdapter.fetchFromSamai` prefers `SAMAI_FEED_BASE_URL` with
+`GET /buscar?numero_radicacion=<r>` and normalises the human-readable
+field names (`"Fecha Providencia"`, `"Actuación"`, …). It falls back
+to the legacy `POST /snapshot` on `SAMAI_BASE_URL` when the feed env var
+is unset, keeping the health/preflight probes on `SAMAI_BASE_URL`
+untouched.
+
+`samaiEstadosAdapter` continues to read `SAMAI_ESTADOS_BASE_URL` and
+`SAMAI_ESTADOS_API_KEY` for the estados board; it is unaffected.
 
 ## Coordinator response contract (pinned)
 
