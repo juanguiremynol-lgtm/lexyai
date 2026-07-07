@@ -1178,6 +1178,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         'provider_unavailable';
       (result as any).status = structuredStatus;
       (result as any).reason = fetchResult.error;
+      await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'error');
       return jsonResponse(result, 200);
     }
 
