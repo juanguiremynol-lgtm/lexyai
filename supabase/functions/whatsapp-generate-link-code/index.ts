@@ -66,17 +66,13 @@ Deno.serve(async (req: Request) => {
 
   const svc = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  // Authorization check
-  const { data: isPlatformAdmin } = await svc.rpc("is_platform_admin_uid" as never, { uid: caller.id } as never)
-    .then((r) => ({ data: !!r.data }))
-    .catch(async () => {
-      const { data } = await svc
-        .from("platform_admins")
-        .select("user_id")
-        .eq("user_id", caller.id)
-        .maybeSingle();
-      return { data: !!data };
-    });
+  // Authorization check: platform admin OR caller-for-self OR org admin
+  const { data: platAdminRow } = await svc
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", caller.id)
+    .maybeSingle();
+  const isPlatformAdmin = !!platAdminRow;
 
   let allowed = isPlatformAdmin || targetUserId === caller.id;
   if (!allowed && targetOrgId) {
