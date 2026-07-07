@@ -151,7 +151,10 @@ async function downloadPdf(url: string): Promise<ArrayBuffer> {
       signal: ctl.signal,
       headers: {
         "Accept": "application/pdf, */*",
-        "User-Agent": "Andromeda-AttachmentWorker/1.0",
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Andromeda-AttachmentWorker",
+        "Referer": "https://samaicore.consejodeestado.gov.co/",
+        "Origin": "https://samaicore.consejodeestado.gov.co",
       },
     });
     if (!resp.ok) {
