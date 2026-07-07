@@ -98,7 +98,14 @@ export function createLegacyAdapter(
         ok: result.ok && !result.isEmpty && result.actuaciones.length > 0,
         found: !result.isEmpty && (result.ok || result.actuaciones.length > 0),
         isEmpty: result.isEmpty || (result.ok && result.actuaciones.length === 0),
-        insertedCount: result.actuaciones.length, // Raw count — actual inserts happen in post-processing
+        // Legacy adapters only FETCH — they do not persist. The true "inserted"
+        // vs "skipped" counts are determined downstream by the ingestion RPC
+        // (upsert_work_item_act_with_provenance). Reporting the raw fetched
+        // count as `inserted_count` here caused daily `ins=N` inflation on
+        // external_sync_run_attempts even when 100% of items were dedup'd.
+        // We now report 0/0 at fetch time; the caller finalizes the counts
+        // after ingestion (see fetchedCount in metadata for the raw signal).
+        insertedCount: 0,
         skippedCount: 0,
         httpStatus: result.httpStatus || null,
         errorCode: result.ok ? null : classifyLegacyError(result),
@@ -112,6 +119,7 @@ export function createLegacyAdapter(
           scrapingJobId: result.scrapingJobId || null,
           scrapingPollUrl: result.scrapingPollUrl || null,
           actuacionesCount: result.actuaciones.length,
+          fetchedCount: result.actuaciones.length,
           hasCaseMetadata: !!result.caseMetadata,
           hasSujetos: !!(result.sujetos && result.sujetos.length > 0),
         },
