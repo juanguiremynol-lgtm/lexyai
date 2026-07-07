@@ -706,15 +706,15 @@ export function CreateWorkItemWizard({
                   {lookupStatus === 'not_found' && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Proceso no encontrado</AlertTitle>
+                      <AlertTitle>Radicado válido — aún no está en nuestras fuentes</AlertTitle>
                       <AlertDescription>
-                        No se encontró información en las fuentes consultadas
+                        El radicado es estructuralmente válido pero las fuentes externas aún no lo indexan.
+                        Se programará el escaneo automáticamente al crearlo — podrás continuar y completar los datos manualmente.
                         {lookupResult?.sources_checked && lookupResult.sources_checked.length > 0 && (
                           <span className="block text-xs mt-1">
                             (Consultados: {lookupResult.sources_checked.join(', ')})
                           </span>
                         )}
-                        . Puedes continuar e ingresar los datos manualmente.
                       </AlertDescription>
                     </Alert>
                   )}
