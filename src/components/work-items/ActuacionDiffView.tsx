@@ -149,7 +149,7 @@ export function ActuacionDiffView({ workItemId, dataKind }: DiffViewProps) {
   if (isLoading || diffEntries.length === 0) return null;
 
   const addedCount = diffEntries.filter(e => e.changeType === "added").length;
-  const removedCount = diffEntries.filter(e => e.changeType === "removed").length;
+  // Removed items are never surfaced (see diff builder above).
 
   return (
     <Card className="border-dashed border-primary/30">
@@ -161,11 +161,6 @@ export function ActuacionDiffView({ workItemId, dataKind }: DiffViewProps) {
             {addedCount > 0 && (
               <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-xs">
                 +{addedCount} nuevo{addedCount > 1 ? "s" : ""}
-              </Badge>
-            )}
-            {removedCount > 0 && (
-              <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs">
-                -{removedCount} eliminado{removedCount > 1 ? "s" : ""}
               </Badge>
             )}
           </CardTitle>
