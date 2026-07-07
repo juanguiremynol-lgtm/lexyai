@@ -1139,6 +1139,12 @@ Deno.serve(async (req) => {
     // ============= LOOKUP MODE: Return preview only =============
     
     if (mode === 'LOOKUP') {
+      // Run PP GET /lookup preflight in parallel (best-effort).
+      // Populates found/processing/not_in_portal so the wizard can render an
+      // informative non-terminal state when providers found nothing.
+      const ppLookup = await fetchPpLookup(radicado);
+      console.log(`[sync-by-radicado] PP lookup for ${radicado}: status=${ppLookup.status} http=${ppLookup.http_status ?? 'n/a'} latency=${ppLookup.latency_ms}ms`);
+
       const response: SyncResponse = {
         ok: true,
         work_item_id: existingWorkItem?.id,
@@ -1154,6 +1160,7 @@ Deno.serve(async (req) => {
         classification_reason: classificationReason,
         process_data: processData,
         attempts,
+        pp_lookup: ppLookup,
       };
       
       console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
