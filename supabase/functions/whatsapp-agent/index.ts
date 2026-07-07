@@ -6,7 +6,7 @@
  */
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { generateText, stepCountIs } from "npm:ai@4.0.14";
+import { generateText } from "npm:ai@4.0.14";
 import { createOpenAICompatible } from "npm:@ai-sdk/openai-compatible@0.2.14";
 import { readWhatsAppEnv, sendWhatsAppText } from "../_shared/whatsappProvider.ts";
 import { buildWhatsAppTools, makeServiceClient, ToolContext } from "../_shared/whatsappTools.ts";
@@ -164,7 +164,6 @@ Deno.serve(async (req: Request) => {
       system: systemFull,
       prompt: text ?? "",
       tools: buildWhatsAppTools(ctx),
-      stopWhen: stepCountIs(50),
       // hard tool-call budget
       maxSteps: 5,
     });
