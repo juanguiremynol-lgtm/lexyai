@@ -861,27 +861,44 @@ function normalizeRadicado(radicado: string): string {
 
 /**
  * Generate fingerprint for deduplication
- * CRITICAL: Includes indice (sequence number) to prevent collisions when
- * multiple actuaciones from the same day have similar text
+ *
+ * STABLE NATURAL KEY (2026-07 hardening after Icarus parity case #2):
+ * The fingerprint now depends ONLY on drift-STABLE inputs:
+ *   workItemId | act_date | normalized(description) | instancia
+ *
+ * Historical inputs that DRIFTED between snapshots and produced duplicate
+ * rows (e.g. "Reparto y Radicación - Cuad.:1" ingested twice with different
+ * hashes) are intentionally excluded from the identity key:
+ *   - `indice`               → upstream renumbers indices between snapshots
+ *   - `fechaRegistro`        → sometimes populated, sometimes NULL
+ *   - `anotacion`            → text drifts as clerks edit
+ *   - `source`               → same actuación can arrive from multiple providers
+ *
+ * The excluded fields still live on the row (source[], anotacion, …) but are
+ * NOT part of the identity — they are merged into the existing row on a
+ * collision (see upsert_work_item_act_with_provenance).
  */
 function generateFingerprint(
   workItemId: string,
   date: string,
   text: string,
-  indice?: string,
-  source?: string,
-  crossProviderDedup = false,
-  fechaRegistro?: string,
-  anotacion?: string,
+  _indice?: string,
+  _source?: string,
+  _crossProviderDedup = false,
+  _fechaRegistro?: string,
+  _anotacion?: string,
   instancia?: string,
 ): string {
-  // FANOUT mode: exclude source to enable cross-provider dedup at DB level
-  const sourcePart = source && !crossProviderDedup ? `|${source}` : '';
-  const indexPart = indice ? `|${indice}` : '';
-  // Robust composite key: includes fecha_registro, anotacion, instancia
-  // to prevent collisions between distinct actuaciones sharing date+title
-  const normAnotacion = (anotacion || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 200);
-  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}|${fechaRegistro || ''}|${normAnotacion}|${instancia || ''}${indexPart}${sourcePart}`;
+  // Normalize description: trim, lowercase, strip diacritics, collapse whitespace
+  const normText = (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 200);
+  const normInstancia = (instancia || '').trim().toLowerCase();
+  const normalized = `${workItemId}|${date || ''}|${normText}|${normInstancia}`;
   let hash = 0;
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
