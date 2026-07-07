@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { MessageCircle, KeyRound, Inbox, Users, ShieldCheck, Settings2, Send, CheckCircle2, XCircle, Loader2, Copy } from "lucide-react";
+import { MessageCircle, KeyRound, Inbox, Users, ShieldCheck, Settings2, Send, CheckCircle2, XCircle, Loader2, Copy, KeySquare } from "lucide-react";
 
 const REQUIRED_SECRETS = [
   { name: "WHATSAPP_ACCESS_TOKEN", label: "Access Token (permanente)", help: "Meta → App → WhatsApp → API Setup → Token permanente del System User." },
@@ -313,6 +313,8 @@ function LeadsTab() {
 function IdentidadesTab() {
   const [rows, setRows] = useState<Array<{ id: string; phone_e164: string; display_name: string | null; status: string; verified_at: string | null; organization_id: string | null }>>([]);
   const [loading, setLoading] = useState(true);
+  const [generatedCode, setGeneratedCode] = useState<{ code: string; expires_at: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
   useEffect(() => {
     supabase.from("whatsapp_identities").select("id, phone_e164, display_name, status, verified_at, organization_id").order("created_at", { ascending: false }).limit(200).then(({ data }) => { setRows((data ?? []) as never); setLoading(false); });
   }, []);
@@ -321,10 +323,52 @@ function IdentidadesTab() {
     setRows((rs) => rs.map((r) => r.id === id ? { ...r, status: "blocked" } : r));
     toast.success("Identidad bloqueada");
   };
+  const generate = async () => {
+    setGenerating(true);
+    setGeneratedCode(null);
+    const { data, error } = await supabase.functions.invoke("whatsapp-generate-link-code", { body: {} });
+    setGenerating(false);
+    if (error) { toast.error("Error: " + error.message); return; }
+    const d = data as { code: string; expires_at: string };
+    setGeneratedCode({ code: d.code, expires_at: d.expires_at });
+    toast.success("Código generado (válido 15 min)");
+  };
+  const copyCode = () => {
+    if (!generatedCode) return;
+    navigator.clipboard.writeText(generatedCode.code);
+    toast.success("Código copiado");
+  };
   return (
-    <Card>
-      <CardHeader><CardTitle>Identidades vinculadas</CardTitle></CardHeader>
-      <CardContent>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><KeySquare className="h-4 w-4" />Vincular mi WhatsApp</CardTitle>
+          <CardDescription>
+            Genera un código de 6 dígitos y envíalo por WhatsApp al bot para verificar tu número. Expira en 15 minutos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button onClick={generate} disabled={generating}>
+            {generating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <KeySquare className="h-4 w-4 mr-2" />}
+            Generar código de vinculación
+          </Button>
+          {generatedCode && (
+            <div className="rounded-lg border border-dashed p-4 bg-muted/30 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Envía este código por WhatsApp al bot</p>
+                <p className="text-3xl font-mono font-bold tracking-widest">{generatedCode.code}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Expira: {new Date(generatedCode.expires_at).toLocaleString("es-CO")}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyCode}><Copy className="h-3 w-3 mr-1" />Copiar</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Identidades vinculadas</CardTitle></CardHeader>
+        <CardContent>
         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
         {!loading && rows.length === 0 && <p className="text-xs text-muted-foreground">Sin identidades registradas.</p>}
         <div className="space-y-2">
@@ -341,8 +385,9 @@ function IdentidadesTab() {
             </div>
           ))}
         </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

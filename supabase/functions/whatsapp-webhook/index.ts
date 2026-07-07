@@ -10,6 +10,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import {
   parseInboundMessage,
   readWhatsAppEnv,
+  sendWhatsAppText,
   verifyMetaSignature,
 } from "../_shared/whatsappProvider.ts";
 import { makeServiceClient } from "../_shared/whatsappTools.ts";
@@ -72,21 +73,6 @@ Deno.serve(async (req: Request) => {
 
   const sb = makeServiceClient();
 
-  // dedupe by wa_message_id
-  if (msg.waMessageId) {
-    const { data: dup } = await sb
-      .from("whatsapp_messages")
-      .select("id")
-      .eq("wa_message_id", msg.waMessageId)
-      .maybeSingle();
-    if (dup) {
-      return new Response(JSON.stringify({ ok: true, note: "dup" }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-  }
-
   // upsert conversation
   const { data: conv } = await sb
     .from("whatsapp_conversations")
@@ -98,7 +84,7 @@ Deno.serve(async (req: Request) => {
       } as never,
       { onConflict: "phone_e164" },
     )
-    .select("id, status, opted_out, organization_id, identity_id")
+    .select("id, status, opted_out, organization_id, identity_id, metadata")
     .maybeSingle();
 
   if (!conv) {
@@ -108,20 +94,88 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // record inbound
-  await sb.from("whatsapp_messages").insert({
-    conversation_id: (conv as { id: string }).id,
-    wa_message_id: msg.waMessageId || null,
-    direction: "in",
-    body: msg.text ?? null,
-    message_type: msg.type,
-    status: "received",
-  } as never);
+  // record inbound (upsert on wa_message_id UNIQUE to swallow Meta retries)
+  const convId = (conv as { id: string }).id;
+  const insertRes = await sb
+    .from("whatsapp_messages")
+    .upsert(
+      {
+        conversation_id: convId,
+        wa_message_id: msg.waMessageId || null,
+        direction: "in",
+        body: msg.text ?? null,
+        message_type: msg.type,
+        status: "received",
+      } as never,
+      { onConflict: "wa_message_id", ignoreDuplicates: true },
+    )
+    .select("id")
+    .maybeSingle();
+  if (msg.waMessageId && !insertRes.data) {
+    // Duplicate delivery from Meta — swallow without dispatch
+    return new Response(JSON.stringify({ ok: true, note: "dup" }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   // opted-out or human-handled: don't dispatch bot
-  const c = conv as { status: string; opted_out: boolean };
+  const c = conv as {
+    status: string;
+    opted_out: boolean;
+    organization_id: string | null;
+    metadata: Record<string, unknown> | null;
+  };
   if (c.opted_out || c.status === "human_active" || c.status === "closed") {
     return new Response(JSON.stringify({ ok: true, note: "not_bot" }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // ── RATE LIMIT (GAP D) ─────────────────────────────────────────────
+  // Verified users get a wider window than unverified; a single cooldown
+  // notice is sent per window, tracked via conversations.metadata.
+  const verified = !!c.organization_id;
+  const { data: settings } = await sb
+    .from("whatsapp_bot_settings")
+    .select("rate_limit_max, rate_limit_window_minutes")
+    .eq("singleton", true)
+    .maybeSingle();
+  const windowMin = settings?.rate_limit_window_minutes ?? 5;
+  const baseMax = settings?.rate_limit_max ?? 20;
+  const cap = verified ? baseMax : Math.max(3, Math.min(baseMax, 5));
+  const windowStart = new Date(Date.now() - windowMin * 60_000).toISOString();
+  const { count: inboundCount } = await sb
+    .from("whatsapp_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("conversation_id", convId)
+    .eq("direction", "in")
+    .gte("created_at", windowStart);
+
+  if ((inboundCount ?? 0) > cap) {
+    const meta = c.metadata ?? {};
+    const noticeAtStr = typeof (meta as { cooldown_notice_at?: string }).cooldown_notice_at === "string"
+      ? (meta as { cooldown_notice_at: string }).cooldown_notice_at
+      : null;
+    const noticeAt = noticeAtStr ? Date.parse(noticeAtStr) : 0;
+    const shouldSendNotice = Date.now() - noticeAt > windowMin * 60_000;
+    if (shouldSendNotice) {
+      try {
+        await sendWhatsAppText(
+          env,
+          msg.fromE164,
+          `Has enviado muchos mensajes en poco tiempo. Espera ~${windowMin} minutos y vuelve a escribir.`,
+        );
+      } catch (_e) { /* best-effort */ }
+      await sb
+        .from("whatsapp_conversations")
+        .update({
+          metadata: { ...(meta as Record<string, unknown>), cooldown_notice_at: new Date().toISOString() },
+        } as never)
+        .eq("id", convId);
+    }
+    return new Response(JSON.stringify({ ok: true, note: "rate_limited" }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -212,7 +212,7 @@ export function buildWhatsAppTools(ctx: ToolContext) {
         requireIdentity();
         const { data: wi } = await ctx.supabase
           .from("work_items")
-          .select("id, workflow_type, organization_id")
+          .select("id, workflow_type, organization_id, radicado, current_stage")
           .eq("id", work_item_id)
           .eq("organization_id", ctx.organizationId!)
           .maybeSingle();
@@ -220,7 +220,8 @@ export function buildWhatsAppTools(ctx: ToolContext) {
           await logToolCall(ctx, "request_refresh", { work_item_id }, "not_found", work_item_id);
           return { error: "no_encontrado" };
         }
-        if (!isOnlineSyncEligible(wi.workflow_type)) {
+        const w = wi as { workflow_type: string; organization_id: string; radicado: string | null; current_stage: string | null };
+        if (!isOnlineSyncEligible(w.workflow_type)) {
           await logToolCall(ctx, "request_refresh", { work_item_id }, "not_applicable", work_item_id);
           return {
             error: "not_applicable",
@@ -228,10 +229,22 @@ export function buildWhatsAppTools(ctx: ToolContext) {
               "Este tipo de proceso no admite consulta externa automática.",
           };
         }
+        // Route: CPACA → estados via samai; every other eligible workflow → CGP acts via cpnu.
+        const kind = w.workflow_type === "CPACA" ? "PUB_RETRY" : "ACT_SCRAPE_RETRY";
+        const provider = w.workflow_type === "CPACA" ? "samai" : "cpnu";
         const { error } = await ctx.supabase.from("sync_retry_queue").insert({
           work_item_id,
-          reason: "whatsapp_refresh",
-          priority: 5,
+          organization_id: w.organization_id,
+          radicado: w.radicado ?? "",
+          workflow_type: w.workflow_type,
+          stage: w.current_stage,
+          kind,
+          provider,
+          attempt: 0,
+          max_attempts: 3,
+          next_run_at: new Date().toISOString(),
+          last_error_code: "WHATSAPP_MANUAL_REFRESH",
+          last_error_message: `Refresh manual solicitado por WhatsApp ${ctx.phoneE164}`,
         } as never);
         const ok = !error;
         await logToolCall(ctx, "request_refresh", { work_item_id }, ok ? "enqueued" : `err:${error?.message}`, work_item_id);
