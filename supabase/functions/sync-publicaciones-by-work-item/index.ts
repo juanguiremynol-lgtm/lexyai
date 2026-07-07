@@ -1575,6 +1575,38 @@ Deno.serve(withSyncTimeline(async (req) => {
                 }),
               );
             } else {
+              // ── Refresh pdf_url on the publicacion row itself (defensive) ──
+              // Ensures updates to the pdf_url land even if the RPC upsert
+              // path elected to skip the row. Best-effort, non-blocking.
+              try {
+                await supabase
+                  .from('work_item_publicaciones')
+                  .update({ pdf_url: pub.pdf_url })
+                  .eq('id', pubRow.id)
+                  .neq('pdf_url', pub.pdf_url);
+              } catch (_e) { /* best-effort */ }
+
+              // ── Re-point stale queue rows for THIS publicacion ──
+              // A previous sync may have enqueued the same publication with an
+              // older remote URL (e.g. samaicore.consejodeestado.gov.co). The
+              // upstream now hands us Cloud Run URLs served by our own PDF
+              // proxy — repoint any pending/failed rows to the fresh URL and
+              // reset attempts so the worker retries against the good source.
+              try {
+                await supabase
+                  .from('estado_attachment_queue')
+                  .update({
+                    remote_url: pub.pdf_url,
+                    status: 'pending',
+                    attempt_count: 0,
+                    last_error: null,
+                    next_retry_at: new Date().toISOString(),
+                  })
+                  .eq('publicacion_id', pubRow.id)
+                  .neq('remote_url', pub.pdf_url)
+                  .in('status', ['pending', 'failed']);
+              } catch (_e) { /* best-effort */ }
+
               const { error: enqueueErr } = await supabase
                 .from('estado_attachment_queue')
                 .upsert(
