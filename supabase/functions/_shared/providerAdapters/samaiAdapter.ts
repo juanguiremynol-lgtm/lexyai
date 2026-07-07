@@ -58,17 +58,39 @@ export async function fetchFromSamai(
   options: AdapterOptions,
 ): Promise<ProviderAdapterResult> {
   const startTime = Date.now();
-  const baseUrl = Deno.env.get('SAMAI_BASE_URL');
-  const apiKeyInfo = await getApiKeyForProvider('samai');
+  // ────────────────────────────────────────────────────────────────
+  // ACTS BRANCH ROUTING (2026-07-07):
+  //   Cloud Shell split SAMAI into two services:
+  //     • samai-estados-api  → estados board (2 rows for CPACA cases)
+  //     • samai-read-api     → feedCombinado = union of estados + actuaciones
+  //   The acts adapter MUST target samai-read-api to get the full act feed
+  //   (10 rows for radicado 11001333704320260004700, incl. RECIBE MEMORIALES
+  //   2026-07-06). To avoid disturbing the estados/health consumers that
+  //   still read SAMAI_BASE_URL, we introduce a dedicated SAMAI_FEED_BASE_URL
+  //   used ONLY by this adapter. Fallback to legacy behaviour if unset.
+  // ────────────────────────────────────────────────────────────────
+  const feedBaseUrl = Deno.env.get('SAMAI_FEED_BASE_URL');
+  const legacyBaseUrl = Deno.env.get('SAMAI_BASE_URL');
+  const baseUrl = feedBaseUrl || legacyBaseUrl;
+  const useFeedProtocol = Boolean(feedBaseUrl);
+
+  const apiKeyInfo = useFeedProtocol
+    ? await resolveFeedApiKey()
+    : await getApiKeyForProvider('samai');
 
   if (!baseUrl) {
-    return makeErrorResult('SAMAI API not configured (missing SAMAI_BASE_URL)', startTime);
+    return makeErrorResult('SAMAI API not configured (missing SAMAI_FEED_BASE_URL and SAMAI_BASE_URL)', startTime);
   }
 
   const cleanBase = baseUrl.replace(/\/+$/, '');
   const headers = buildHeaders(apiKeyInfo);
 
   try {
+    if (useFeedProtocol) {
+      // Both monitoring and discovery use the same GET /buscar route on the
+      // read-api — it reads from Postgres and returns feedCombinado in <1s.
+      return await fetchFeedMode(options, cleanBase, headers, startTime);
+    }
     if (options.mode === 'monitoring') {
       return await fetchMonitoringMode(options, cleanBase, headers, apiKeyInfo, startTime);
     } else {
@@ -81,6 +103,68 @@ export async function fetchFromSamai(
       startTime,
     );
   }
+}
+
+// ═══════════════════════════════════════════
+// FEED MODE (samai-read-api): GET /buscar?numero_radicacion=<r>
+// Returns { radicado, total_actuaciones, actuaciones: feedCombinado, total_found,
+//           last_deep_scan_at, fuentes }.
+// Field names use human-readable keys ("Fecha Providencia", "Actuación", ...);
+// normalizeSamaiActuaciones already handles them.
+// ═══════════════════════════════════════════
+
+async function fetchFeedMode(
+  options: AdapterOptions,
+  baseUrl: string,
+  headers: Record<string, string>,
+  startTime: number,
+): Promise<ProviderAdapterResult> {
+  const { radicado } = options;
+  const url = `${baseUrl}/buscar?numero_radicacion=${encodeURIComponent(radicado)}`;
+  console.log(`${LOG_TAG} [feed] GET ${url} radicado=${radicado.slice(0, 4)}***`);
+
+  const response = await fetch(url, { method: 'GET', headers });
+
+  if (response.status === 404) {
+    return makeEmptyResult('Record not found in SAMAI feed', startTime, 404);
+  }
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    return makeErrorResult(
+      `SAMAI GET /buscar HTTP ${response.status}: ${bodyText.slice(0, 200)}`,
+      startTime,
+      response.status,
+    );
+  }
+
+  const data = await response.json();
+  const result = (data.result ?? data) as Record<string, unknown>;
+  const rawActuaciones =
+    (result.feedCombinado as Array<Record<string, unknown>>) ||
+    (result.actuaciones as Array<Record<string, unknown>>) ||
+    [];
+
+  if (!rawActuaciones || rawActuaciones.length === 0) {
+    return makeEmptyResult('No actuaciones in SAMAI feed response', startTime, response.status);
+  }
+
+  console.log(
+    `${LOG_TAG} [feed] found ${rawActuaciones.length} actuaciones ` +
+    `(total_found=${result.total_found ?? 'n/a'}, last_deep_scan_at=${result.last_deep_scan_at ?? 'n/a'})`,
+  );
+
+  const sujetos = (result.sujetos_procesales ?? result.sujetos ?? []) as Array<Record<string, unknown>>;
+  return buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, response.status);
+}
+
+async function resolveFeedApiKey(): Promise<ApiKeyInfo> {
+  const explicit = Deno.env.get('SAMAI_FEED_API_KEY');
+  if (explicit) {
+    return { value: explicit, source: 'SAMAI_FEED_API_KEY' as unknown as ApiKeyInfo['source'] };
+  }
+  // Fall back to the standard SAMAI key so operators only need to set the new
+  // URL secret when both services share the same api-key contract.
+  return getApiKeyForProvider('samai');
 }
 
 // ═══════════════════════════════════════════
