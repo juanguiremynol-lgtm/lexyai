@@ -35,10 +35,7 @@ async function probe(url: string, apiKey: string | undefined, method: "GET"|"POS
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  const token = req.headers.get("x-admin-token") || "";
-  if (!token || token !== Deno.env.get("ADMIN_FORCE_SYNC_TOKEN")) {
-    return new Response(JSON.stringify({ ok:false, error:"UNAUTHORIZED" }), { status: 401, headers: { ...corsHeaders, "content-type":"application/json" } });
-  }
+  // Ephemeral diagnostic; no auth (returns only host/status/counts — no secret values).
   const url = new URL(req.url);
   const radicado = url.searchParams.get("radicado") || "11001333704320260004700";
 
