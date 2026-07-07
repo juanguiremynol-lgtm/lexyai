@@ -69,7 +69,10 @@ Deno.serve(async (req) => {
     } catch (e: any) {
       results.sync_by_work_item = { error: e?.message || String(e), duration_ms: Date.now() - t0 };
     }
-    // Trigger publicaciones sync too
+  }
+  if (workItemId) {
+    const supaUrl = Deno.env.get("SUPABASE_URL")!;
+    const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const t1 = Date.now();
     try {
       const r = await fetch(`${supaUrl}/functions/v1/sync-publicaciones-by-work-item`, {
