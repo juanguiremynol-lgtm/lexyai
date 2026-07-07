@@ -147,45 +147,28 @@ async function downloadPdf(url: string): Promise<ArrayBuffer> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
-    // Option A (preferred): route SAMAI providencia downloads through the
-    // samai-estados-api /descargar proxy. The upstream WAF at
-    // samaicore.consejodeestado.gov.co returns 403 when hit directly from
-    // Supabase egress IPs; the proxy runs in Cloud Run with the exact
-    // browser-shaped headers that pass the WAF.
-    const isSamaiProvidencia = /samaicore\.consejodeestado\.gov\.co/i.test(url)
-      && /DescargarProvidenciaPublica/i.test(url);
-    const samaiBase = Deno.env.get("SAMAI_ESTADOS_BASE_URL");
-    const samaiKey = Deno.env.get("SAMAI_ESTADOS_API_KEY");
-    if (isSamaiProvidencia && samaiBase && samaiKey) {
-      const proxyUrl = `${samaiBase.replace(/\/+$/, "")}/descargar`;
-      const resp = await fetch(proxyUrl, {
-        method: "POST",
-        signal: ctl.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": samaiKey,
+    // Route selection based on host:
+    //   - Our Cloud Run PDF proxies (publicaciones-procesales-api-*.run.app,
+    //     samai-estados-api-*.run.app) require X-API-Key. Browser-spoofing
+    //     headers are NOT sent — those endpoints authenticate on API key only.
+    //   - Any other host uses the legacy browser-shaped headers.
+    const auth = resolveGcpAuth(url);
+    const headers: Record<string, string> = auth
+      ? {
           "Accept": "application/pdf, */*",
-        },
-        body: JSON.stringify({ url }),
-      });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => "");
-        throw new Error(`proxy_http_${resp.status}:${body.slice(0, 200)}`);
-      }
-      return await resp.arrayBuffer();
+          "X-API-Key": auth.apiKey,
+        }
+      : {
+          "Accept": "application/pdf, */*",
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Andromeda-AttachmentWorker",
+          "Referer": "https://samaicore.consejodeestado.gov.co/",
+          "Origin": "https://samaicore.consejodeestado.gov.co",
+        };
+    if (auth) {
+      console.log(`${LOG_TAG} using ${auth.source} X-API-Key for ${new URL(url).host}`);
     }
-
-    // Option B fallback: direct fetch with browser-shaped headers.
-    const resp = await fetch(url, {
-      signal: ctl.signal,
-      headers: {
-        "Accept": "application/pdf, */*",
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Andromeda-AttachmentWorker",
-        "Referer": "https://samaicore.consejodeestado.gov.co/",
-        "Origin": "https://samaicore.consejodeestado.gov.co",
-      },
-    });
+    const resp = await fetch(url, { signal: ctl.signal, headers });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
       throw new Error(`http_${resp.status}:${body.slice(0, 200)}`);
@@ -194,6 +177,33 @@ async function downloadPdf(url: string): Promise<ArrayBuffer> {
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * Return the X-API-Key to send for a given absolute URL when the host
+ * matches one of our own Cloud Run PDF proxies. Returns null for any other
+ * host so the caller falls back to browser-shaped headers.
+ *
+ * Uses the same secret names as the sync-* edge functions:
+ *   - publicaciones-procesales-api-*.run.app → PUBLICACIONES_X_API_KEY || EXTERNAL_X_API_KEY
+ *   - samai-estados-api-*.run.app            → SAMAI_ESTADOS_API_KEY
+ */
+export function resolveGcpAuth(
+  rawUrl: string,
+): { apiKey: string; source: "publicaciones" | "samai_estados" } | null {
+  let host = "";
+  try { host = new URL(rawUrl).host.toLowerCase(); } catch { return null; }
+
+  if (/^publicaciones-procesales-api-[a-z0-9-]+\.run\.app$/i.test(host)) {
+    const key = Deno.env.get("PUBLICACIONES_X_API_KEY")
+      || Deno.env.get("EXTERNAL_X_API_KEY");
+    return key ? { apiKey: key, source: "publicaciones" } : null;
+  }
+  if (/^samai-estados-api-[a-z0-9-]+\.run\.app$/i.test(host)) {
+    const key = Deno.env.get("SAMAI_ESTADOS_API_KEY");
+    return key ? { apiKey: key, source: "samai_estados" } : null;
+  }
+  return null;
 }
 
 function safeName(name: string): string {

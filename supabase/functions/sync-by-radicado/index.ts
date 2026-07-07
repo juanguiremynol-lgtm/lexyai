@@ -55,6 +55,23 @@ interface SyncResponse {
   error?: string;
   code?: string;
   attempts?: AttemptLog[];
+  pp_lookup?: PpLookupResult;
+}
+
+/**
+ * Result of the lightweight PP GET /lookup/{radicado} preflight.
+ * Runs in LOOKUP mode alongside the usual provider fan-out.
+ *
+ *   found         → PP has data cached for this radicado.
+ *   processing    → radicado is valid, scrape auto-triggered by the API.
+ *   not_in_portal → confirmed absent after a real scan (NOT a 504).
+ *   unknown       → the endpoint was unreachable or unconfigured (non-terminal).
+ */
+interface PpLookupResult {
+  status: 'found' | 'processing' | 'not_in_portal' | 'unknown';
+  http_status?: number;
+  latency_ms: number;
+  error?: string;
 }
 
 interface ProcessData {
@@ -532,6 +549,56 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
       processData: {},
       latency_ms: 0,
       error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
+    };
+  }
+}
+
+/**
+ * Lightweight PP preflight — GET /lookup/{radicado} on the pp-scraper API.
+ * Never throws; a network/config failure yields status='unknown' which the
+ * wizard treats as non-terminal.
+ */
+async function fetchPpLookup(radicado: string): Promise<PpLookupResult> {
+  const startTime = Date.now();
+  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+  const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY')
+    || Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!baseUrl || !apiKey) {
+    return { status: 'unknown', latency_ms: 0, error: 'PP not configured' };
+  }
+
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const url = `${cleanBase}/lookup/${encodeURIComponent(radicado)}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const latency = Date.now() - startTime;
+
+    if (!resp.ok) {
+      return { status: 'unknown', http_status: resp.status, latency_ms: latency, error: `HTTP ${resp.status}` };
+    }
+    const body = await resp.json().catch(() => null);
+    const raw = String(body?.status || '').toLowerCase();
+    const status: PpLookupResult['status'] =
+      raw === 'found' ? 'found' :
+      raw === 'processing' ? 'processing' :
+      raw === 'not_in_portal' ? 'not_in_portal' :
+      'unknown';
+    return { status, http_status: resp.status, latency_ms: latency };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      status: 'unknown',
+      latency_ms: Date.now() - startTime,
+      error: err?.name === 'AbortError' ? 'timeout' : (err?.message || String(err)),
     };
   }
 }
@@ -1072,6 +1139,12 @@ Deno.serve(async (req) => {
     // ============= LOOKUP MODE: Return preview only =============
     
     if (mode === 'LOOKUP') {
+      // Run PP GET /lookup preflight in parallel (best-effort).
+      // Populates found/processing/not_in_portal so the wizard can render an
+      // informative non-terminal state when providers found nothing.
+      const ppLookup = await fetchPpLookup(radicado);
+      console.log(`[sync-by-radicado] PP lookup for ${radicado}: status=${ppLookup.status} http=${ppLookup.http_status ?? 'n/a'} latency=${ppLookup.latency_ms}ms`);
+
       const response: SyncResponse = {
         ok: true,
         work_item_id: existingWorkItem?.id,
@@ -1087,6 +1160,7 @@ Deno.serve(async (req) => {
         classification_reason: classificationReason,
         process_data: processData,
         attempts,
+        pp_lookup: ppLookup,
       };
       
       console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
