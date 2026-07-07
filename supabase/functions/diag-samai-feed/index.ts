@@ -48,7 +48,8 @@ Deno.serve(async (req) => {
 
   // Optional: trigger sync-by-work-item for a given work_item_id.
   const workItemId = url.searchParams.get("work_item_id");
-  if (workItemId) {
+  const onlyPubs = url.searchParams.get("only_pubs") === "1";
+  if (workItemId && !onlyPubs) {
     const supaUrl = Deno.env.get("SUPABASE_URL")!;
     const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const t0 = Date.now();
