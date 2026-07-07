@@ -706,10 +706,23 @@ export function CreateWorkItemWizard({
                   {lookupStatus === 'not_found' && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Radicado válido — aún no está en nuestras fuentes</AlertTitle>
+                      <AlertTitle>
+                        {lookupResult?.pp_lookup?.status === 'processing'
+                          ? 'Radicado válido — escaneo ya disparado en la fuente'
+                          : lookupResult?.pp_lookup?.status === 'not_in_portal'
+                            ? 'Radicado válido — no aparece en Publicaciones Procesales'
+                            : 'Radicado válido — aún no está en nuestras fuentes'}
+                      </AlertTitle>
                       <AlertDescription>
-                        El radicado es estructuralmente válido pero las fuentes externas aún no lo indexan.
-                        Se programará el escaneo automáticamente al crearlo — podrás continuar y completar los datos manualmente.
+                        {lookupResult?.pp_lookup?.status === 'processing' && (
+                          <>El radicado es válido y el portal ya inició el escaneo. Podés continuar; los datos se completarán automáticamente en el próximo ciclo.</>
+                        )}
+                        {lookupResult?.pp_lookup?.status === 'not_in_portal' && (
+                          <>Publicaciones Procesales no indexa este radicado, pero otras fuentes (por ejemplo CPNU) pueden tenerlo. Podés continuar y completar los datos manualmente.</>
+                        )}
+                        {(lookupResult?.pp_lookup?.status === 'unknown' || !lookupResult?.pp_lookup) && (
+                          <>El radicado es estructuralmente válido pero las fuentes externas aún no lo indexan. Se programará el escaneo automáticamente al crearlo — podés continuar y completar los datos manualmente.</>
+                        )}
                         {lookupResult?.sources_checked && lookupResult.sources_checked.length > 0 && (
                           <span className="block text-xs mt-1">
                             (Consultados: {lookupResult.sources_checked.join(', ')})
