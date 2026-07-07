@@ -29,6 +29,7 @@ import {
   normalizeDate,
   ensureAbsoluteUrl,
   getApiKeyForProvider,
+  hashFingerprint,
   pollForResult,
   DEFAULT_POLL_CONFIG,
   truncate,
@@ -160,7 +161,11 @@ async function fetchFeedMode(
 async function resolveFeedApiKey(): Promise<ApiKeyInfo> {
   const explicit = Deno.env.get('SAMAI_FEED_API_KEY');
   if (explicit) {
-    return { value: explicit, source: 'SAMAI_FEED_API_KEY' as unknown as ApiKeyInfo['source'] };
+    return {
+      source: 'SAMAI_FEED_API_KEY',
+      value: explicit,
+      fingerprint: await hashFingerprint(explicit),
+    };
   }
   // Fall back to the standard SAMAI key so operators only need to set the new
   // URL secret when both services share the same api-key contract.
