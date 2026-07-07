@@ -216,6 +216,51 @@ function jsonResponse(data: object, status: number = 200): Response {
   });
 }
 
+/**
+ * Best-effort attempt-row writer. ALWAYS write an external_sync_runs row for
+ * publicaciones so CGP/eligible work items are never silently omitted from
+ * observability — even on early empty/error returns. Never throws.
+ */
+async function writePublicacionesAttemptRow(
+  supabase: any,
+  workItem: any,
+  workItemId: string,
+  result: any,
+  scheduled: boolean | undefined,
+  isServiceRole: boolean,
+  outcome: 'success' | 'empty' | 'error',
+): Promise<void> {
+  try {
+    const invokedBy = (scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
+    const status =
+      outcome === 'error' ? 'FAILED'
+      : outcome === 'empty' ? 'PARTIAL'
+      : 'SUCCESS';
+    await supabase.from('external_sync_runs').insert({
+      work_item_id: workItemId,
+      organization_id: workItem?.organization_id,
+      invoked_by: invokedBy,
+      trigger_source: 'sync-publicaciones-by-work-item',
+      started_at: new Date(Date.now() - (result?.provider_latency_ms || 0)).toISOString(),
+      finished_at: new Date().toISOString(),
+      duration_ms: result?.provider_latency_ms || 0,
+      status,
+      provider_attempts: [{
+        provider: 'publicaciones',
+        data_kind: 'ESTADOS',
+        status: outcome,
+        latency_ms: result?.provider_latency_ms || 0,
+        inserted_count: result?.inserted_count || 0,
+        skipped_count: result?.skipped_count || 0,
+        result_code: result?.result_code,
+      }],
+      total_inserted_pubs: result?.inserted_count || 0,
+      total_skipped_pubs: result?.skipped_count || 0,
+      error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
+    });
+  } catch (_e) { /* best-effort */ }
+}
+
 function errorResponse(code: string, message: string, status: number = 400): Response {
   return jsonResponse({
     ok: false,
