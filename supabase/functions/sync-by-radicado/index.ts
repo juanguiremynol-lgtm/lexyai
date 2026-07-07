@@ -553,6 +553,56 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
   }
 }
 
+/**
+ * Lightweight PP preflight — GET /lookup/{radicado} on the pp-scraper API.
+ * Never throws; a network/config failure yields status='unknown' which the
+ * wizard treats as non-terminal.
+ */
+async function fetchPpLookup(radicado: string): Promise<PpLookupResult> {
+  const startTime = Date.now();
+  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+  const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY')
+    || Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!baseUrl || !apiKey) {
+    return { status: 'unknown', latency_ms: 0, error: 'PP not configured' };
+  }
+
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const url = `${cleanBase}/lookup/${encodeURIComponent(radicado)}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const latency = Date.now() - startTime;
+
+    if (!resp.ok) {
+      return { status: 'unknown', http_status: resp.status, latency_ms: latency, error: `HTTP ${resp.status}` };
+    }
+    const body = await resp.json().catch(() => null);
+    const raw = String(body?.status || '').toLowerCase();
+    const status: PpLookupResult['status'] =
+      raw === 'found' ? 'found' :
+      raw === 'processing' ? 'processing' :
+      raw === 'not_in_portal' ? 'not_in_portal' :
+      'unknown';
+    return { status, http_status: resp.status, latency_ms: latency };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      status: 'unknown',
+      latency_ms: Date.now() - startTime,
+      error: err?.name === 'AbortError' ? 'timeout' : (err?.message || String(err)),
+    };
+  }
+}
+
 // ============= TUTELA STAGE INFERENCE =============
 
 /**
