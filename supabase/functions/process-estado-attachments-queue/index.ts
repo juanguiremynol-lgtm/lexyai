@@ -147,6 +147,35 @@ async function downloadPdf(url: string): Promise<ArrayBuffer> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
+    // Option A (preferred): route SAMAI providencia downloads through the
+    // samai-estados-api /descargar proxy. The upstream WAF at
+    // samaicore.consejodeestado.gov.co returns 403 when hit directly from
+    // Supabase egress IPs; the proxy runs in Cloud Run with the exact
+    // browser-shaped headers that pass the WAF.
+    const isSamaiProvidencia = /samaicore\.consejodeestado\.gov\.co/i.test(url)
+      && /DescargarProvidenciaPublica/i.test(url);
+    const samaiBase = Deno.env.get("SAMAI_ESTADOS_BASE_URL");
+    const samaiKey = Deno.env.get("SAMAI_ESTADOS_API_KEY");
+    if (isSamaiProvidencia && samaiBase && samaiKey) {
+      const proxyUrl = `${samaiBase.replace(/\/+$/, "")}/descargar`;
+      const resp = await fetch(proxyUrl, {
+        method: "POST",
+        signal: ctl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": samaiKey,
+          "Accept": "application/pdf, */*",
+        },
+        body: JSON.stringify({ url }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => "");
+        throw new Error(`proxy_http_${resp.status}:${body.slice(0, 200)}`);
+      }
+      return await resp.arrayBuffer();
+    }
+
+    // Option B fallback: direct fetch with browser-shaped headers.
     const resp = await fetch(url, {
       signal: ctl.signal,
       headers: {
