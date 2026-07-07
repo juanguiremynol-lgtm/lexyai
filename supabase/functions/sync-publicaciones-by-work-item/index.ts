@@ -1320,6 +1320,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.warn(`[sync-pub] Failed to write coverage gap trace:`, traceErr?.message);
       }
 
+      await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'empty');
       return jsonResponse({
         ...result,
         coverage_gap: {
