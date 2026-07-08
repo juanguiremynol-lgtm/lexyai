@@ -734,6 +734,15 @@ function extractPublicacionesFromResponse(
     const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
     const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
     const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
+    // /historico aditivo: state (fijación) date + auto date
+    const estadoObj = p.estado && typeof p.estado === 'object' ? p.estado : null;
+    const fechaEstadoRaw =
+      estadoObj?.fecha_publicacion || estadoObj?.fecha || p.fecha_estado || p.fecha_fijacion || null;
+    const autoFromDocs = Array.isArray(p.documentos_pdf)
+      ? (p.documentos_pdf.find((d: any) => (d?.tipo || '').toLowerCase() === 'auto')?.fecha ?? null)
+      : null;
+    const fechaAutoRaw =
+      extractAutoDateFromText(p.texto_auto) || p.fecha_auto || autoFromDocs || null;
     return {
       key,
       tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
@@ -744,6 +753,8 @@ function extractPublicacionesFromResponse(
       fecha_hora_inicio: p.fecha_hora_inicio || null,
       tipo_evento: p.tipo_evento || p.tipo || 'Estado Electrónico',
       pdf_url: typeof pdfUrl === 'string' ? pdfUrl : undefined,
+      fecha_estado_raw: fechaEstadoRaw,
+      fecha_auto_raw: fechaAutoRaw,
       clasificacion: p.clasificacion || {
         categoria: p.tipo_evento || p.tipo || 'Estado Electrónico',
         descripcion: p.descripcion || p.anotacion || title,
