@@ -912,13 +912,31 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at')
+      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at')
       .eq('id', work_item_id)
       .maybeSingle();
 
     if (workItemError || !workItem) {
       console.log(`[sync-pub] Work item not found: ${work_item_id}`);
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
+    }
+
+    // ============= BUG 2 fix — PAUSE GATE (monitoring_enabled) =============
+    // Symmetric with sync-by-work-item: a paused/deleted WI is not synced for
+    // any data kind. No provider call, no persistence, no external_sync_runs
+    // row, no false SUCCESS.
+    if ((workItem as any).monitoring_enabled === false || (workItem as any).deleted_at) {
+      const reason = (workItem as any).deleted_at ? 'WORK_ITEM_DELETED' : 'MONITORING_PAUSED';
+      console.log(`[sync-pub] SKIP paused/deleted wi=${work_item_id} reason=${reason}`);
+      return jsonResponse({
+        ok: true,
+        status: 'skipped_paused',
+        reason,
+        work_item_id,
+        workflow_type: workItem.workflow_type,
+        inserted_count: 0,
+        skipped_count: 0,
+      });
     }
 
     // ============= CATEGORY ELIGIBILITY GATE =============
