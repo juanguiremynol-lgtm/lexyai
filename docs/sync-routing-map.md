@@ -38,6 +38,54 @@ list can never diverge.
 | TUTELA          | Tutela                            | Yes                  | Public tutela API is primary; CPNU is fallback                       | actuación + publicación       | `publicaciones` |
 | CPACA           | Contencioso administrativo        | Yes                  | Administrative courts — SAMAI Estados is the correct source          | estado (SAMAI Estados)        | `estados`       |
 | GOV_PROCEDURE   | Procesos administrativos          | **No**               | Proceedings before administrative *authorities*, not judicial       | none                          | `none`          |
+
+## Hearings pipeline — canonical table & extractor status (2026-07-08)
+
+**Canonical table:** `work_item_hearings` (read by
+`useWorkItemHearingsV2` → `HearingsTab.tsx`). The legacy `hearings` table
+is NOT yet deprecated in code — the following surfaces still read/write
+it and must be migrated before the legacy table can be dropped:
+
+- `supabase/functions/hearing-reminders/index.ts` (reminder dispatcher)
+- `supabase/functions/scheduled-alert-evaluator/index.ts`
+- `supabase/functions/purge-organization-data/index.ts`
+- `supabase/functions/delete-work-items/index.ts`
+- `src/hooks/use-work-item-hearings.ts` (v1)
+- `src/pages/Hearings.tsx`, `src/components/hearings/*`,
+  `src/components/filings/HearingsList.tsx`,
+  `src/components/dashboard/HearingTeamsNotice.tsx`,
+  `src/components/admin/tabs/AdminSupportToolsTab.tsx`,
+  `src/lib/services/atenia-freshness-policies.ts`,
+  `src/hooks/use-work-item-detail.ts`
+
+**Extractor integration in `sync-by-work-item`:**
+
+- Per-act extractor (lines 2632–2679, 2870–2939) runs INSIDE the loop over
+  newly-fetched acts from CPNU/SAMAI. It fires only when a fresh act is
+  ingested. Old acts already in `work_item_acts` never re-enter this loop.
+- Early hearing backfill sweep (lines 1442–1486) runs BEFORE the fetch and
+  scans already-persisted `work_item_acts` for this WI, so historical
+  audiencia-fixing acts can converge to `work_item_hearings` on any sync
+  invocation, regardless of provider health on that tick.
+
+**Convergence caveat (why re-sync of WI `7b038fac` did not recreate the
+2026-07-08 row after manual delete):** `sync-by-work-item` was never
+re-invoked for that WI in the observation window — `process-retry-queue`
+logs showed `No due tasks. Done.` on every poll (no retry task was
+queued for this WI). The early sweep can only converge if the function
+actually runs. Recommended hardening: a periodic sweeper cron over active
+WIs with `is_paused=false`, or enqueue a sweep task on demand from the
+Doctor's Sync panel.
+
+## Colombian holidays — dual-source debt
+
+Backend derives business days from the `colombian_holidays` table
+(seeded 2026+); frontend derives them algorithmically from
+`src/lib/colombian-holidays.ts` (Ley Emiliani). The two sources agree
+for 2026 (verified), but the divergence is a latent risk. Recommended
+consolidation: have the frontend hydrate from `colombian_holidays` on
+session load and cache it in React Query, dropping the algorithmic
+implementation. **Documentation only — not scheduled.**
 | PETICION        | Derechos de petición              | **No**               | Direct citizen filings, no public judicial URL exists                | none                          | `none`          |
 
 **Distinction to preserve:** `GOV_PROCEDURE` (proceedings before administrative
