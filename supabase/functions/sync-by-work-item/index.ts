@@ -1372,7 +1372,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date, authority_name, authority_city, authority_department')
+      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date, authority_name, authority_city, authority_department, monitoring_enabled, deleted_at')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -1387,6 +1387,41 @@ Deno.serve(withSyncTimeline(async (req) => {
         message: 'Work item not found or access denied',
       });
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404, traceId);
+    }
+
+    // ============= BUG 2 fix — PAUSE GATE (monitoring_enabled) =============
+    // A paused work item MUST NOT be synchronized by any write path. This
+    // includes acts (this function) AND publications (sync-publicaciones-by-work-item
+    // enforces the same gate). LOOKUP/search paths remain allowed because they
+    // are read-only previews and never persist. Enforcement here means the
+    // canonical write path cannot silently mutate a paused item — no
+    // external_sync_runs row is recorded either, so no false SUCCESS can
+    // downstream trigger "novedad" artifacts.
+    if ((workItem as any).monitoring_enabled === false || (workItem as any).deleted_at) {
+      const reason = (workItem as any).deleted_at ? 'WORK_ITEM_DELETED' : 'MONITORING_PAUSED';
+      console.log(`[sync-by-work-item] SKIP paused/deleted wi=${work_item_id} reason=${reason}`);
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'SYNC_SKIPPED_PAUSED',
+        success: true,
+        error_code: reason,
+        message: 'Work item is paused (monitoring_enabled=false) or deleted — sync skipped by design.',
+      });
+      return jsonResponse({
+        ok: true,
+        status: 'skipped_paused',
+        reason,
+        work_item_id,
+        inserted_count: 0,
+        skipped_count: 0,
+        provider_attempts: [],
+        warnings: ['Monitoring is paused for this work item; no sync performed.'],
+        errors: [],
+        trace_id: traceId,
+      });
     }
 
     // Log work item loaded
