@@ -344,14 +344,14 @@ Deno.serve(async (req) => {
           userId: user_id,
           userName,
           orgId: organization_id,
-          newActuaciones: novedadActs.map((a: any) => ({
+          newActuaciones: (novedadActs ?? []).map((a: any) => ({
             radicado: a.work_items?.radicado || "N/A",
             description: a.description || "Actuación",
             act_date: a.act_date || "",
             authority_name: "",
             work_item_title: a.work_items?.title || "",
           })),
-          newPublicaciones: novedadPubs.map((p: any) => ({
+          newPublicaciones: (novedadPubs ?? []).map((p: any) => ({
             radicado: p.work_items?.radicado || "N/A",
             tipo_publicacion: p.tipo_publicacion || "ESTADO",
             fecha_fijacion: p.fecha_fijacion || "",
