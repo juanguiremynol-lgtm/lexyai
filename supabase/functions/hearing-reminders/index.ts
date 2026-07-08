@@ -196,6 +196,7 @@ const handler = async (req: Request): Promise<Response> => {
         reminder_sent, work_item_id, owner_id, organization_id
       `)
       .eq("reminder_sent", false)
+      .in("status", ["scheduled"])
       .gte("scheduled_at", today.toISOString())
       .order("scheduled_at", { ascending: true });
 
@@ -275,6 +276,31 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       const recipientEmail = profile.reminder_email || authUser.user.email;
+
+      // Always create the in-app alert (works regardless of email config)
+      const { error: instErr } = await supabase.from("alert_instances").insert({
+        owner_id: hearing.owner_id,
+        organization_id: organizationId,
+        entity_type: "HEARING",
+        entity_id: hearing.id,
+        severity: daysUntil === 0 ? "CRITICAL" : daysUntil <= 1 ? "WARNING" : "INFO",
+        status: "PENDING",
+        alert_type: "HEARING_REMINDER",
+        alert_source: "hearing-reminders",
+        title: `⏰ Audiencia ${daysUntil === 0 ? "HOY" : daysUntil === 1 ? "MAÑANA" : `en ${daysUntil} días`}`,
+        message: `${hearing.title} — ${new Date(hearing.scheduled_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`,
+        fingerprint: `hearing_rem_${hearing.id}_${daysUntil}`,
+        fired_at: new Date().toISOString(),
+        payload: { hearing_id: hearing.id, days_until: daysUntil, scheduled_at: hearing.scheduled_at },
+      });
+      if (!instErr) alertsCreated.push(hearing.id);
+
+      // Email path is best-effort. Resend key may not be configured — no-op gracefully.
+      const resendConfigured = !!Deno.env.get("RESEND_API_KEY");
+      if (!resendConfigured) {
+        console.log(`[hearing-reminders] SKIPPED_NO_RESEND for hearing ${hearing.id} (in-app alert queued)`);
+        continue;
+      }
 
       // Generate email HTML
       const html = generateHearingReminderHtml(hearing, workItem, profile, daysUntil);

@@ -10,6 +10,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { classifyRecency } from "../_shared/recencyClassifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -289,23 +290,44 @@ Deno.serve(async (req) => {
         const userName = profile?.full_name || "usuario";
 
         // Step 3: Gather user data
-        // New actuaciones today (is_notifiable)
+        // Fetch recent acts by created_at, then reclassify by LEGAL date (act_date).
+        // Only NOVEDAD rows (legal date within recency window) count as "nuevas".
+        const RECENCY_WINDOW_BDAYS = 3;
         const { data: newActs } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, description, annotation, act_date, work_items!inner(radicado, title)")
+          .select("id, work_item_id, description, act_date, created_at, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
           .gte("created_at", dayStart)
-          .limit(20);
+          .limit(50);
 
-        // New publicaciones today
         const { data: newPubs } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, work_items!inner(radicado, title)")
+          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, created_at, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
           .gte("created_at", dayStart)
-          .limit(20);
+          .limit(50);
+
+        const novedadActs = (newActs || []).filter((a: any) =>
+          classifyRecency({
+            legal_date: a.act_date,
+            detected_at: a.created_at,
+            window_business_days: RECENCY_WINDOW_BDAYS,
+          }) === "NOVEDAD"
+        );
+        const novedadPubs = (newPubs || []).filter((p: any) =>
+          classifyRecency({
+            legal_date: p.fecha_fijacion || p.fecha_desfijacion,
+            detected_at: p.created_at,
+            window_business_days: RECENCY_WINDOW_BDAYS,
+          }) === "NOVEDAD"
+        );
+        const backfillDetectedCount =
+          (newActs?.length || 0) - novedadActs.length + (newPubs?.length || 0) - novedadPubs.length;
+        console.log(
+          `[lexy] user=${user_id} novedad_acts=${novedadActs.length} novedad_pubs=${novedadPubs.length} backfill=${backfillDetectedCount}`,
+        );
 
         // Unresolved alerts
         const { data: alerts } = await supabase
@@ -340,14 +362,14 @@ Deno.serve(async (req) => {
           userId: user_id,
           userName,
           orgId: organization_id,
-          newActuaciones: (newActs || []).map((a: any) => ({
+          newActuaciones: novedadActs.map((a: any) => ({
             radicado: a.work_items?.radicado || "N/A",
-            description: a.description || a.annotation || "Actuación",
+            description: a.description || "Actuación",
             act_date: a.act_date || "",
             authority_name: "",
             work_item_title: a.work_items?.title || "",
           })),
-          newPublicaciones: (newPubs || []).map((p: any) => ({
+          newPublicaciones: novedadPubs.map((p: any) => ({
             radicado: p.work_items?.radicado || "N/A",
             tipo_publicacion: p.tipo_publicacion || "ESTADO",
             fecha_fijacion: p.fecha_fijacion || "",
