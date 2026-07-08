@@ -1439,6 +1439,52 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
 
+    // ============= HEARING BACKFILL SWEEP (runs EARLY, before fetch) =============
+    // Idempotent sweep over already-persisted work_item_acts for this WI.
+    // Runs regardless of provider health so the canonical work_item_hearings
+    // table converges even when CPNU/SAMAI are degraded on this tick.
+    try {
+      const { extractHearingFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
+      const { data: _dbActs } = await supabase
+        .from('work_item_acts')
+        .select('id, act_type, description')
+        .eq('work_item_id', work_item_id)
+        .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
+        .limit(500);
+      let _bfInserted = 0;
+      for (const _a of (_dbActs || [])) {
+        const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
+        if (!_c) continue;
+        const { data: _exists } = await supabase
+          .from('work_item_hearings')
+          .select('id')
+          .eq('work_item_id', work_item_id)
+          .eq('scheduled_at', _c.starts_at_iso)
+          .maybeSingle();
+        if (_exists) continue;
+        const _isFut = new Date(_c.starts_at_iso) > new Date();
+        const { error: _hInsErr } = await supabase.from('work_item_hearings').insert({
+          organization_id: workItem.organization_id,
+          work_item_id,
+          custom_name: _c.title,
+          scheduled_at: _c.starts_at_iso,
+          auto_detected: true,
+          status: _isFut ? 'scheduled' : 'held',
+          source_act_id: _a.id,
+          extraction_method: 'act_regex_v2',
+          time_inferred: _c.time_inferred,
+          discovery_type: _isFut ? 'NOVEDAD' : 'HISTORICO_DETECTADO',
+        });
+        if (!_hInsErr) _bfInserted++;
+        else console.warn('[sync-by-work-item] hearing backfill insert error:', _hInsErr.message);
+      }
+      if (_bfInserted > 0) {
+        console.log(`[sync-by-work-item] 🎯 Early hearing backfill sweep inserted ${_bfInserted} hearing(s) for WI ${work_item_id}`);
+      }
+    } catch (_bfErr) {
+      console.warn('[sync-by-work-item] early hearing backfill sweep error:', (_bfErr as Error).message);
+    }
+
     const result: SyncResult = {
       ok: false,
       work_item_id,
@@ -2577,7 +2623,62 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (actDate && (!latestDate || actDate > latestDate)) {
         latestDate = actDate;
       }
-      
+
+      // ============= AUTO-EXTRACT HEARINGS FROM ACT (runs for EVERY fetched act) =============
+      // Runs BEFORE fingerprint/semantic dedup so recovery works even when the act
+      // itself is already persisted. Idempotent: guarded by an existence check on
+      // (work_item_id, scheduled_at) against the canonical work_item_hearings table.
+      try {
+        const { extractHearingFromAct: _extract, isSuspensionAct: _isSuspension } = await import("../_shared/hearingExtractor.ts");
+        const _cand = _extract({
+          act_type: act.actuacion || null,
+          description: (act.anotacion || act.actuacion || '') as string,
+        });
+        if (_cand) {
+          const _isFuture = new Date(_cand.starts_at_iso) > new Date();
+          const _discovery = _isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
+          const _status = _isFuture ? 'scheduled' : 'held';
+          if (_cand.action === 'reschedule' || _isFuture) {
+            await supabase
+              .from('work_item_hearings')
+              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+              .eq('work_item_id', work_item_id)
+              .eq('status', 'scheduled')
+              .eq('auto_detected', true)
+              .neq('scheduled_at', _cand.starts_at_iso);
+          }
+          const { data: _existingH } = await supabase
+            .from('work_item_hearings')
+            .select('id')
+            .eq('work_item_id', work_item_id)
+            .eq('scheduled_at', _cand.starts_at_iso)
+            .maybeSingle();
+          if (!_existingH) {
+            await supabase.from('work_item_hearings').insert({
+              organization_id: workItem.organization_id,
+              work_item_id,
+              custom_name: _cand.title,
+              scheduled_at: _cand.starts_at_iso,
+              auto_detected: true,
+              status: _status,
+              extraction_method: 'act_regex_v2',
+              time_inferred: _cand.time_inferred,
+              discovery_type: _discovery,
+            });
+            console.log(`[sync-by-work-item] 🎯 Hearing extracted: ${_cand.title} @ ${_cand.starts_at_iso} (from act "${(act.actuacion||'').slice(0,60)}")`);
+          }
+        } else if (_isSuspension(act.actuacion || null, act.anotacion || null)) {
+          await supabase
+            .from('work_item_hearings')
+            .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+            .eq('work_item_id', work_item_id)
+            .eq('status', 'scheduled')
+            .eq('auto_detected', true);
+        }
+      } catch (_hErr) {
+        console.warn('[sync-by-work-item] hearing extractor (pre-dedup) error:', (_hErr as Error).message);
+      }
+
       // Include indice in fingerprint to prevent collisions for same-day actuaciones
       // FIX 1.2: Include provider source in fingerprint to prevent cross-provider collisions
       // For consolidated TUTELA records, use the actual source of the "best" record
@@ -2909,6 +3010,53 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     result.latest_event_date = latestDate;
+
+    // ============= HEARING BACKFILL PASS OVER work_item_acts =============
+    // The extractor above runs per fetched act, but when the upstream provider
+    // is degraded (returns 0 acts) or the hearing act was persisted before the
+    // extractor was integrated, hearings can be missing from work_item_hearings.
+    // Run one idempotent sweep over already-persisted acts for this WI so the
+    // canonical hearings table converges regardless of provider health.
+    try {
+      const { extractHearingFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
+      const { data: _dbActs } = await supabase
+        .from('work_item_acts')
+        .select('id, act_type, description')
+        .eq('work_item_id', work_item_id)
+        .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
+        .limit(500);
+      let _bfInserted = 0;
+      for (const _a of (_dbActs || [])) {
+        const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
+        if (!_c) continue;
+        const { data: _exists } = await supabase
+          .from('work_item_hearings')
+          .select('id')
+          .eq('work_item_id', work_item_id)
+          .eq('scheduled_at', _c.starts_at_iso)
+          .maybeSingle();
+        if (_exists) continue;
+        const _isFut = new Date(_c.starts_at_iso) > new Date();
+        await supabase.from('work_item_hearings').insert({
+          organization_id: workItem.organization_id,
+          work_item_id,
+          custom_name: _c.title,
+          scheduled_at: _c.starts_at_iso,
+          auto_detected: true,
+          status: _isFut ? 'scheduled' : 'held',
+          source_act_id: _a.id,
+          extraction_method: 'act_regex_v2',
+          time_inferred: _c.time_inferred,
+          discovery_type: _isFut ? 'NOVEDAD' : 'HISTORICO_DETECTADO',
+        });
+        _bfInserted++;
+      }
+      if (_bfInserted > 0) {
+        console.log(`[sync-by-work-item] 🎯 Hearing backfill sweep inserted ${_bfInserted} hearing(s) from work_item_acts for WI ${work_item_id}`);
+      }
+    } catch (_bfErr) {
+      console.warn('[sync-by-work-item] hearing backfill sweep error:', (_bfErr as Error).message);
+    }
 
     // ============= UPDATE WORK ITEM METADATA =============
     // Strategy: ALWAYS UPDATE work_item with latest provider data (overwrite)
