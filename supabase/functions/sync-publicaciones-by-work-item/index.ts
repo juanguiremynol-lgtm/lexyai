@@ -100,6 +100,10 @@ type PublicacionV3 = {
   fecha_hora_inicio?: string | null;
   tipo_evento?: string | null;
   pdf_url?: string;
+  // /historico aditivo (2026-07-08): estado.fecha_publicacion → fecha_fijacion;
+  // fecha del auto extraída de texto_auto/documentos_pdf → fecha_providencia.
+  fecha_estado_raw?: string | null;
+  fecha_auto_raw?: string | null;
   clasificacion?: {
     categoria?: string;
     descripcion?: string;
@@ -313,7 +317,16 @@ function parseDate(dateStr: string | undefined | null): string | null {
       return `${match[3]}-${match[2]}-${match[1]}`;
     }
   }
-  
+
+  // Spanish long form: "3-julio-2026", "18-junio-2026", "3 de julio de 2026"
+  const spanishLong = dateStr.match(/^(\d{1,2})[\s-]+(?:de\s+)?([A-Za-zñÑáéíóúÁÉÍÓÚ]+)[\s-]+(?:de\s+)?(\d{4})$/);
+  if (spanishLong) {
+    const day = spanishLong[1].padStart(2, '0');
+    const month = SPANISH_MONTHS[spanishLong[2].toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')];
+    if (month) return `${spanishLong[3]}-${month}-${day}`;
+  }
+
   return null;
 }
 
@@ -387,6 +400,34 @@ function extractDateFromTitle(title: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Extract the "fecha del auto" from a texto_auto blob. The judicial texts
+ * typically contain phrases like:
+ *   "Pasa a Despacho ... hoy 02 de julio de 2026"
+ *   "A despacho hoy 17 de junio de 2026"
+ *   "Pereira, ... diecisiete (17) de junio de dos mil veintiséis (2026)"
+ * The most reliable signal is the "(DD)" or "DD de mes" near the closing of
+ * the header/salutation. We scan for "DD de mes de YYYY" (or bare 4-digit year)
+ * and return the LAST match — that's usually the auto's own date, not older
+ * dates cited within the ruling body.
+ */
+function extractAutoDateFromText(texto: unknown): string | null {
+  if (!texto || typeof texto !== 'string') return null;
+  const src = texto
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const re = /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(?:dos\s+mil\s+\w+\s*(?:\((\d{4})\))?|(\d{4}))/g;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) last = m;
+  if (!last) return null;
+  const day = last[1].padStart(2, '0');
+  const month = SPANISH_MONTHS[last[2].toUpperCase()];
+  const year = last[3] || last[4];
+  if (!month || !year) return null;
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -721,6 +762,15 @@ function extractPublicacionesFromResponse(
     const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
     const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
     const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
+    // /historico aditivo: state (fijación) date + auto date
+    const estadoObj = p.estado && typeof p.estado === 'object' ? p.estado : null;
+    const fechaEstadoRaw =
+      estadoObj?.fecha_publicacion || estadoObj?.fecha || p.fecha_estado || p.fecha_fijacion || null;
+    const autoFromDocs = Array.isArray(p.documentos_pdf)
+      ? (p.documentos_pdf.find((d: any) => (d?.tipo || '').toLowerCase() === 'auto')?.fecha ?? null)
+      : null;
+    const fechaAutoRaw =
+      extractAutoDateFromText(p.texto_auto) || p.fecha_auto || autoFromDocs || null;
     return {
       key,
       tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
@@ -731,6 +781,8 @@ function extractPublicacionesFromResponse(
       fecha_hora_inicio: p.fecha_hora_inicio || null,
       tipo_evento: p.tipo_evento || p.tipo || 'Estado Electrónico',
       pdf_url: typeof pdfUrl === 'string' ? pdfUrl : undefined,
+      fecha_estado_raw: fechaEstadoRaw,
+      fecha_auto_raw: fechaAutoRaw,
       clasificacion: p.clasificacion || {
         categoria: p.tipo_evento || p.tipo || 'Estado Electrónico',
         descripcion: p.descripcion || p.anotacion || title,
@@ -1436,6 +1488,18 @@ Deno.serve(withSyncTimeline(async (req) => {
       const isSamai = sourceProvider === 'samai_estados';
       const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
 
+      // /historico aditivo (2026-07-08): pull estado (fijación) date and auto date
+      // when the provider surfaces them explicitly. Falls back to the single
+      // `parsedFecha` above so behavior stays identical for legacy responses.
+      const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
+      const parsedAutoDate = parseDate(pub.fecha_auto_raw);
+      const fijacionIso = parsedEstadoDate
+        ? new Date(parsedEstadoDate + 'T12:00:00Z').toISOString()
+        : isoDate;
+      const providenciaIso = parsedAutoDate
+        ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
+        : null;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
         records: JSON.stringify([{
           work_item_id,
@@ -1447,8 +1511,8 @@ Deno.serve(withSyncTimeline(async (req) => {
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
           published_at: isoDate,
-          fecha_fijacion: isSamai ? null : isoDate,
-          fecha_providencia: isSamai ? isoDate : null,
+          fecha_fijacion: isSamai ? null : fijacionIso,
+          fecha_providencia: isSamai ? isoDate : providenciaIso,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,

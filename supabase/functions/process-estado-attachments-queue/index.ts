@@ -11,7 +11,7 @@
  *   status (pending|done|failed), attempt_count, max_attempts, last_error,
  *   storage_path, downloaded_at, next_retry_at.
  *
- * Cadence: dedicated pg_cron */10 * * * *.
+ * Cadence: dedicated pg_cron every 10 minutes (asterisk-slash-10 asterisks).
  * Time budget: 45s per run, batch <= 10.
  */
 
@@ -111,7 +111,10 @@ async function processOne(
     await supabase
       .from("estado_attachment_queue")
       .update({
-        status: "done",
+        // Table check constraint enforces status IN ('pending','downloading',
+        // 'downloaded','failed','skipped'). 'done' is silently rejected and
+        // left the queue in a pending loop while the worker kept succeeding.
+        status: "downloaded",
         storage_path: path,
         attempt_count: nextAttempt,
         downloaded_at: new Date().toISOString(),
@@ -194,12 +197,17 @@ export function resolveGcpAuth(
   let host = "";
   try { host = new URL(rawUrl).host.toLowerCase(); } catch { return null; }
 
-  if (/^publicaciones-procesales-api-[a-z0-9-]+\.run\.app$/i.test(host)) {
+  // Cloud Run hostnames include the region segment, e.g.
+  //   publicaciones-procesales-api-11974381924.us-central1.run.app
+  // The regex must allow the interior `.us-central1.` (or any region),
+  // not just alphanumerics/dashes, otherwise resolveGcpAuth falls through
+  // and the worker sends no X-API-Key → 401 API key inválida.
+  if (/^publicaciones-procesales-api-[a-z0-9.-]+\.run\.app$/i.test(host)) {
     const key = Deno.env.get("PUBLICACIONES_X_API_KEY")
       || Deno.env.get("EXTERNAL_X_API_KEY");
     return key ? { apiKey: key, source: "publicaciones" } : null;
   }
-  if (/^samai-estados-api-[a-z0-9-]+\.run\.app$/i.test(host)) {
+  if (/^samai-estados-api-[a-z0-9.-]+\.run\.app$/i.test(host)) {
     const key = Deno.env.get("SAMAI_ESTADOS_API_KEY");
     return key ? { apiKey: key, source: "samai_estados" } : null;
   }
