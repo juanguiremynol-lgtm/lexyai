@@ -3689,6 +3689,26 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (!useOrchestrator) {
       try {
         const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
+        // BUG 1c: detect silent write failures — feed brought data but nothing persisted.
+        const anyProviderReportedData = result.provider_attempts.some(
+          (a: any) => (a?.actuacionesCount || 0) > 0
+        );
+        const persistedZeroDespiteData =
+          anyProviderReportedData && (result.inserted_count || 0) === 0;
+        const runStatus = !result.ok
+          ? 'FAILED'
+          : persistedZeroDespiteData
+            ? 'PARTIAL'
+            : result.errors.length > 0
+              ? 'PARTIAL'
+              : 'SUCCESS';
+        const runErrorCode = result.code
+          || (persistedZeroDespiteData ? 'PERSIST_MISMATCH' : null);
+        const runErrorMessage = result.errors.length > 0
+          ? result.errors.join('; ').slice(0, 500)
+          : persistedZeroDespiteData
+            ? 'Providers reported data but zero rows were persisted to work_item_acts (silent write failure or upstream mismatch).'
+            : null;
         await supabase.from('external_sync_runs').insert({
           work_item_id,
           organization_id: workItem.organization_id,
@@ -3697,20 +3717,27 @@ Deno.serve(withSyncTimeline(async (req) => {
           started_at: new Date(syncStartTime).toISOString(),
           finished_at: new Date().toISOString(),
           duration_ms: Date.now() - syncStartTime,
-          status: result.ok ? (result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS') : 'FAILED',
+          status: runStatus,
           provider_attempts: result.provider_attempts.map((a: any) => ({
             provider: a.provider,
             data_kind: 'ACTUACIONES',
             status: a.status,
             latency_ms: a.latencyMs || 0,
             error_code: a.message?.includes('error') ? 'PROVIDER_ERROR' : null,
-            inserted_count: a.actuacionesCount || 0,
+            // BUG 1a fix: expose feed_count separately; inserted_count reflects
+            // per-attempt persisted rows only when the adapter provides them.
+            // For attempts without a persisted metric, report 0 rather than
+            // conflating feed size with rows written.
+            inserted_count: typeof a.insertedCount === 'number'
+              ? a.insertedCount
+              : 0,
+            feed_count: a.actuacionesCount || 0,
             skipped_count: 0,
           })),
           total_inserted_acts: result.inserted_count,
           total_skipped_acts: result.skipped_count,
-          error_code: result.code || null,
-          error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+          error_code: runErrorCode,
+          error_message: runErrorMessage,
         });
       } catch { /* sync run recording is best-effort */ }
     }
