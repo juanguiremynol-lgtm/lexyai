@@ -16632,6 +16632,10 @@ export type Database = {
       }
       is_beta_enrollment_open: { Args: never; Returns: boolean }
       is_business_org_admin: { Args: { _org_id: string }; Returns: boolean }
+      is_historico_by_legal_date: {
+        Args: { p_legal_date: string }
+        Returns: boolean
+      }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
