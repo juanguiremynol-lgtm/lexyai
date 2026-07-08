@@ -403,6 +403,34 @@ function extractDateFromTitle(title: string): string | undefined {
 }
 
 /**
+ * Extract the "fecha del auto" from a texto_auto blob. The judicial texts
+ * typically contain phrases like:
+ *   "Pasa a Despacho ... hoy 02 de julio de 2026"
+ *   "A despacho hoy 17 de junio de 2026"
+ *   "Pereira, ... diecisiete (17) de junio de dos mil veintiséis (2026)"
+ * The most reliable signal is the "(DD)" or "DD de mes" near the closing of
+ * the header/salutation. We scan for "DD de mes de YYYY" (or bare 4-digit year)
+ * and return the LAST match — that's usually the auto's own date, not older
+ * dates cited within the ruling body.
+ */
+function extractAutoDateFromText(texto: unknown): string | null {
+  if (!texto || typeof texto !== 'string') return null;
+  const src = texto
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const re = /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(?:dos\s+mil\s+\w+\s*(?:\((\d{4})\))?|(\d{4}))/g;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) last = m;
+  if (!last) return null;
+  const day = last[1].padStart(2, '0');
+  const month = SPANISH_MONTHS[last[2].toUpperCase()];
+  const year = last[3] || last[4];
+  if (!month || !year) return null;
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Try POST /procesar-radicado as final fallback for the pp-scraper v3.1.0 API.
  */
 async function tryProcesarFallback(
