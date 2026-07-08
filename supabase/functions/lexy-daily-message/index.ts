@@ -290,43 +290,25 @@ Deno.serve(async (req) => {
         const userName = profile?.full_name || "usuario";
 
         // Step 3: Gather user data
-        // Fetch recent acts by created_at, then reclassify by LEGAL date (act_date).
-        // Only NOVEDAD rows (legal date within recency window) count as "nuevas".
-        const RECENCY_WINDOW_BDAYS = 3;
-        const { data: newActs } = await supabase
+        // Canonical novedad definition: discovery_type='NOVEDAD' at DB level.
+        // Historical backfills (HISTORICO_DETECTADO) NEVER count toward Lexy.
+        // Uses detected_at (immutable) rather than created_at.
+        const { data: novedadActs } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, description, act_date, created_at, work_items!inner(radicado, title)")
+          .select("id, work_item_id, description, act_date, detected_at, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
-          .gte("created_at", dayStart)
-          .limit(50);
-
-        const { data: newPubs } = await supabase
+          .eq("discovery_type", "NOVEDAD")
+          .gte("detected_at", dayStart);
+        const { data: novedadPubs } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, created_at, work_items!inner(radicado, title)")
+          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, detected_at, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
-          .gte("created_at", dayStart)
-          .limit(50);
-
-        const novedadActs = (newActs || []).filter((a: any) =>
-          classifyRecency({
-            legal_date: a.act_date,
-            detected_at: a.created_at,
-            window_business_days: RECENCY_WINDOW_BDAYS,
-          }) === "NOVEDAD"
-        );
-        const novedadPubs = (newPubs || []).filter((p: any) =>
-          classifyRecency({
-            legal_date: p.fecha_fijacion || p.fecha_desfijacion,
-            detected_at: p.created_at,
-            window_business_days: RECENCY_WINDOW_BDAYS,
-          }) === "NOVEDAD"
-        );
-        const backfillDetectedCount =
-          (newActs?.length || 0) - novedadActs.length + (newPubs?.length || 0) - novedadPubs.length;
+          .eq("discovery_type", "NOVEDAD")
+          .gte("detected_at", dayStart);
         console.log(
-          `[lexy] user=${user_id} novedad_acts=${novedadActs.length} novedad_pubs=${novedadPubs.length} backfill=${backfillDetectedCount}`,
+          `[lexy] user=${user_id} novedad_acts=${novedadActs?.length ?? 0} novedad_pubs=${novedadPubs?.length ?? 0}`,
         );
 
         // Unresolved alerts
