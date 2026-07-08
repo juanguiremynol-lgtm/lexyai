@@ -6,6 +6,28 @@ in the UI. Backend implementation:
 `supabase/functions/_shared/onlineSyncEligibility.ts`. Frontend mirror:
 `src/lib/externalSyncDisplay.ts` (kept in sync by a vitest).
 
+## Domain equivalence — "publicaciones procesales" ⇄ "estados"
+
+"Publicaciones procesales" (CGP/Laboral/Penal 906/Tutela — Rama Judicial)
+and "estados electrónicos" (CPACA — SAMAI) are the **same legal concept**:
+the state list posted by the court/desk (the notifying board), which today
+embeds the underlying providencia as PDF links. UI wording must reflect
+this equivalence in both tabs (empty states, help text). The tab **route
+names** (`publicaciones` / `estados`) are kept distinct only because they
+resolve to different upstream services.
+
+Provider ⇄ concept mapping:
+
+| Concept                      | CGP / Laboral / Penal / Tutela          | CPACA                     |
+| ---------------------------- | --------------------------------------- | ------------------------- |
+| Actuaciones (libro despacho) | CPNU                                    | SAMAI (actuaciones)       |
+| Estados (publicaciones)      | Publicaciones Procesales (Rama Judicial) | SAMAI Estados            |
+
+Rendering rule: both tabs merge the local canonical rows
+(`work_item_publicaciones`) with the upstream Read API feed, deduping by
+`(normalized title, fecha)`, so the tab badge counter and the visible
+list can never diverge.
+
 ## Category eligibility (verified against `work_items.workflow_type`)
 
 | workflow_type   | Human name                        | Online-sync eligible | Reason                                                              | Sync purpose(s)               | Display tab     |
