@@ -1439,6 +1439,52 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
 
+    // ============= HEARING BACKFILL SWEEP (runs EARLY, before fetch) =============
+    // Idempotent sweep over already-persisted work_item_acts for this WI.
+    // Runs regardless of provider health so the canonical work_item_hearings
+    // table converges even when CPNU/SAMAI are degraded on this tick.
+    try {
+      const { extractHearingFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
+      const { data: _dbActs } = await supabase
+        .from('work_item_acts')
+        .select('id, act_type, description')
+        .eq('work_item_id', work_item_id)
+        .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
+        .limit(500);
+      let _bfInserted = 0;
+      for (const _a of (_dbActs || [])) {
+        const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
+        if (!_c) continue;
+        const { data: _exists } = await supabase
+          .from('work_item_hearings')
+          .select('id')
+          .eq('work_item_id', work_item_id)
+          .eq('scheduled_at', _c.starts_at_iso)
+          .maybeSingle();
+        if (_exists) continue;
+        const _isFut = new Date(_c.starts_at_iso) > new Date();
+        const { error: _hInsErr } = await supabase.from('work_item_hearings').insert({
+          organization_id: workItem.organization_id,
+          work_item_id,
+          custom_name: _c.title,
+          scheduled_at: _c.starts_at_iso,
+          auto_detected: true,
+          status: _isFut ? 'scheduled' : 'held',
+          source_act_id: _a.id,
+          extraction_method: 'act_regex_v2',
+          time_inferred: _c.time_inferred,
+          discovery_type: _isFut ? 'NOVEDAD' : 'HISTORICO_DETECTADO',
+        });
+        if (!_hInsErr) _bfInserted++;
+        else console.warn('[sync-by-work-item] hearing backfill insert error:', _hInsErr.message);
+      }
+      if (_bfInserted > 0) {
+        console.log(`[sync-by-work-item] 🎯 Early hearing backfill sweep inserted ${_bfInserted} hearing(s) for WI ${work_item_id}`);
+      }
+    } catch (_bfErr) {
+      console.warn('[sync-by-work-item] early hearing backfill sweep error:', (_bfErr as Error).message);
+    }
+
     const result: SyncResult = {
       ok: false,
       work_item_id,
