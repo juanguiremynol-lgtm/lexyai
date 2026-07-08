@@ -7428,6 +7428,8 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           deleted_by: string | null
+          discovery_type: string | null
+          extraction_method: string | null
           filing_id: string | null
           id: string
           is_virtual: boolean | null
@@ -7437,7 +7439,10 @@ export type Database = {
           owner_id: string
           reminder_sent: boolean | null
           scheduled_at: string
+          source_act_id: string | null
+          status: string
           teams_link: string | null
+          time_inferred: boolean | null
           title: string
           updated_at: string
           virtual_link: string | null
@@ -7449,6 +7454,8 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
+          discovery_type?: string | null
+          extraction_method?: string | null
           filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
@@ -7458,7 +7465,10 @@ export type Database = {
           owner_id: string
           reminder_sent?: boolean | null
           scheduled_at: string
+          source_act_id?: string | null
+          status?: string
           teams_link?: string | null
+          time_inferred?: boolean | null
           title: string
           updated_at?: string
           virtual_link?: string | null
@@ -7470,6 +7480,8 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
+          discovery_type?: string | null
+          extraction_method?: string | null
           filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
@@ -7479,7 +7491,10 @@ export type Database = {
           owner_id?: string
           reminder_sent?: boolean | null
           scheduled_at?: string
+          source_act_id?: string | null
+          status?: string
           teams_link?: string | null
+          time_inferred?: boolean | null
           title?: string
           updated_at?: string
           virtual_link?: string | null
@@ -14044,6 +14059,7 @@ export type Database = {
           description: string
           despacho: string | null
           detected_at: string
+          discovery_type: string | null
           event_category: string | null
           event_date: string | null
           event_summary: string | null
@@ -14097,6 +14113,7 @@ export type Database = {
           description: string
           despacho?: string | null
           detected_at?: string
+          discovery_type?: string | null
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null
@@ -14150,6 +14167,7 @@ export type Database = {
           description?: string
           despacho?: string | null
           detected_at?: string
+          discovery_type?: string | null
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null
@@ -14785,6 +14803,7 @@ export type Database = {
           date_source: string | null
           despacho: string | null
           detected_at: string
+          discovery_type: string | null
           entry_url: string | null
           fecha_desfijacion: string | null
           fecha_fijacion: string | null
@@ -14827,6 +14846,7 @@ export type Database = {
           date_source?: string | null
           despacho?: string | null
           detected_at?: string
+          discovery_type?: string | null
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
@@ -14869,6 +14889,7 @@ export type Database = {
           date_source?: string | null
           despacho?: string | null
           detected_at?: string
+          discovery_type?: string | null
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null

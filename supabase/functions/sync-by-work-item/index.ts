@@ -2763,7 +2763,77 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
           }
         }
-        
+
+        // ============= AUTO-EXTRACT HEARINGS FROM ACT =============
+        // Fire-and-forget: never block sync. Best-effort upsert into hearings.
+        try {
+          const { extractHearingFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
+          const candidate = extractHearingFromAct({
+            act_type: act.actuacion || null,
+            description: (act.anotacion || act.actuacion || '') as string,
+          });
+          if (candidate) {
+            const isFuture = new Date(candidate.starts_at_iso) > new Date();
+            const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
+            const status = isFuture ? 'scheduled' : 'past';
+            // Supersede prior scheduled hearings for this WI when a new date arrives
+            if (candidate.action === 'reschedule' || isFuture) {
+              await supabase
+                .from('hearings')
+                .update({ status: 'superseded', updated_at: new Date().toISOString() })
+                .eq('work_item_id', work_item_id)
+                .eq('status', 'scheduled')
+                .neq('scheduled_at', candidate.starts_at_iso);
+            }
+            const { data: existingH } = await supabase
+              .from('hearings')
+              .select('id')
+              .eq('work_item_id', work_item_id)
+              .eq('scheduled_at', candidate.starts_at_iso)
+              .maybeSingle();
+            if (!existingH) {
+              await supabase.from('hearings').insert({
+                owner_id: workItem.owner_id,
+                organization_id: workItem.organization_id,
+                work_item_id,
+                title: candidate.title,
+                scheduled_at: candidate.starts_at_iso,
+                auto_detected: true,
+                status,
+                source_act_id: null,
+                extraction_method: 'act_regex_v1',
+                time_inferred: candidate.time_inferred,
+                discovery_type: discovery,
+              });
+              if (isFuture) {
+                await supabase.from('alert_instances').insert({
+                  owner_id: workItem.owner_id,
+                  organization_id: workItem.organization_id,
+                  entity_type: 'HEARING',
+                  entity_id: work_item_id,
+                  severity: 'INFO',
+                  status: 'PENDING',
+                  alert_type: 'HEARING_CREATED',
+                  alert_source: fetchResult.provider || 'auto',
+                  title: 'Audiencia programada',
+                  message: `${candidate.title} — ${candidate.local_date} ${candidate.local_time}`,
+                  fingerprint: `hearing_auto_${work_item_id.slice(0,8)}_${candidate.starts_at_iso}`,
+                  fired_at: new Date().toISOString(),
+                  payload: { starts_at: candidate.starts_at_iso, discovery_type: discovery },
+                });
+              }
+            }
+          } else if (isSuspensionAct(act.actuacion || null, act.anotacion || null)) {
+            await supabase
+              .from('hearings')
+              .update({ status: 'suspended', updated_at: new Date().toISOString() })
+              .eq('work_item_id', work_item_id)
+              .eq('status', 'scheduled');
+          }
+        } catch (hErr) {
+          console.warn('[sync-by-work-item] hearing extractor error:', (hErr as Error).message);
+        }
+
         // ============= STAGE INFERENCE (with daily rate limiting) =============
         // CRITICAL: Never auto-apply stages. All suggestions require explicit user approval.
         
