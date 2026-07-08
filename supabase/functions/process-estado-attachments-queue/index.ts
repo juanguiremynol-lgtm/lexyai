@@ -111,7 +111,10 @@ async function processOne(
     await supabase
       .from("estado_attachment_queue")
       .update({
-        status: "done",
+        // Table check constraint enforces status IN ('pending','downloading',
+        // 'downloaded','failed','skipped'). 'done' is silently rejected and
+        // left the queue in a pending loop while the worker kept succeeding.
+        status: "downloaded",
         storage_path: path,
         attempt_count: nextAttempt,
         downloaded_at: new Date().toISOString(),
