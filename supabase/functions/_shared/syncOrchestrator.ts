@@ -1065,11 +1065,24 @@ export async function orchestrateSync(
     // Determine overall status
     const hasSuccess = allAttempts.some((a) => a.status === "success");
     const hasErrors = allAttempts.some((a) => a.status === "error" || a.status === "timeout");
+    // BUG 1c: providers reported data but nothing persisted → PERSIST_MISMATCH.
+    // Any attempt whose inserted_count is 0 while its metadata indicates the
+    // feed did return rows must not roll up into a plain SUCCESS.
+    const feedHadData = allAttempts.some((a: any) => {
+      const feed = a?.metadata?._legacyResult?.actuaciones_count
+        ?? a?.metadata?.actuacionesCount
+        ?? 0;
+      return typeof feed === "number" && feed > 0;
+    });
+    const persistedZeroDespiteFeed = feedHadData && totalInsertedActs === 0;
     let status: SyncRunResult["status"];
     if (hasSuccess && !hasErrors) status = "SUCCESS";
     else if (hasSuccess) status = "PARTIAL";
     else if (allAttempts.every((a) => a.status === "timeout")) status = "TIMEOUT";
     else status = "FAILED";
+    if (persistedZeroDespiteFeed && (status === "SUCCESS" || status === "PARTIAL")) {
+      status = "PARTIAL";
+    }
 
     const result: SyncRunResult = {
       syncRunId,
@@ -1079,8 +1092,10 @@ export async function orchestrateSync(
       totalInsertedPubs,
       totalSkippedPubs,
       providerAttempts: allAttempts,
-      errorCode: null,
-      errorMessage: null,
+      errorCode: persistedZeroDespiteFeed ? "PERSIST_MISMATCH" : null,
+      errorMessage: persistedZeroDespiteFeed
+        ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
+        : null,
       durationMs: Date.now() - startTime,
       foundStatus: overallFoundStatus,
     };
