@@ -317,7 +317,16 @@ function parseDate(dateStr: string | undefined | null): string | null {
       return `${match[3]}-${match[2]}-${match[1]}`;
     }
   }
-  
+
+  // Spanish long form: "3-julio-2026", "18-junio-2026", "3 de julio de 2026"
+  const spanishLong = dateStr.match(/^(\d{1,2})[\s-]+(?:de\s+)?([A-Za-zñÑáéíóúÁÉÍÓÚ]+)[\s-]+(?:de\s+)?(\d{4})$/);
+  if (spanishLong) {
+    const day = spanishLong[1].padStart(2, '0');
+    const month = SPANISH_MONTHS[spanishLong[2].toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')];
+    if (month) return `${spanishLong[3]}-${month}-${day}`;
+  }
+
   return null;
 }
 
