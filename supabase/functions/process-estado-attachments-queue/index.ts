@@ -11,7 +11,7 @@
  *   status (pending|done|failed), attempt_count, max_attempts, last_error,
  *   storage_path, downloaded_at, next_retry_at.
  *
- * Cadence: dedicated pg_cron */10 * * * *.
+ * Cadence: dedicated pg_cron every 10 minutes (asterisk-slash-10 asterisks).
  * Time budget: 45s per run, batch <= 10.
  */
 
