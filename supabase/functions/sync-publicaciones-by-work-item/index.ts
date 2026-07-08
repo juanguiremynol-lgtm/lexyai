@@ -1488,6 +1488,18 @@ Deno.serve(withSyncTimeline(async (req) => {
       const isSamai = sourceProvider === 'samai_estados';
       const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
 
+      // /historico aditivo (2026-07-08): pull estado (fijación) date and auto date
+      // when the provider surfaces them explicitly. Falls back to the single
+      // `parsedFecha` above so behavior stays identical for legacy responses.
+      const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
+      const parsedAutoDate = parseDate(pub.fecha_auto_raw);
+      const fijacionIso = parsedEstadoDate
+        ? new Date(parsedEstadoDate + 'T12:00:00Z').toISOString()
+        : isoDate;
+      const providenciaIso = parsedAutoDate
+        ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
+        : null;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
         records: JSON.stringify([{
           work_item_id,
@@ -1499,8 +1511,8 @@ Deno.serve(withSyncTimeline(async (req) => {
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
           published_at: isoDate,
-          fecha_fijacion: isSamai ? null : isoDate,
-          fecha_providencia: isSamai ? isoDate : null,
+          fecha_fijacion: isSamai ? null : fijacionIso,
+          fecha_providencia: isSamai ? isoDate : providenciaIso,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
