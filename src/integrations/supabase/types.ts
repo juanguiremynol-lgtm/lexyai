@@ -14523,11 +14523,14 @@ export type Database = {
       }
       work_item_hearings: {
         Row: {
+          auto_detected: boolean
           created_at: string | null
           created_by: string | null
           custom_name: string | null
           decisions_summary: string | null
+          discovery_type: string | null
           duration_minutes: number | null
+          extraction_method: string | null
           flow_order: number | null
           hearing_type_id: string | null
           id: string
@@ -14542,18 +14545,23 @@ export type Database = {
           participants: Json
           postponed_to_id: string | null
           scheduled_at: string | null
+          source_act_id: string | null
           status: string
           tags: string[] | null
+          time_inferred: boolean | null
           updated_at: string | null
           updated_by: string | null
           work_item_id: string
         }
         Insert: {
+          auto_detected?: boolean
           created_at?: string | null
           created_by?: string | null
           custom_name?: string | null
           decisions_summary?: string | null
+          discovery_type?: string | null
           duration_minutes?: number | null
+          extraction_method?: string | null
           flow_order?: number | null
           hearing_type_id?: string | null
           id?: string
@@ -14568,18 +14576,23 @@ export type Database = {
           participants?: Json
           postponed_to_id?: string | null
           scheduled_at?: string | null
+          source_act_id?: string | null
           status?: string
           tags?: string[] | null
+          time_inferred?: boolean | null
           updated_at?: string | null
           updated_by?: string | null
           work_item_id: string
         }
         Update: {
+          auto_detected?: boolean
           created_at?: string | null
           created_by?: string | null
           custom_name?: string | null
           decisions_summary?: string | null
+          discovery_type?: string | null
           duration_minutes?: number | null
+          extraction_method?: string | null
           flow_order?: number | null
           hearing_type_id?: string | null
           id?: string
@@ -14594,8 +14607,10 @@ export type Database = {
           participants?: Json
           postponed_to_id?: string | null
           scheduled_at?: string | null
+          source_act_id?: string | null
           status?: string
           tags?: string[] | null
+          time_inferred?: boolean | null
           updated_at?: string | null
           updated_by?: string | null
           work_item_id?: string
