@@ -1,25 +1,132 @@
 /**
- * PublicacionesPpTab - Shows actuaciones from Portal Publicaciones Procesales
- * Available for ALL work items. Each actuación may have PDF links (Auto / Tabla).
- * Uses numeric pp_id to call the PP API.
+ * PublicacionesPpTab — CGP "Publicaciones Procesales" = the electronic
+ * *estado* (state list) posted by the court. Legally this is the same
+ * concept as the CPACA "Estados" tab (see EstadosTab), just sourced from
+ * the Rama Judicial's Publicaciones Procesales portal.
+ *
+ * The list is the union of:
+ *   1. Local DB (`work_item_publicaciones` where source='publicaciones'):
+ *      canonical rows persisted by the sync worker, including proxy
+ *      `pdf_url` and, once the attachment queue downloads them, a
+ *      `storage_path` we can serve from our private bucket.
+ *   2. Andromeda Read API (`/radicados/:radicado/actuaciones` filtered
+ *      to fuente=PP): whatever the upstream feed currently exposes.
+ *
+ * Rows are merged by `(normalized title, fecha)` so the tab badge and the
+ * rendered list can never diverge (the previous bug where the tab showed
+ * "Publicaciones 2" but the panel was empty).
  */
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Newspaper, Search, RefreshCw, FileText, Table2, ExternalLink } from "lucide-react";
+import { Newspaper, Search, RefreshCw, FileText, Table2, ExternalLink, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { usePpActuaciones, resyncPpActuaciones } from "@/hooks/use-pp-actuaciones";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   workItem: WorkItem;
+}
+
+const STORAGE_BUCKET = "estado-attachments";
+
+function normalizeTitleKey(t: string | null | undefined): string {
+  return (t || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function dateKey(d: string | null | undefined): string {
+  return String(d || "").slice(0, 10);
+}
+
+function mergeKey(title: string | null | undefined, fecha: string | null | undefined): string {
+  return `${normalizeTitleKey(title)}|${dateKey(fecha)}`;
+}
+
+/** Local `work_item_publicaciones` row joined with its downloaded attachment. */
+interface LocalPub {
+  id: string;
+  title: string | null;
+  source: string | null;
+  fecha_fijacion: string | null;
+  fecha_providencia: string | null;
+  detected_at: string | null;
+  pdf_url: string | null;
+  raw_data: Record<string, unknown> | null;
+  storage_path: string | null;
+}
+
+function mapLocalPubToAct(p: LocalPub): WorkItemAct {
+  const raw = (p.raw_data || {}) as Record<string, unknown>;
+  const fecha =
+    p.fecha_fijacion ||
+    p.fecha_providencia ||
+    (typeof raw.fecha_publicacion === "string" ? (raw.fecha_publicacion as string) : null) ||
+    (typeof raw.fecha === "string" ? (raw.fecha as string) : null) ||
+    (p.detected_at ? p.detected_at.slice(0, 10) : null);
+
+  // pdf_url on the row can be either a proxy URL (http[s]://…) or, on
+  // older rows, a raw storage path. Keep both channels distinct.
+  const rowPdfIsUrl = !!p.pdf_url && /^https?:\/\//i.test(p.pdf_url);
+  const rawPdfUrl =
+    (typeof raw.pdf_url === "string" ? (raw.pdf_url as string) : null) ||
+    (rowPdfIsUrl ? p.pdf_url : null);
+
+  return {
+    id: `local-pub-${p.id}`,
+    owner_id: "",
+    work_item_id: "",
+    description: p.title || "Sin descripción",
+    event_summary: null,
+    act_date: dateKey(fecha),
+    act_date_raw: fecha,
+    event_date: null,
+    act_type: null,
+    source: "pp",
+    source_platform: "pp",
+    source_url: null,
+    source_reference: null,
+    sources: ["pp"],
+    despacho: null,
+    workflow_type: null,
+    scrape_date: null,
+    hash_fingerprint: `local-pub-${p.id}`,
+    created_at: p.detected_at || new Date().toISOString(),
+    date_confidence: p.fecha_fijacion ? "high" : "low",
+    raw_data: {
+      ...raw,
+      pdf_url: rawPdfUrl,
+      storage_path: p.storage_path,
+      __origin: "LOCAL_DB",
+    },
+    detected_at: p.detected_at,
+    changed_at: null,
+    instancia: null,
+    fecha_registro_source: p.detected_at ? p.detected_at.slice(0, 10) : null,
+    inicia_termino: null,
+  };
+}
+
+/** Opens a private storage PDF via a short-lived signed URL. */
+async function openStorageAttachment(storagePath: string): Promise<void> {
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrl(storagePath, 60 * 10);
+  if (error || !data?.signedUrl) {
+    toast.error("No se pudo abrir el PDF almacenado", {
+      description: error?.message || "URL firmada no disponible",
+    });
+    return;
+  }
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
 }
 
 /** Renders PDF action buttons for a PP actuación */
@@ -28,16 +135,43 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
   const autoUrl = rawData?.gcs_url_auto as string | undefined;
   const tablaUrl = rawData?.gcs_url_tabla as string | undefined;
   const pdfIndividualUrl = rawData?.pdf_individual_url as string | undefined;
+  const proxyPdfUrl = rawData?.pdf_url as string | undefined;
+  const storagePath = rawData?.storage_path as string | undefined;
 
   // Filter out empty strings
   const hasAuto = !!autoUrl?.trim();
   const hasTabla = !!tablaUrl?.trim();
   const hasPdfIndividual = !!pdfIndividualUrl?.trim();
+  const hasProxyPdf = !!proxyPdfUrl?.trim();
+  const hasStorage = !!storagePath?.trim();
 
-  if (!hasAuto && !hasTabla && !hasPdfIndividual) return null;
+  if (!hasAuto && !hasTabla && !hasPdfIndividual && !hasProxyPdf && !hasStorage) return null;
 
   return (
     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+      {hasStorage && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
+          onClick={() => openStorageAttachment(storagePath!)}
+          title="Abrir PDF descargado a nuestro almacenamiento"
+        >
+          <HardDrive className="h-3 w-3" />
+          Abrir PDF (almacenado)
+        </Button>
+      )}
+      {hasProxyPdf && !hasStorage && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
+          onClick={() => window.open(proxyPdfUrl!, "_blank", "noopener,noreferrer")}
+        >
+          <ExternalLink className="h-3 w-3" />
+          Ver PDF
+        </Button>
+      )}
       {hasAuto && (
         <Button
           variant="outline"
@@ -75,12 +209,86 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
   );
 }
 
+function OriginBadge({ act }: { act: WorkItemAct }) {
+  const origin = (act.raw_data as Record<string, unknown> | null)?.__origin;
+  const isLocal = origin === "LOCAL_DB";
+  return (
+    <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+      {isLocal ? "BD local" : "Read API"}
+    </Badge>
+  );
+}
+
 export function PublicacionesPpTab({ workItem }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const queryClient = useQueryClient();
   const radicado = workItem.radicado || null;
 
-  const { data: acts, isLoading } = usePpActuaciones(radicado, !!radicado);
+  const { data: apiActs, isLoading: apiLoading } = usePpActuaciones(radicado, !!radicado);
+
+  // Local persisted publicaciones for this work item (source='publicaciones').
+  // These rows are legally binding once inserted; they MUST appear in the
+  // tab even when the upstream Read API returns nothing.
+  const { data: localPubs, isLoading: localLoading } = useQuery({
+    queryKey: ["work-item-publicaciones-local", "pp", workItem.id],
+    queryFn: async (): Promise<LocalPub[]> => {
+      const { data: pubs, error } = await supabase
+        .from("work_item_publicaciones")
+        .select("id, title, source, fecha_fijacion, fecha_providencia, detected_at, pdf_url, raw_data")
+        .eq("work_item_id", workItem.id)
+        .eq("source", "publicaciones")
+        .eq("is_archived", false);
+      if (error) throw error;
+      const rows = (pubs ?? []) as Array<Omit<LocalPub, "storage_path">>;
+      if (rows.length === 0) return [];
+
+      // Enrich with storage_path from the attachment queue when available.
+      const ids = rows.map((r) => r.id);
+      const { data: attachments } = await supabase
+        .from("estado_attachment_queue")
+        .select("publicacion_id, storage_path, status")
+        .in("publicacion_id", ids)
+        .eq("status", "downloaded");
+      const byPub = new Map<string, string>();
+      for (const a of attachments ?? []) {
+        if (a.publicacion_id && a.storage_path) byPub.set(a.publicacion_id, a.storage_path);
+      }
+      return rows.map((r) => ({ ...r, storage_path: byPub.get(r.id) ?? null }));
+    },
+    enabled: !!workItem.id,
+    staleTime: 60 * 1000,
+  });
+
+  const isLoading = apiLoading || localLoading;
+
+  // Merge API + local by (normalized title, fecha). API wins on collisions
+  // (fresher raw fields), local fills in anything upstream is missing.
+  const acts = useMemo<WorkItemAct[]>(() => {
+    const merged: WorkItemAct[] = [];
+    const seen = new Set<string>();
+    for (const a of apiActs ?? []) {
+      const k = mergeKey(a.description, a.act_date);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(a);
+    }
+    for (const p of localPubs ?? []) {
+      const mapped = mapLocalPubToAct(p);
+      const k = mergeKey(mapped.description, mapped.act_date);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(mapped);
+    }
+    merged.sort((a, b) => {
+      const ad = a.act_date || "";
+      const bd = b.act_date || "";
+      if (ad && bd && ad !== bd) return bd.localeCompare(ad);
+      if (ad && !bd) return -1;
+      if (!ad && bd) return 1;
+      return a.id.localeCompare(b.id);
+    });
+    return merged;
+  }, [apiActs, localPubs]);
 
   const resyncMutation = useMutation({
     mutationFn: () => {
@@ -94,6 +302,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
       });
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["radicado-actuaciones", "PP", radicado] });
+        queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones-local", "pp", workItem.id] });
       }, 3000);
     },
     onError: (err) => {
@@ -127,23 +336,6 @@ export function PublicacionesPpTab({ workItem }: Props) {
     );
   }
 
-  if (false) {
-    return (
-      <Card>
-        <CardContent className="py-12">
-          <div className="text-center">
-            <div className="text-4xl mb-4">⏳</div>
-            <h3 className="font-semibold mb-2">Registrando en PP...</h3>
-            <p className="text-muted-foreground text-sm max-w-md mx-auto">
-              Este asunto se está registrando en el Portal de Publicaciones Procesales.
-              Recarga la página en unos momentos.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -167,10 +359,10 @@ export function PublicacionesPpTab({ workItem }: Props) {
         <CardContent className="py-12">
           <div className="text-center">
             <div className="text-4xl mb-4">📭</div>
-            <h3 className="font-semibold mb-2">Sin publicaciones procesales</h3>
+            <h3 className="font-semibold mb-2">Sin estados (publicaciones procesales) registrados aún</h3>
             <p className="text-muted-foreground text-sm max-w-md mx-auto">
-              Las publicaciones aparecerán automáticamente cuando el Portal de Publicaciones
-              Procesales registre movimientos en este proceso.
+              Los estados electrónicos del despacho (publicaciones procesales) aparecerán aquí
+              en cuanto la Rama Judicial los registre en este proceso.
             </p>
           </div>
         </CardContent>
@@ -190,7 +382,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
               <Newspaper className="h-5 w-5 text-foreground" />
               <h3 className="font-semibold text-foreground">Publicaciones Procesales</h3>
               <Badge variant="secondary">{summary.total}</Badge>
-              <Badge variant="outline" className="text-xs">PP API</Badge>
+              <Badge variant="outline" className="text-xs">Estado electrónico</Badge>
             </div>
             <div className="flex items-center gap-2">
               {summary.newestDate && (
@@ -238,6 +430,9 @@ export function PublicacionesPpTab({ workItem }: Props) {
       <div className="space-y-3">
         {filteredActs?.map((act) => (
           <div key={act.id}>
+            <div className="mb-1 flex items-center gap-2">
+              <OriginBadge act={act} />
+            </div>
             <WorkItemActCard act={act} despacho={workItem.authority_name} />
             <PpPdfButtons act={act} />
           </div>

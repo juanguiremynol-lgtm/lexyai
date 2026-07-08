@@ -245,9 +245,11 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
           <Card>
             <CardContent className="py-12 text-center">
               <Newspaper className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <h3 className="font-semibold mb-1">Sin estados procesales</h3>
+              <h3 className="font-semibold mb-1">Sin estados (publicaciones procesales) registrados aún</h3>
               <p className="text-sm text-muted-foreground">
-                No hay estados procesales registrados todavía.
+                Los estados electrónicos del despacho (equivalente jurídico de las
+                “publicaciones procesales” en CGP) aparecerán aquí en cuanto la
+                jurisdicción los registre.
               </p>
             </CardContent>
           </Card>
