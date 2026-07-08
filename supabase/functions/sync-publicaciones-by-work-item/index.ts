@@ -100,6 +100,10 @@ type PublicacionV3 = {
   fecha_hora_inicio?: string | null;
   tipo_evento?: string | null;
   pdf_url?: string;
+  // /historico aditivo (2026-07-08): estado.fecha_publicacion → fecha_fijacion;
+  // fecha del auto extraída de texto_auto/documentos_pdf → fecha_providencia.
+  fecha_estado_raw?: string | null;
+  fecha_auto_raw?: string | null;
   clasificacion?: {
     categoria?: string;
     descripcion?: string;
