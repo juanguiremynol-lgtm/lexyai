@@ -1176,12 +1176,20 @@ Deno.serve(async (req) => {
           finished_at: new Date().toISOString(),
           duration_ms: Date.now() - startTime,
           status: foundInSource ? 'SUCCESS' : 'FAILED',
+          // LOOKUP is a read-only preview — it never persists to work_item_acts.
+          // Providers may report events_found from the feed but they are NOT written here.
+          run_mode: 'LOOKUP',
           provider_attempts: attempts.map(a => ({
             provider: a.source,
             data_kind: 'ACTUACIONES',
             status: a.success ? 'success' : 'not_found',
             latency_ms: a.latency_ms,
-            inserted_count: a.events_found || 0,
+            // BUG 1a fix: LOOKUP inherently persists 0. Feed count is exposed
+            // separately as feed_count so downstream consumers cannot misread it
+            // as "rows written to DB".
+            inserted_count: 0,
+            feed_count: a.events_found || 0,
+            note: 'lookup_only_no_persistence',
           })),
           total_inserted_acts: 0,
           total_inserted_pubs: 0,
