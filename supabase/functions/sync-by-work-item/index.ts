@@ -2765,7 +2765,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         }
 
         // ============= AUTO-EXTRACT HEARINGS FROM ACT =============
-        // Fire-and-forget: never block sync. Best-effort upsert into hearings.
+        // Fire-and-forget: never block sync. Best-effort upsert into the
+        // CANONICAL work_item_hearings table (what the UI reads via
+        // useWorkItemHearingsV2). The legacy `hearings` table is deprecated.
         try {
           const { extractHearingFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
           const candidate = extractHearingFromAct({
@@ -2775,33 +2777,34 @@ Deno.serve(withSyncTimeline(async (req) => {
           if (candidate) {
             const isFuture = new Date(candidate.starts_at_iso) > new Date();
             const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
-            const status = isFuture ? 'scheduled' : 'past';
-            // Supersede prior scheduled hearings for this WI when a new date arrives
+            // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
+            const status = isFuture ? 'scheduled' : 'held';
+            // Cancel prior scheduled hearings for this WI when a new date arrives
             if (candidate.action === 'reschedule' || isFuture) {
               await supabase
-                .from('hearings')
-                .update({ status: 'superseded', updated_at: new Date().toISOString() })
+                .from('work_item_hearings')
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
                 .eq('work_item_id', work_item_id)
                 .eq('status', 'scheduled')
+                .eq('auto_detected', true)
                 .neq('scheduled_at', candidate.starts_at_iso);
             }
             const { data: existingH } = await supabase
-              .from('hearings')
+              .from('work_item_hearings')
               .select('id')
               .eq('work_item_id', work_item_id)
               .eq('scheduled_at', candidate.starts_at_iso)
               .maybeSingle();
             if (!existingH) {
-              await supabase.from('hearings').insert({
-                owner_id: workItem.owner_id,
+              await supabase.from('work_item_hearings').insert({
                 organization_id: workItem.organization_id,
                 work_item_id,
-                title: candidate.title,
+                custom_name: candidate.title,
                 scheduled_at: candidate.starts_at_iso,
                 auto_detected: true,
                 status,
                 source_act_id: null,
-                extraction_method: 'act_regex_v1',
+                extraction_method: 'act_regex_v2',
                 time_inferred: candidate.time_inferred,
                 discovery_type: discovery,
               });
@@ -2825,10 +2828,11 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
           } else if (isSuspensionAct(act.actuacion || null, act.anotacion || null)) {
             await supabase
-              .from('hearings')
-              .update({ status: 'suspended', updated_at: new Date().toISOString() })
+              .from('work_item_hearings')
+              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
               .eq('work_item_id', work_item_id)
-              .eq('status', 'scheduled');
+              .eq('status', 'scheduled')
+              .eq('auto_detected', true);
           }
         } catch (hErr) {
           console.warn('[sync-by-work-item] hearing extractor error:', (hErr as Error).message);
