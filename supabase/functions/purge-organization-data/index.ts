@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { enqueueGcpLifecycleForHardDelete } from "../_shared/lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,10 +110,36 @@ Deno.serve(async (req) => {
     const [
       workItemsRes,
     ] = await Promise.all([
-      serviceClient.from("work_items").select("id").eq("owner_id", user.id),
+      serviceClient
+        .from("work_items")
+        .select("id, radicado, workflow_type, lifecycle_state, organization_id")
+        .eq("owner_id", user.id),
     ]);
 
-    const workItemIds = (workItemsRes.data || []).map(r => r.id);
+    const workItemsToPurge = (workItemsRes.data || []) as Array<{
+      id: string;
+      radicado: string | null;
+      workflow_type: string | null;
+      lifecycle_state: string | null;
+      organization_id: string | null;
+    }>;
+    const workItemIds = workItemsToPurge.map((r) => r.id);
+
+    // Enqueue GCP outbox up front so the broadcaster can notify GCP even
+    // after the rows are physically deleted below.
+    for (const wi of workItemsToPurge) {
+      try {
+        await enqueueGcpLifecycleForHardDelete(
+          serviceClient,
+          wi as any,
+          "USER",
+          user.id,
+          "PURGE_ORG",
+        );
+      } catch (outboxErr) {
+        console.warn(`[purge-org] outbox enqueue failed for ${wi.id}:`, outboxErr);
+      }
+    }
 
     console.log(`[purge-org] Found ${workItemIds.length} work items to delete`);
 
