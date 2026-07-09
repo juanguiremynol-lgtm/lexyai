@@ -646,15 +646,16 @@ async function validateAndHeal(
 
       if (toDemons.length > 0) {
         const demonIds = toDemons.map((d: any) => d.id);
-        const now = new Date().toISOString();
-        await supabase
-          .from("work_items")
-          .update({
-            monitoring_enabled: false,
-            demonitor_reason: `Auto-demonitored by autopilot: ${threshold}+ consecutive 404/stuck errors`,
-            demonitor_at: now,
-          })
-          .in("id", demonIds);
+        for (const wid of demonIds) {
+          await supabase.rpc("set_work_item_lifecycle", {
+            p_work_item_id: wid,
+            p_new_state: "PAUSED",
+            p_reason: "AUTO_DEMONITOR_AUTOPILOT",
+            p_actor: "AI",
+            p_actor_user: null,
+            p_metadata: { threshold, source: "atenia-ai-autopilot" },
+          });
+        }
 
         health.demonitors.executed_count = toDemons.length;
 
