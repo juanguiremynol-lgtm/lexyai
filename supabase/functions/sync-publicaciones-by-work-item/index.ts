@@ -431,6 +431,200 @@ function extractAutoDateFromText(texto: unknown): string | null {
   return `${year}-${month}-${day}`;
 }
 
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function isProxyPdfUrl(url: string | null | undefined): boolean {
+  return !!url && /https:\/\/publicaciones-procesales-api-[^/]+\/pdf\//i.test(url);
+}
+
+function isLegacyPortalUrl(url: string | null | undefined): boolean {
+  return !!url && /ramajudicial\.gov\.co/i.test(url);
+}
+
+function normalizeLooseTitle(title: string | null | undefined): string {
+  return (title || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\.pdf$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dateOnly(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length < 10) return null;
+  return value.slice(0, 10);
+}
+
+function findDocumentByType(raw: any, type: string): any | null {
+  if (!Array.isArray(raw?.documentos_pdf)) return null;
+  const expected = type.toLowerCase();
+  return raw.documentos_pdf.find((doc: any) => {
+    const docType = (doc?.tipo || '').toString().toLowerCase();
+    const title = (doc?.titulo || '').toString().toLowerCase();
+    return docType === expected || title.includes(expected);
+  }) || null;
+}
+
+function buildEstadoPublicationFromActuacion(raw: any): PublicacionV3 | null {
+  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
+  const estadoDoc = findDocumentByType(raw, 'estado');
+
+  if (!estadoObj && !estadoDoc) return null;
+
+  const estadoPdfUrl = firstNonEmptyString(
+    estadoDoc?.pdf_url,
+    estadoObj?.pdf_url,
+    raw?.gcs_url_pdf_estado,
+  );
+  const estadoTitle = firstNonEmptyString(
+    estadoDoc?.titulo,
+    estadoObj?.pdf_nombre,
+    estadoObj?.titulo_original,
+  );
+
+  // This function syncs estados, not autos. If the scraper only has an auto
+  // PDF for an actuación and no estado PDF, do not repoint an estado row to
+  // the auto PDF and do not create a no-PDF duplicate.
+  if (!estadoPdfUrl) return null;
+
+  const estadoDateRaw = firstNonEmptyString(
+    estadoDoc?.fecha,
+    estadoObj?.fecha_publicacion,
+    estadoObj?.fecha,
+    raw?.fecha_estado,
+    raw?.fecha_fijacion,
+  ) || null;
+  const autoDoc = findDocumentByType(raw, 'auto');
+  const autoDateRaw = firstNonEmptyString(
+    extractAutoDateFromText(raw?.texto_auto),
+    raw?.fecha_auto,
+    autoDoc?.fecha,
+  ) || null;
+
+  return {
+    key: String(firstNonEmptyString(
+      `estado:${estadoObj?.article_id || ''}:${estadoObj?.numero || ''}:${estadoDateRaw || ''}:${estadoTitle || ''}`,
+    )),
+    tipo: 'Estado Electrónico',
+    asset_id: firstNonEmptyString(estadoObj?.article_id, estadoObj?.numero, estadoTitle, estadoDateRaw),
+    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
+    titulo: estadoTitle || estadoObj?.titulo_original || 'Estado Electrónico',
+    fecha_publicacion: estadoDateRaw,
+    fecha_hora_inicio: null,
+    tipo_evento: 'Estado Electrónico',
+    pdf_url: estadoPdfUrl,
+    fecha_estado_raw: estadoDateRaw,
+    fecha_auto_raw: autoDateRaw,
+    clasificacion: {
+      categoria: 'Estado Electrónico',
+      descripcion: estadoObj?.titulo_original || raw?.descripcion || estadoTitle || 'Estado Electrónico',
+      es_descargable: !!estadoPdfUrl,
+    },
+  };
+}
+
+async function refreshLegacyPdfRowsForProxy(
+  supabase: any,
+  workItemId: string,
+  organizationId: string,
+  fingerprint: string,
+  pub: PublicacionV3,
+  parsedFecha: string | null,
+): Promise<string[]> {
+  if (!isProxyPdfUrl(pub.pdf_url)) return [];
+
+  const incomingTitle = normalizeLooseTitle(pub.titulo);
+  const incomingDate = parsedFecha || parseDate(pub.fecha_estado_raw) || extractDateFromTitle(pub.titulo || '') || null;
+
+  const { data: candidates, error } = await supabase
+    .from('work_item_publicaciones')
+    .select('id,title,fecha_fijacion,pdf_url,hash_fingerprint')
+    .eq('work_item_id', workItemId)
+    .eq('is_archived', false)
+    .limit(100);
+
+  if (error || !Array.isArray(candidates)) {
+    if (error) console.warn(`[sync-pub] legacy pdf refresh lookup failed: ${error.message}`);
+    return [];
+  }
+
+  const matched = candidates.filter((row: any) => {
+    if (!isLegacyPortalUrl(row?.pdf_url)) return false;
+    const existingTitle = normalizeLooseTitle(row?.title);
+    const existingDate = dateOnly(row?.fecha_fijacion) || extractDateFromTitle(row?.title || '');
+    return row?.hash_fingerprint === fingerprint ||
+      (!!incomingTitle && existingTitle === incomingTitle) ||
+      (!!incomingDate && existingDate === incomingDate && (
+        !incomingTitle || !existingTitle || incomingTitle.includes(existingTitle) || existingTitle.includes(incomingTitle)
+      ));
+  });
+
+  const refreshedIds: string[] = [];
+  for (const row of matched) {
+    const { error: updateError } = await supabase
+      .from('work_item_publicaciones')
+      .update({
+        pdf_url: pub.pdf_url,
+        pdf_available: true,
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id);
+
+    if (updateError) {
+      console.warn(`[sync-pub] legacy pdf refresh update failed for ${row.id}: ${updateError.message}`);
+      continue;
+    }
+
+    refreshedIds.push(row.id);
+
+    try {
+      const filename = (pub.pdf_url!.split('/').pop() || pub.titulo || 'attachment.pdf').slice(0, 255);
+      await supabase
+        .from('estado_attachment_queue')
+        .update({
+          remote_url: pub.pdf_url,
+          status: 'pending',
+          attempt_count: 0,
+          last_error: null,
+          next_retry_at: new Date().toISOString(),
+        })
+        .eq('publicacion_id', row.id)
+        .neq('remote_url', pub.pdf_url)
+        .in('status', ['pending', 'failed']);
+
+      await supabase
+        .from('estado_attachment_queue')
+        .upsert({
+          work_item_id: workItemId,
+          publicacion_id: row.id,
+          organization_id: organizationId,
+          remote_url: pub.pdf_url,
+          filename,
+          status: 'pending',
+          attempt_count: 0,
+          max_attempts: 5,
+          next_retry_at: new Date().toISOString(),
+        }, { onConflict: 'publicacion_id,remote_url' } as any);
+    } catch (queueErr: any) {
+      console.warn(`[sync-pub] legacy pdf refresh queue update failed for ${row.id}: ${queueErr?.message}`);
+    }
+  }
+
+  if (refreshedIds.length > 0) {
+    console.log(`[sync-pub] 🔁 Refreshed ${refreshedIds.length} legacy portal pdf_url row(s) to proxy for ${pub.titulo}`);
+  }
+  return refreshedIds;
+}
+
 /**
  * Try POST /procesar-radicado as final fallback for the pp-scraper v3.1.0 API.
  */
@@ -759,7 +953,16 @@ function extractPublicacionesFromResponse(
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
 
-  const publicaciones = rawPublicaciones.map((p: any): PublicacionV3 => {
+  const publicaciones = rawPublicaciones.flatMap((p: any): PublicacionV3[] => {
+    const estadoPub = buildEstadoPublicationFromActuacion(p);
+    if (estadoPub) return [estadoPub];
+
+    // /historico may return actuación-level PDFs with an embedded `estado`
+    // object. For this ESTADOS sync, those auto PDFs must not be stored as
+    // work_item_publicaciones. They belong to actuaciones/attachments, not the
+    // estado publication row.
+    if (p?.estado && typeof p.estado === 'object') return [];
+
     const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
     const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
     const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
@@ -772,7 +975,7 @@ function extractPublicacionesFromResponse(
       : null;
     const fechaAutoRaw =
       extractAutoDateFromText(p.texto_auto) || p.fecha_auto || autoFromDocs || null;
-    return {
+    return [{
       key,
       tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
       asset_id: p.asset_id || p.id || p.hash_documento || key,
@@ -789,7 +992,7 @@ function extractPublicacionesFromResponse(
         descripcion: p.descripcion || p.anotacion || title,
         es_descargable: typeof pdfUrl === 'string' && pdfUrl.length > 0,
       },
-    };
+    }];
   });
 
   console.log(`[sync-pub] Found ${publicaciones.length} publications`);
@@ -1551,6 +1754,20 @@ Deno.serve(withSyncTimeline(async (req) => {
       const providenciaIso = parsedAutoDate
         ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
         : null;
+
+      const refreshedLegacyIds = await refreshLegacyPdfRowsForProxy(
+        supabase,
+        work_item_id,
+        workItem.organization_id,
+        fingerprint,
+        pub,
+        parsedFecha,
+      );
+
+      if (refreshedLegacyIds.length > 0) {
+        result.skipped_count += refreshedLegacyIds.length;
+        continue;
+      }
 
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
         records: JSON.stringify([{
