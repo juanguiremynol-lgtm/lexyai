@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkWorkItemRetention } from "./document-retention-service";
-import { syncCpnuEliminar } from "./cpnu-sync-service";
+import { setWorkItemLifecycle } from "@/lib/lifecycle";
 
 export interface SoftDeleteResult {
   success: boolean;
@@ -91,25 +91,24 @@ export async function softDeleteWorkItem(
   const now = new Date();
   const purgeAfter = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000); // +10 days
 
-  // 3. Set soft delete fields on work_items
-  const { data: updated, error: updateError } = await supabase
-    .from("work_items")
-    .update({
-      deleted_at: now.toISOString(),
-      deleted_by: userId,
-      purge_after: purgeAfter.toISOString(),
-      delete_reason: reason ?? null,
-      monitoring_enabled: false,
-    })
-    .eq("id", workItemId)
-    .select("id");
-
-  if (updateError) return { success: false, error: updateError.message };
-  if (!updated || updated.length === 0) {
-    // RLS silently blocked the update — surface a clear message instead of a false success.
+  // 3. Route through the canonical RPC. This atomically:
+  //    - sets lifecycle_state='DELETED' + deleted_at + purge_after (+10 days)
+  //    - flips monitoring_enabled/scraping_enabled to false
+  //    - cancels PENDING scrape jobs
+  //    - writes an audit_logs row
+  //    - enqueues a gcp_lifecycle_outbox row (GCP scraper notification)
+  const lifecycle = await setWorkItemLifecycle(supabase, {
+    workItemId,
+    newState: "DELETED",
+    reason: reason ?? "USER_SOFT_DELETE",
+    actor: "USER",
+    actorUserId: userId,
+    metadata: { workflow_type: item.workflow_type },
+  });
+  if (!lifecycle.ok) {
     return {
       success: false,
-      error: "No tienes permiso para eliminar este asunto o ya fue eliminado.",
+      error: lifecycle.error || "No se pudo eliminar el asunto.",
     };
   }
 
@@ -131,14 +130,7 @@ export async function softDeleteWorkItem(
     },
   });
 
-  // 5. Cancel any pending scraping jobs
-  await supabase
-    .from("work_item_scrape_jobs")
-    .update({ status: "CANCELLED" })
-    .eq("work_item_id", workItemId)
-    .eq("status", "PENDING");
-
-  // 6. Log to Atenia AI action ledger
+  // 5. Log to Atenia AI action ledger (recovery UX prompt)
   const purgeDate = purgeAfter.toLocaleDateString("es-CO");
   await supabase.from("atenia_ai_actions").insert({
     action_type: "SOFT_DELETE_WORK_ITEM",
@@ -163,10 +155,7 @@ export async function softDeleteWorkItem(
     },
   });
 
-  // 7. Sync to Google Cloud SQL for CGP items (fire-and-forget)
-  if (item.workflow_type === "CGP") {
-    void syncCpnuEliminar(workItemId, reason).catch(console.warn);
-  }
-
+  // 6. GCP scraper notification is delivered by gcp-lifecycle-broadcaster
+  //    consuming the gcp_lifecycle_outbox row inserted by the RPC.
   return { success: true };
 }
