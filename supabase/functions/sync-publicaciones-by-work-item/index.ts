@@ -1099,8 +1099,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         found: false,
         resultCode: 'NO_DATA',
       };
-    } else try {
-      fetchResult = await Promise.race([
+    } else {
+      try {
+        fetchResult = await Promise.race([
         fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
           allow: gateStatus.allow,
           onDecision: (d) => { rescrapeDecision = d; },
@@ -1109,7 +1110,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
         ),
       ]);
-    } catch (raceErr: unknown) {
+      } catch (raceErr: unknown) {
       const elapsed = Date.now() - functionStartTime;
       const errMsg = raceErr instanceof Error ? raceErr.message : String(raceErr);
       console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${errMsg}`);
@@ -1122,6 +1123,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         found: false,
         resultCode: 'NO_DATA',
       };
+      }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
 
