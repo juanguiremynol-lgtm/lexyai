@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { logRestore } from "@/lib/audit-log";
+import { setWorkItemLifecycle } from "@/lib/lifecycle";
 
 interface RestoreResult {
   success: boolean;
@@ -105,18 +106,18 @@ export function useRestoreWorkItems(options?: UseRestoreWorkItemsOptions) {
           continue;
         }
 
-        const { error } = await supabase
-          .from("work_items")
-          .update({
-            deleted_at: null,
-            deleted_by: null,
-            delete_reason: null,
-            purge_after: null,
-          })
-          .eq("id", id);
+        // Canonical RPC: DELETED -> ACTIVE clears deleted_at/purge_after,
+        // re-enables monitoring/scraping, and enqueues GCP outbox.
+        const r = await setWorkItemLifecycle(supabase, {
+          workItemId: id,
+          newState: "ACTIVE",
+          reason: "USER_RESTORE",
+          actor: "USER",
+          actorUserId: user.id,
+        });
 
-        if (error) {
-          result.errors.push({ id, error: error.message });
+        if (!r.ok) {
+          result.errors.push({ id, error: r.error || "restore failed" });
         } else {
           result.restored_count++;
           result.restored_ids.push(id);

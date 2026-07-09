@@ -15,6 +15,7 @@ import { Check, X, Pencil, Loader2, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { normalizeRadicado } from "@/lib/radicado-utils";
 import { registerAndSyncCpnu, registerAndSyncPp } from "@/lib/cpnu/register-and-sync";
+import { setWorkItemLifecycle } from "@/lib/lifecycle";
 import type { WorkflowType } from "@/lib/workflow-constants";
 
 interface AddRadicadoInlineProps {
@@ -31,23 +32,29 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
 
   const saveMutation = useMutation({
     mutationFn: async (radicado23: string) => {
-      // Save normalized radicado
+      // 1. Save telemetry / radicado (NOT monitoring_enabled — that flows via RPC).
       const { error } = await supabase
         .from("work_items")
         .update({
           radicado: radicado23,
           radicado_verified: false,
-          monitoring_enabled: true,
           scrape_status: "NOT_ATTEMPTED",
           consecutive_404_count: 0,
           provider_reachable: true,
-          demonitor_reason: null,
-          demonitor_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", workItemId);
-
       if (error) throw error;
+
+      // 2. Reactivate lifecycle to ACTIVE via canonical RPC.
+      const { data: { user } } = await supabase.auth.getUser();
+      await setWorkItemLifecycle(supabase, {
+        workItemId,
+        newState: "ACTIVE",
+        reason: "RADICADO_SET",
+        actor: "USER",
+        actorUserId: user?.id ?? null,
+      });
 
       // NOTE: User-triggered sync removed. Daily cron / Atenia AI will hydrate this item.
       // The radicado save is enough — next scheduled sync will pick it up automatically.

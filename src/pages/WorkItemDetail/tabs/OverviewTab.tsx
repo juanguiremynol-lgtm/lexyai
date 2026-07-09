@@ -5,7 +5,6 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { syncCpnuPausar, syncCpnuReactivar } from "@/lib/services/cpnu-sync-service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -116,24 +115,20 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
   // Toggle monitoring mutation
   const toggleMonitoringMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      // All items now update work_items directly
-      const { error: updateError } = await supabase
-        .from("work_items")
-        .update({ monitoring_enabled: enabled })
-        .eq("id", workItem.id);
-      
-      if (updateError) throw updateError;
+      const { setWorkItemLifecycle } = await import("@/lib/lifecycle");
+      const { data: { user } } = await supabase.auth.getUser();
+      const r = await setWorkItemLifecycle(supabase, {
+        workItemId: workItem.id,
+        newState: enabled ? "ACTIVE" : "PAUSED",
+        reason: enabled ? "USER_REACTIVATE" : "USER_SUSPENDED",
+        actor: "USER",
+        actorUserId: user?.id ?? null,
+      });
+      if (!r.ok) throw new Error(r.error || "toggle failed");
     },
     onSuccess: (_, enabled) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
       toast.success(enabled ? "Monitoreo activado" : "Monitoreo desactivado");
-      if (workItem.workflow_type === "CGP") {
-        if (enabled) {
-          void syncCpnuReactivar(workItem.id).catch(console.warn);
-        } else {
-          void syncCpnuPausar(workItem.id, "Desactivado desde overview").catch(console.warn);
-        }
-      }
     },
     onError: (error) => {
       toast.error("Error: " + error.message);

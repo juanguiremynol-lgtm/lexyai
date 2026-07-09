@@ -171,18 +171,23 @@ export function AdminSupportToolsTab() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Soft-delete all work_items in the organization
-      const { error: workItemsError } = await supabase
+      // Soft-delete all live work_items in the organization via the
+      // canonical lifecycle RPC (one call per row keeps outbox+audit atomic).
+      const { setWorkItemLifecycle } = await import("@/lib/lifecycle");
+      const { data: liveItems } = await supabase
         .from("work_items")
-        .update({ 
-          deleted_at: new Date().toISOString(),
-          deleted_by: user.id,
-          delete_reason: "Demo data reset"
-        })
+        .select("id")
         .eq("organization_id", organization.id)
-        .is("deleted_at", null);
-
-      if (workItemsError) throw workItemsError;
+        .eq("lifecycle_state", "ACTIVE");
+      for (const wi of liveItems ?? []) {
+        await setWorkItemLifecycle(supabase, {
+          workItemId: wi.id,
+          newState: "DELETED",
+          reason: "DEMO_DATA_RESET",
+          actor: "ADMIN",
+          actorUserId: user.id,
+        });
+      }
 
       // Soft-delete all clients in the organization
       const { error: clientsError } = await supabase

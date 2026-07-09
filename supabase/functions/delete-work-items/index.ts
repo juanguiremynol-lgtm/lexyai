@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { enqueueGcpLifecycleForHardDelete } from "../_shared/lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -266,7 +267,7 @@ Deno.serve(async (req) => {
         // Fetch work item to check ownership
         const { data: workItem } = await serviceClient
           .from("work_items")
-          .select("id, owner_id, organization_id")
+          .select("id, owner_id, organization_id, radicado, workflow_type, lifecycle_state")
           .eq("id", workItemId)
           .maybeSingle();
 
@@ -285,7 +286,21 @@ Deno.serve(async (req) => {
         const { storageFilesDeleted } = await deleteWorkItemDependents(serviceClient, workItemId);
         result.storage_files_deleted += storageFilesDeleted;
 
-        // 7. Delete the work item itself
+        // 7. Enqueue GCP outbox BEFORE the physical DELETE so the
+        //    broadcaster still has the identifiers required to notify GCP.
+        try {
+          await enqueueGcpLifecycleForHardDelete(
+            serviceClient,
+            workItem as any,
+            "USER",
+            user.id,
+            "HARD_DELETE",
+          );
+        } catch (outboxErr) {
+          console.warn(`[delete-work-items] outbox enqueue failed for ${workItemId}:`, outboxErr);
+        }
+
+        // 8. Delete the work item itself
         const { error: deleteError } = await serviceClient
           .from("work_items")
           .delete()

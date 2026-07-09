@@ -767,18 +767,14 @@ async function executeAction(
     case "TOGGLE_MONITORING": {
       const enabled = action.params?.enabled;
       const reason = action.params?.reason;
-      const { data, error } = await adminClient
-        .from("work_items")
-        .update({
-          monitoring_enabled: enabled,
-          monitoring_disabled_reason: enabled ? null : (reason || "Deshabilitado por asistente Atenia"),
-          monitoring_disabled_at: enabled ? null : new Date().toISOString(),
-          monitoring_disabled_by: enabled ? null : "atenia_assistant",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", action.params?.work_item_id)
-        .select("id, monitoring_enabled")
-        .maybeSingle();
+      const { data, error } = await adminClient.rpc("set_work_item_lifecycle", {
+        p_work_item_id: action.params?.work_item_id,
+        p_new_state: enabled ? "ACTIVE" : "PAUSED",
+        p_reason: enabled ? "AI_REACTIVATE" : (reason || "AI_PAUSE"),
+        p_actor: "AI",
+        p_actor_user: ctx.user?.id ?? null,
+        p_metadata: { source: "atenia_assistant" },
+      });
       if (error) throw new Error(error.message);
       return { ok: true, result: data };
     }

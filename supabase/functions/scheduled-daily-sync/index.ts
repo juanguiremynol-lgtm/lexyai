@@ -29,6 +29,7 @@ import {
   BUSCAR_CONCURRENCY_LIMIT,
   markNeedsCpnuRefresh,
 } from "../_shared/cpnuFreshnessGate.ts";
+import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1421,14 +1422,12 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
     if (toDemonitor.length === 0) return;
 
     const demonitorIds = toDemonitor.map((i: any) => i.id);
-    await supabase
-      .from("work_items")
-      .update({
-        monitoring_enabled: false,
-        demonitor_reason: `Auto-demonitored: ${threshold}+ consecutive strict 404 errors`,
-        demonitor_at: new Date().toISOString(),
-      })
-      .in("id", demonitorIds);
+    await bulkSetLifecycle(supabase, demonitorIds, {
+      newState: "PAUSED",
+      reason: "AUTO_DEMONITOR",
+      actor: "SYSTEM",
+      metadata: { threshold, source: "scheduled-daily-sync" },
+    });
 
     for (const id of demonitorIds) {
       try {
