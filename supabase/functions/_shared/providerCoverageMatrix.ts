@@ -1,17 +1,11 @@
 /**
  * providerCoverageMatrix.ts — Single source-of-truth for provider compatibility.
  *
- * ┌────────────┬───────────────────────────────────────┬───────────────────────────────────────┐
- * │ Workflow   │ ACTUACIONES primary → fallbacks       │ ESTADOS primary → fallbacks           │
- * ├────────────┼───────────────────────────────────────┼───────────────────────────────────────┤
- * │ CGP        │ CPNU                                  │ Publicaciones Procesales              │
- * │ LABORAL    │ CPNU                                  │ Publicaciones Procesales              │
- * │ CPACA      │ SAMAI                                 │ SAMAI_ESTADOS (primary)               │
- * │ TUTELA     │ CPNU → SAMAI, TUTELAS                │ (none)                                │
- * │ PENAL_906  │ CPNU → SAMAI                          │ Publicaciones Procesales              │
- * │ PETICION   │ (none)                                │ (none)                                │
- * │ GOV_PROC   │ (none)                                │ (none)                                │
- * └────────────┴───────────────────────────────────────┴───────────────────────────────────────┘
+ * Deterministic routing per the Doctor's rule (see providerRouting.ts):
+ *   CGP/LABORAL/TUTELA/PENAL_906 → CPNU (acts) + PUBLICACIONES (estados)
+ *   CPACA                        → SAMAI (acts) + SAMAI_ESTADOS (estados)
+ * Hard corollaries: CPACA never queries CPNU/PP; non-CPACA never queries
+ * SAMAI/SAMAI_ESTADOS. No fallbacks may cross this boundary.
  *
  * Merge behavior:
  *   - Primary providers are queried first in declared order
@@ -103,25 +97,20 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
-        { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
   },
   TUTELA: {
     ACTUACIONES: {
-      executionMode: "FANOUT",
+      executionMode: "CHAIN",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
-        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
-      executionMode: "FANOUT",
+      executionMode: "CHAIN",
       providers: [
-        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
         { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
       ],
     },
   },
@@ -130,7 +119,6 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
@@ -198,15 +186,15 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
   CPACA: {
-    ACTUACIONES: new Set(["SAMAI", "CPNU"]),
-    ESTADOS: new Set(["SAMAI_ESTADOS", "PUBLICACIONES"]),
+    ACTUACIONES: new Set(["SAMAI"]),
+    ESTADOS: new Set(["SAMAI_ESTADOS"]),
   },
   TUTELA: {
-    ACTUACIONES: new Set(["CPNU", "SAMAI", "TUTELAS"]),
-    ESTADOS: new Set(["TUTELAS", "PUBLICACIONES", "SAMAI_ESTADOS"]),
+    ACTUACIONES: new Set(["CPNU"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
   },
   PENAL_906: {
-    ACTUACIONES: new Set(["CPNU", "SAMAI"]),
+    ACTUACIONES: new Set(["CPNU"]),
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
 };

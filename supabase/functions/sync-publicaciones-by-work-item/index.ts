@@ -32,6 +32,7 @@ import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
 } from "../_shared/onlineSyncEligibility.ts";
+import { resolveProviders } from "../_shared/providerRouting.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1011,6 +1012,24 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     const normalizedRadicado = normalizeRadicado(workItem.radicado);
 
+    // ============= DEFENSIVE ROUTING GUARD (Doctor's rule) =============
+    // sync-publicaciones-by-work-item is the PP (Publicaciones Procesales)
+    // dispatcher. Under the deterministic routing rule, only categories whose
+    // estados provider is PP may hit this fetch. CPACA (estados=SAMAI_ESTADOS)
+    // must never call PP even if invoked directly.
+    //
+    // We DO NOT early-return the whole function for CPACA, because the SAMAI
+    // Estados enrichment block below is the correct path for CPACA. We only
+    // suppress the PP HTTP fetch and synthesize an empty result so the merge
+    // pipeline still runs against SAMAI data.
+    const routing = resolveProviders(workItem.workflow_type);
+    const shouldFetchPP = routing.estados === "PP";
+    if (!shouldFetchPP) {
+      console.log(
+        `[sync-pub] ROUTING_SKIP wt=${workItem.workflow_type} reason=estados_source_is_${routing.estados ?? "NONE"} — skipping PP HTTP fetch`,
+      );
+    }
+
     // ============= CHECK API CONFIGURATION =============
     const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
     const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
@@ -1067,8 +1086,22 @@ Deno.serve(withSyncTimeline(async (req) => {
     );
 
     let fetchResult: FetchResultV3;
-    try {
-      fetchResult = await Promise.race([
+    if (!shouldFetchPP) {
+      // ROUTING_SKIP: synthesize an empty, ok PP result so downstream merge
+      // logic runs unchanged. For CPACA the SAMAI Estados block below fills
+      // in the real estados data; for other non-PP categories nothing is
+      // fetched and the run ends as SUCCESS_EMPTY.
+      rescrapeDecision = { triggered: false, reason: 'routing_skip_non_pp_category' };
+      fetchResult = {
+        ok: true,
+        publicaciones: [],
+        latencyMs: 0,
+        found: false,
+        resultCode: 'NO_DATA',
+      };
+    } else {
+      try {
+        fetchResult = await Promise.race([
         fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
           allow: gateStatus.allow,
           onDecision: (d) => { rescrapeDecision = d; },
@@ -1077,7 +1110,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           setTimeout(() => reject(new Error('PUB_SAFETY_TIMEOUT')), PUB_SAFETY_TIMEOUT_MS)
         ),
       ]);
-    } catch (raceErr: unknown) {
+      } catch (raceErr: unknown) {
       const elapsed = Date.now() - functionStartTime;
       const errMsg = raceErr instanceof Error ? raceErr.message : String(raceErr);
       console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${errMsg}`);
@@ -1090,6 +1123,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         found: false,
         resultCode: 'NO_DATA',
       };
+      }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
 

@@ -7,6 +7,8 @@
  * Every reliability invariant lives here so edge functions stay thin orchestrators.
  */
 
+import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
+
 // ────────────────────────────── Constants ──────────────────────────────
 
 /** Error codes that indicate transient scraping states — NOT demonitorable */
@@ -191,8 +193,20 @@ export const TERMINAL_STAGES = [
   'FINALIZADO_CONDENADO',
 ] as const;
 
-/** Workflows eligible for publicaciones sync */
-export const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'] as const;
+/**
+ * Workflows eligible for the Publicaciones Procesales (PP) estados pipeline.
+ *
+ * Derived from the deterministic routing resolver so this list can never drift
+ * from the Doctor's rule: only CGP/LABORAL/TUTELA/PENAL_906 use PP; CPACA uses
+ * SAMAI_ESTADOS exclusively (see providerRouting.ts).
+ *
+ * Historical bug: this list previously included CPACA and omitted TUTELA,
+ * mixing PP-eligible with SAMAI_ESTADOS-eligible categories.
+ */
+export const PUBLICACIONES_WORKFLOWS = PP_ESTADOS_WORKFLOWS;
+
+/** Workflows whose estados pipeline is SAMAI_ESTADOS (currently CPACA only). */
+export const SAMAI_ESTADOS_ONLY_WORKFLOWS = SAMAI_ESTADOS_WORKFLOWS;
 
 // ────────────────────────────── Types ──────────────────────────────
 
