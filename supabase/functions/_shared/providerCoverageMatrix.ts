@@ -97,25 +97,20 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
-        { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
   },
   TUTELA: {
     ACTUACIONES: {
-      executionMode: "FANOUT",
+      executionMode: "CHAIN",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
-        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
-      executionMode: "FANOUT",
+      executionMode: "CHAIN",
       providers: [
-        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
         { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
       ],
     },
   },
@@ -124,7 +119,6 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-        { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
@@ -192,15 +186,15 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
   CPACA: {
-    ACTUACIONES: new Set(["SAMAI", "CPNU"]),
-    ESTADOS: new Set(["SAMAI_ESTADOS", "PUBLICACIONES"]),
+    ACTUACIONES: new Set(["SAMAI"]),
+    ESTADOS: new Set(["SAMAI_ESTADOS"]),
   },
   TUTELA: {
-    ACTUACIONES: new Set(["CPNU", "SAMAI", "TUTELAS"]),
-    ESTADOS: new Set(["TUTELAS", "PUBLICACIONES", "SAMAI_ESTADOS"]),
+    ACTUACIONES: new Set(["CPNU"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
   },
   PENAL_906: {
-    ACTUACIONES: new Set(["CPNU", "SAMAI"]),
+    ACTUACIONES: new Set(["CPNU"]),
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
 };
