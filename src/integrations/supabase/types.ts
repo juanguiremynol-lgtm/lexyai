@@ -6600,6 +6600,66 @@ export type Database = {
           },
         ]
       }
+      gcp_lifecycle_outbox: {
+        Row: {
+          actor: string | null
+          actor_user_id: string | null
+          created_at: string
+          delivered_at: string | null
+          delivery_attempts: number
+          id: string
+          last_delivery_error: string | null
+          metadata: Json
+          new_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
+          occurred_at: string
+          prev_state:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          radicado: string | null
+          reason: string | null
+          work_item_id: string
+          workflow_type: string | null
+        }
+        Insert: {
+          actor?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          delivery_attempts?: number
+          id?: string
+          last_delivery_error?: string | null
+          metadata?: Json
+          new_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
+          occurred_at?: string
+          prev_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          radicado?: string | null
+          reason?: string | null
+          work_item_id: string
+          workflow_type?: string | null
+        }
+        Update: {
+          actor?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          delivery_attempts?: number
+          id?: string
+          last_delivery_error?: string | null
+          metadata?: Json
+          new_state?: Database["public"]["Enums"]["work_item_lifecycle_state"]
+          occurred_at?: string
+          prev_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          radicado?: string | null
+          reason?: string | null
+          work_item_id?: string
+          workflow_type?: string | null
+        }
+        Relationships: []
+      }
       gemini_call_log: {
         Row: {
           caller_type: string
@@ -15798,6 +15858,10 @@ export type Database = {
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
           legacy_peticion_id: string | null
+          lifecycle_changed_at: string | null
+          lifecycle_changed_by: string | null
+          lifecycle_reason: string | null
+          lifecycle_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
           matter_id: string | null
           medida_cautelar: string | null
           migration_note: string | null
@@ -15970,6 +16034,10 @@ export type Database = {
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
           legacy_peticion_id?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?: Database["public"]["Enums"]["work_item_lifecycle_state"]
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
@@ -16142,6 +16210,10 @@ export type Database = {
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
           legacy_peticion_id?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?: Database["public"]["Enums"]["work_item_lifecycle_state"]
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
@@ -16737,6 +16809,17 @@ export type Database = {
         Returns: Json
       }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
+      set_work_item_lifecycle: {
+        Args: {
+          p_actor?: string
+          p_actor_user?: string
+          p_metadata?: Json
+          p_new_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
+          p_reason?: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
         Args: {
@@ -16993,6 +17076,12 @@ export type Database = {
         | "REVIEW_PROCESS"
         | "REVIEW_FILING"
         | "IMPORT_ESTADOS"
+      work_item_lifecycle_state:
+        | "ACTIVE"
+        | "PAUSED"
+        | "CLOSED"
+        | "ARCHIVED"
+        | "DELETED"
       work_item_source_scrape_status:
         | "OK"
         | "SCRAPING_PENDING"
@@ -17392,6 +17481,13 @@ export const Constants = {
         "REVIEW_PROCESS",
         "REVIEW_FILING",
         "IMPORT_ESTADOS",
+      ],
+      work_item_lifecycle_state: [
+        "ACTIVE",
+        "PAUSED",
+        "CLOSED",
+        "ARCHIVED",
+        "DELETED",
       ],
       work_item_source_scrape_status: [
         "OK",
