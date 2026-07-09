@@ -88,20 +88,27 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
 
       const orgId = profile?.organization_id || null;
 
-      // Insert hearing
+      // Insert hearing into CANONICAL work_item_hearings.
+      if (!workItemId) {
+        throw new Error("Selecciona un proceso para vincular la audiencia");
+      }
+      if (!orgId) throw new Error("Sin organización activa");
+      const modality = isVirtual ? "virtual" : location.trim() ? "presencial" : null;
+      const meetingLink = (isVirtual ? virtualLink.trim() : "") || teamsLink.trim() || null;
       const { data: hearing, error } = await supabase
-        .from("hearings")
+        .from("work_item_hearings")
         .insert({
-          owner_id: user.user.id,
-          title: title.trim(),
+          organization_id: orgId,
+          work_item_id: workItemId,
+          custom_name: title.trim(),
+          status: "scheduled",
           scheduled_at: scheduledAt.toISOString(),
           location: location.trim() || null,
-          is_virtual: isVirtual,
-          virtual_link: isVirtual ? virtualLink.trim() || null : null,
-          teams_link: teamsLink.trim() || null,
-          notes: notes.trim() || null,
-          work_item_id: workItemId || null,
-          organization_id: orgId,
+          modality,
+          meeting_link: meetingLink,
+          notes_plain_text: notes.trim() || null,
+          created_by: user.user.id,
+          auto_detected: false,
         })
         .select()
         .single();

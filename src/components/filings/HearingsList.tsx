@@ -49,12 +49,24 @@ export function HearingsList({ filingId }: HearingsListProps) {
     queryKey: ["hearings", filingId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("hearings")
-        .select("*")
-        .eq("filing_id", filingId)
+        .from("work_item_hearings")
+        .select("*, hearing_types(name)")
+        .eq("work_item_id", filingId)
         .order("scheduled_at", { ascending: true });
       if (error) throw error;
-      return data;
+      return (data || []).map((h: any) => {
+        const isVirtual = h.modality === "virtual" || h.modality === "mixta";
+        return {
+          id: h.id,
+          title: h.custom_name || h.hearing_types?.name || "Audiencia",
+          scheduled_at: h.scheduled_at,
+          location: h.location,
+          is_virtual: isVirtual,
+          virtual_link: isVirtual ? h.meeting_link : null,
+          notes: h.notes_plain_text,
+          auto_detected: h.auto_detected,
+        };
+      });
     },
   });
 
@@ -64,16 +76,25 @@ export function HearingsList({ filingId }: HearingsListProps) {
       if (!user) throw new Error("No autenticado");
 
       const scheduledAt = new Date(`${formData.scheduled_at}T${formData.scheduled_time}`);
-
-      const { error } = await supabase.from("hearings").insert({
-        filing_id: filingId,
-        owner_id: user.id,
-        title: formData.title,
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single();
+      const orgId = profile?.organization_id;
+      if (!orgId) throw new Error("Sin organización activa");
+      const modality = formData.is_virtual ? "virtual" : formData.location ? "presencial" : null;
+      const { error } = await supabase.from("work_item_hearings").insert({
+        organization_id: orgId,
+        work_item_id: filingId,
+        custom_name: formData.title,
+        status: "scheduled",
         scheduled_at: scheduledAt.toISOString(),
         location: formData.location || null,
-        notes: formData.notes || null,
-        is_virtual: formData.is_virtual,
-        virtual_link: formData.virtual_link || null,
+        modality,
+        meeting_link: formData.virtual_link || null,
+        notes_plain_text: formData.notes || null,
+        created_by: user.id,
         auto_detected: false,
       });
       if (error) throw error;
@@ -92,7 +113,7 @@ export function HearingsList({ filingId }: HearingsListProps) {
   const deleteHearing = useMutation({
     mutationFn: async (hearingId: string) => {
       const { error } = await supabase
-        .from("hearings")
+        .from("work_item_hearings")
         .delete()
         .eq("id", hearingId);
       if (error) throw error;

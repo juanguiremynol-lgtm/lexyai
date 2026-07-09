@@ -35,29 +35,34 @@ export default function Hearings() {
   const { data: hearings, isLoading } = useQuery({
     queryKey: ["hearings"],
     queryFn: async () => {
+      // Reads from the CANONICAL work_item_hearings table.
       const { data, error } = await supabase
-        .from("hearings")
-        .select(`
-          id, title, scheduled_at, location, is_virtual, virtual_link, notes,
-          work_item_id, work_items ( title )
-        `)
-        .is("deleted_at", null)
+        .from("work_item_hearings")
+        .select(
+          `id, custom_name, scheduled_at, occurred_at, location, modality,
+           meeting_link, notes_plain_text, work_item_id, status,
+           hearing_types(name), work_items ( title )`
+        )
+        .not("scheduled_at", "is", null)
         .order("scheduled_at", { ascending: true })
         .limit(500);
 
       if (error) throw error;
 
-      return (data || []).map((h: any) => ({
-        id: h.id,
-        title: h.title,
-        scheduled_at: h.scheduled_at,
-        location: h.location,
-        is_virtual: h.is_virtual,
-        virtual_link: h.virtual_link,
-        notes: h.notes,
-        work_item_id: h.work_item_id,
-        work_item_title: h.work_items?.title || null,
-      })) as CalendarHearing[];
+      return (data || []).map((h: any) => {
+        const isVirtual = h.modality === "virtual" || h.modality === "mixta";
+        return {
+          id: h.id,
+          title: h.custom_name || h.hearing_types?.name || "Audiencia",
+          scheduled_at: h.scheduled_at,
+          location: h.location,
+          is_virtual: isVirtual,
+          virtual_link: isVirtual ? h.meeting_link : null,
+          notes: h.notes_plain_text,
+          work_item_id: h.work_item_id,
+          work_item_title: h.work_items?.title || null,
+        };
+      }) as CalendarHearing[];
     },
   });
 
@@ -67,12 +72,11 @@ export default function Hearings() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (hearingId: string) => {
-      // Soft delete
+      // work_item_hearings doesn't support soft-delete → hard delete.
       const { error } = await supabase
-        .from("hearings")
-        .update({ deleted_at: new Date().toISOString() })
+        .from("work_item_hearings")
+        .delete()
         .eq("id", hearingId);
-
       if (error) throw error;
 
       // Cancel associated alerts

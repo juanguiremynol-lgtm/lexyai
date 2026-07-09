@@ -68,7 +68,7 @@ export function AdminSupportToolsTab() {
         supabase.from("clients").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
         supabase.from("work_items").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
         supabase.from("tasks").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
-        supabase.from("hearings").select("id", { count: "exact", head: true }).eq("organization_id", organization.id),
+        supabase.from("work_item_hearings").select("id", { count: "exact", head: true }).eq("organization_id", organization.id),
         supabase.from("alert_instances").select("id", { count: "exact", head: true }).eq("organization_id", organization.id),
       ]);
 
