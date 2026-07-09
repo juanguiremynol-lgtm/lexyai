@@ -25,7 +25,7 @@ interface Hearing {
   notes: string | null;
   reminder_sent: boolean | null;
   work_item_id: string | null;
-  owner_id: string;
+  owner_id: string | null;
   organization_id: string | null;
 }
 
@@ -188,15 +188,15 @@ const handler = async (req: Request): Promise<Response> => {
     
     const reminderDays = [0, 1, 3, 7]; // Same day, 1 day, 3 days, 7 days before
 
-    // Fetch hearings that need reminders
-    const { data: hearings, error: hearingsError } = await supabase
-      .from("hearings")
+    // Fetch hearings that need reminders (CANONICAL work_item_hearings)
+    const { data: raw, error: hearingsError } = await supabase
+      .from("work_item_hearings")
       .select(`
-        id, title, scheduled_at, location, is_virtual, virtual_link, notes, 
-        reminder_sent, work_item_id, owner_id, organization_id
+        id, custom_name, scheduled_at, location, modality, meeting_link,
+        notes_plain_text, work_item_id, organization_id, created_by,
+        hearing_types(name)
       `)
-      .eq("reminder_sent", false)
-      .in("status", ["scheduled"])
+      .in("status", ["scheduled", "planned"])
       .gte("scheduled_at", today.toISOString())
       .order("scheduled_at", { ascending: true });
 
@@ -204,13 +204,30 @@ const handler = async (req: Request): Promise<Response> => {
       throw hearingsError;
     }
 
-    console.log(`[hearing-reminders] Found ${hearings?.length || 0} upcoming hearings to check`);
+    const hearings: Hearing[] = (raw || []).map((h: any) => {
+      const isVirtual = h.modality === "virtual" || h.modality === "mixta";
+      return {
+        id: h.id,
+        title: h.custom_name || h.hearing_types?.name || "Audiencia",
+        scheduled_at: h.scheduled_at,
+        location: h.location,
+        is_virtual: isVirtual,
+        virtual_link: isVirtual ? h.meeting_link : null,
+        notes: h.notes_plain_text,
+        reminder_sent: false,
+        work_item_id: h.work_item_id,
+        owner_id: h.created_by,
+        organization_id: h.organization_id,
+      };
+    });
+
+    console.log(`[hearing-reminders] Found ${hearings.length} upcoming hearings to check`);
 
     const emailsQueued: string[] = [];
     const alertsCreated: string[] = [];
     const errors: string[] = [];
 
-    for (const hearing of hearings || []) {
+    for (const hearing of hearings) {
       const hearingDate = new Date(hearing.scheduled_at);
       const daysUntil = Math.ceil((hearingDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -248,6 +265,10 @@ const handler = async (req: Request): Promise<Response> => {
         console.error(`[hearing-reminders] No organization_id for hearing ${hearing.id}, skipping`);
         continue;
       }
+      if (!hearing.owner_id) {
+        console.log(`[hearing-reminders] Hearing ${hearing.id} has no created_by; skipping personalized reminder`);
+        continue;
+      }
 
       // Get the owner's profile
       const { data: profile, error: profileError } = await supabase
@@ -268,7 +289,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Get the user's email
-      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(hearing.owner_id);
+      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(hearing.owner_id!);
       
       if (authError || !authUser.user?.email) {
         console.error(`[hearing-reminders] Could not find email for user ${hearing.owner_id}`);
@@ -365,13 +386,8 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`[hearing-reminders] Email queued for hearing ${hearing.id}: ${outboxRow.id}`);
         emailsQueued.push(hearing.id);
 
-        // Mark reminder as sent only if it's the day of (to allow multiple reminders for future days)
-        if (daysUntil === 0) {
-          await supabase
-            .from("hearings")
-            .update({ reminder_sent: true })
-            .eq("id", hearing.id);
-        }
+        // Note: canonical work_item_hearings has no reminder_sent flag.
+        // Idempotency is guaranteed by the email_outbox dedupe_key above.
 
         // Create an in-app alert for the hearing reminder
         const { error: alertError } = await supabase.from("alerts").insert({
