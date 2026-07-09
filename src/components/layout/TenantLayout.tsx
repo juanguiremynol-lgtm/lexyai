@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
 import { useAteniaHeartbeat } from "@/hooks/useAteniaHeartbeat";
+import { useColombianHolidays } from "@/hooks/use-colombian-holidays";
 
 export function TenantLayout() {
   const { theme } = useTheme();
@@ -24,6 +25,10 @@ export function TenantLayout() {
   // Atenia AI autonomous heartbeat (OBSERVE → SUGGEST → ACT)
   // NOTE: Login sync dismantled — all sync runs via daily cron, super-admin, or Atenia AI only
   useAteniaHeartbeat();
+
+  // Hydrate the shared Colombian holiday cache from the BD (single source of
+  // truth) so term calculators here match backend calculations exactly.
+  useColombianHolidays();
 
   // Ensure user has an organization on first load
   useEffect(() => {
