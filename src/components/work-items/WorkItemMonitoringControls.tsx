@@ -13,13 +13,8 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  syncCpnuPausar,
-  syncCpnuReactivar,
-  syncCpnuCerrar,
-  syncCpnuEliminar,
-} from "@/lib/services/cpnu-sync-service";
 import { softDeleteWorkItem } from "@/lib/services/work-item-delete-service";
+import { setWorkItemLifecycle } from "@/lib/lifecycle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -88,27 +83,23 @@ export function WorkItemMonitoringControls({
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
-  const isCGP = workItem.workflow_type === "CGP";
   const isClosed = workItem.stage === "CLOSED";
 
   // ── Pausar ──────────────────────────────────────────────
   const pausarMutation = useMutation({
     mutationFn: async (razon: string) => {
-      const { error } = await supabase
-        .from("work_items")
-        .update({
-          monitoring_enabled: false,
-          monitoring_suspended_at: new Date().toISOString(),
-          monitoring_suspended_reason: razon || "USER_SUSPENDED",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", workItem.id);
-      if (error) throw error;
+      const r = await setWorkItemLifecycle(supabase, {
+        workItemId: workItem.id,
+        newState: "PAUSED",
+        reason: razon || "USER_SUSPENDED",
+        actor: "USER",
+        actorUserId: userId,
+      });
+      if (!r.ok) throw new Error(r.error || "pause failed");
     },
-    onSuccess: (_, razon) => {
+    onSuccess: () => {
       toast.success("Monitoreo pausado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      if (isCGP) void syncCpnuPausar(workItem.id, razon).catch(console.warn);
       closeDialog();
       onUpdate();
     },
@@ -118,24 +109,28 @@ export function WorkItemMonitoringControls({
   // ── Reactivar ───────────────────────────────────────────
   const reactivarMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
+      const r = await setWorkItemLifecycle(supabase, {
+        workItemId: workItem.id,
+        newState: "ACTIVE",
+        reason: "USER_REACTIVATE",
+        actor: "USER",
+        actorUserId: userId,
+      });
+      if (!r.ok) throw new Error(r.error || "reactivate failed");
+      // Clear failure counters (telemetry, not lifecycle).
+      await supabase
         .from("work_items")
         .update({
-          monitoring_enabled: true,
-          monitoring_suspended_at: null,
-          monitoring_suspended_reason: null,
           consecutive_failures: 0,
           consecutive_not_found: 0,
           last_error_code: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", workItem.id);
-      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Monitoreo reactivado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      if (isCGP) void syncCpnuReactivar(workItem.id).catch(console.warn);
       onUpdate();
     },
     onError: (err: any) => toast.error(`Error: ${err.message}`),
@@ -144,21 +139,23 @@ export function WorkItemMonitoringControls({
   // ── Cerrar radicado ─────────────────────────────────────
   const cerrarMutation = useMutation({
     mutationFn: async (razon: string) => {
-      const { error } = await supabase
+      const r = await setWorkItemLifecycle(supabase, {
+        workItemId: workItem.id,
+        newState: "CLOSED",
+        reason: razon || "USER_CLOSED",
+        actor: "USER",
+        actorUserId: userId,
+      });
+      if (!r.ok) throw new Error(r.error || "close failed");
+      // stage is workflow-domain metadata, not lifecycle — keep updating it.
+      await supabase
         .from("work_items")
-        .update({
-          stage: "CLOSED",
-          monitoring_enabled: false,
-          monitoring_suspended_reason: razon || "Cerrado por usuario",
-          updated_at: new Date().toISOString(),
-        })
+        .update({ stage: "CLOSED", updated_at: new Date().toISOString() })
         .eq("id", workItem.id);
-      if (error) throw error;
     },
-    onSuccess: (_, razon) => {
+    onSuccess: () => {
       toast.success("Radicado cerrado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      if (isCGP) void syncCpnuCerrar(workItem.id, razon).catch(console.warn);
       closeDialog();
       onUpdate();
     },
