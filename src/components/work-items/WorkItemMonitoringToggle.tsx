@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { syncCpnuPausar, syncCpnuReactivar } from '@/lib/services/cpnu-sync-service';
+import { setWorkItemLifecycle } from '@/lib/lifecycle';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -51,48 +51,40 @@ export function WorkItemMonitoringToggle({
 
   async function disable() {
     setSaving(true);
-    const { error } = await (supabase.from('work_items') as any).update({
-      monitoring_enabled: false,
-      monitoring_disabled_reason: reason || 'USER_DEMONITOR',
-      monitoring_disabled_by: 'USER',
-      monitoring_disabled_at: new Date().toISOString(),
-      monitoring_disabled_meta: { note: reason || null },
-    }).eq('id', workItemId);
-
+    const { data: { user } } = await supabase.auth.getUser();
+    const r = await setWorkItemLifecycle(supabase, {
+      workItemId,
+      newState: 'PAUSED',
+      reason: reason || 'USER_DEMONITOR',
+      actor: 'USER',
+      actorUserId: user?.id ?? null,
+    });
     setSaving(false);
     setOpen(false);
-
-    if (error) {
+    if (!r.ok) {
       toast.error('Error al suspender monitoreo');
       return;
     }
     toast.success('Monitoreo suspendido');
-    if (workflowType === 'CGP') {
-      void syncCpnuPausar(workItemId, reason || 'USER_DEMONITOR').catch(console.warn);
-    }
     onChanged?.();
   }
 
   async function enable() {
     setSaving(true);
-    const { error } = await (supabase.from('work_items') as any).update({
-      monitoring_enabled: true,
-      monitoring_disabled_reason: null,
-      monitoring_disabled_by: null,
-      monitoring_disabled_at: null,
-      monitoring_disabled_meta: null,
-    }).eq('id', workItemId);
-
+    const { data: { user } } = await supabase.auth.getUser();
+    const r = await setWorkItemLifecycle(supabase, {
+      workItemId,
+      newState: 'ACTIVE',
+      reason: 'USER_REACTIVATE',
+      actor: 'USER',
+      actorUserId: user?.id ?? null,
+    });
     setSaving(false);
-
-    if (error) {
+    if (!r.ok) {
       toast.error('Error al reactivar monitoreo');
       return;
     }
     toast.success('Monitoreo reactivado');
-    if (workflowType === 'CGP') {
-      void syncCpnuReactivar(workItemId).catch(console.warn);
-    }
     onChanged?.();
   }
 
