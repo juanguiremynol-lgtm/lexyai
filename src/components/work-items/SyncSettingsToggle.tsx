@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { setWorkItemLifecycle } from '@/lib/lifecycle';
 
 interface SyncSettingsToggleProps {
   workItemId: string;
@@ -28,12 +29,15 @@ export function SyncSettingsToggle({
 
   const toggleMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const { error } = await supabase
-        .from('work_items')
-        .update({ monitoring_enabled: enabled })
-        .eq('id', workItemId);
-
-      if (error) throw error;
+      const { data: { user } } = await supabase.auth.getUser();
+      const r = await setWorkItemLifecycle(supabase, {
+        workItemId,
+        newState: enabled ? 'ACTIVE' : 'PAUSED',
+        reason: enabled ? 'USER_REACTIVATE' : 'USER_SUSPENDED',
+        actor: 'USER',
+        actorUserId: user?.id ?? null,
+      });
+      if (!r.ok) throw new Error(r.error || 'toggle failed');
       return enabled;
     },
     onSuccess: (enabled) => {
