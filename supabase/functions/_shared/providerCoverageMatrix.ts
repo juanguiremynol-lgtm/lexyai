@@ -1,17 +1,11 @@
 /**
  * providerCoverageMatrix.ts — Single source-of-truth for provider compatibility.
  *
- * ┌────────────┬───────────────────────────────────────┬───────────────────────────────────────┐
- * │ Workflow   │ ACTUACIONES primary → fallbacks       │ ESTADOS primary → fallbacks           │
- * ├────────────┼───────────────────────────────────────┼───────────────────────────────────────┤
- * │ CGP        │ CPNU                                  │ Publicaciones Procesales              │
- * │ LABORAL    │ CPNU                                  │ Publicaciones Procesales              │
- * │ CPACA      │ SAMAI                                 │ SAMAI_ESTADOS (primary)               │
- * │ TUTELA     │ CPNU → SAMAI, TUTELAS                │ (none)                                │
- * │ PENAL_906  │ CPNU → SAMAI                          │ Publicaciones Procesales              │
- * │ PETICION   │ (none)                                │ (none)                                │
- * │ GOV_PROC   │ (none)                                │ (none)                                │
- * └────────────┴───────────────────────────────────────┴───────────────────────────────────────┘
+ * Deterministic routing per the Doctor's rule (see providerRouting.ts):
+ *   CGP/LABORAL/TUTELA/PENAL_906 → CPNU (acts) + PUBLICACIONES (estados)
+ *   CPACA                        → SAMAI (acts) + SAMAI_ESTADOS (estados)
+ * Hard corollaries: CPACA never queries CPNU/PP; non-CPACA never queries
+ * SAMAI/SAMAI_ESTADOS. No fallbacks may cross this boundary.
  *
  * Merge behavior:
  *   - Primary providers are queried first in declared order
