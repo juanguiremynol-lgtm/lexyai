@@ -173,3 +173,29 @@ service host (never secrets), endpoints attempted per category, error
 classification per endpoint, HTTP statuses, correlation IDs / timestamps,
 and what was verified on the Supabase side. This handoff is what the
 Cloud Run owner uses in Google Cloud Shell to fix the upstream service.
+---
+
+## Addendum 2026-07-09 — Consolidation Cleanup
+
+### Hearings: single source of truth
+Legacy table `public.hearings` is **DEPRECATED**. All reads and writes
+must target `public.work_item_hearings`. Migration 2026-07 rewired every
+in-repo consumer (edge functions: `hearing-reminders`,
+`scheduled-alert-evaluator`, `delete-work-items`, `purge-organization-data`;
+frontend: `use-work-item-hearings` hook (now a compatibility shim),
+`Hearings.tsx`, `NewHearingDialog`, `HearingPromptDialog`, `HearingsList`,
+`HearingTeamsNotice`, `AdminSupportToolsTab`, `atenia-freshness-policies`,
+`use-work-item-detail#fetchHearings`). Two orphan rows were migrated
+(tagged `extraction_method='legacy_migration_2026_07'`). `SQL COMMENT ON
+TABLE hearings` marks it `DEPRECATED_USE_work_item_hearings`; scheduled
+for `DROP` in a future dedicated turn once telemetry confirms zero reads.
+
+### Colombian holidays: BD is authoritative
+`public.colombian_holidays` (52 rows, 2024–2026 fully covered) is the
+single source of truth. Frontend now hydrates a runtime cache via
+`useColombianHolidays()` (mounted in `TenantLayout`), consumed by
+`isColombianHoliday` in `src/lib/colombian-holidays.ts`. The
+Ley-Emiliani algorithmic implementation stays **only** as a defensive
+fallback (with one-time console warning) if the BD is unreachable. A
+coverage check warns if the current or next year has no holidays loaded
+— preventing silent divergence in 2027+.
