@@ -7,6 +7,49 @@
 
 import { addDays, getYear, isWeekend, isSameDay, format, parseISO, eachDayOfInterval } from "date-fns";
 
+/**
+ * DB-BACKED HOLIDAY CACHE (single-source-of-truth override)
+ *
+ * The backend authoritatively reads `colombian_holidays` from the database.
+ * To eliminate the algo/DB divergence risk on the frontend, `useColombianHolidays`
+ * hydrates this cache on app boot; every helper here consults the cache FIRST
+ * and only falls back to the Ley-Emiliani algorithm when the cache is empty
+ * for the requested year (e.g. offline or a year not yet loaded).
+ */
+const dbHolidayCache = new Map<string, string>(); // YYYY-MM-DD → name
+const dbLoadedYears = new Set<number>();
+
+function fmtKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Called by useColombianHolidays after fetching rows from the DB.
+ * `rows` is [{ holiday_date: "YYYY-MM-DD", name }, ...].
+ */
+export function primeColombianHolidayCache(
+  rows: Array<{ holiday_date: string; name: string }>,
+  years?: number[],
+): void {
+  for (const r of rows) {
+    dbHolidayCache.set(r.holiday_date, r.name);
+  }
+  if (years?.length) years.forEach((y) => dbLoadedYears.add(y));
+  else {
+    for (const r of rows) {
+      const y = Number(r.holiday_date.slice(0, 4));
+      if (!Number.isNaN(y)) dbLoadedYears.add(y);
+    }
+  }
+}
+
+export function hasDbHolidaysFor(year: number): boolean {
+  return dbLoadedYears.has(year);
+}
+
 // Fixed holidays that don't move (date format: MM-DD)
 const FIXED_HOLIDAYS: { date: string; name: string }[] = [
   { date: "01-01", name: "Año Nuevo" },
@@ -115,14 +158,25 @@ export function getColombianHolidays(year: number): { date: Date; name: string }
  */
 export function isColombianHoliday(date: Date): { isHoliday: boolean; name?: string } {
   const year = getYear(date);
-  const holidays = getColombianHolidays(year);
-  
-  for (const h of holidays) {
-    if (isSameDay(date, h.date)) {
-      return { isHoliday: true, name: h.name };
-    }
+
+  // DB cache is authoritative when loaded for this year.
+  if (dbLoadedYears.has(year)) {
+    const name = dbHolidayCache.get(fmtKey(date));
+    return name ? { isHoliday: true, name } : { isHoliday: false };
   }
-  
+
+  // Fallback: algorithmic (Ley Emiliani). Emits a one-time warning per year.
+  if (!(globalThis as any).__co_holiday_fallback_warned?.[year]) {
+    ((globalThis as any).__co_holiday_fallback_warned ??= {})[year] = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[colombian-holidays] DB cache not loaded for ${year}; using algorithmic fallback.`,
+    );
+  }
+  const holidays = getColombianHolidays(year);
+  for (const h of holidays) {
+    if (isSameDay(date, h.date)) return { isHoliday: true, name: h.name };
+  }
   return { isHoliday: false };
 }
 

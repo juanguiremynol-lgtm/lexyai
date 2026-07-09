@@ -41,12 +41,12 @@ export async function evaluateFreshnessClassification(
 
   if (!items || items.length === 0) return plans;
 
-  // Get items with upcoming hearings
+  // Get items with upcoming hearings (canonical table)
   const { data: upcomingHearings } = await (supabase
-    .from('hearings') as any)
+    .from('work_item_hearings') as any)
     .select('work_item_id')
-    .gte('hearing_date', now.toISOString())
-    .lte('hearing_date', sevenDaysFromNow.toISOString());
+    .gte('scheduled_at', now.toISOString())
+    .lte('scheduled_at', sevenDaysFromNow.toISOString());
 
   const hearingWorkItemIds = new Set(
     (upcomingHearings || []).map((h: any) => h.work_item_id)

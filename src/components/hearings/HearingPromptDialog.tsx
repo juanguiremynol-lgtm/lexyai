@@ -66,19 +66,28 @@ export function HearingPromptDialog({
 
       const scheduledAt = new Date(`${formData.scheduled_at}T${formData.scheduled_time}`);
 
-      // Create the hearing linked to work_item
-      const { error: hearingError } = await supabase.from("hearings").insert({
+      // Resolve org for canonical insert
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single();
+      const orgId = profile?.organization_id;
+      if (!orgId) throw new Error("Sin organización activa");
+      const modality = formData.is_virtual ? "virtual" : formData.location ? "presencial" : null;
+      const meetingLink = (formData.is_virtual ? formData.virtual_link : "") || formData.teams_link || null;
+      const { error: hearingError } = await supabase.from("work_item_hearings").insert({
+        organization_id: orgId,
         work_item_id: workItemId,
-        owner_id: user.id,
-        title: formData.title,
+        custom_name: formData.title,
+        status: "scheduled",
         scheduled_at: scheduledAt.toISOString(),
         location: formData.location || null,
-        notes: formData.notes || null,
-        is_virtual: formData.is_virtual,
-        virtual_link: formData.virtual_link || null,
-        teams_link: formData.teams_link || null,
+        modality,
+        meeting_link: meetingLink,
+        notes_plain_text: formData.notes || null,
+        created_by: user.id,
         auto_detected: false,
-        reminder_sent: false,
       });
 
       if (hearingError) throw hearingError;

@@ -240,6 +240,12 @@ Deno.serve(async (req) => {
     if (workItemIds.length > 0) {
       await serviceClient.from("hearings").delete().in("process_id", workItemIds);
     }
+    // canonical hearings table
+    if (workItemIds.length > 0) {
+      const canonRes = await serviceClient.from("work_item_hearings").select("id").in("work_item_id", workItemIds);
+      result.deleted_counts.hearings += (canonRes.data?.length || 0);
+      await serviceClient.from("work_item_hearings").delete().in("work_item_id", workItemIds);
+    }
 
     // Delete work_item_mappings
     if (workItemIds.length > 0) {

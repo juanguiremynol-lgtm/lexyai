@@ -336,11 +336,17 @@ async function fetchTasks(workItemId: string): Promise<any[]> {
 
 async function fetchHearings(workItemId: string): Promise<any[]> {
   const { data } = await (supabase
-    .from("hearings") as any)
-    .select("*")
+    .from("work_item_hearings") as any)
+    .select("*, hearing_types(name)")
     .eq("work_item_id", workItemId)
     .order("scheduled_at", { ascending: true });
-  return data || [];
+  return (data || []).map((h: any) => ({
+    ...h,
+    title: h.custom_name || h.hearing_types?.name || "Audiencia",
+    is_virtual: h.modality === "virtual" || h.modality === "mixta",
+    virtual_link: h.meeting_link,
+    notes: h.notes_plain_text,
+  }));
 }
 
 export function useWorkItemDetail(

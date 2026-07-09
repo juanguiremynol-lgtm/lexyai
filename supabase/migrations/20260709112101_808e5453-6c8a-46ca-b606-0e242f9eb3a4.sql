@@ -1,0 +1,1 @@
+COMMENT ON TABLE public.hearings IS 'DEPRECATED_USE_work_item_hearings — 2026-07 migration. All new reads/writes must target public.work_item_hearings. This table is kept temporarily for safety and will be dropped in a future migration once we confirm no consumers reference it.';

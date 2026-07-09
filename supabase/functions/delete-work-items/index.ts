@@ -161,6 +161,8 @@ async function deleteWorkItemDependents(
   await serviceClient.from("alerts").delete().eq("filing_id", workItemId);
   await serviceClient.from("hearings").delete().eq("filing_id", workItemId);
   await serviceClient.from("hearings").delete().eq("process_id", workItemId);
+  // canonical hearings table
+  await serviceClient.from("work_item_hearings").delete().eq("work_item_id", workItemId);
   await serviceClient.from("work_item_mappings").delete().eq("work_item_id", workItemId);
   await serviceClient.from("work_item_mappings").delete().eq("legacy_filing_id", workItemId);
   await serviceClient.from("work_item_mappings").delete().eq("legacy_process_id", workItemId);

@@ -40,16 +40,25 @@ export function HearingTeamsNotice() {
       const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
 
       const { data, error } = await supabase
-        .from("hearings")
-        .select("id, title, scheduled_at, teams_link, work_item_id, location, is_virtual")
-        .not("teams_link", "is", null)
+        .from("work_item_hearings")
+        .select("id, custom_name, scheduled_at, meeting_link, work_item_id, location, modality, hearing_types(name)")
+        .not("meeting_link", "is", null)
         .gte("scheduled_at", todayStart)
         .lte("scheduled_at", todayEnd)
-        .is("deleted_at", null)
         .order("scheduled_at", { ascending: true });
 
       if (error) throw error;
-      return (data || []).filter((h: any) => h.teams_link && h.teams_link.trim() !== "") as TodayHearing[];
+      return (data || [])
+        .filter((h: any) => h.meeting_link && h.meeting_link.trim() !== "")
+        .map((h: any) => ({
+          id: h.id,
+          title: h.custom_name || h.hearing_types?.name || "Audiencia",
+          scheduled_at: h.scheduled_at,
+          teams_link: h.meeting_link,
+          work_item_id: h.work_item_id,
+          location: h.location,
+          is_virtual: h.modality === "virtual" || h.modality === "mixta",
+        })) as TodayHearing[];
     },
     enabled: !!organization?.id,
     refetchInterval: 5 * 60 * 1000, // refresh every 5 min

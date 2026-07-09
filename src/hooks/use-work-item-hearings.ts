@@ -1,7 +1,18 @@
 /**
  * React Query hooks for managing work item hearings (audiencias)
- * 
- * CRUD operations with audit trail via process_events
+ *
+ * LEGACY-COMPAT SHIM (2026-07): This module previously read/wrote the legacy
+ * `hearings` table. It now delegates to the canonical `work_item_hearings`
+ * table so every consumer (HearingsTab, dialogs, etc.) shares a single source
+ * of truth. The public shape (Hearing/CreateHearingInput/UpdateHearingInput)
+ * is preserved to avoid a large-scale UI refactor.
+ *
+ * Column mapping legacy → canonical:
+ *   title         → custom_name
+ *   notes         → notes_plain_text
+ *   is_virtual    → modality ('virtual' | 'presencial')
+ *   virtual_link  → meeting_link
+ *   auto_detected → auto_detected (same name in canonical)
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,25 +60,52 @@ export interface UpdateHearingInput {
   notes?: string;
 }
 
+// Map canonical work_item_hearings row → legacy-shaped Hearing.
+function mapCanonicalToLegacy(row: any): Hearing {
+  const title =
+    row.custom_name ||
+    row.hearing_types?.name ||
+    row.hearing_type?.name ||
+    "Audiencia";
+  const scheduled = row.scheduled_at || row.occurred_at || row.created_at;
+  const isVirtual = row.modality === "virtual" || row.modality === "mixta";
+  return {
+    id: row.id,
+    title,
+    scheduled_at: scheduled,
+    location: row.location ?? null,
+    is_virtual: isVirtual,
+    virtual_link: isVirtual ? row.meeting_link ?? null : null,
+    teams_link: row.meeting_link ?? null,
+    notes: row.notes_plain_text ?? null,
+    auto_detected: row.auto_detected ?? false,
+    reminder_sent: false,
+    work_item_id: row.work_item_id ?? null,
+    organization_id: row.organization_id ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 /**
  * Fetch all hearings for a specific work item
  */
 export function useWorkItemHearings(workItemId: string | undefined) {
   const { organization } = useOrganization();
-  
+
   return useQuery({
     queryKey: ["work-item-hearings", organization?.id, workItemId],
     queryFn: async () => {
       if (!workItemId) return [];
-      
+
       const { data, error } = await supabase
-        .from("hearings")
-        .select("*")
+        .from("work_item_hearings")
+        .select("*, hearing_types(name)")
         .eq("work_item_id", workItemId)
-        .order("scheduled_at", { ascending: true });
-      
+        .order("scheduled_at", { ascending: true, nullsFirst: false });
+
       if (error) throw error;
-      return data as Hearing[];
+      return (data || []).map(mapCanonicalToLegacy);
     },
     enabled: !!workItemId && !!organization?.id,
   });
@@ -79,31 +117,39 @@ export function useWorkItemHearings(workItemId: string | undefined) {
 export function useCreateHearing() {
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
-  
+
   return useMutation({
     mutationFn: async (input: CreateHearingInput) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
-      
-      // Insert the hearing
+      if (!organization?.id) throw new Error("Sin organización activa");
+
+      // Insert the hearing into the canonical table
+      const modality = input.is_virtual
+        ? "virtual"
+        : input.location
+        ? "presencial"
+        : null;
+      const meetingLink = input.virtual_link || input.teams_link || null;
+
       const { data: hearing, error: hearingError } = await supabase
-        .from("hearings")
+        .from("work_item_hearings")
         .insert({
-          owner_id: user.id,
-          organization_id: organization?.id,
+          organization_id: organization.id,
           work_item_id: input.work_item_id,
-          title: input.title,
+          custom_name: input.title,
           scheduled_at: input.scheduled_at,
+          status: "scheduled",
           location: input.location || null,
-          notes: input.notes || null,
-          is_virtual: input.is_virtual || false,
-          virtual_link: input.virtual_link || null,
-          teams_link: input.teams_link || null,
+          modality,
+          meeting_link: meetingLink,
+          notes_plain_text: input.notes || null,
+          created_by: user.id,
           auto_detected: false,
         })
         .select("id")
         .single();
-      
+
       if (hearingError) throw hearingError;
       
       // Create process_event audit trail
@@ -140,6 +186,7 @@ export function useCreateHearing() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, variables.work_item_id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-hearings-v2", variables.work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
       queryClient.invalidateQueries({ queryKey: ["alerts", organization?.id] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
@@ -157,36 +204,44 @@ export function useCreateHearing() {
 export function useUpdateHearing() {
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
-  
+
   return useMutation({
     mutationFn: async (input: UpdateHearingInput) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
-      
+
       // Get current hearing data for audit
       const { data: currentHearing } = await supabase
-        .from("hearings")
-        .select("*, work_item_id")
+        .from("work_item_hearings")
+        .select("*, hearing_types(name)")
         .eq("id", input.id)
         .single();
-      
+
       if (!currentHearing) throw new Error("Audiencia no encontrada");
-      
-      // Update the hearing
-      const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (input.title !== undefined) updateData.title = input.title;
+
+      // Update the hearing on the canonical table
+      const updateData: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+        updated_by: user.id,
+      };
+      if (input.title !== undefined) updateData.custom_name = input.title;
       if (input.scheduled_at !== undefined) updateData.scheduled_at = input.scheduled_at;
       if (input.location !== undefined) updateData.location = input.location || null;
-      if (input.is_virtual !== undefined) updateData.is_virtual = input.is_virtual;
-      if (input.virtual_link !== undefined) updateData.virtual_link = input.virtual_link || null;
-      if (input.teams_link !== undefined) updateData.teams_link = input.teams_link || null;
-      if (input.notes !== undefined) updateData.notes = input.notes || null;
-      
+      if (input.is_virtual !== undefined) {
+        updateData.modality = input.is_virtual ? "virtual" : "presencial";
+      }
+      if (input.virtual_link !== undefined || input.teams_link !== undefined) {
+        updateData.meeting_link =
+          input.virtual_link || input.teams_link || null;
+      }
+      if (input.notes !== undefined)
+        updateData.notes_plain_text = input.notes || null;
+
       const { error } = await supabase
-        .from("hearings")
+        .from("work_item_hearings")
         .update(updateData)
         .eq("id", input.id);
-      
+
       if (error) throw error;
       
       // Create process_event audit trail
@@ -196,7 +251,7 @@ export function useUpdateHearing() {
           work_item_id: currentHearing.work_item_id,
           changes: updateData,
           previous: {
-            title: currentHearing.title,
+            title: currentHearing.custom_name,
             scheduled_at: currentHearing.scheduled_at,
             location: currentHearing.location,
           },
@@ -205,16 +260,17 @@ export function useUpdateHearing() {
           owner_id: user.id,
           work_item_id: currentHearing.work_item_id,
           event_type: "HEARING_UPDATED",
-          description: `Audiencia actualizada: ${input.title || currentHearing.title}`,
+          description: `Audiencia actualizada: ${input.title || currentHearing.custom_name || "audiencia"}`,
           source: "USER_UI",
           raw_data: eventPayload as unknown as Json,
         });
       }
       
-      return { ...currentHearing, ...updateData };
+      return { ...currentHearing, ...updateData } as any;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, result.work_item_id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, (result as any).work_item_id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-hearings-v2", (result as any).work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia actualizada");
@@ -231,7 +287,7 @@ export function useUpdateHearing() {
 export function useDeleteHearing() {
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
-  
+
   return useMutation({
     mutationFn: async (hearing: Hearing) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -254,10 +310,10 @@ export function useDeleteHearing() {
           raw_data: eventPayload as unknown as Json,
         });
       }
-      
-      // Hard delete the hearing
+
+      // Hard delete from canonical table
       const { error } = await supabase
-        .from("hearings")
+        .from("work_item_hearings")
         .delete()
         .eq("id", hearing.id);
       
@@ -267,6 +323,7 @@ export function useDeleteHearing() {
     },
     onSuccess: (hearing) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, hearing.work_item_id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-hearings-v2", hearing.work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia eliminada");

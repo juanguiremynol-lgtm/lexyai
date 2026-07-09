@@ -55,13 +55,22 @@ Deno.serve(async (req) => {
 
   try {
     // ── 1. AUDIENCIA_PROXIMA ──────────────────────────────────
-    // Find hearings in the next 72 hours
-    const { data: upcomingHearings, error: hearingErr } = await supabase
-      .from("hearings")
-      .select("id, owner_id, title, scheduled_at, location, is_virtual, work_item_id")
+    // Find hearings in the next 72 hours (CANONICAL work_item_hearings)
+    const { data: rawHearings, error: hearingErr } = await supabase
+      .from("work_item_hearings")
+      .select("id, created_by, custom_name, scheduled_at, location, modality, work_item_id, hearing_types(name)")
       .gt("scheduled_at", new Date().toISOString())
       .lt("scheduled_at", new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString())
-      .is("deleted_at", null);
+      .in("status", ["scheduled", "planned"]);
+    const upcomingHearings = (rawHearings || []).map((h: any) => ({
+      id: h.id,
+      owner_id: h.created_by,
+      title: h.custom_name || h.hearing_types?.name || "Audiencia",
+      scheduled_at: h.scheduled_at,
+      location: h.location,
+      is_virtual: h.modality === "virtual" || h.modality === "mixta",
+      work_item_id: h.work_item_id,
+    }));
 
     if (hearingErr) {
       results.errors.push(`Hearings query: ${hearingErr.message}`);
