@@ -873,12 +873,15 @@ Deno.serve(async (req) => {
       for (const ghost of ghostItems ?? []) {
         const attempts = (ghost as any).ghost_bootstrap_attempts ?? 0;
         if (attempts >= GHOST_MAX_ATTEMPTS) {
-          // Terminalize: disable monitoring
-          await admin.from("work_items").update({
-            monitoring_enabled: false,
-            monitoring_disabled_reason: "GHOST_NO_INITIAL_SYNC",
-            monitoring_disabled_at: new Date().toISOString(),
-          } as any).eq("id", ghost.id);
+          // Terminalize: pause via canonical RPC
+          await admin.rpc("set_work_item_lifecycle", {
+            p_work_item_id: ghost.id,
+            p_new_state: "PAUSED",
+            p_reason: "GHOST_NO_INITIAL_SYNC",
+            p_actor: "AI",
+            p_actor_user: null,
+            p_metadata: { source: "atenia-cron-watchdog", attempts },
+          });
           ghostTerminalized++;
         } else {
           // Enqueue one-time bootstrap sync
