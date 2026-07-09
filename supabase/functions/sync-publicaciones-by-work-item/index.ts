@@ -1086,7 +1086,20 @@ Deno.serve(withSyncTimeline(async (req) => {
     );
 
     let fetchResult: FetchResultV3;
-    try {
+    if (!shouldFetchPP) {
+      // ROUTING_SKIP: synthesize an empty, ok PP result so downstream merge
+      // logic runs unchanged. For CPACA the SAMAI Estados block below fills
+      // in the real estados data; for other non-PP categories nothing is
+      // fetched and the run ends as SUCCESS_EMPTY.
+      rescrapeDecision = { triggered: false, reason: 'routing_skip_non_pp_category' };
+      fetchResult = {
+        ok: true,
+        publicaciones: [],
+        latencyMs: 0,
+        found: false,
+        resultCode: 'NO_DATA',
+      };
+    } else try {
       fetchResult = await Promise.race([
         fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
           allow: gateStatus.allow,
