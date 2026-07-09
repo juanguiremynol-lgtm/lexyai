@@ -365,16 +365,14 @@ async function maybeAutoDemonitor(
     last_error_code: state?.last_error_code ?? null,
   };
 
-  await supabase
-    .from("work_items")
-    .update({
-      monitoring_enabled: false,
-      monitoring_disabled_reason: "AUTO_DEMONITOR_NOT_FOUND",
-      monitoring_disabled_by: "ATENIA",
-      monitoring_disabled_at: new Date().toISOString(),
-      monitoring_disabled_meta: meta,
-    })
-    .eq("id", input.work_item_id);
+  await supabase.rpc("set_work_item_lifecycle", {
+    p_work_item_id: input.work_item_id,
+    p_new_state: "PAUSED",
+    p_reason: "AUTO_DEMONITOR_NOT_FOUND",
+    p_actor: "AI",
+    p_actor_user: null,
+    p_metadata: meta,
+  });
 
   await logAction(supabase, {
     actor: "ATENIA",
