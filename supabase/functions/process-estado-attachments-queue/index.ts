@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     const { data: pending, error } = await supabase
       .from("estado_attachment_queue")
       .select(
-        "id, publicacion_id, remote_url, filename, attempt_count, max_attempts",
+        "id, publicacion_id, remote_url, filename, attempt_count, max_attempts, storage_path, last_error",
       )
       .eq("status", "pending")
       .lte("next_retry_at", nowIso)
@@ -82,6 +82,8 @@ interface QueueRow {
   filename: string | null;
   attempt_count: number;
   max_attempts: number;
+  storage_path: string | null;
+  last_error: string | null;
 }
 
 async function processOne(
@@ -91,6 +93,29 @@ async function processOne(
   const nextAttempt = row.attempt_count + 1;
   const filename = safeName(row.filename || `providencia_${row.id.slice(0, 8)}.pdf`);
   console.log(`${LOG_TAG} ${row.id} attempt ${nextAttempt}/${row.max_attempts}`);
+
+  // Idempotent close-out: if a prior run (or the publicaciones mapper) already
+  // wrote storage_path with no error, the file is in the bucket — just flip
+  // the status to 'downloaded' instead of re-downloading. Prevents the
+  // "pending forever with storage_path populated" bookkeeping bug.
+  if (row.storage_path && !row.last_error) {
+    console.log(`${LOG_TAG} ${row.id} already has storage_path, closing as downloaded`);
+    await supabase
+      .from("estado_attachment_queue")
+      .update({
+        status: "downloaded",
+        downloaded_at: new Date().toISOString(),
+        last_error: null,
+      } as never)
+      .eq("id", row.id);
+    if (row.publicacion_id) {
+      await supabase
+        .from("work_item_publicaciones")
+        .update({ pdf_url: row.storage_path } as never)
+        .eq("id", row.publicacion_id);
+    }
+    return { success: true };
+  }
 
   try {
     const bytes = await downloadPdf(row.remote_url);
