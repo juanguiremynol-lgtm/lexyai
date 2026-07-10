@@ -82,8 +82,28 @@ Deno.serve(async (req) => {
 
   let delivered = 0;
   let failed = 0;
+  let skipped_no_radicado = 0;
 
   for (const row of pending ?? []) {
+    // Skip work items without radicado: GCP scraper never had a counterpart
+    // to reconcile, so a POST would loop forever on legitimate 400 rejections.
+    if (!row.radicado || String(row.radicado).trim() === "") {
+      await supabase
+        .from("gcp_lifecycle_outbox")
+        .update({
+          delivered_at: new Date().toISOString(),
+          delivery_attempts: (row.delivery_attempts ?? 0) + 1,
+          last_delivery_error: null,
+          metadata: {
+            ...(row.metadata ?? {}),
+            skip_reason: "NO_RADICADO_NO_GCP_COUNTERPART",
+          },
+        })
+        .eq("id", row.id);
+      skipped_no_radicado++;
+      continue;
+    }
+
     const body = {
       work_item_id: row.work_item_id,
       radicado: row.radicado,
@@ -143,6 +163,7 @@ Deno.serve(async (req) => {
       picked: total,
       delivered,
       failed,
+      skipped_no_radicado,
     }),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
