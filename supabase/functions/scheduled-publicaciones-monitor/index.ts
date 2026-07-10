@@ -183,7 +183,11 @@ Deno.serve(async (req) => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseServiceKey}`,
-              'apikey': supabaseAnonKey || '',
+              // Supabase Edge Functions gateway now rejects requests where the
+              // `apikey` header and Bearer token are different sb_ values with
+              // 401 "Conflicting API keys". Send the same service key for both
+              // so scheduled invocations are not silently dropped.
+              'apikey': supabaseServiceKey,
             },
             body: JSON.stringify({
               work_item_id: workItem.id,

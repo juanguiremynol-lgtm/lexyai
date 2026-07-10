@@ -531,6 +531,86 @@ function buildEstadoPublicationFromActuacion(raw: any): PublicacionV3 | null {
   };
 }
 
+/**
+ * Build a SECOND publication row for the "individual" (per-radicado) document
+ * that PP's /historico returns alongside the planilla-de-estados. Each
+ * actuación exposes:
+ *   documentos_pdf[{ tipo: 'estado',  ... }]   ← the planilla (public)
+ *   documentos_pdf[{ tipo: 'auto',    ... }]   ← the individual providencia
+ *
+ * Historically we only ingested the estado and dropped the individual, so
+ * the jurídically-relevant document ("No repone auto, concede apelación",
+ * etc.) was never visible in Andromeda. This helper emits the individual as
+ * its own work_item_publicaciones row with a distinct proxy pdf_url. The
+ * fecha_estado_raw is kept identical to the sibling estado so the two rows
+ * stay associated on the same fijación event; fecha_auto_raw carries the
+ * date of the actuación (which is also the providencia date).
+ *
+ * The title always includes the actuación date to guarantee unique
+ * fingerprints across the 3+ actuaciones a radicado may accumulate
+ * (individual filenames like "2026-00521.pdf" repeat across dates).
+ */
+function buildIndividualPublicationFromActuacion(raw: any): PublicacionV3 | null {
+  const autoDoc = findDocumentByType(raw, 'auto');
+  const individualNombre = firstNonEmptyString(
+    autoDoc?.titulo,
+    raw?.pdf_individual_nombre,
+  );
+  const individualPdfUrl = firstNonEmptyString(
+    autoDoc?.pdf_url,
+    // raw.pdf_url on the actuación itself points to the actuación PDF in the
+    // proxy (Cloud Run) — use it as fallback when documentos_pdf lacks 'auto'.
+    isProxyPdfUrl(raw?.pdf_url) ? raw?.pdf_url : undefined,
+  );
+  if (!individualNombre || !individualPdfUrl) return null;
+  // Only ingest proxy URLs — legacy portal links are unauthenticated and
+  // become 401/404 after a few days.
+  if (!isProxyPdfUrl(individualPdfUrl)) return null;
+
+  const fechaActuacion = firstNonEmptyString(
+    autoDoc?.fecha,
+    raw?.fecha,
+    raw?.fecha_auto,
+  ) || null;
+
+  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
+  const estadoDateRaw = firstNonEmptyString(
+    estadoObj?.fecha_publicacion,
+    estadoObj?.fecha,
+    raw?.fecha_estado,
+    raw?.fecha_fijacion,
+  ) || null;
+
+  const displayFecha = fechaActuacion || estadoDateRaw || '';
+  const title = displayFecha
+    ? `Providencia ${individualNombre} — ${displayFecha}`
+    : `Providencia ${individualNombre}`;
+
+  return {
+    key: `individual:${estadoObj?.article_id || ''}:${individualNombre}:${fechaActuacion || ''}`,
+    tipo: 'Providencia',
+    asset_id: firstNonEmptyString(
+      autoDoc?.asset_id,
+      `${estadoObj?.article_id || ''}:${fechaActuacion || ''}:individual`,
+    ),
+    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.pdf_referencia_url),
+    titulo: title,
+    fecha_publicacion: fechaActuacion,
+    fecha_hora_inicio: null,
+    tipo_evento: 'Providencia',
+    pdf_url: individualPdfUrl,
+    // Keep the fijación date so both rows share the same estado event on the
+    // feed; the individual's own date lives in fecha_auto_raw → fecha_providencia.
+    fecha_estado_raw: estadoDateRaw,
+    fecha_auto_raw: fechaActuacion,
+    clasificacion: {
+      categoria: 'Providencia',
+      descripcion: raw?.descripcion || `Providencia ${individualNombre}`,
+      es_descargable: true,
+    },
+  };
+}
+
 async function refreshLegacyPdfRowsForProxy(
   supabase: any,
   workItemId: string,
@@ -984,7 +1064,11 @@ function extractPublicacionesFromResponse(
 
   const publicaciones = rawPublicaciones.flatMap((p: any): PublicacionV3[] => {
     const estadoPub = buildEstadoPublicationFromActuacion(p);
-    if (estadoPub) return [estadoPub];
+    const individualPub = buildIndividualPublicationFromActuacion(p);
+    const combined: PublicacionV3[] = [];
+    if (estadoPub) combined.push(estadoPub);
+    if (individualPub) combined.push(individualPub);
+    if (combined.length > 0) return combined;
 
     // /historico may return actuación-level PDFs with an embedded `estado`
     // object. For this ESTADOS sync, those auto PDFs must not be stored as
