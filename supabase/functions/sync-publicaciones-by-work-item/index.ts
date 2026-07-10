@@ -1064,7 +1064,11 @@ function extractPublicacionesFromResponse(
 
   const publicaciones = rawPublicaciones.flatMap((p: any): PublicacionV3[] => {
     const estadoPub = buildEstadoPublicationFromActuacion(p);
-    if (estadoPub) return [estadoPub];
+    const individualPub = buildIndividualPublicationFromActuacion(p);
+    const combined: PublicacionV3[] = [];
+    if (estadoPub) combined.push(estadoPub);
+    if (individualPub) combined.push(individualPub);
+    if (combined.length > 0) return combined;
 
     // /historico may return actuación-level PDFs with an embedded `estado`
     // object. For this ESTADOS sync, those auto PDFs must not be stored as
