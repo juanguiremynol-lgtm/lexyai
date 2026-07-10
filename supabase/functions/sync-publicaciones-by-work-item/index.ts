@@ -832,6 +832,18 @@ async function fetchPublicaciones(
 
   const endpointStatuses: Array<number | null> = [];
 
+  // Track the last successful /historico empty response so we can decide
+  // whether to fire the /procesar-radicado deep-scrape trigger below.
+  // Historically the code only triggered when /historico returned 404 or
+  // all endpoints failed — but PP frequently answers 200 with an EMPTY
+  // publicaciones list when it has never scraped the radicado. In that
+  // case the estados feed stayed empty forever because no deep-scrape
+  // was ever kicked off. Doctor's rule: on 200-empty from /historico we
+  // also fall through to /procesar-radicado (gated), and if that too is
+  // empty we return NO_DATA cleanly. The NEXT scheduled sync picks up
+  // whatever the trigger produced.
+  let historicoEmptyResult: FetchResultV3 | null = null;
+
   for (const url of endpoints) {
     const result = await fetchWithTimeoutAndRetry(url, headers, 30000, 1);
     endpointStatuses.push(result.httpStatus ?? null);
@@ -841,7 +853,14 @@ async function fetchPublicaciones(
         const data = await result.response.json();
         const latencyMs = Date.now() - startTime;
         console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
-        return extractPublicacionesFromResponse(data, latencyMs);
+        const extracted = extractPublicacionesFromResponse(data, latencyMs);
+        if (extracted.publicaciones.length > 0) {
+          return extracted;
+        }
+        // 200 + empty → keep looking, and if nothing else works fall through
+        // to /procesar-radicado so PP is told to actually scrape.
+        historicoEmptyResult = extracted;
+        break;
       } catch (_jsonErr) {
         console.warn(`[sync-pub] Invalid JSON from ${url}`);
         continue;
@@ -874,7 +893,7 @@ async function fetchPublicaciones(
     rescrapeGate.onDecision?.(decision);
     console.log(`[sync-pub] Re-scrape gate SUPPRESSED for ${radicado} (cooldown active)`);
     const totalLatency = Date.now() - startTime;
-    return {
+    return historicoEmptyResult ?? {
       ok: true,
       publicaciones: [],
       error: 'NO_DATA: /historico cold; re-scrape suppressed by gate (cooldown active)',
@@ -885,7 +904,7 @@ async function fetchPublicaciones(
     };
   }
 
-  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /procesar-radicado fallback (gate=${rescrapeGate ? 'allowed' : 'ungated'})`);
+  console.log(`[sync-pub] /historico ${historicoEmptyResult ? 'returned 200 EMPTY' : 'exhausted'}, trying /procesar-radicado fallback (gate=${rescrapeGate ? 'allowed' : 'ungated'})`);
   const procesarResult = await tryProcesarFallback(cleanBaseUrl, radicado, headers);
   if (procesarResult) {
     const decision: RescrapeDecision = {
@@ -895,7 +914,17 @@ async function fetchPublicaciones(
       error: procesarResult.error,
     };
     rescrapeGate?.onDecision?.(decision);
+    // If /procesar-radicado also came back empty and /historico had already
+    // answered 200-empty, prefer the earlier empty (has the correct 200 status)
+    // so downstream logs reflect that PP itself has no data — not an error.
+    if (procesarResult.publicaciones.length === 0 && historicoEmptyResult) {
+      return historicoEmptyResult;
+    }
     return procesarResult;
+  }
+
+  if (historicoEmptyResult) {
+    return historicoEmptyResult;
   }
 
   const totalLatency = Date.now() - startTime;
