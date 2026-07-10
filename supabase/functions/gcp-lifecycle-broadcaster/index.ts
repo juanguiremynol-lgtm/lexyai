@@ -15,7 +15,8 @@
  *
  * Env:
  *   GCP_LIFECYCLE_WEBHOOK_URL   — full URL to POST to
- *   GCP_LIFECYCLE_WEBHOOK_TOKEN — optional bearer token (X-Andromeda-Token header)
+ *   GCP_LIFECYCLE_WEBHOOK_KEY   — API key sent in the `X-API-Key` header
+ *                                 (accepts legacy GCP_LIFECYCLE_WEBHOOK_TOKEN as fallback)
  *
  * If GCP_LIFECYCLE_WEBHOOK_URL is not set, the run exits cleanly reporting
  * "no-op: webhook not configured". Outbox rows stay pending (no loss).
@@ -38,7 +39,9 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const webhookUrl = Deno.env.get("GCP_LIFECYCLE_WEBHOOK_URL");
-  const webhookToken = Deno.env.get("GCP_LIFECYCLE_WEBHOOK_TOKEN");
+  const webhookKey =
+    Deno.env.get("GCP_LIFECYCLE_WEBHOOK_KEY") ??
+    Deno.env.get("GCP_LIFECYCLE_WEBHOOK_TOKEN");
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -98,8 +101,8 @@ Deno.serve(async (req) => {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (webhookToken) {
-        headers["X-Andromeda-Token"] = webhookToken;
+      if (webhookKey) {
+        headers["X-API-Key"] = webhookKey;
       }
       const resp = await fetch(webhookUrl, {
         method: "POST",
