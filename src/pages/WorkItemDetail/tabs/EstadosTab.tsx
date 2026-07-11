@@ -17,106 +17,19 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  Scale,
-  ExternalLink,
-  FileText,
-  Table2,
-  AlertTriangle,
-  Newspaper,
-  RefreshCw,
-} from "lucide-react";
+import { Scale, AlertTriangle, Newspaper, RefreshCw } from "lucide-react";
 import type { WorkItem } from "@/types/work-item";
 import { usePpEstados, type PpEstado } from "@/hooks/use-pp-estados";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
+import { EstadosTable, type EstadoRow } from "./EstadosTable";
 
 interface EstadosTabProps {
   workItem: WorkItem;
 }
 
-function fuenteLabel(fuente: string): { label: string; variant: "default" | "secondary" | "outline" | "info" } {
-  const f = (fuente || "").toUpperCase();
-  if (f === "PP" || f === "PUBLICACIONES") return { label: "Rama Judicial", variant: "info" };
-  if (f === "SAMAI_ESTADOS" || f === "SAMAI") return { label: "Estados CPACA", variant: "secondary" };
-  return { label: fuente || "Desconocido", variant: "outline" };
-}
-
-function formatFecha(fecha: string | null | undefined): string {
-  const v = (fecha || "").trim();
-  return v ? v : "Sin fecha";
-}
-
-function EstadoRow({ estado }: { estado: PpEstado }) {
-  const { label, variant } = fuenteLabel(estado.fuente);
-  const hasTabla = !!estado.gcs_url_tabla?.trim();
-  const hasAuto = !!estado.gcs_url_auto?.trim();
-  const hasPdf = !!estado.pdf_url?.trim();
-  const hasAnyDoc = hasTabla || hasAuto || hasPdf;
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={variant}>{label}</Badge>
-          <Badge variant="outline" className="font-mono text-xs">{formatFecha(estado.fecha)}</Badge>
-          {estado.estado_numero && (
-            <Badge variant="secondary">Estado N° {estado.estado_numero}</Badge>
-          )}
-        </div>
-
-        {estado.titulo_original && (
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-            {estado.titulo_original}
-          </div>
-        )}
-
-        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-          {estado.descripcion?.trim() || "Sin descripción"}
-        </p>
-
-        {hasAnyDoc && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {hasTabla && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5"
-                onClick={() => window.open(estado.gcs_url_tabla!, "_blank", "noopener,noreferrer")}
-              >
-                <Table2 className="h-3.5 w-3.5" />
-                Ver tabla del estado
-              </Button>
-            )}
-            {hasAuto && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5"
-                onClick={() => window.open(estado.gcs_url_auto!, "_blank", "noopener,noreferrer")}
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Ver auto
-              </Button>
-            )}
-            {hasPdf && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5"
-                onClick={() => window.open(estado.pdf_url!, "_blank", "noopener,noreferrer")}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Ver en Rama Judicial
-              </Button>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+// Row rendering handled by <EstadosTable/>.
 
 export function EstadosTab({ workItem }: EstadosTabProps) {
   const radicado = workItem.radicado || null;
