@@ -37,8 +37,6 @@ interface Props {
   workItem: WorkItem;
 }
 
-const STORAGE_BUCKET = "estado-attachments";
-
 function normalizeTitleKey(t: string | null | undefined): string {
   return (t || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -115,18 +113,43 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
   };
 }
 
-/** Opens a private storage PDF via a short-lived signed URL. */
-async function openStorageAttachment(storagePath: string): Promise<void> {
-  const { data, error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(storagePath, 60 * 10);
-  if (error || !data?.signedUrl) {
-    toast.error("No se pudo abrir el PDF almacenado", {
-      description: error?.message || "URL firmada no disponible",
+/**
+ * Opens a private storage PDF via the `get-estado-attachment-url` edge
+ * function, which enforces org membership and signs the URL with the
+ * service role. Direct client-side `createSignedUrl` cannot be used because
+ * the `estado-attachments` bucket has no RLS SELECT policy for authenticated
+ * users — every attempt returns "Object not found" regardless of whether the
+ * object exists.
+ *
+ * If the edge function cannot produce a storage URL it falls back to
+ * `proxyPdfUrl`, which for open portal hosts (ramajudicial.gov.co) works in
+ * `window.open`.
+ */
+async function openStorageAttachment(
+  publicacionId: string,
+  storagePath: string,
+  proxyPdfUrl?: string,
+): Promise<void> {
+  try {
+    const { data, error } = await supabase.functions.invoke("get-estado-attachment-url", {
+      body: { publicacion_id: publicacionId, storage_path: storagePath },
     });
+    if (!error && data?.url) {
+      window.open(data.url as string, "_blank", "noopener,noreferrer");
+      return;
+    }
+    console.warn("[openStorageAttachment] edge fn failed", error?.message, data);
+  } catch (err) {
+    console.warn("[openStorageAttachment] edge fn threw", err);
+  }
+  // UI-side fallback: open portal URL directly if it looks like an open host.
+  if (proxyPdfUrl && /ramajudicial\.gov\.co/i.test(proxyPdfUrl)) {
+    window.open(proxyPdfUrl, "_blank", "noopener,noreferrer");
     return;
   }
-  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  toast.error("No se pudo abrir el PDF almacenado", {
+    description: "El archivo no está disponible en este momento.",
+  });
 }
 
 /** Renders PDF action buttons for a PP actuación */
@@ -154,7 +177,10 @@ function PpPdfButtons({ act }: { act: WorkItemAct }) {
           variant="outline"
           size="sm"
           className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => openStorageAttachment(storagePath!)}
+          onClick={() => {
+            const pubId = String(act.id).replace(/^local-pub-/, "");
+            openStorageAttachment(pubId, storagePath!, proxyPdfUrl);
+          }}
           title="Abrir PDF descargado a nuestro almacenamiento"
         >
           <HardDrive className="h-3 w-3" />
