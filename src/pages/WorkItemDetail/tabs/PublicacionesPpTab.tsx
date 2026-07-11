@@ -25,13 +25,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Newspaper, Search, RefreshCw, FileText, Table2, ExternalLink, HardDrive } from "lucide-react";
+import { Newspaper, Search, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
-import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
+import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { usePpActuaciones, resyncPpActuaciones } from "@/hooks/use-pp-actuaciones";
 import { supabase } from "@/integrations/supabase/client";
+import { EstadosTable, type EstadoRow } from "./EstadosTable";
 
 interface Props {
   workItem: WorkItem;
