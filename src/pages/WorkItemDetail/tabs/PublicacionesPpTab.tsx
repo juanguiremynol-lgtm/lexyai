@@ -25,13 +25,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Newspaper, Search, RefreshCw, FileText, Table2, ExternalLink, HardDrive } from "lucide-react";
+import { Newspaper, Search, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
-import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
+import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { usePpActuaciones, resyncPpActuaciones } from "@/hooks/use-pp-actuaciones";
 import { supabase } from "@/integrations/supabase/client";
+import { EstadosTable, type EstadoRow } from "./EstadosTable";
 
 interface Props {
   workItem: WorkItem;
@@ -152,98 +153,8 @@ async function openStorageAttachment(
   });
 }
 
-/** Renders PDF action buttons for a PP actuación */
-function PpPdfButtons({ act }: { act: WorkItemAct }) {
-  const rawData = act.raw_data as Record<string, unknown> | null;
-  const autoUrl = rawData?.gcs_url_auto as string | undefined;
-  const tablaUrl = rawData?.gcs_url_tabla as string | undefined;
-  const pdfIndividualUrl = rawData?.pdf_individual_url as string | undefined;
-  const proxyPdfUrl = rawData?.pdf_url as string | undefined;
-  const storagePath = rawData?.storage_path as string | undefined;
-
-  // Filter out empty strings
-  const hasAuto = !!autoUrl?.trim();
-  const hasTabla = !!tablaUrl?.trim();
-  const hasPdfIndividual = !!pdfIndividualUrl?.trim();
-  const hasProxyPdf = !!proxyPdfUrl?.trim();
-  const hasStorage = !!storagePath?.trim();
-
-  if (!hasAuto && !hasTabla && !hasPdfIndividual && !hasProxyPdf && !hasStorage) return null;
-
-  return (
-    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-      {hasStorage && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => {
-            const pubId = String(act.id).replace(/^local-pub-/, "");
-            openStorageAttachment(pubId, storagePath!, proxyPdfUrl);
-          }}
-          title="Abrir PDF descargado a nuestro almacenamiento"
-        >
-          <HardDrive className="h-3 w-3" />
-          Abrir PDF (almacenado)
-        </Button>
-      )}
-      {hasProxyPdf && !hasStorage && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => window.open(proxyPdfUrl!, "_blank", "noopener,noreferrer")}
-        >
-          <ExternalLink className="h-3 w-3" />
-          Ver PDF
-        </Button>
-      )}
-      {hasAuto && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => window.open(autoUrl, "_blank")}
-        >
-          <FileText className="h-3 w-3" />
-          Ver Auto
-        </Button>
-      )}
-      {hasTabla && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => window.open(tablaUrl, "_blank")}
-        >
-          <Table2 className="h-3 w-3" />
-          Ver Tabla
-        </Button>
-      )}
-      {hasPdfIndividual && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-          onClick={() => window.open(pdfIndividualUrl, "_blank")}
-        >
-          <ExternalLink className="h-3 w-3" />
-          Ver PDF Fuente
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function OriginBadge({ act }: { act: WorkItemAct }) {
-  const origin = (act.raw_data as Record<string, unknown> | null)?.__origin;
-  const isLocal = origin === "LOCAL_DB";
-  return (
-    <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-      {isLocal ? "BD local" : "Read API"}
-    </Badge>
-  );
-}
+// PDF handling and provenance chips now live inline in the EstadosTable
+// rows below (via row.onOpenFile and the row's fuente chip).
 
 export function PublicacionesPpTab({ workItem }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -398,6 +309,37 @@ export function PublicacionesPpTab({ workItem }: Props) {
 
   const summary = getActuacionesSummary(acts);
 
+  // Map merged WorkItemAct[] → EstadoRow[] for the Icarus-style table.
+  const estadoRows: EstadoRow[] = (filteredActs ?? []).map((act) => {
+    const raw = (act.raw_data ?? {}) as Record<string, unknown>;
+    const storagePath = raw.storage_path as string | undefined;
+    const proxyPdfUrl = raw.pdf_url as string | undefined;
+    const pdfIndividualUrl = raw.pdf_individual_url as string | undefined;
+    const rawTipo =
+      (raw.tipo_publicacion as string | undefined) ||
+      (raw.tipo_documento as string | undefined) ||
+      (raw.tipoPublicacion as string | undefined) ||
+      null;
+    const onOpenFile = storagePath?.trim()
+      ? () => {
+          const pubId = String(act.id).replace(/^local-pub-/, "");
+          openStorageAttachment(pubId, storagePath, proxyPdfUrl);
+        }
+      : undefined;
+    return {
+      key: act.id,
+      fuente: "PP",
+      title: act.description || "Sin descripción",
+      despacho: act.despacho || workItem.authority_name || null,
+      tipo_documento: rawTipo,
+      fecha: act.act_date || act.act_date_raw || null,
+      gcs_url_auto: (raw.gcs_url_auto as string | undefined) || null,
+      gcs_url_tabla: (raw.gcs_url_tabla as string | undefined) || null,
+      pdf_url: onOpenFile ? null : proxyPdfUrl || pdfIndividualUrl || null,
+      onOpenFile,
+    };
+  });
+
   return (
     <div className="space-y-4">
       {/* Summary header */}
@@ -452,18 +394,8 @@ export function PublicacionesPpTab({ workItem }: Props) {
         </div>
       )}
 
-      {/* Cards with PDF buttons */}
-      <div className="space-y-3">
-        {filteredActs?.map((act) => (
-          <div key={act.id}>
-            <div className="mb-1 flex items-center gap-2">
-              <OriginBadge act={act} />
-            </div>
-            <WorkItemActCard act={act} despacho={workItem.authority_name} />
-            <PpPdfButtons act={act} />
-          </div>
-        ))}
-      </div>
+      {/* Icarus-style dense table (Estados electrónicos) */}
+      {estadoRows.length > 0 && <EstadosTable rows={estadoRows} />}
 
       {filteredActs?.length === 0 && (
         <Card>
