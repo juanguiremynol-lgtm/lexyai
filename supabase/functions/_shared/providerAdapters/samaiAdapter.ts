@@ -375,9 +375,25 @@ export function normalizeSamaiActuaciones(
     const actuacion = String(
       act.actuacion ?? act.tipo_actuacion ?? act['Actuación'] ?? act['Actuacion'] ?? '',
     );
-    const anotacion = String(
-      act.anotacion ?? act.descripcion ?? act['Anotación'] ?? act['Anotacion'] ?? '',
-    ) || null;
+    // Cover every observed spelling of the annotation field across the two
+    // SAMAI backends (samai-read-api /buscar feedCombinado, samai-estados
+    // /snapshot, and the legacy scraping cache). Without every alias we drop
+    // the full 400+ char ruling text and only persist the short title.
+    const anotacionRaw =
+      act.anotacion ??
+      act.anotacion_completa ??
+      act.anotacionCompleta ??
+      act.detalle ??
+      act.detalle_actuacion ??
+      act.descripcion ??
+      act['Anotación'] ??
+      act['Anotacion'] ??
+      act['anotación'] ??
+      act['Docum. a notif.'] ??
+      act.docum_a_notif ??
+      act.documento_notificado ??
+      '';
+    const anotacion = (typeof anotacionRaw === 'string' ? anotacionRaw : String(anotacionRaw ?? '')).trim() || null;
     const fechaRegistro = normalizeDate(
       String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
     );
