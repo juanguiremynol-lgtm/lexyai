@@ -28,7 +28,7 @@ import { ActuacionDiffView } from "@/components/work-items/ActuacionDiffView";
 import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
-import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
+import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { ActuacionesTable } from "./ActuacionesTable";
 import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
