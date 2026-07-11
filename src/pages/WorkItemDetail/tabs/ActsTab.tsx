@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
+import { ActuacionesTable } from "./ActuacionesTable";
 import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
 import { AlertCircle } from "lucide-react";
@@ -342,12 +343,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
         </div>
       )}
 
-      {/* Cards */}
-      <div className="space-y-3">
-        {filteredActs?.map((act) => (
-          <WorkItemActCard key={act.id} act={act} despacho={workItem.authority_name} />
-        ))}
-      </div>
+      {/* Icarus-style dense table */}
+      {filteredActs && filteredActs.length > 0 && (
+        <ActuacionesTable acts={filteredActs} />
+      )}
 
       {/* No filter results */}
       {filteredActs?.length === 0 && (
