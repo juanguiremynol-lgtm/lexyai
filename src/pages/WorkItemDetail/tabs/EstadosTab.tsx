@@ -168,11 +168,24 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
           </Card>
         )
       ) : (
-        <div className="space-y-3">
-          {mergedEstados.map((estado) => (
-            <EstadoRow key={`${estado.fuente}-${estado.id}`} estado={estado} />
-          ))}
-        </div>
+        <EstadosTable
+          rows={mergedEstados.map<EstadoRow>((estado) => ({
+            key: `${estado.fuente}-${estado.id}`,
+            fuente: estado.fuente,
+            title:
+              estado.titulo_original?.trim() ||
+              estado.descripcion?.trim() ||
+              "Sin descripción",
+            despacho: workItem.authority_name || null,
+            tipo_documento: estado.estado_numero
+              ? `Estado N° ${estado.estado_numero}`
+              : null,
+            fecha: estado.fecha || null,
+            gcs_url_auto: estado.gcs_url_auto || null,
+            gcs_url_tabla: estado.gcs_url_tabla || null,
+            pdf_url: estado.pdf_url || null,
+          }))}
+        />
       )}
     </div>
   );
