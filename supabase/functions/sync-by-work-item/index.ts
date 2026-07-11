@@ -2635,19 +2635,38 @@ Deno.serve(withSyncTimeline(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     const { data: existingActsForDedup } = await supabase
       .from('work_item_acts')
-      .select('act_date, description, fecha_registro_source')
+      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source')
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
-    const existingSemanticSet = new Set(
-      (existingActsForDedup || []).map(a => {
-        // Robust semantic key: date + actuacion title + fecha_registro
-        // This prevents dropping distinct records that share date+title but differ in registration date
-        const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
-        const fechaReg = (a as any).fecha_registro_source || '';
-        return `${a.act_date || ''}|${descOnly}|${fechaReg}`;
-      })
-    );
+    // Map keyed by semantic tuple so we can UPDATE existing rows when the
+    // provider now delivers a longer/better anotacion than what we stored.
+    const existingSemanticMap = new Map<string, {
+      id: string;
+      raw_data: Record<string, unknown> | null;
+      description: string | null;
+      hash_fingerprint: string | null;
+      source: string | null;
+    }>();
+    for (const a of existingActsForDedup || []) {
+      const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
+      const fechaReg = (a as any).fecha_registro_source || '';
+      const key = `${a.act_date || ''}|${descOnly}|${fechaReg}`;
+      // Prefer the row that already has an anotacion so we don't overwrite it later.
+      const prev = existingSemanticMap.get(key);
+      const currAnot = String(((a as any).raw_data?.anotacion) || '');
+      const prevAnot = prev ? String((prev.raw_data as any)?.anotacion || '') : '';
+      if (!prev || currAnot.length > prevAnot.length) {
+        existingSemanticMap.set(key, {
+          id: (a as any).id,
+          raw_data: (a as any).raw_data ?? null,
+          description: a.description,
+          hash_fingerprint: (a as any).hash_fingerprint ?? null,
+          source: (a as any).source ?? null,
+        });
+      }
+    }
+    const existingSemanticSet = new Set(existingSemanticMap.keys());
     console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc+fechaReg) tuples for semantic dedup`);
 
     for (const act of fetchResult.actuaciones) {
@@ -2657,6 +2676,30 @@ Deno.serve(withSyncTimeline(async (req) => {
       // This happens BEFORE deduplication so we report the true latest event date
       if (actDate && (!latestDate || actDate > latestDate)) {
         latestDate = actDate;
+      }
+
+      // ── RECOVERY: lift anotacion from the passthrough raw feed item when
+      //    the strict normalizer alias list missed it (defensive fallback). ──
+      if (!act.anotacion || !String(act.anotacion).trim()) {
+        const rd = (act as any).raw_data as Record<string, unknown> | undefined;
+        if (rd && typeof rd === 'object') {
+          const candidate = (
+            (rd as any).anotacion ??
+            (rd as any).anotacion_completa ??
+            (rd as any).detalle ??
+            (rd as any).descripcion ??
+            (rd as any)['Anotación'] ??
+            (rd as any)['Anotacion'] ??
+            (rd as any)['Docum. a notif.'] ??
+            (rd as any).docum_a_notif ??
+            ''
+          );
+          const lifted = typeof candidate === 'string' ? candidate.trim() : String(candidate ?? '').trim();
+          if (lifted) {
+            (act as any).anotacion = lifted;
+            console.log(`[sync-by-work-item] 🔧 SAMAI anotacion recovered from raw_data (${lifted.length} chars)`);
+          }
+        }
       }
 
       // ============= AUTO-EXTRACT HEARINGS FROM ACT (runs for EVERY fetched act) =============
@@ -2741,7 +2784,51 @@ Deno.serve(withSyncTimeline(async (req) => {
       const fechaRegistroVal = act.fecha_registro || '';
       const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}`;
       if (existingSemanticSet.has(semanticKey)) {
-        console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
+        // ── ANOTACION BACKFILL ──
+        // Existing row was persisted before samai-read-api served the full
+        // annotation. If the incoming feed carries a longer, non-empty
+        // anotacion, patch raw_data/description in place. Never insert a
+        // duplicate row (would create a spurious novedad/alert).
+        const existingRow = existingSemanticMap.get(semanticKey);
+        const newAnot = String(act.anotacion || '').trim();
+        const oldAnot = String((existingRow?.raw_data as any)?.anotacion || '').trim();
+        const shouldBackfill = existingRow && newAnot && (
+          newAnot.length > oldAnot.length ||
+          (oldAnot.length > 0 && oldAnot.endsWith('…') && newAnot.length >= oldAnot.length - 1)
+        );
+        if (shouldBackfill) {
+          const mergedRaw: Record<string, unknown> = {
+            ...(existingRow!.raw_data || {}),
+            actuacion: act.actuacion,
+            anotacion: newAnot,
+            fecha_registro: act.fecha_registro,
+            estado: act.estado,
+            anexos: act.anexos,
+            indice: act.indice,
+            documentos: act.documentos,
+            instancia: act.instancia,
+            fecha_inicia_termino: act.fecha_inicia_termino,
+            fecha_finaliza_termino: act.fecha_finaliza_termino,
+          };
+          const newDescription = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`;
+          const { error: backfillErr } = await supabase
+            .from('work_item_acts')
+            .update({
+              raw_data: mergedRaw,
+              description: newDescription,
+              event_summary: newDescription.slice(0, 500),
+              last_seen_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingRow!.id);
+          if (backfillErr) {
+            console.warn(`[sync-by-work-item] ⚠️ anotacion backfill failed for ${existingRow!.id}:`, backfillErr.message);
+          } else {
+            console.log(`[sync-by-work-item] ✅ anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${existingRow!.id} — no new alert`);
+          }
+        } else {
+          console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
+        }
         result.skipped_count++;
         continue;
       }
