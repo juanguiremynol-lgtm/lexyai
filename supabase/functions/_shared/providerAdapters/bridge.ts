@@ -124,6 +124,9 @@ export interface OrchestratorActuacionRaw {
   indice?: string;
   nombre_despacho?: string;
   documentos?: Array<{ nombre: string; url: string }>;
+  /** Untouched raw item from the provider — used to recover fields
+   *  (e.g. anotacion) that the strict normalizer alias list may have missed. */
+  raw_data?: Record<string, unknown>;
 }
 
 export interface OrchestratorFetchResult {
@@ -323,6 +326,7 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     indice: a.indice,
     nombre_despacho: a.nombre_despacho,
     documentos: a.documentos,
+    raw_data: (a as unknown as { raw_data?: Record<string, unknown> }).raw_data,
   }));
 
   // Build caseMetadata from the adapter's CaseMetadata
