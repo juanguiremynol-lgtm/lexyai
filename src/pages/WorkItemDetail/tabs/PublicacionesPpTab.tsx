@@ -309,6 +309,37 @@ export function PublicacionesPpTab({ workItem }: Props) {
 
   const summary = getActuacionesSummary(acts);
 
+  // Map merged WorkItemAct[] → EstadoRow[] for the Icarus-style table.
+  const estadoRows: EstadoRow[] = (filteredActs ?? []).map((act) => {
+    const raw = (act.raw_data ?? {}) as Record<string, unknown>;
+    const storagePath = raw.storage_path as string | undefined;
+    const proxyPdfUrl = raw.pdf_url as string | undefined;
+    const pdfIndividualUrl = raw.pdf_individual_url as string | undefined;
+    const rawTipo =
+      (raw.tipo_publicacion as string | undefined) ||
+      (raw.tipo_documento as string | undefined) ||
+      (raw.tipoPublicacion as string | undefined) ||
+      null;
+    const onOpenFile = storagePath?.trim()
+      ? () => {
+          const pubId = String(act.id).replace(/^local-pub-/, "");
+          openStorageAttachment(pubId, storagePath, proxyPdfUrl);
+        }
+      : undefined;
+    return {
+      key: act.id,
+      fuente: "PP",
+      title: act.description || "Sin descripción",
+      despacho: act.despacho || workItem.authority_name || null,
+      tipo_documento: rawTipo,
+      fecha: act.act_date || act.act_date_raw || null,
+      gcs_url_auto: (raw.gcs_url_auto as string | undefined) || null,
+      gcs_url_tabla: (raw.gcs_url_tabla as string | undefined) || null,
+      pdf_url: onOpenFile ? null : proxyPdfUrl || pdfIndividualUrl || null,
+      onOpenFile,
+    };
+  });
+
   return (
     <div className="space-y-4">
       {/* Summary header */}
@@ -363,18 +394,8 @@ export function PublicacionesPpTab({ workItem }: Props) {
         </div>
       )}
 
-      {/* Cards with PDF buttons */}
-      <div className="space-y-3">
-        {filteredActs?.map((act) => (
-          <div key={act.id}>
-            <div className="mb-1 flex items-center gap-2">
-              <OriginBadge act={act} />
-            </div>
-            <WorkItemActCard act={act} despacho={workItem.authority_name} />
-            <PpPdfButtons act={act} />
-          </div>
-        ))}
-      </div>
+      {/* Icarus-style dense table (Estados electrónicos) */}
+      {estadoRows.length > 0 && <EstadosTable rows={estadoRows} />}
 
       {filteredActs?.length === 0 && (
         <Card>
