@@ -2768,12 +2768,54 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
         .from('work_item_acts')
-        .select('id')
+        .select('id, raw_data')
         .eq('work_item_id', work_item_id)
         .eq('hash_fingerprint', fingerprint)
         .maybeSingle();
 
       if (existing) {
+        // ── ANOTACION BACKFILL ON FINGERPRINT MATCH ──
+        // A stable fingerprint collision means this is the same judicial event.
+        // Older rows may have been persisted before SAMAI started returning the
+        // full annotation. Patch only mutable enrichment fields and never touch
+        // `description`, which is protected by protect_core_fields_work_item_acts.
+        const newAnot = String(act.anotacion || '').trim();
+        const oldAnot = String(((existing as any).raw_data as any)?.anotacion || '').trim();
+        const shouldBackfillByFingerprint = newAnot && (
+          newAnot.length > oldAnot.length ||
+          (oldAnot.length > 0 && oldAnot.endsWith('…') && newAnot.length >= oldAnot.length - 1)
+        );
+
+        if (shouldBackfillByFingerprint) {
+          const mergedRaw: Record<string, unknown> = {
+            ...(((existing as any).raw_data as Record<string, unknown> | null) || {}),
+            actuacion: act.actuacion,
+            anotacion: newAnot,
+            fecha_registro: act.fecha_registro,
+            estado: act.estado,
+            anexos: act.anexos,
+            indice: act.indice,
+            documentos: act.documentos,
+            instancia: act.instancia,
+            fecha_inicia_termino: act.fecha_inicia_termino,
+            fecha_finaliza_termino: act.fecha_finaliza_termino,
+          };
+          const newEventSummary = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`.slice(0, 500);
+          const { error: fingerprintBackfillErr } = await supabase
+            .from('work_item_acts')
+            .update({
+              raw_data: mergedRaw,
+              event_summary: newEventSummary,
+              last_seen_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', (existing as any).id);
+          if (fingerprintBackfillErr) {
+            console.warn(`[sync-by-work-item] ⚠️ fingerprint anotacion backfill failed for ${(existing as any).id}:`, fingerprintBackfillErr.message);
+          } else {
+            console.log(`[sync-by-work-item] ✅ fingerprint anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${(existing as any).id} — no new alert`);
+          }
+        }
         result.skipped_count++;
         continue;
       }
@@ -2815,7 +2857,6 @@ Deno.serve(withSyncTimeline(async (req) => {
             .from('work_item_acts')
             .update({
               raw_data: mergedRaw,
-              description: newDescription,
               event_summary: newDescription.slice(0, 500),
               last_seen_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
