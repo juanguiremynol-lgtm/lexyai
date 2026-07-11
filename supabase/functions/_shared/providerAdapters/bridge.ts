@@ -326,6 +326,7 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     indice: a.indice,
     nombre_despacho: a.nombre_despacho,
     documentos: a.documentos,
+    raw_data: (a as unknown as { raw_data?: Record<string, unknown> }).raw_data,
   }));
 
   // Build caseMetadata from the adapter's CaseMetadata
