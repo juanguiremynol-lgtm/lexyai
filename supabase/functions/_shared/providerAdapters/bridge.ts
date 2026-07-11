@@ -124,6 +124,9 @@ export interface OrchestratorActuacionRaw {
   indice?: string;
   nombre_despacho?: string;
   documentos?: Array<{ nombre: string; url: string }>;
+  /** Untouched raw item from the provider — used to recover fields
+   *  (e.g. anotacion) that the strict normalizer alias list may have missed. */
+  raw_data?: Record<string, unknown>;
 }
 
 export interface OrchestratorFetchResult {
