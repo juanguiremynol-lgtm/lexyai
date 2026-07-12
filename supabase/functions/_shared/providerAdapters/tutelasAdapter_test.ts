@@ -125,9 +125,9 @@ Deno.test("computeTutelasFingerprint: deterministic", () => {
   assertEquals(fp1, fp2);
 });
 
-Deno.test("computeTutelasFingerprint: different data produces different fingerprints", () => {
-  const fp1 = computeTutelasFingerprint("2025-01-15", "Auto", "Nota A", "wi-1");
-  const fp2 = computeTutelasFingerprint("2025-01-15", "Auto", "Nota B", "wi-1");
+Deno.test("computeTutelasFingerprint: different act titles produce different fingerprints", () => {
+  const fp1 = computeTutelasFingerprint("2025-01-15", "Auto admite", "n", "wi-1");
+  const fp2 = computeTutelasFingerprint("2025-01-15", "Sentencia", "n", "wi-1");
   assertEquals(fp1 !== fp2, true);
 });
 
