@@ -2813,7 +2813,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
       // FANOUT/TUTELA: exclude source from fingerprint for cross-provider dedup
       const isFanoutWorkflow = workItem.workflow_type === 'TUTELA';
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia);
+      const partyHint = (act as any)?.parte
+        ?? (act as any)?.docum_a_notif
+        ?? (act as any)?.raw_data?.parte
+        ?? (act as any)?.raw_data?.["Docum. a notif."]
+        ?? (act as any)?.raw_data?.docum_a_notif
+        ?? null;
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint);
 
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
