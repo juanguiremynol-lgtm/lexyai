@@ -31,6 +31,55 @@ function simpleHash(data: string): string {
   return `${Math.abs(h1).toString(16).padStart(8, "0")}${Math.abs(h2).toString(16).padStart(8, "0")}`;
 }
 
+/** Party tokens whose presence in the post-" - " suffix distinguishes two
+ *  otherwise-equal acts on the same day (e.g. "Recepción Memorial - DEL
+ *  ACCIONANTE" vs "... - DEL ACCIONADO"). Detected on the RAW string before
+ *  stripping the suffix so the discriminator survives normalization. */
+const PARTY_TOKENS = [
+  "accionante",
+  "accionado",
+  "demandante",
+  "demandado",
+  "tercero",
+  "apoderado",
+  "actor",
+  "coadyuvante",
+  "interviniente",
+  "opositor",
+] as const;
+
+/** Extract a party discriminator token from the post-" - " suffix of a title,
+ *  or from a raw_data.parte / raw_data.docum_a_notif hint if provided. Returns
+ *  "" when the suffix is just noise (truncation, provider anotación tail). */
+export function extractPartyDiscriminator(
+  raw: string | null | undefined,
+  hint?: string | null | undefined,
+): string {
+  const scan = (s: string): string => {
+    const lower = stripAccents(s).toLowerCase();
+    for (const tok of PARTY_TOKENS) {
+      // Word-boundary match to avoid substring hits inside longer words.
+      const re = new RegExp(`\\b${tok}\\b`);
+      if (re.test(lower)) return tok;
+    }
+    return "";
+  };
+  // 1) Hard discriminator from raw_data if the caller supplied one.
+  if (hint) {
+    const h = scan(String(hint));
+    if (h) return h;
+  }
+  // 2) Otherwise inspect the post-" - " / " — " suffix of the title itself.
+  if (!raw) return "";
+  const s = String(raw);
+  const i1 = s.indexOf(" - ");
+  const i2 = s.indexOf(" — ");
+  const sepIdx = i1 === -1 ? i2 : i2 === -1 ? i1 : Math.min(i1, i2);
+  if (sepIdx < 0) return "";
+  const suffix = s.slice(sepIdx + 3);
+  return scan(suffix);
+}
+
 /** Normalize a title/tipo string: NFD strip accents, lowercase, trim,
  *  collapse whitespace, drop any " - " / " — " tail (anotación concatenada). */
 export function normalizeTitle(raw: string | null | undefined): string {
@@ -55,11 +104,16 @@ export function canonicalActFingerprint(input: {
   act_date?: string | null;
   description?: string | null;
   actuacion?: string | null;
+  /** Optional raw_data.parte / raw_data.docum_a_notif hint for party discrimination. */
+  party_hint?: string | null;
 }): string {
   const wi = (input.work_item_id || "noscope").slice(0, 8);
   const date = (input.act_date || "unknown").trim();
-  const title = normalizeTitle(input.actuacion ?? input.description ?? "");
-  return `wi_${wi}_${simpleHash(`act|${wi}|${date}|${title}`)}`;
+  const rawTitle = input.actuacion ?? input.description ?? "";
+  const title = normalizeTitle(rawTitle);
+  const party = extractPartyDiscriminator(rawTitle, input.party_hint);
+  const suffix = party ? `|p:${party}` : "";
+  return `wi_${wi}_${simpleHash(`act|${wi}|${date}|${title}${suffix}`)}`;
 }
 
 /** Canonical, source-agnostic fingerprint for a work_item_publicaciones row. */
@@ -69,10 +123,14 @@ export function canonicalPubFingerprint(input: {
   tipo_publicacion?: string | null;
   title?: string | null;
   description?: string | null;
+  party_hint?: string | null;
 }): string {
   const wi = (input.work_item_id || "noscope").slice(0, 8);
   const date = (input.pub_date || "unknown").trim();
   const tipo = normalizeTitle(input.tipo_publicacion || "");
-  const title = normalizeTitle(input.title ?? input.description ?? "");
-  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${tipo}|${title}`)}`;
+  const rawTitle = input.title ?? input.description ?? "";
+  const title = normalizeTitle(rawTitle);
+  const party = extractPartyDiscriminator(rawTitle, input.party_hint);
+  const suffix = party ? `|p:${party}` : "";
+  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${tipo}|${title}${suffix}`)}`;
 }
