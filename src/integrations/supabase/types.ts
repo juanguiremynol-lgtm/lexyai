@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      _canon_backfill_report: {
+        Row: {
+          id: number
+          metric: string
+          ran_at: string
+          step: string
+          value_int: number | null
+          value_text: string | null
+        }
+        Insert: {
+          id?: number
+          metric: string
+          ran_at?: string
+          step: string
+          value_int?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          id?: number
+          metric?: string
+          ran_at?: string
+          step?: string
+          value_int?: number | null
+          value_text?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
