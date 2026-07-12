@@ -1490,21 +1490,21 @@ Deno.serve(withSyncTimeline(async (req) => {
     //   without any error signal, freezing every CPACA estados feed silently.
     //   The wrapper below enforces a strict contract check so that a CONTRACT
     //   MISMATCH can never again masquerade as "no news".
-    // ============= CPACA (primary) + TUTELA (fallback) SAMAI ESTADOS =============
-    // For CPACA, SAMAI Estados is the PRIMARY estados source and is ALWAYS invoked.
-    // For TUTELA, SAMAI Estados is the FALLBACK — invoked ONLY when PP responded
-    // correctly with NO publicaciones (constitutional-jurisdiction cascade).
-    // Fallback is triggered on empty response only, NEVER on transient error
-    // (fetchResult.ok=false → skip fallback; the retry queue re-hits PP).
+    // ============= CPACA (exclusive) + TUTELA (UNION) SAMAI ESTADOS =============
+    // For CPACA, SAMAI Estados is the exclusive estados source (invoked always).
+    // For TUTELA, estados are the UNION of PP + SAMAI_ESTADOS: SAMAI_ESTADOS is
+    // invoked on EVERY sync, regardless of PP's outcome (success, empty, or
+    // transient error). Results merge downstream by hash_fingerprint so the
+    // same estado from both providers collapses to a single row.
+    // If PP errors and SAMAI succeeds with data, we continue and report PARTIAL
+    // (never SUCCESS while a provider errored — see error-return branch below).
     const isCpaca = workItem.workflow_type === 'CPACA';
-    const isTutelaFallback =
-      workItem.workflow_type === 'TUTELA' &&
-      fetchResult.ok &&
-      (fetchResult.publicaciones?.length ?? 0) === 0;
-    if (isCpaca || isTutelaFallback) {
-      if (isTutelaFallback) {
+    const isTutelaUnion = workItem.workflow_type === 'TUTELA';
+    if (isCpaca || isTutelaUnion) {
+      if (isTutelaUnion) {
         console.log(
-          `[sync-pub][samai_estados] TUTELA cascade: PP returned empty for wi=${work_item_id} — falling back to SAMAI_ESTADOS`
+          `[sync-pub][samai_estados] TUTELA union: querying SAMAI_ESTADOS alongside PP for wi=${work_item_id} ` +
+          `(pp_ok=${fetchResult.ok}, pp_count=${fetchResult.publicaciones?.length ?? 0})`
         );
       }
       const samaiEstadosBaseUrl = Deno.env.get('SAMAI_ESTADOS_BASE_URL');
