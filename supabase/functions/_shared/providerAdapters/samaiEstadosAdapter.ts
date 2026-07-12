@@ -32,6 +32,7 @@ import {
   redactPII,
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
+import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
