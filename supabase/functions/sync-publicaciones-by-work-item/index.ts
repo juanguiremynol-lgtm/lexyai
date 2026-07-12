@@ -250,15 +250,33 @@ async function writePublicacionesAttemptRow(
       finished_at: new Date().toISOString(),
       duration_ms: result?.provider_latency_ms || 0,
       status,
-      provider_attempts: [{
-        provider: 'publicaciones',
-        data_kind: 'ESTADOS',
-        status: outcome,
-        latency_ms: result?.provider_latency_ms || 0,
-        inserted_count: result?.inserted_count || 0,
-        skipped_count: result?.skipped_count || 0,
-        result_code: result?.result_code,
-      }],
+      provider_attempts: [
+        {
+          provider: 'publicaciones',
+          data_kind: 'ESTADOS',
+          status: outcome,
+          latency_ms: result?.provider_latency_ms || 0,
+          inserted_count: result?.inserted_count || 0,
+          skipped_count: result?.skipped_count || 0,
+          result_code: result?.result_code,
+        },
+        // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
+        // every early-return path (empty / error) still records per-provider
+        // trace evidence for audit ("cuántos trajo cada proveedor").
+        ...(result?.samai_estados_summary?.called
+          ? [{
+              provider: 'samai_estados',
+              data_kind: 'ESTADOS',
+              status: result.samai_estados_summary.status || 'unknown',
+              http_status: result.samai_estados_summary.http_status,
+              latency_ms: result.samai_estados_summary.duration_ms || 0,
+              raw_count: result.samai_estados_summary.raw_count,
+              merged_new: result.samai_estados_summary.merged_new,
+              contract_mismatch: result.samai_estados_summary.contract_mismatch || false,
+              error: result.samai_estados_summary.error,
+            }]
+          : []),
+      ],
       total_inserted_pubs: result?.inserted_count || 0,
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
