@@ -74,37 +74,30 @@ const CPNU_HEADERS: Record<string, string> = {
 
 /**
  * Compute a dedup fingerprint for a CPNU actuación.
- * Uses a robust composite key: date + actuacion title + fecha_registro + anotacion + despacho.
- * This prevents dropping distinct records that share the same date+title but differ
- * in registration date, annotation, or instance.
+ *
+ * SOURCE-AGNOSTIC (2026-07-12 P0 fix): identifies the JURIDICAL FACT
+ * (work_item + date + normalized title), not the ingestion transport.
+ * Anotación / fecha_registro / instancia / despacho are intentionally
+ * EXCLUDED — they drift between ingestion paths and were causing dupes
+ * (e.g. same act arriving as source='cpnu' vs 'CPNU' with different
+ * fecha_registro fill-in).
  */
 function computeCpnuFingerprint(
   radicado: string,
   fecha: string,
   actuacion: string,
-  despacho: string,
+  _despacho: string,
   workItemId?: string,
-  crossProviderDedup?: boolean,
-  fechaRegistro?: string,
-  anotacion?: string,
-  instancia?: string,
+  _crossProviderDedup?: boolean,
+  _fechaRegistro?: string,
+  _anotacion?: string,
+  _instancia?: string,
 ): string {
-  // When cross-provider dedup is enabled, use a provider-agnostic prefix
-  const prefix = crossProviderDedup ? 'ACT' : 'cpnu';
-  const itemKey = workItemId || radicado;
-  // Normalize anotacion: trim, collapse whitespace, lowercase, cap at 200 chars
-  const normAnnotation = (anotacion || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 200);
-  const normActuacion = (actuacion || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  const data = `${prefix}|${itemKey}|${fecha}|${normActuacion}|${fechaRegistro || ''}|${normAnnotation}|${instancia || ''}|${despacho}`;
-  let hash1 = 0, hash2 = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash1 = ((hash1 << 5) - hash1) + char;
-    hash1 = hash1 & hash1;
-    hash2 = ((hash2 << 7) + hash2) ^ char;
-    hash2 = hash2 & hash2;
-  }
-  return `${Math.abs(hash1).toString(16).padStart(8, '0')}${Math.abs(hash2).toString(16).padStart(8, '0')}`;
+  return canonicalActFingerprint({
+    work_item_id: workItemId || radicado,
+    act_date: fecha,
+    actuacion,
+  });
 }
 
 // ═══════════════════════════════════════════
