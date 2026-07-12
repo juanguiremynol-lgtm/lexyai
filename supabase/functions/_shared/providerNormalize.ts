@@ -11,6 +11,7 @@ import {
   DATE_SOURCE_TO_CONFIDENCE,
   type DateSource,
 } from "./sync-constraints.ts";
+import { canonicalActFingerprint, canonicalPubFingerprint } from "./canonicalFingerprint.ts";
 
 // Re-export for convenience — edge functions can import from here
 export { sanitizeDateSource, DATE_SOURCE_TO_CONFIDENCE };
@@ -69,7 +70,8 @@ export interface Provenance {
 
 // ────────────────────────────── Helpers ──────────────────────────────
 
-async function generateFingerprint(text: string): Promise<string> {
+// Legacy SHA-256 helper retained for content-hash uses outside dedupe.
+async function _sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -134,9 +136,11 @@ export async function normalizeActuaciones(
     const description = a.description || a.raw_text || "";
     const fingerprint =
       a.hash_fingerprint ||
-      (await generateFingerprint(
-        `${workItemId}|${a.act_date || ""}|${description.slice(0, 200)}`,
-      ));
+      canonicalActFingerprint({
+        work_item_id: workItemId,
+        act_date: a.act_date || null,
+        description,
+      });
 
     const dateSource = sanitizeDateSource(a.date_source || "api_explicit") as DateSource;
 
@@ -176,9 +180,12 @@ export async function normalizePublicaciones(
     const description = p.description || p.raw_text || "";
     const fingerprint =
       p.hash_fingerprint ||
-      (await generateFingerprint(
-        `${workItemId}|pub|${p.pub_date || ""}|${description.slice(0, 200)}`,
-      ));
+      canonicalPubFingerprint({
+        work_item_id: workItemId,
+        pub_date: p.pub_date || null,
+        tipo_publicacion: p.tipo_publicacion || null,
+        description,
+      });
 
     const dateSource = sanitizeDateSource(p.date_source || "api_explicit") as DateSource;
 
