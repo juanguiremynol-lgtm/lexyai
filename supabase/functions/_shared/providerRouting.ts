@@ -5,28 +5,35 @@
  * category MAY consult, per the Doctor's strict routing rule:
  *
  *   ┌──────────┬──────────────────────────┬──────────────────────────────┐
- *   │ Workflow │ Actuaciones cascade      │ Estados cascade              │
+ *   │ Workflow │ Actuaciones providers    │ Estados providers            │
  *   ├──────────┼──────────────────────────┼──────────────────────────────┤
  *   │ CPACA    │ [SAMAI]                  │ [SAMAI_ESTADOS]              │
  *   │ CGP      │ [CPNU]                   │ [PP]                         │
  *   │ PENAL_906│ [CPNU]                   │ [PP]                         │
  *   │ LABORAL  │ [CPNU]                   │ [PP]                         │
- *   │ TUTELA   │ [CPNU → SAMAI]           │ [PP → SAMAI_ESTADOS]         │
+ *   │ TUTELA   │ [CPNU ∪ SAMAI]  (UNION)  │ [PP ∪ SAMAI_ESTADOS] (UNION) │
  *   └──────────┴──────────────────────────┴──────────────────────────────┘
  *
- * Doctor's rule (constitutional jurisdiction):
- *   Tutela is CONSTITUTIONAL and may be resolved by ANY judge — ordinary
- *   (CGP courts, visible in CPNU + PP) or administrative (CPACA courts,
- *   visible in SAMAI + SAMAI_ESTADOS). It therefore uses a strict CASCADE:
- *   the primary is queried first; the fallback is consulted ONLY when the
- *   primary responded correctly with NO results (empty / not-found).
- *   Fallback is NEVER triggered by a transient error (5xx / timeout /
- *   PROVIDER_ERROR) — those must be retried against the primary.
+ * Semantics of the returned arrays:
+ *   • For CPACA / CGP / LABORAL / PENAL_906 the array has EXACTLY ONE
+ *     element — the exclusive provider for that workflow.
+ *   • For TUTELA the array lists MULTIPLE providers with UNION semantics:
+ *     every provider MUST be queried on every sync and their results are
+ *     merged + deduplicated by hash_fingerprint. This is NOT a cascade —
+ *     never stop after the first non-empty answer. Tutela is CONSTITUTIONAL
+ *     jurisdiction, so a single expediente may be split across an ordinary
+ *     judge (CPNU / PP) AND an administrative judge (SAMAI / SAMAI_ESTADOS)
+ *     — e.g. primera instancia en juez ordinario, impugnación en juez
+ *     administrativo. Only the union guarantees full coverage.
+ *   • If one provider errs transiently and the other succeeds, the sync
+ *     result is PARTIAL (persist what came in, retry the failed one).
+ *     Never report SUCCESS when a provider errored.
  *
  * Hard corollaries — enforced by every dispatcher via this resolver:
  *   • CPACA NEVER queries CPNU or PP.
  *   • CGP / LABORAL / PENAL_906 NEVER query SAMAI or SAMAI_ESTADOS.
- *   • TUTELA MAY query all four providers, in cascade order only.
+ *   • TUTELA queries all four providers on every sync (UNION), and the
+ *     four are all legitimate — never treat any of them as ROUTING_SKIP.
  *
  * All sync dispatchers (sync-by-work-item, sync-publicaciones-by-work-item,
  * syncOrchestrator, provider-sync-external-provider, cpnu-job-poller, and
@@ -59,9 +66,11 @@ const ROUTING_TABLE: Record<string, ProviderRouting> = {
   CGP:       { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "CGP_ROUTE" },
   LABORAL:   { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "LABORAL_ROUTE" },
   PENAL_906: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "PENAL_906_ROUTE" },
-  // TUTELA — constitutional jurisdiction: cascade primary → fallback.
-  // Fallback triggers only on empty/not-found, NEVER on transient error.
-  TUTELA:    { actuaciones: ["CPNU", "SAMAI"], estados: ["PP", "SAMAI_ESTADOS"], eligible: true, reason: "TUTELA_CASCADE" },
+  // TUTELA — constitutional jurisdiction: UNION of all providers.
+  // Every provider is queried on every sync; results are deduped by
+  // hash_fingerprint. Order in the array is informational only (used for
+  // tie-breaking / trace ordering) — it does NOT imply cascade semantics.
+  TUTELA:    { actuaciones: ["CPNU", "SAMAI"], estados: ["PP", "SAMAI_ESTADOS"], eligible: true, reason: "TUTELA_UNION" },
   // Internal-only categories — never dispatch to any external provider
   PETICION:       { actuaciones: [], estados: [], eligible: false, reason: "INTERNAL_ONLY" },
   GOV_PROCEDURE:  { actuaciones: [], estados: [], eligible: false, reason: "INTERNAL_ONLY" },
