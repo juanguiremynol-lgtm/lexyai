@@ -105,12 +105,17 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+        // Constitutional jurisdiction: if CPNU responds empty, tutela may live
+        // in an administrative court (SAMAI). Fallback ONLY on empty, never on error.
+        { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
       executionMode: "CHAIN",
       providers: [
         { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+        // Fallback to SAMAI_ESTADOS when PP responds empty (tutela at admin court).
+        { key: "SAMAI_ESTADOS", role: "FALLBACK", type: "EXTERNAL" },
       ],
     },
   },
@@ -190,8 +195,9 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ESTADOS: new Set(["SAMAI_ESTADOS"]),
   },
   TUTELA: {
-    ACTUACIONES: new Set(["CPNU"]),
-    ESTADOS: new Set(["PUBLICACIONES"]),
+    // Tutela may legitimately hit either the ordinary or administrative provider.
+    ACTUACIONES: new Set(["CPNU", "SAMAI"]),
+    ESTADOS: new Set(["PUBLICACIONES", "SAMAI_ESTADOS"]),
   },
   PENAL_906: {
     ACTUACIONES: new Set(["CPNU"]),

@@ -481,14 +481,16 @@ describe('TUTELA source priority ordering', () => {
 // ============= 11. PUBLICACIONES WORKFLOW COVERAGE =============
 
 describe('Publicaciones workflow coverage', () => {
-  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
+  // TUTELA joined the cascade (PP primary → SAMAI_ESTADOS fallback) per
+  // constitutional-jurisdiction rule. See providerRouting.ts ROUTING_TABLE.
+  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906', 'TUTELA'];
 
   it('includes CGP', () => expect(PUBLICACIONES_WORKFLOWS).toContain('CGP'));
   it('includes LABORAL', () => expect(PUBLICACIONES_WORKFLOWS).toContain('LABORAL'));
   it('includes CPACA', () => expect(PUBLICACIONES_WORKFLOWS).toContain('CPACA'));
   it('includes PENAL_906', () => expect(PUBLICACIONES_WORKFLOWS).toContain('PENAL_906'));
-  it('excludes TUTELA by design', () => expect(PUBLICACIONES_WORKFLOWS).not.toContain('TUTELA'));
-  it('has exactly 4 types', () => expect(PUBLICACIONES_WORKFLOWS.length).toBe(4));
+  it('includes TUTELA (constitutional cascade)', () => expect(PUBLICACIONES_WORKFLOWS).toContain('TUTELA'));
+  it('has exactly 5 types', () => expect(PUBLICACIONES_WORKFLOWS.length).toBe(5));
 });
 
 // ============= 12. DEMO PROVIDER REGISTRY =============

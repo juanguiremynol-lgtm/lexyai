@@ -4,22 +4,29 @@
  * SINGLE SOURCE OF TRUTH for which external provider services a work item
  * category MAY consult, per the Doctor's strict routing rule:
  *
- *   ┌──────────┬──────────────────┬──────────────────────────┐
- *   │ Workflow │ Actuaciones      │ Estados                  │
- *   ├──────────┼──────────────────┼──────────────────────────┤
- *   │ CPACA    │ SAMAI            │ SAMAI_ESTADOS            │
- *   │ CGP      │ CPNU             │ PP (Publicaciones)       │
- *   │ PENAL_906│ CPNU             │ PP                       │
- *   │ LABORAL  │ CPNU             │ PP                       │
- *   │ TUTELA   │ CPNU             │ PP                       │
- *   └──────────┴──────────────────┴──────────────────────────┘
+ *   ┌──────────┬──────────────────────────┬──────────────────────────────┐
+ *   │ Workflow │ Actuaciones cascade      │ Estados cascade              │
+ *   ├──────────┼──────────────────────────┼──────────────────────────────┤
+ *   │ CPACA    │ [SAMAI]                  │ [SAMAI_ESTADOS]              │
+ *   │ CGP      │ [CPNU]                   │ [PP]                         │
+ *   │ PENAL_906│ [CPNU]                   │ [PP]                         │
+ *   │ LABORAL  │ [CPNU]                   │ [PP]                         │
+ *   │ TUTELA   │ [CPNU → SAMAI]           │ [PP → SAMAI_ESTADOS]         │
+ *   └──────────┴──────────────────────────┴──────────────────────────────┘
  *
- * Mnemonic: SAMAI + SAMAI_ESTADOS are EXCLUSIVE to CPACA. Everything else
- * uses CPNU (actuaciones) + PP (estados).
+ * Doctor's rule (constitutional jurisdiction):
+ *   Tutela is CONSTITUTIONAL and may be resolved by ANY judge — ordinary
+ *   (CGP courts, visible in CPNU + PP) or administrative (CPACA courts,
+ *   visible in SAMAI + SAMAI_ESTADOS). It therefore uses a strict CASCADE:
+ *   the primary is queried first; the fallback is consulted ONLY when the
+ *   primary responded correctly with NO results (empty / not-found).
+ *   Fallback is NEVER triggered by a transient error (5xx / timeout /
+ *   PROVIDER_ERROR) — those must be retried against the primary.
  *
  * Hard corollaries — enforced by every dispatcher via this resolver:
- *   • A CPACA work item NEVER queries CPNU or PP.
- *   • A non-CPACA work item NEVER queries SAMAI or SAMAI_ESTADOS.
+ *   • CPACA NEVER queries CPNU or PP.
+ *   • CGP / LABORAL / PENAL_906 NEVER query SAMAI or SAMAI_ESTADOS.
+ *   • TUTELA MAY query all four providers, in cascade order only.
  *
  * All sync dispatchers (sync-by-work-item, sync-publicaciones-by-work-item,
  * syncOrchestrator, provider-sync-external-provider, cpnu-job-poller, and
@@ -35,8 +42,10 @@ export type ActuacionesProvider = "CPNU" | "SAMAI";
 export type EstadosProvider = "PP" | "SAMAI_ESTADOS";
 
 export interface ProviderRouting {
-  actuaciones: ActuacionesProvider | null;
-  estados: EstadosProvider | null;
+  /** Ordered cascade of actuaciones providers (primary first). Empty = ineligible. */
+  actuaciones: ActuacionesProvider[];
+  /** Ordered cascade of estados providers (primary first). Empty = ineligible. */
+  estados: EstadosProvider[];
   eligible: boolean;
   reason: string;
 }
@@ -46,14 +55,16 @@ export interface ProviderRouting {
  * provider for that data kind (internal-only state, e.g. PETICION).
  */
 const ROUTING_TABLE: Record<string, ProviderRouting> = {
-  CPACA:     { actuaciones: "SAMAI", estados: "SAMAI_ESTADOS", eligible: true, reason: "CPACA_ROUTE" },
-  CGP:       { actuaciones: "CPNU",  estados: "PP",            eligible: true, reason: "CGP_ROUTE" },
-  LABORAL:   { actuaciones: "CPNU",  estados: "PP",            eligible: true, reason: "LABORAL_ROUTE" },
-  TUTELA:    { actuaciones: "CPNU",  estados: "PP",            eligible: true, reason: "TUTELA_ROUTE" },
-  PENAL_906: { actuaciones: "CPNU",  estados: "PP",            eligible: true, reason: "PENAL_906_ROUTE" },
+  CPACA:     { actuaciones: ["SAMAI"],         estados: ["SAMAI_ESTADOS"],       eligible: true, reason: "CPACA_ROUTE" },
+  CGP:       { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "CGP_ROUTE" },
+  LABORAL:   { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "LABORAL_ROUTE" },
+  PENAL_906: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "PENAL_906_ROUTE" },
+  // TUTELA — constitutional jurisdiction: cascade primary → fallback.
+  // Fallback triggers only on empty/not-found, NEVER on transient error.
+  TUTELA:    { actuaciones: ["CPNU", "SAMAI"], estados: ["PP", "SAMAI_ESTADOS"], eligible: true, reason: "TUTELA_CASCADE" },
   // Internal-only categories — never dispatch to any external provider
-  PETICION:       { actuaciones: null, estados: null, eligible: false, reason: "INTERNAL_ONLY" },
-  GOV_PROCEDURE:  { actuaciones: null, estados: null, eligible: false, reason: "INTERNAL_ONLY" },
+  PETICION:       { actuaciones: [], estados: [], eligible: false, reason: "INTERNAL_ONLY" },
+  GOV_PROCEDURE:  { actuaciones: [], estados: [], eligible: false, reason: "INTERNAL_ONLY" },
 };
 
 /**
@@ -67,42 +78,54 @@ export function resolveProviders(
 ): ProviderRouting {
   if (!workflowType) {
     console.warn("[providerRouting] resolveProviders called with empty workflow_type — treating as ineligible");
-    return { actuaciones: null, estados: null, eligible: false, reason: "MISSING_WORKFLOW_TYPE" };
+    return { actuaciones: [], estados: [], eligible: false, reason: "MISSING_WORKFLOW_TYPE" };
   }
   const entry = ROUTING_TABLE[workflowType];
   if (!entry) {
     console.warn(`[providerRouting] Unknown workflow_type=${workflowType} — treating as ineligible until classified`);
-    return { actuaciones: null, estados: null, eligible: false, reason: `UNKNOWN_WORKFLOW_${workflowType}` };
+    return { actuaciones: [], estados: [], eligible: false, reason: `UNKNOWN_WORKFLOW_${workflowType}` };
   }
   return entry;
 }
 
-// ── Boolean helpers (never use ad-hoc lists elsewhere) ──
+// ── Cascade helpers (never use ad-hoc lists elsewhere) ──
+// Semantics: "is provider X anywhere in the cascade of this workflow?"
+// True for both PRIMARY and FALLBACK positions. Use these instead of
+// equality checks so TUTELA's fallback slots are respected.
 
-export function usesSamaiActs(wt: string | null | undefined): boolean {
-  return resolveProviders(wt).actuaciones === "SAMAI";
+export function actsChainIncludes(wt: string | null | undefined, p: ActuacionesProvider): boolean {
+  return resolveProviders(wt).actuaciones.includes(p);
 }
-export function usesCpnuActs(wt: string | null | undefined): boolean {
-  return resolveProviders(wt).actuaciones === "CPNU";
+export function estadosChainIncludes(wt: string | null | undefined, p: EstadosProvider): boolean {
+  return resolveProviders(wt).estados.includes(p);
 }
-export function usesSamaiEstados(wt: string | null | undefined): boolean {
-  return resolveProviders(wt).estados === "SAMAI_ESTADOS";
+
+/** Back-compat helpers — semantics widened to "in cascade" (was "equals primary"). */
+export function usesSamaiActs(wt: string | null | undefined): boolean { return actsChainIncludes(wt, "SAMAI"); }
+export function usesCpnuActs(wt: string | null | undefined): boolean { return actsChainIncludes(wt, "CPNU"); }
+export function usesSamaiEstados(wt: string | null | undefined): boolean { return estadosChainIncludes(wt, "SAMAI_ESTADOS"); }
+export function usesPpEstados(wt: string | null | undefined): boolean { return estadosChainIncludes(wt, "PP"); }
+
+/** Primary providers (position 0 of cascade). Null if category ineligible. */
+export function primaryActs(wt: string | null | undefined): ActuacionesProvider | null {
+  return resolveProviders(wt).actuaciones[0] ?? null;
 }
-export function usesPpEstados(wt: string | null | undefined): boolean {
-  return resolveProviders(wt).estados === "PP";
+export function primaryEstados(wt: string | null | undefined): EstadosProvider | null {
+  return resolveProviders(wt).estados[0] ?? null;
 }
 
 /**
  * Convenience — categories eligible for the PP (Publicaciones Procesales)
- * estados pipeline. Derived exclusively from ROUTING_TABLE.
+ * estados pipeline (PP appears anywhere in cascade). Derived from ROUTING_TABLE.
  */
 export const PP_ESTADOS_WORKFLOWS: readonly string[] = Object.entries(ROUTING_TABLE)
-  .filter(([, r]) => r.estados === "PP")
+  .filter(([, r]) => r.estados.includes("PP"))
   .map(([wt]) => wt);
 
 /**
- * Convenience — categories eligible for the SAMAI_ESTADOS estados pipeline.
+ * Convenience — categories eligible for the SAMAI_ESTADOS estados pipeline
+ * (SAMAI_ESTADOS appears anywhere in cascade — primary for CPACA, fallback for TUTELA).
  */
 export const SAMAI_ESTADOS_WORKFLOWS: readonly string[] = Object.entries(ROUTING_TABLE)
-  .filter(([, r]) => r.estados === "SAMAI_ESTADOS")
+  .filter(([, r]) => r.estados.includes("SAMAI_ESTADOS"))
   .map(([wt]) => wt);

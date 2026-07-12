@@ -7,7 +7,11 @@ Provider selection is workflow-aware with STRICT NO-FALLBACK enforcement for CGP
 
 - **CPACA**: SAMAI is PRIMARY (administrative litigation); CPNU is optional fallback (disabled by default).
 
-- **TUTELA**: TUTELAS API is PRIMARY (using tutela_code); CPNU is fallback if TUTELAS empty/failed.
+- **TUTELA (constitutional jurisdiction — CASCADE)**: Any judge can hear a tutela
+  (ordinary/CGP or administrative/CPACA), so both provider families are legitimate.
+    * Actuaciones cascade: **CPNU → SAMAI** (fallback ONLY on empty/not-found, NEVER on transient error)
+    * Estados cascade:      **PP → SAMAI_ESTADOS** (same rule)
+    * Semantics: "responded with 0 results" → fallback. "5xx/timeout/PROVIDER_ERROR" → do NOT fallback; retry primary.
 
 - **PENAL_906**: Publicaciones Procesales is PRIMARY (called first) because penal updates frequently surface via published PDFs; CPNU/SAMAI disabled by default.
 

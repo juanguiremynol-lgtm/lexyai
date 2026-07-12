@@ -208,14 +208,17 @@ describe('Coverage gap alert dedup fingerprint', () => {
 // ============= WORKFLOW COVERAGE =============
 
 describe('Scheduled publicaciones monitor workflow coverage', () => {
-  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
+  // TUTELA joined the list on the constitutional-cascade change (PP primary,
+  // SAMAI_ESTADOS fallback). Keep this test aligned with providerRouting.ts.
+  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906', 'TUTELA'];
 
   it('includes CGP', () => expect(PUBLICACIONES_WORKFLOWS).toContain('CGP'));
   it('includes LABORAL', () => expect(PUBLICACIONES_WORKFLOWS).toContain('LABORAL'));
   it('includes CPACA', () => expect(PUBLICACIONES_WORKFLOWS).toContain('CPACA'));
   it('includes PENAL_906', () => expect(PUBLICACIONES_WORKFLOWS).toContain('PENAL_906'));
-  it('excludes TUTELA by design', () => expect(PUBLICACIONES_WORKFLOWS).not.toContain('TUTELA'));
-  it('has exactly 4 workflow types', () => expect(PUBLICACIONES_WORKFLOWS.length).toBe(4));
+  it('includes TUTELA (constitutional cascade: PP primary → SAMAI_ESTADOS fallback)',
+    () => expect(PUBLICACIONES_WORKFLOWS).toContain('TUTELA'));
+  it('has exactly 5 workflow types', () => expect(PUBLICACIONES_WORKFLOWS.length).toBe(5));
 });
 
 // ============= TERMINAL STAGE EXCLUSION =============
