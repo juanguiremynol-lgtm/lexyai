@@ -19,14 +19,17 @@ import { ALERT_TYPE_ESTADO_NUEVO } from "../_shared/alertTypeConstants.ts";
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
+import { PP_ESTADOS_WORKFLOWS } from "../_shared/providerRouting.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Workflows that support publicaciones monitoring
-const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
+// Workflows that support publicaciones monitoring.
+// Derived from the canonical resolver so TUTELA (PP as cascade primary) is included
+// automatically without touching this list when routing changes.
+const PUBLICACIONES_WORKFLOWS = [...PP_ESTADOS_WORKFLOWS];
 
 // Terminal stages that don't need monitoring
 const TERMINAL_STAGES = [
