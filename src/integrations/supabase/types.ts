@@ -16518,6 +16518,31 @@ export type Database = {
         Args: { p_bucket?: string; p_entity_id: string; p_kind: string }
         Returns: string
       }
+      canon_act_fingerprint: {
+        Args: {
+          p_act_date: string
+          p_party_hint: string
+          p_raw_title: string
+          p_work_item_id: string
+        }
+        Returns: string
+      }
+      canon_extract_party: {
+        Args: { p_hint: string; p_raw: string }
+        Returns: string
+      }
+      canon_normalize_title: { Args: { p_raw: string }; Returns: string }
+      canon_pub_fingerprint: {
+        Args: {
+          p_party_hint: string
+          p_pub_date: string
+          p_raw_title: string
+          p_tipo: string
+          p_work_item_id: string
+        }
+        Returns: string
+      }
+      canon_simple_hash: { Args: { p_data: string }; Returns: string }
       canonicalize_legal_text: { Args: { p_text: string }; Returns: string }
       check_and_increment_login_sync: {
         Args: {
