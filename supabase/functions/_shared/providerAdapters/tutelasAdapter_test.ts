@@ -131,7 +131,10 @@ Deno.test("computeTutelasFingerprint: different data produces different fingerpr
   assertEquals(fp1 !== fp2, true);
 });
 
-Deno.test("computeTutelasFingerprint: cross-provider scope", () => {
-  const fp = computeTutelasFingerprint("2025-01-15", "Auto", "Nota", "wi-1", true);
-  assertEquals(fp.startsWith("tut_x_"), true);
+Deno.test("computeTutelasFingerprint: source-agnostic across providers", () => {
+  // Same juridical fact reported by two providers must produce identical fp.
+  const fp1 = computeTutelasFingerprint("2025-01-15", "Auto", "NotaA", "wi-1", false);
+  const fp2 = computeTutelasFingerprint("2025-01-15", "Auto", "NotaB", "wi-1", true);
+  assertEquals(fp1, fp2);
+  assertEquals(fp1.startsWith("wi_"), true);
 });
