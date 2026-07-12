@@ -2441,6 +2441,63 @@ Deno.serve(withSyncTimeline(async (req) => {
       fetchResult.actuaciones = fetchResult.actuaciones || [];
     }
 
+    // ============= TUTELA ACTUACIONES CASCADE (constitutional jurisdiction) =============
+    // Tutela may be resolved by ordinary judges (CPNU) OR administrative judges (SAMAI).
+    // When the CPNU primary responded correctly with NO results, fall back to SAMAI.
+    // Fallback is triggered ONLY on empty/not-found — NEVER on transient error
+    // (transient errors must be retried by the retry queue against the primary).
+    if (
+      workItem.workflow_type === 'TUTELA' &&
+      fetchResult &&
+      fetchResult.ok &&
+      (!fetchResult.actuaciones || fetchResult.actuaciones.length === 0) &&
+      !fetchResult.scrapingInitiated &&
+      providerOrder.primary === 'cpnu'
+    ) {
+      console.log(`[sync-by-work-item] TUTELA cascade: CPNU returned empty for ${workItem.radicado} — falling back to SAMAI`);
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'PROVIDER_REQUEST_START',
+        provider: 'samai',
+        success: true,
+        message: `TUTELA fallback: /proceso/${normalizeRadicado(workItem.radicado!)} (primary CPNU empty)`,
+        meta: { is_fallback: true, provider_primary: 'cpnu', provider_fallback: 'samai', request_path: `/proceso/${normalizeRadicado(workItem.radicado!)}` },
+      });
+      const samaiFallback = await fetchFromSamai(normalizeRadicado(workItem.radicado!));
+      result.provider_attempts.push({
+        provider: 'samai',
+        status: samaiFallback.ok ? 'success' : (samaiFallback.isEmpty ? 'not_found' : 'error'),
+        latencyMs: samaiFallback.latencyMs || 0,
+        message: samaiFallback.error,
+        actuacionesCount: samaiFallback.actuaciones?.length || 0,
+      });
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'PROVIDER_RESPONSE_RECEIVED',
+        provider: 'samai',
+        http_status: samaiFallback.httpStatus || (samaiFallback.ok ? 200 : 404),
+        latency_ms: samaiFallback.latencyMs || 0,
+        success: samaiFallback.ok,
+        error_code: samaiFallback.ok ? 'FALLBACK_USED' : (samaiFallback.isEmpty ? 'PROVIDER_404' : 'PROVIDER_ERROR'),
+        message: samaiFallback.ok
+          ? `TUTELA fallback SAMAI returned ${samaiFallback.actuaciones.length} actuaciones`
+          : (samaiFallback.error || 'SAMAI empty'),
+        meta: { is_fallback: true, provider_primary: 'cpnu', provider_fallback: 'samai', actuaciones_count: samaiFallback.actuaciones?.length || 0 },
+      });
+      if (samaiFallback.ok && samaiFallback.actuaciones && samaiFallback.actuaciones.length > 0) {
+        // Adopt SAMAI as the effective provider for downstream persistence.
+        fetchResult = samaiFallback;
+        result.provider_used = 'samai';
+        result.provider_order_reason = 'tutela_cpnu_empty_samai_fallback';
+      }
+    }
+
     // Handle fetch failure - with enhanced diagnostics and auto-scraping
     if (!fetchResult || !fetchResult.ok) {
       const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : 'PROVIDER_ERROR';
