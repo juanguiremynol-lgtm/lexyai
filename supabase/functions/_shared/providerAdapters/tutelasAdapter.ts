@@ -38,6 +38,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { fetchFromCpnu } from './cpnuAdapter.ts';
+import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
