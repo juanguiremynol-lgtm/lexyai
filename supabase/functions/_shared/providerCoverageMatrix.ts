@@ -102,20 +102,23 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
   },
   TUTELA: {
     ACTUACIONES: {
-      executionMode: "CHAIN",
+      executionMode: "FANOUT",
       providers: [
         { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-        // Constitutional jurisdiction: if CPNU responds empty, tutela may live
-        // in an administrative court (SAMAI). Fallback ONLY on empty, never on error.
-        { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
+        // Constitutional jurisdiction (UNION, not cascade): a tutela may be
+        // split across an ordinary judge (CPNU) and an administrative judge
+        // (SAMAI). Both are queried on every sync and results are merged +
+        // deduplicated by hash_fingerprint. Both are PRIMARY.
+        { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
-      executionMode: "CHAIN",
+      executionMode: "FANOUT",
       providers: [
         { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-        // Fallback to SAMAI_ESTADOS when PP responds empty (tutela at admin court).
-        { key: "SAMAI_ESTADOS", role: "FALLBACK", type: "EXTERNAL" },
+        // UNION with PP: SAMAI_ESTADOS is invoked on every TUTELA estados
+        // sync regardless of PP outcome. Both are PRIMARY.
+        { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
       ],
     },
   },

@@ -250,15 +250,33 @@ async function writePublicacionesAttemptRow(
       finished_at: new Date().toISOString(),
       duration_ms: result?.provider_latency_ms || 0,
       status,
-      provider_attempts: [{
-        provider: 'publicaciones',
-        data_kind: 'ESTADOS',
-        status: outcome,
-        latency_ms: result?.provider_latency_ms || 0,
-        inserted_count: result?.inserted_count || 0,
-        skipped_count: result?.skipped_count || 0,
-        result_code: result?.result_code,
-      }],
+      provider_attempts: [
+        {
+          provider: 'publicaciones',
+          data_kind: 'ESTADOS',
+          status: outcome,
+          latency_ms: result?.provider_latency_ms || 0,
+          inserted_count: result?.inserted_count || 0,
+          skipped_count: result?.skipped_count || 0,
+          result_code: result?.result_code,
+        },
+        // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
+        // every early-return path (empty / error) still records per-provider
+        // trace evidence for audit ("cuántos trajo cada proveedor").
+        ...(result?.samai_estados_summary?.called
+          ? [{
+              provider: 'samai_estados',
+              data_kind: 'ESTADOS',
+              status: result.samai_estados_summary.status || 'unknown',
+              http_status: result.samai_estados_summary.http_status,
+              latency_ms: result.samai_estados_summary.duration_ms || 0,
+              raw_count: result.samai_estados_summary.raw_count,
+              merged_new: result.samai_estados_summary.merged_new,
+              contract_mismatch: result.samai_estados_summary.contract_mismatch || false,
+              error: result.samai_estados_summary.error,
+            }]
+          : []),
+      ],
       total_inserted_pubs: result?.inserted_count || 0,
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
@@ -1490,21 +1508,21 @@ Deno.serve(withSyncTimeline(async (req) => {
     //   without any error signal, freezing every CPACA estados feed silently.
     //   The wrapper below enforces a strict contract check so that a CONTRACT
     //   MISMATCH can never again masquerade as "no news".
-    // ============= CPACA (primary) + TUTELA (fallback) SAMAI ESTADOS =============
-    // For CPACA, SAMAI Estados is the PRIMARY estados source and is ALWAYS invoked.
-    // For TUTELA, SAMAI Estados is the FALLBACK — invoked ONLY when PP responded
-    // correctly with NO publicaciones (constitutional-jurisdiction cascade).
-    // Fallback is triggered on empty response only, NEVER on transient error
-    // (fetchResult.ok=false → skip fallback; the retry queue re-hits PP).
+    // ============= CPACA (exclusive) + TUTELA (UNION) SAMAI ESTADOS =============
+    // For CPACA, SAMAI Estados is the exclusive estados source (invoked always).
+    // For TUTELA, estados are the UNION of PP + SAMAI_ESTADOS: SAMAI_ESTADOS is
+    // invoked on EVERY sync, regardless of PP's outcome (success, empty, or
+    // transient error). Results merge downstream by hash_fingerprint so the
+    // same estado from both providers collapses to a single row.
+    // If PP errors and SAMAI succeeds with data, we continue and report PARTIAL
+    // (never SUCCESS while a provider errored — see error-return branch below).
     const isCpaca = workItem.workflow_type === 'CPACA';
-    const isTutelaFallback =
-      workItem.workflow_type === 'TUTELA' &&
-      fetchResult.ok &&
-      (fetchResult.publicaciones?.length ?? 0) === 0;
-    if (isCpaca || isTutelaFallback) {
-      if (isTutelaFallback) {
+    const isTutelaUnion = workItem.workflow_type === 'TUTELA';
+    if (isCpaca || isTutelaUnion) {
+      if (isTutelaUnion) {
         console.log(
-          `[sync-pub][samai_estados] TUTELA cascade: PP returned empty for wi=${work_item_id} — falling back to SAMAI_ESTADOS`
+          `[sync-pub][samai_estados] TUTELA union: querying SAMAI_ESTADOS alongside PP for wi=${work_item_id} ` +
+          `(pp_ok=${fetchResult.ok}, pp_count=${fetchResult.publicaciones?.length ?? 0})`
         );
       }
       const samaiEstadosBaseUrl = Deno.env.get('SAMAI_ESTADOS_BASE_URL');
@@ -1647,6 +1665,30 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // Handle error response
+    // TUTELA UNION exception: if PP errored but SAMAI_ESTADOS successfully
+    // merged records into fetchResult.publicaciones (see block above), do NOT
+    // return early — continue processing so those estados land in the DB, and
+    // downgrade the final classification to PARTIAL (never SUCCESS) so the
+    // PP error is retried.
+    const tutelaSalvagedFromSamai =
+      workItem.workflow_type === 'TUTELA' &&
+      !fetchResult.ok &&
+      (result.samai_estados_summary?.merged_new ?? 0) > 0;
+    if (tutelaSalvagedFromSamai) {
+      const ppErr = fetchResult.error || 'Publicaciones fetch failed';
+      console.warn(
+        `[sync-pub] TUTELA union: PP errored ("${ppErr}") but SAMAI_ESTADOS ` +
+        `contributed ${result.samai_estados_summary?.merged_new} record(s) — continuing as PARTIAL`
+      );
+      result.warnings.push(`PP provider failed (${ppErr}); estados union salvaged from SAMAI_ESTADOS — retry scheduled for PP`);
+      // Register the PP error so downstream classification lands on PARTIAL
+      // (errors.length > 0 + inserted_count > 0 → SUCCESS_WITH_DATA + warning).
+      result.errors.push(`publicaciones: ${ppErr}`);
+      // Pretend the fetch is OK so the ingest path processes the SAMAI-merged
+      // publicaciones we already have in fetchResult.publicaciones.
+      fetchResult.ok = true;
+      fetchResult.found = fetchResult.publicaciones.length > 0;
+    }
     if (!fetchResult.ok) {
       console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
