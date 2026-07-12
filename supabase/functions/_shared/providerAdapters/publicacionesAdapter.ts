@@ -388,21 +388,18 @@ function normalizeOnePublicacion(
  */
 export function computePublicacionFingerprint(
   workItemId: string,
-  assetId: string | undefined,
-  key: string | undefined,
+  _assetId: string | undefined,
+  _key: string | undefined,
   title: string,
-  crossProvider?: boolean,
+  _crossProvider?: boolean,
 ): string {
-  const uniqueId = assetId || key || title;
-  const scope = crossProvider ? 'x' : (workItemId || 'noscope');
-  const data = `${scope}|${uniqueId}`;
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `pub_${scope.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
+  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): same publicación reported by PP and
+  // SAMAI Estados must dedupe on TUTELA union routing. Asset IDs are
+  // provider-specific and were causing splits.
+  return canonicalPubFingerprint({
+    work_item_id: workItemId,
+    title,
+  });
 }
 
 // ═══════════════════════════════════════════
