@@ -37,6 +37,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { parseSujetosArray } from '../partyNormalization.ts';
+import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
