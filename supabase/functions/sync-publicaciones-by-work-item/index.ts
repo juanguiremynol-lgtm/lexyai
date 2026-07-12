@@ -1488,7 +1488,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     //   without any error signal, freezing every CPACA estados feed silently.
     //   The wrapper below enforces a strict contract check so that a CONTRACT
     //   MISMATCH can never again masquerade as "no news".
-    if (workItem.workflow_type === 'CPACA') {
+    // ============= CPACA (primary) + TUTELA (fallback) SAMAI ESTADOS =============
+    // For CPACA, SAMAI Estados is the PRIMARY estados source and is ALWAYS invoked.
+    // For TUTELA, SAMAI Estados is the FALLBACK — invoked ONLY when PP responded
+    // correctly with NO publicaciones (constitutional-jurisdiction cascade).
+    // Fallback is triggered on empty response only, NEVER on transient error
+    // (fetchResult.ok=false → skip fallback; the retry queue re-hits PP).
+    const isCpaca = workItem.workflow_type === 'CPACA';
+    const isTutelaFallback =
+      workItem.workflow_type === 'TUTELA' &&
+      fetchResult.ok &&
+      (fetchResult.publicaciones?.length ?? 0) === 0;
+    if (isCpaca || isTutelaFallback) {
+      if (isTutelaFallback) {
+        console.log(
+          `[sync-pub][samai_estados] TUTELA cascade: PP returned empty for wi=${work_item_id} — falling back to SAMAI_ESTADOS`
+        );
+      }
       const samaiEstadosBaseUrl = Deno.env.get('SAMAI_ESTADOS_BASE_URL');
       const samaiStart = Date.now();
       const samaiSummary: NonNullable<SyncResult['samai_estados_summary']> = {
