@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 
 const PP_API_BASE = "https://pp-read-api-zcrd2ua7xq-uc.a.run.app";
 
@@ -177,12 +178,19 @@ Deno.serve(async (req) => {
     // ── 4. Map to work_item_acts ──
     const now = new Date().toISOString();
     const records = actuaciones.map((act: any) => {
-      const ppActId = String(act.id || act.actuacion_id || "unknown");
-      const fingerprint = `pp_act_${workItemId.slice(0, 8)}_${ppActId}`;
       const description =
         act.descripcion || act.actuacion || act.anotacion || "Sin descripción";
       const actDate = parseDDMMYYYY(act.fecha_actuacion) || null;
       const fechaRegistro = parseDDMMYYYY(act.fecha_registro) || null;
+      // Source-agnostic canonical fingerprint — matches sync-by-work-item so
+      // the same juridical fact does not double-insert across PP + CPNU/SAMAI.
+      const partyHint = act?.parte ?? act?.docum_a_notif ?? null;
+      const fingerprint = canonicalActFingerprint({
+        work_item_id: workItemId,
+        act_date: actDate,
+        actuacion: description,
+        party_hint: partyHint,
+      });
 
       return {
         work_item_id: workItemId,
