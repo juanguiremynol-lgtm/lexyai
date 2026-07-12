@@ -1647,6 +1647,30 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // Handle error response
+    // TUTELA UNION exception: if PP errored but SAMAI_ESTADOS successfully
+    // merged records into fetchResult.publicaciones (see block above), do NOT
+    // return early — continue processing so those estados land in the DB, and
+    // downgrade the final classification to PARTIAL (never SUCCESS) so the
+    // PP error is retried.
+    const tutelaSalvagedFromSamai =
+      workItem.workflow_type === 'TUTELA' &&
+      !fetchResult.ok &&
+      (result.samai_estados_summary?.merged_new ?? 0) > 0;
+    if (tutelaSalvagedFromSamai) {
+      const ppErr = fetchResult.error || 'Publicaciones fetch failed';
+      console.warn(
+        `[sync-pub] TUTELA union: PP errored ("${ppErr}") but SAMAI_ESTADOS ` +
+        `contributed ${result.samai_estados_summary?.merged_new} record(s) — continuing as PARTIAL`
+      );
+      result.warnings.push(`PP provider failed (${ppErr}); estados union salvaged from SAMAI_ESTADOS — retry scheduled for PP`);
+      // Register the PP error so downstream classification lands on PARTIAL
+      // (errors.length > 0 + inserted_count > 0 → SUCCESS_WITH_DATA + warning).
+      result.errors.push(`publicaciones: ${ppErr}`);
+      // Pretend the fetch is OK so the ingest path processes the SAMAI-merged
+      // publicaciones we already have in fetchResult.publicaciones.
+      fetchResult.ok = true;
+      fetchResult.found = fetchResult.publicaciones.length > 0;
+    }
     if (!fetchResult.ok) {
       console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
