@@ -38,6 +38,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { fetchFromCpnu } from './cpnuAdapter.ts';
+import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -436,19 +437,19 @@ export function normalizeTutelasEstados(
 export function computeTutelasFingerprint(
   fecha: string,
   tipo: string,
-  descripcion: string,
+  _descripcion: string,
   workItemId?: string,
-  crossProvider?: boolean,
+  _crossProvider?: boolean,
 ): string {
-  const scope = crossProvider ? 'x' : (workItemId?.slice(0, 8) || 'noscope');
-  const data = `${scope}|${fecha}|${tipo.slice(0, 60).toLowerCase().trim()}|${(descripcion || '').slice(0, 40).toLowerCase().trim()}`;
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `tut_${scope}_${Math.abs(hash).toString(16)}`;
+  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes the same tutela act reported
+  // by CPNU vs SAMAI vs TUTELAS-API. Anotación deliberately excluded — it
+  // drifts between providers (one supplies title only, another concatenates
+  // the anotación tail).
+  return canonicalActFingerprint({
+    work_item_id: workItemId,
+    act_date: fecha,
+    actuacion: tipo,
+  });
 }
 
 // ═══════════════════════════════════════════

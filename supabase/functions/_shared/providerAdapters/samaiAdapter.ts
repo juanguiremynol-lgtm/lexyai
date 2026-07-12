@@ -37,6 +37,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { parseSujetosArray } from '../partyNormalization.ts';
+import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -424,25 +425,16 @@ export function normalizeSamaiActuaciones(
 export function computeSamaiFingerprint(
   fecha: string,
   actuacion: string,
-  anotacion: string | null,
+  _anotacion: string | null,
   options: { workItemId?: string; crossProviderDedup?: boolean } = {},
 ): string {
-  const base = [
-    fecha,
-    actuacion.trim().toLowerCase(),
-    truncate(anotacion || '', 100).trim().toLowerCase(),
-  ].join('|');
-
-  // If cross-provider dedup is enabled (FANOUT mode), don't include provider in fingerprint
-  const prefix = options.crossProviderDedup
-    ? ''
-    : `${PROVIDER_KEY}:`;
-
-  const scope = options.workItemId
-    ? `wi:${options.workItemId}:`
-    : '';
-
-  return `${prefix}${scope}${simpleHash(base)}`;
+  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): same act reported by SAMAI and CPNU
+  // must produce the same fingerprint so the RPC upsert dedupes.
+  return canonicalActFingerprint({
+    work_item_id: options.workItemId,
+    act_date: fecha,
+    actuacion,
+  });
 }
 
 /**

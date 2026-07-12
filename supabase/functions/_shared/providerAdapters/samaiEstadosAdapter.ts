@@ -32,6 +32,7 @@ import {
   redactPII,
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
+import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -330,19 +331,18 @@ function normalizeOneEstado(
 export function computeSamaiEstadosFingerprint(
   fecha: string,
   actuacion: string,
-  anotacion: string,
+  _anotacion: string,
   workItemId?: string,
-  crossProvider?: boolean,
+  _crossProvider?: boolean,
 ): string {
-  const scope = crossProvider ? 'x' : (workItemId?.slice(0, 8) || 'noscope');
-  const data = `${scope}|${fecha}|${actuacion.slice(0, 60).toLowerCase().trim()}|${(anotacion || '').slice(0, 40).toLowerCase().trim()}`;
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `se_${scope}_${Math.abs(hash).toString(16)}`;
+  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes same estado reported by
+  // Publicaciones and SAMAI Estados on TUTELA union routing.
+  return canonicalPubFingerprint({
+    work_item_id: workItemId,
+    pub_date: fecha,
+    tipo_publicacion: actuacion,
+    title: actuacion,
+  });
 }
 
 // ═══════════════════════════════════════════
