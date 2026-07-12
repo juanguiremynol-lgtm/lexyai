@@ -41,6 +41,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { parseCpnuSujetos } from '../partyNormalization.ts';
+import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
 
 import {
   checkSnapshotFreshness,
