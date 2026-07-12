@@ -1339,10 +1339,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     // suppress the PP HTTP fetch and synthesize an empty result so the merge
     // pipeline still runs against SAMAI data.
     const routing = resolveProviders(workItem.workflow_type);
-    const shouldFetchPP = routing.estados === "PP";
+    // PP is invoked whenever it appears in the estados cascade (PRIMARY for
+    // CGP/LABORAL/PENAL_906, PRIMARY for TUTELA, absent for CPACA).
+    const shouldFetchPP = routing.estados.includes("PP");
     if (!shouldFetchPP) {
       console.log(
-        `[sync-pub] ROUTING_SKIP wt=${workItem.workflow_type} reason=estados_source_is_${routing.estados ?? "NONE"} — skipping PP HTTP fetch`,
+        `[sync-pub] ROUTING_SKIP wt=${workItem.workflow_type} reason=estados_source_is_${routing.estados.join('|') || "NONE"} — skipping PP HTTP fetch`,
       );
     }
 
