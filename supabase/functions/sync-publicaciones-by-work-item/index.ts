@@ -24,6 +24,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import { canonicalPubFingerprint } from "../_shared/canonicalFingerprint.ts";
 import {
   fetchFromSamaiEstados,
   formatRadicadoForSamai,
@@ -1145,29 +1146,20 @@ function generatePublicacionFingerprint(
   workItemId: string,
   assetId: string | undefined,
   key: string | undefined,
-  title: string
+  title: string,
+  opts?: { pubDate?: string | null; tipo?: string | null; partyHint?: string | null },
 ): string {
-  // STABLE NATURAL KEY (2026-07-06 fix):
-  // Do NOT use asset_id/key from providers — those values drift across snapshots
-  // (SAMAI /snapshot returns a fresh identifier each call), which produced
-  // duplicate rows on every re-sync. Fingerprint by (workItemId + normalized title)
-  // so a second run of the same event collides with the existing row.
-  const normTitle = (title || 'untitled')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/\.pdf$/i, '')
-    .trim();
-  // Assets/keys are intentionally ignored to guarantee stability.
+  // Assets/keys drift across snapshots — intentionally ignored.
   void assetId; void key;
-  const data = `${workItemId}|${normTitle}`;
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `pub_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
+  // Delegate to source-agnostic canonical fingerprint so all write paths
+  // share the same identity model (party discriminator + normalized title).
+  return canonicalPubFingerprint({
+    work_item_id: workItemId,
+    pub_date: opts?.pubDate ?? null,
+    tipo_publicacion: opts?.tipo ?? null,
+    title: (title || 'untitled').replace(/\.pdf$/i, ''),
+    party_hint: opts?.partyHint ?? null,
+  });
 }
 
 // ============= MAIN HANDLER =============
@@ -1877,11 +1869,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Include event date so that repeated titles across different dates
       // (e.g. "Auto que ordena requerir" on 2024-11-29 and 2025-02-07) do NOT collide.
       const dateKey = parsedFecha || fechaFromTitle || '0000-00-00';
+      const partyHint = (pub as any)?.parte
+        ?? (pub as any)?.raw_data?.parte
+        ?? (pub as any)?.raw_data?.["Docum. a notif."]
+        ?? null;
       const fingerprint = generatePublicacionFingerprint(
         work_item_id,
         pub.asset_id,
         pub.key,
-        `${dateKey}||${pub.titulo || 'untitled'}`
+        pub.titulo || 'untitled',
+        { pubDate: dateKey, tipo: (pub as any)?.tipo_publicacion ?? null, partyHint },
       );
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
