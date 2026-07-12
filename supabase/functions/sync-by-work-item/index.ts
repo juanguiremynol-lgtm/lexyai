@@ -20,7 +20,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
-import { generateActuacionFingerprint as canonicalFingerprint } from "../_shared/syncOrchestrator.ts";
+import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
   orchestrateSync,
@@ -887,25 +887,18 @@ function generateFingerprint(
   _crossProviderDedup = false,
   _fechaRegistro?: string,
   _anotacion?: string,
-  instancia?: string,
+  _instancia?: string,
+  partyHint?: string | null,
 ): string {
-  // Normalize description: trim, lowercase, strip diacritics, collapse whitespace
-  const normText = (text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 200);
-  const normInstancia = (instancia || '').trim().toLowerCase();
-  const normalized = `${workItemId}|${date || ''}|${normText}|${normInstancia}`;
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    const char = normalized.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `wi_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
+  // Delegate to source-agnostic canonical fingerprint so all write paths
+  // (edge functions + shared adapters) produce identical hashes. Includes
+  // party discriminator when the title suffix or raw_data hint carries one.
+  return canonicalActFingerprint({
+    work_item_id: workItemId,
+    act_date: date || null,
+    actuacion: text,
+    party_hint: partyHint ?? null,
+  });
 }
 
 function parseColombianDate(dateStr: string | undefined | null): string | null {
@@ -2820,7 +2813,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
       // FANOUT/TUTELA: exclude source from fingerprint for cross-provider dedup
       const isFanoutWorkflow = workItem.workflow_type === 'TUTELA';
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia);
+      const partyHint = (act as any)?.parte
+        ?? (act as any)?.docum_a_notif
+        ?? (act as any)?.raw_data?.parte
+        ?? (act as any)?.raw_data?.["Docum. a notif."]
+        ?? (act as any)?.raw_data?.docum_a_notif
+        ?? null;
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint);
 
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
