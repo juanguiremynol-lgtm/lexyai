@@ -244,6 +244,8 @@ Deno.serve(async (req) => {
         pp_ultima_sync: now,
         pp_estado: "ok",
         pp_novedades_pendientes: insertedCount,
+        // "último éxito" — distinct from last_synced_at; only advances on success.
+        last_successful_sync_at: now,
       })
       .eq("id", workItemId);
 
