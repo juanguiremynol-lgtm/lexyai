@@ -177,7 +177,7 @@ Deno.serve(async (req) => {
 
     // ── 4. Map to work_item_acts ──
     const now = new Date().toISOString();
-    const records = actuaciones.map((act: any) => {
+    const rawRecords = actuaciones.map((act: any) => {
       const description =
         act.descripcion || act.actuacion || act.anotacion || "Sin descripción";
       const actDate = parseDDMMYYYY(act.fecha_actuacion) || null;
@@ -212,6 +212,14 @@ Deno.serve(async (req) => {
         source_url: act.enlace || act.url || null,
       };
     });
+
+    // Dedupe within the batch: PP occasionally returns duplicate entries that
+    // collapse to the same canonical fingerprint (same date + normalized title
+    // + party). Postgres ON CONFLICT cannot affect the same row twice in a
+    // single upsert, so we keep the last occurrence per fingerprint.
+    const byFp = new Map<string, any>();
+    for (const r of rawRecords) byFp.set(r.hash_fingerprint, r);
+    const records = Array.from(byFp.values());
 
     // ── 5. Upsert ──
     const { data: upserted, error: upsertErr } = await supabase
