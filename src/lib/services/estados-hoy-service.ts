@@ -290,7 +290,7 @@ export async function getEstadosHoy(
       const workItem = act.work_items as any;
       if (!workItem) continue;
       
-      const isSamaiEstado = act.source === 'SAMAI_ESTADOS';
+      const isSamaiEstado = (act.source || '').toLowerCase() === 'samai_estados';
       const content = act.description || (isSamaiEstado ? 'Estado electrónico' : 'Actuación registrada');
       const severity = detectActuacionSeverity(content);
       
