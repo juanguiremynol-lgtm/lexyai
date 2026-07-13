@@ -2266,6 +2266,18 @@ Deno.serve(withSyncTimeline(async (req) => {
         .is('pubs_initial_sync_completed_at' as any, null);
     } catch (_markerErr) { /* best-effort */ }
 
+    // Advance last_successful_sync_at ONLY on genuine success (result.ok===true).
+    // Semantically distinct from last_synced_at ("último intento") — this tracks
+    // "último éxito" and never advances on ERROR / CONTRACT_MISMATCH paths.
+    if (result.ok) {
+      try {
+        await supabase
+          .from('work_items')
+          .update({ last_successful_sync_at: new Date().toISOString() } as any)
+          .eq('id', work_item_id);
+      } catch (_lssErr) { /* best-effort — do not fail the sync on this */ }
+    }
+
     console.log(`[sync-pub] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}, attachment_enqueued=${result.attachment_enqueued || 0}, attachment_enqueue_failed=${result.attachment_enqueue_failed || 0}`);
 
     // ============= EXTERNAL PROVIDER ENRICHMENT FOR PUBLICACIONES =============
