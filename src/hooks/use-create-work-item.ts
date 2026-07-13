@@ -170,8 +170,10 @@ export function useCreateWorkItem() {
             act_date_raw: act.fecha || null,
             description: act.actuacion || '',
             event_summary: act.anotacion || act.actuacion || '',
-            source: data.lookup_source || 'CPNU',
-            source_platform: data.lookup_source || 'CPNU',
+            // Emit canonical lowercase source label so it merges cleanly with
+            // sync-by-work-item / adapter output and avoids case-drift dedup.
+            source: (data.lookup_source || 'cpnu').toLowerCase(),
+            source_platform: (data.lookup_source || 'cpnu').toLowerCase(),
             hash_fingerprint: fingerprint,
             raw_data: act,
           };
