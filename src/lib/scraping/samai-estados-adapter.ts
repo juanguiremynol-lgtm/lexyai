@@ -228,7 +228,7 @@ export function resolveAdapterConfig(
     radicadoFormat: (caps.radicado_format as RadicadoFormat) || "raw_23",
     snapshotEndpoint: (caps.snapshot_endpoint as string) || "/snapshot",
     dataKey: (caps.data_key as DataKeyPath) || "estados",
-    sourcePlatform: (caps.source_platform as string) || "SAMAI_ESTADOS",
+    sourcePlatform: (caps.source_platform as string) || "samai_estados",
     actType: (caps.act_type as string) || "ESTADO",
   };
 }
