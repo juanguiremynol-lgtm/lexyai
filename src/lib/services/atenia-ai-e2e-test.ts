@@ -240,7 +240,7 @@ export async function runAteniaE2ETest(
         .select("id", { count: "exact", head: true })
         .eq("work_item_id", wi.id)
         .eq("is_archived", false)
-        .eq("source", "SAMAI_ESTADOS"),
+        .in("source", ["samai_estados", "SAMAI_ESTADOS"]),
     ]);
 
     // Also check provenance for SAMAI_ESTADOS instance confirmation

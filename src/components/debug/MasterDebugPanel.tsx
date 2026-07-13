@@ -418,7 +418,8 @@ function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado
       for (const a of srcData || []) counts[a.source || "unknown"] = (counts[a.source || "unknown"] || 0) + 1;
 
       // SAMAI_ESTADOS three-state: fresh inserts vs cross-validated vs no data
-      const directEstadosCount = counts["SAMAI_ESTADOS"] || 0;
+      // Handle both canonical lowercase label and legacy uppercase
+      const directEstadosCount = (counts["samai_estados"] || 0) + (counts["SAMAI_ESTADOS"] || 0);
 
       // Provenance check for SAMAI_ESTADOS
       let estadosProvenanceCount = 0;
