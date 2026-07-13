@@ -2980,9 +2980,11 @@ Deno.serve(withSyncTimeline(async (req) => {
         Object.assign(rawDataPayload, crossProviderData);
       }
 
-      // Determine source_platform from the actual source of the best record
+      // Determine source_platform from the actual source of the best record.
+      // Canonical lowercase labels — legacy uppercase ('CPNU','SAMAI','TUTELAS')
+      // was normalized to lowercase across the pipeline (see 2026-07-13 sweep).
       const sourcePlatformMap: Record<string, string> = {
-        'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas': 'TUTELAS', 'tutelas-api': 'TUTELAS',
+        'cpnu': 'cpnu', 'samai': 'samai', 'tutelas': 'tutelas', 'tutelas-api': 'tutelas',
       };
 
       // ── Upsert via RPC with explicit sources[] array merge ──
