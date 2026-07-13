@@ -51,7 +51,13 @@ Deno.serve(async (req) => {
       "id, work_item_id, radicado, workflow_type, prev_state, new_state, reason, actor, actor_user_id, occurred_at, metadata, delivery_attempts",
     )
     .is("delivered_at", null)
+    // Order by (occurred_at, id) so events enqueued within the same
+    // transaction (or the same microsecond) drain in insertion order.
+    // Sequential id is the tiebreaker that guarantees FIFO semantics —
+    // without it, sub-microsecond timestamp collisions can flip
+    // DELETE/RESTORE pairs and leave GCP out of sync (bug: WI 018500).
     .order("occurred_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(BATCH_LIMIT);
 
   if (error) {
