@@ -415,7 +415,7 @@ export function ExternalProviderDebugCard() {
           .select("id", { count: "exact", head: true })
           .eq("work_item_id", wi.id)
           .eq("is_archived", false)
-          .eq("source", "SAMAI_ESTADOS"),
+          .in("source", ["samai_estados", "SAMAI_ESTADOS"]),
       ]);
       steps.push({
         name: "VERIFY_DB_DATA",

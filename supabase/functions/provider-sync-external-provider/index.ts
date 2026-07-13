@@ -718,7 +718,7 @@ Deno.serve(async (req) => {
       extras_keys: Object.keys(mappingResult.extrasByKey).length,
       warnings: mappingResult.mappingWarnings.length,
       validation_ok: validation.ok,
-      source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
+      source_platform: isEstadosProvider ? "samai_estados" : connector?.key || "unknown",
       data_kind: isEstadosProvider ? "estados" : "actuaciones",
       records_pre_validation: preValidationCount,
     });
@@ -749,9 +749,20 @@ Deno.serve(async (req) => {
       );
       if (isEstadosProvider) {
         for (const record of normalized) {
-          record.source = "SAMAI_ESTADOS";
+          record.source = "samai_estados";
           record.act_type = "ESTADO";
-          record.source_platform = "SAMAI_ESTADOS";
+          record.source_platform = "samai_estados";
+          if (Array.isArray(record.sources)) {
+            const set = new Set(
+              record.sources
+                .map((s: unknown) => (typeof s === "string" ? (s.toUpperCase() === "SAMAI_ESTADOS" ? "samai_estados" : s) : s))
+                .filter((s: unknown): s is string => typeof s === "string"),
+            );
+            set.add("samai_estados");
+            record.sources = Array.from(set);
+          } else {
+            record.sources = ["samai_estados"];
+          }
         }
       }
 
@@ -881,7 +892,7 @@ Deno.serve(async (req) => {
       acts_upserted: insertedActs,
       pubs_upserted: insertedPubs,
       acts_confirmed: allConfirmedActIds.length,
-      source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
+      source_platform: isEstadosProvider ? "samai_estados" : connector?.key || "unknown",
       data_kind: isEstadosProvider ? "estados" : "actuaciones",
     });
 
