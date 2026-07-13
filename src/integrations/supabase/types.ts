@@ -15295,6 +15295,10 @@ export type Database = {
           status: Database["public"]["Enums"]["work_item_source_status"]
           updated_at: string
           work_item_id: string
+          zip_detected: boolean
+          zip_extraction_details: Json
+          zip_extraction_status: string | null
+          zip_last_checked_at: string | null
         }
         Insert: {
           consecutive_404_count?: number
@@ -15316,6 +15320,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["work_item_source_status"]
           updated_at?: string
           work_item_id: string
+          zip_detected?: boolean
+          zip_extraction_details?: Json
+          zip_extraction_status?: string | null
+          zip_last_checked_at?: string | null
         }
         Update: {
           consecutive_404_count?: number
@@ -15337,6 +15345,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["work_item_source_status"]
           updated_at?: string
           work_item_id?: string
+          zip_detected?: boolean
+          zip_extraction_details?: Json
+          zip_extraction_status?: string | null
+          zip_last_checked_at?: string | null
         }
         Relationships: [
           {
