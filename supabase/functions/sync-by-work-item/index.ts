@@ -3314,7 +3314,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       last_checked_at: nowIso,
       last_attempted_sync_at: nowIso, // ALWAYS update attempt timestamp
       // CRITICAL INVARIANT: last_synced_at only advances on actual success
-      ...(syncOk ? { last_synced_at: nowIso } : {}),
+      ...(syncOk ? { last_synced_at: nowIso, last_successful_sync_at: nowIso } : {}),
       total_actuaciones: fetchResult.actuaciones.length,
       scrape_provider: fetchResult.provider,
       // Reset failure counters only on success
