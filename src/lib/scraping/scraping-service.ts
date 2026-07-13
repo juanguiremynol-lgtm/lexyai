@@ -282,7 +282,7 @@ async function storeActuaciones(
     event_date: act.actDate,
     event_summary: act.normalizedText?.slice(0, 500) || act.rawText.slice(0, 500),
     source: 'RAMA_JUDICIAL',
-    source_platform: 'CPNU',
+    source_platform: 'cpnu',
     source_url: act.sourceUrl,
     hash_fingerprint: act.hashFingerprint,
     scrape_date: new Date().toISOString().split('T')[0],

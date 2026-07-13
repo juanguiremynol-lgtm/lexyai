@@ -532,7 +532,7 @@ Deno.serve(async (req) => {
         despacho: fetchResult.proceso?.["Despacho"] || null,
         event_summary: summary,
         source_url: `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${cleanRadicado}`,
-        source_platform: "CPNU",
+        source_platform: "cpnu",
       });
 
       if (!insertError) {
