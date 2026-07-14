@@ -7,6 +7,7 @@ import {
   buildAuditEvidence,
   enrichDemonitorCandidates,
   PUBLICACIONES_WORKFLOWS,
+  SAMAI_ESTADOS_ONLY_WORKFLOWS,
   DEFAULT_STALENESS_GUARD_DAYS,
 } from "../_shared/syncPolicy.ts";
 import {
@@ -1215,11 +1216,15 @@ async function syncSingleItem(
       .eq("id", item.id);
   }
 
-  // Sync publicaciones if act sync succeeded and workflow supports it
+  // Sync estados/publicaciones when the workflow has an estados provider.
+  // CPACA/SAMAI_ESTADOS must run even when the actuaciones branch returns
+  // EMPTY: a case can have estados while the SAMAI actuaciones feed is cold,
+  // and routing repair depends on this path to hydrate Publicaciones.
+  const hasPpEstados = (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type);
+  const hasSamaiEstados = (SAMAI_ESTADOS_ONLY_WORKFLOWS as readonly string[]).includes(item.workflow_type);
   if (
-    syncOk &&
-    shouldRunPublicaciones(syncResult) &&
-    (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)
+    (hasPpEstados || hasSamaiEstados) &&
+    (shouldRunPublicaciones(syncResult) || hasSamaiEstados)
   ) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     
@@ -1248,7 +1253,7 @@ async function syncSingleItem(
       }
       try {
         await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-          body: { work_item_id: item.id, _scheduled: true },
+          body: { work_item_id: item.id, _scheduled: true, _force: true },
         });
       } catch (_pubErr) {
         // Pub errors don't count as item failure
