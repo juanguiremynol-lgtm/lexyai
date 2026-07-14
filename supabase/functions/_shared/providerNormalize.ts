@@ -139,7 +139,11 @@ export async function normalizeActuaciones(
       canonicalActFingerprint({
         work_item_id: workItemId,
         act_date: a.act_date || null,
-        description,
+        actuacion: description,
+        party_hint:
+          (a.raw_data && (a.raw_data as any).parte) ||
+          (a.raw_data && (a.raw_data as any).docum_a_notif) ||
+          null,
       });
 
     const dateSource = sanitizeDateSource(a.date_source || "api_explicit") as DateSource;
@@ -184,7 +188,11 @@ export async function normalizePublicaciones(
         work_item_id: workItemId,
         pub_date: p.pub_date || null,
         tipo_publicacion: p.tipo_publicacion || null,
-        description,
+        title: description,
+        party_hint:
+          (p.raw_data && (p.raw_data as any).parte) ||
+          (p.raw_data && (p.raw_data as any).docum_a_notif) ||
+          null,
       });
 
     const dateSource = sanitizeDateSource(p.date_source || "api_explicit") as DateSource;
