@@ -23,6 +23,7 @@ import {
 } from "@/lib/services/andromeda-terminos";
 import { TerminoCard } from "@/components/terminos/TerminoCard";
 import { andromedaProxy } from "@/lib/andromeda-proxy";
+import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -241,6 +242,7 @@ export default function EstadosHoy() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      <PendientesFijacionAlert />
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
