@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
-import { registerAndSyncCpnu, registerAndSyncPp, registerAndSyncSamai } from "@/lib/cpnu/register-and-sync";
 import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
 
 // Interface for initial actuaciones from lookup
@@ -13,9 +12,12 @@ interface InitialActuacion {
   actuacion: string;
   anotacion?: string;
   fecha_registro?: string;
+  fecha_inicia_termino?: string;
+  fecha_finaliza_termino?: string;
   estado?: string;
   anexos?: number;
   indice?: string;
+  documentos?: Array<{ nombre: string; url: string }>;
 }
 
 export interface CreateWorkItemData {
@@ -66,6 +68,9 @@ export interface CreateWorkItemData {
   // Initial actuaciones from lookup (to persist on creation)
   initial_actuaciones?: InitialActuacion[];
   lookup_source?: string; // e.g., 'CPNU', 'SAMAI'
+  /** True when the user overrode the corp-guard suggestion. Persisted to
+   *  work_items.raw_data for audit. */
+  wizard_override_workflow?: boolean;
 }
 
 export function useCreateWorkItem() {
@@ -146,6 +151,27 @@ export function useCreateWorkItem() {
         throw new Error(error.message);
       }
 
+      // Audit trail for corp-guard override (user proceeded despite the
+      // radicado's derived jurisdiction disagreeing with their choice).
+      if (data.wizard_override_workflow && workItem?.organization_id) {
+        try {
+          await supabase.from("audit_logs").insert({
+            organization_id: workItem.organization_id,
+            entity_type: "work_item",
+            entity_id: workItem.id,
+            actor_type: "user",
+            actor_user_id: user.id,
+            action: "WIZARD_WORKFLOW_OVERRIDE",
+            metadata: {
+              chosen_workflow: workItem.workflow_type,
+              radicado: workItem.radicado,
+            },
+          });
+        } catch (err) {
+          console.warn("[use-create-work-item] audit_logs insert failed:", err);
+        }
+      }
+
       // Save initial actuaciones to CANONICAL work_item_acts table (NOT legacy actuaciones)
       if (data.initial_actuaciones && data.initial_actuaciones.length > 0 && workItem) {
         console.log(`[use-create-work-item] Saving ${data.initial_actuaciones.length} initial acts to work_item_acts`);
@@ -176,6 +202,10 @@ export function useCreateWorkItem() {
             source_platform: (data.lookup_source || 'cpnu').toLowerCase(),
             hash_fingerprint: fingerprint,
             raw_data: act,
+          // Note: raw_data receives the full lookup act payload above so the
+          // sync pipeline (sync-by-work-item) can recover extended fields
+          // (fecha_registro, fecha_inicia_termino, documentos, …) even
+          // before the first external re-sync.
           };
         });
 
@@ -197,52 +227,51 @@ export function useCreateWorkItem() {
     },
     onSuccess: async (workItem) => {
       toast.success("Asunto creado exitosamente");
+
+      // Explicit lifecycle event so the GCP outbox is guaranteed to fire
+      // with actor='USER' (the AFTER INSERT trigger emits a SYSTEM event as
+      // a safety net; this RPC returns no_op when the state already matches).
+      supabase.rpc('set_work_item_lifecycle', {
+        p_work_item_id: workItem.id,
+        p_new_state: 'ACTIVE',
+        p_reason: 'WIZARD_CREATE',
+        p_actor: 'USER',
+      }).then(({ error }) => {
+        if (error) console.warn('[use-create-work-item] set_work_item_lifecycle failed:', error.message);
+      });
       
       // Background sync: trigger publicaciones + actuaciones sync only for
       // online-sync-eligible workflows (CGP, CPACA, LABORAL, PENAL_906, TUTELA).
-      // Fire-and-forget — don't block creation flow.
+      // Ordered fire-and-forget: publicaciones (estados) FIRST so the term
+      // engine has fecha_fijacion / fecha_desfijacion anchors before
+      // actuaciones-driven deadline computation kicks in.
       const radicadoDigits = (workItem.radicado || '').replace(/\D/g, '');
       const eligibleForOnlineSync = isOnlineSyncEligible(workItem.workflow_type);
       if (workItem.id && radicadoDigits.length === 23 && eligibleForOnlineSync) {
-        supabase.functions.invoke("sync-publicaciones-by-work-item", {
+        // Sequential: run publicaciones first, then actuaciones. Both stay
+        // fire-and-forget from the caller's perspective (no await).
+        (async () => {
+          try {
+            const { data: pubData } = await supabase.functions.invoke("sync-publicaciones-by-work-item", {
           body: { work_item_id: workItem.id },
-        }).then(({ data }) => {
-          if (data && data.ok === false) {
-            console.log("[use-create-work-item] publicaciones sync degraded:", data.status ?? data.reason);
+            });
+            if (pubData && pubData.ok === false) {
+              console.log("[use-create-work-item] publicaciones sync degraded:", pubData.status ?? pubData.reason);
+            }
+          } catch (err) {
+            console.warn("[use-create-work-item] Background publicaciones sync failed:", err);
           }
-        }).catch(err => console.warn("[use-create-work-item] Background publicaciones sync failed:", err));
-
-        supabase.functions.invoke("sync-by-work-item", {
-          body: { work_item_id: workItem.id },
-        }).then(({ data }) => {
-          if (data && data.ok === false) {
-            console.log("[use-create-work-item] actuaciones sync degraded:", data.status ?? data.reason);
+          try {
+            const { data: actData } = await supabase.functions.invoke("sync-by-work-item", {
+              body: { work_item_id: workItem.id },
+            });
+            if (actData && actData.ok === false) {
+              console.log("[use-create-work-item] actuaciones sync degraded:", actData.status ?? actData.reason);
+            }
+          } catch (err) {
+            console.warn("[use-create-work-item] Background actuaciones sync failed:", err);
           }
-        }).catch(err => console.warn("[use-create-work-item] Background actuaciones sync failed:", err));
-      }
-
-      // Register in Google Cloud SQL + trigger CPNU sync for CGP items
-      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CGP') {
-        registerAndSyncCpnu(workItem.id, workItem.radicado!).then(ok => {
-          if (ok) queryClient.invalidateQueries({ queryKey: ["cpnu-enrichment"] });
-        });
-      }
-
-      // Register in PP (Portal Publicaciones) for ALL items with valid radicado
-      if (workItem.id && radicadoDigits.length === 23) {
-        registerAndSyncPp(workItem.id, workItem.radicado!).then(ok => {
-          if (ok) {
-            queryClient.invalidateQueries({ queryKey: ["pp-enrichment"] });
-            queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-          }
-        });
-      }
-
-      // Register in SAMAI + SAMAI_ESTADOS for CPACA items
-      if (workItem.id && radicadoDigits.length === 23 && workItem.workflow_type === 'CPACA') {
-        registerAndSyncSamai(workItem.id, workItem.radicado!).then(ok => {
-          if (ok) queryClient.invalidateQueries({ queryKey: ["samai-enrichment"] });
-        });
+        })();
       }
 
       // Create milestone reminders for judicial workflows
