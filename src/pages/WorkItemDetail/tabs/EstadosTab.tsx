@@ -31,6 +31,34 @@ interface EstadosTabProps {
 
 // Row rendering handled by <EstadosTable/>.
 
+/** Normalize titles for dedupe: strip .pdf / copy suffixes, drop anotación
+ *  tail after " - "/" — ", strip accents, lowercase, collapse whitespace. */
+function normalizeTitleForDedupe(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let s = String(raw);
+  for (let i = 0; i < 5; i++) {
+    const before = s;
+    s = s.replace(/\s*\(\d+\)\s*$/, "");
+    s = s.replace(/\.pdf\s*$/i, "");
+    if (s === before) break;
+  }
+  const sepIdx = (() => {
+    const i1 = s.indexOf(" - ");
+    const i2 = s.indexOf(" — ");
+    if (i1 === -1) return i2;
+    if (i2 === -1) return i1;
+    return Math.min(i1, i2);
+  })();
+  if (sepIdx >= 0) s = s.slice(0, sepIdx);
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+}
+
 export function EstadosTab({ workItem }: EstadosTabProps) {
   const radicado = workItem.radicado || null;
   const { data: estados, isLoading, isFetching, error, refetch } = usePpEstados(radicado, !!radicado);
@@ -58,23 +86,15 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
   const mergedEstados = useMemo<PpEstado[]>(() => {
     const fromApi = Array.isArray(estados) ? estados : [];
-    const seen = new Set<string>();
-    const out: PpEstado[] = [];
-    for (const e of fromApi) {
-      const key = `${(e.descripcion || "").trim().toLowerCase()}|${e.fecha || ""}`;
-      seen.add(key);
-      out.push(e);
-    }
+    // Step 1: gather every candidate row from API + local DB.
+    const candidates: PpEstado[] = [];
+    for (const e of fromApi) candidates.push(e);
     for (const p of localPubs ?? []) {
-      const desc = (p.title || "").trim();
-      const fecha = (p.fecha_fijacion || "").toString();
-      const key = `${desc.toLowerCase()}|${fecha}`;
-      if (seen.has(key)) continue;
-      out.push({
+      candidates.push({
         fuente: (p.source || "PUBLICACIONES").toUpperCase(),
         id: `local-${p.id}`,
-        fecha,
-        descripcion: desc || "Sin descripción",
+        fecha: (p.fecha_fijacion || "").toString() || null,
+        descripcion: (p.title || "").trim() || "Sin descripción",
         gcs_url_auto: null,
         gcs_url_tabla: null,
         pdf_url: p.pdf_url || null,
@@ -82,7 +102,61 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         estado_numero: null,
       });
     }
-    return out;
+    // Step 2: index dated rows by normalized title → detect NULL-fecha
+    // siblings that duplicate an existing dated fact.
+    const datedByTitle = new Map<string, PpEstado[]>();
+    for (const r of candidates) {
+      if (!r.fecha) continue;
+      const nt = normalizeTitleForDedupe(r.descripcion);
+      if (!nt) continue;
+      const arr = datedByTitle.get(nt) ?? [];
+      arr.push(r);
+      datedByTitle.set(nt, arr);
+    }
+    // Step 3: dedupe. Primary key = (normalized_title | date). NULL-fecha
+    // rows whose title matches exactly ONE dated sibling are absorbed into
+    // the dated row (merging PDF/URLs so we don't lose the attachment).
+    const outByKey = new Map<string, PpEstado>();
+    for (const r of candidates) {
+      const nt = normalizeTitleForDedupe(r.descripcion);
+      if (r.fecha) {
+        const key = `${nt}|${r.fecha}`;
+        const prev = outByKey.get(key);
+        if (!prev) {
+          outByKey.set(key, { ...r });
+        } else {
+          // Fold missing URLs from later duplicate into the winner.
+          outByKey.set(key, {
+            ...prev,
+            gcs_url_auto: prev.gcs_url_auto || r.gcs_url_auto || null,
+            gcs_url_tabla: prev.gcs_url_tabla || r.gcs_url_tabla || null,
+            pdf_url: prev.pdf_url || r.pdf_url || null,
+          });
+        }
+      } else {
+        // NULL-fecha row → try to absorb into a unique dated sibling.
+        const siblings = datedByTitle.get(nt) ?? [];
+        if (siblings.length === 1) {
+          const target = siblings[0];
+          const key = `${nt}|${target.fecha}`;
+          const prev = outByKey.get(key) ?? { ...target };
+          outByKey.set(key, {
+            ...prev,
+            gcs_url_auto: prev.gcs_url_auto || r.gcs_url_auto || null,
+            gcs_url_tabla: prev.gcs_url_tabla || r.gcs_url_tabla || null,
+            pdf_url: prev.pdf_url || r.pdf_url || null,
+          });
+          continue;
+        }
+        // 0 or >1 dated siblings → keep the NULL-fecha row (quarantine
+        // case: it is either a genuinely distinct fact or an orphan we
+        // cannot safely merge). Dedupe against other NULL-fecha rows with
+        // the same title so we don't double-render the orphan itself.
+        const key = `${nt}|__null__|${r.fuente}-${r.id}`;
+        outByKey.set(key, { ...r });
+      }
+    }
+    return Array.from(outByKey.values());
   }, [estados, localPubs]);
 
   if (!radicado) {
