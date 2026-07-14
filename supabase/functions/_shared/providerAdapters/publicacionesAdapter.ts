@@ -393,13 +393,18 @@ export function computePublicacionFingerprint(
   _key: string | undefined,
   title: string,
   _crossProvider?: boolean,
+  opts?: { pubDate?: string | null; tipo?: string | null; partyHint?: string | null },
 ): string {
-  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): same publicación reported by PP and
-  // SAMAI Estados must dedupe on TUTELA union routing. Asset IDs are
-  // provider-specific and were causing splits.
+  // SOURCE-AGNOSTIC (2026-07-12 P0 fix) + CALL-SITE HARMONIZATION
+  // (2026-07-14 P0 fix): every call-site of canonicalPubFingerprint must
+  // pass the same field set. Callers that don't have pub_date / tipo /
+  // party_hint MUST pass null explicitly (not omit them).
   return canonicalPubFingerprint({
     work_item_id: workItemId,
+    pub_date: opts?.pubDate ?? null,
+    tipo_publicacion: opts?.tipo ?? null,
     title,
+    party_hint: opts?.partyHint ?? null,
   });
 }
 
