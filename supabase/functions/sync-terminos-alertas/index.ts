@@ -227,6 +227,68 @@ Deno.serve(async (req) => {
           },
         ];
 
+        // ── Cross-check against LOCAL term engine ────────────────────────
+        // The local engine (work_item_deadlines) is now the source of truth.
+        // If a matching PENDING deadline exists near the upstream fecha_limite,
+        // suppress the Andromeda alert (avoid duplication).
+        // If not, emit a DATA_QUALITY discrepancy for review instead of a
+        // TERMINO_* alert.
+        const upstreamLimite = term.fecha_limite;
+        let localMatch = false;
+        if (upstreamLimite) {
+          const from = new Date(new Date(upstreamLimite).getTime() - 3 * 86400000)
+            .toISOString().slice(0, 10);
+          const to = new Date(new Date(upstreamLimite).getTime() + 3 * 86400000)
+            .toISOString().slice(0, 10);
+          const { data: dl } = await supabase
+            .from("work_item_deadlines")
+            .select("id")
+            .eq("work_item_id", wi.id)
+            .in("status", ["PENDING", "REQUIERE_REVISION_MANUAL"])
+            .gte("deadline_date", from)
+            .lte("deadline_date", to)
+            .limit(1);
+          localMatch = !!(dl && dl.length > 0);
+        }
+
+        if (localMatch) {
+          // Local engine already covers this — do not duplicate as TERMINO_*.
+          alertsSkippedDuplicate++;
+          continue;
+        }
+
+        // No local coverage — emit a DATA_QUALITY discrepancy for operators to
+        // reconcile. Fingerprint dedupes per (radicado, termino_id, fecha_limite).
+        const dqFingerprint = await sha256Hex32(
+          `dq:${wi.owner_id}:${radNorm}:${term.id}:${term.fecha_limite ?? ""}`,
+        );
+        await supabase.from("alert_instances").upsert(
+          {
+            owner_id: wi.owner_id,
+            organization_id: wi.organization_id,
+            entity_type: mapEntityType(wi.workflow_type),
+            entity_id: wi.id,
+            alert_type: "TERM_ENGINE_DISCREPANCY",
+            alert_source: "TERMINOS_API",
+            severity: severity === "CRITICAL" ? "WARNING" : "INFO",
+            status: "PENDING",
+            title: `Discrepancia: upstream ${alertaUpper} sin equivalente local`,
+            message: `Andromeda reporta ${term.tipo_auto ?? "término"} (vence ${term.fecha_limite ?? "?"}) pero el motor local no tiene un deadline equivalente. Revisar clasificación o reglas.`,
+            payload: {
+              ...payload,
+              kind: "LOCAL_MISSING",
+              upstream_deadline_date: term.fecha_limite,
+              engine_local: "work_item_deadlines",
+            },
+            actions,
+            fingerprint: dqFingerprint,
+            fired_at: new Date().toISOString(),
+          },
+          { onConflict: "fingerprint", ignoreDuplicates: true },
+        );
+        alertsCreated++;
+        continue;
+
         const { data: inserted, error: insErr } = await supabase
           .from("alert_instances")
           .upsert(
