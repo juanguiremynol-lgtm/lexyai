@@ -698,7 +698,15 @@ export function CreateWorkItemWizard({
                   
                   <Button 
                     onClick={handleRadicadoLookup}
-                    disabled={radicado.length !== 23 || lookupStatus === 'loading'}
+                    disabled={
+                      radicado.length !== 23 ||
+                      lookupStatus === 'loading' ||
+                      (() => {
+                        // Corp-guard: block lookup on unresolved mismatch.
+                        const d = deriveFromRadicado(radicado);
+                        return !!(d && d.workflow && d.workflowConfidence === 'high' && workflowType && d.workflow !== workflowType && !wizardOverrideWorkflow);
+                      })()
+                    }
                     className="w-full"
                   >
                     {lookupStatus === 'loading' ? (
@@ -746,27 +754,52 @@ export function CreateWorkItemWizard({
                         </Alert>
                       );
                     }
+                    // Low confidence → informative only, no block.
+                    if (derived.workflowConfidence !== 'high') {
+                      return (
+                        <Alert>
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertTitle className="text-sm">Verifica la clasificación</AlertTitle>
+                          <AlertDescription className="text-xs">
+                            La corporación {derived.corp} del radicado sugiere jurisdicción {derived.jurisdictionLabel ?? 'desconocida'} — verifica que {WORKFLOW_TYPES[workflowType].shortLabel} sea correcto.
+                          </AlertDescription>
+                        </Alert>
+                      );
+                    }
                     return (
-                      <Alert className="border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20">
-                        <AlertCircle className="h-4 w-4 text-amber-600" />
-                        <AlertTitle className="text-sm">Posible clasificación incorrecta</AlertTitle>
-                        <AlertDescription className="text-xs space-y-2">
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle className="text-sm">Clasificación bloqueada — el radicado indica otra jurisdicción</AlertTitle>
+                        <AlertDescription className="text-xs space-y-3">
                           <p>
-                            La corporación {derived.corp} del radicado corresponde a jurisdicción {derived.jurisdictionLabel} → sugerido{' '}
+                            La corporación <strong>{derived.corp}</strong> del radicado corresponde a jurisdicción <strong>{derived.jurisdictionLabel}</strong> → sugerido{' '}
                             <strong>{WORKFLOW_TYPES[derived.workflow].shortLabel}</strong>, pero elegiste{' '}
                             <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.
                           </p>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setWorkflowType(derived.workflow);
-                              resetLookup();
-                              toast.success(`Cambiado a ${WORKFLOW_TYPES[derived.workflow!].shortLabel}`);
-                            }}
-                          >
-                            Cambiar a {WORKFLOW_TYPES[derived.workflow].shortLabel}
-                          </Button>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                setWorkflowType(derived.workflow);
+                                setWizardOverrideWorkflow(false);
+                                resetLookup();
+                                toast.success(`Cambiado a ${WORKFLOW_TYPES[derived.workflow!].shortLabel}`);
+                              }}
+                            >
+                              Cambiar a {WORKFLOW_TYPES[derived.workflow].shortLabel} (recomendado)
+                            </Button>
+                            <label className="flex items-start gap-2 text-xs cursor-pointer">
+                              <Checkbox
+                                checked={wizardOverrideWorkflow}
+                                onCheckedChange={(v) => setWizardOverrideWorkflow(v === true)}
+                                className="mt-0.5"
+                              />
+                              <span>
+                                Entiendo que el radicado indica jurisdicción <strong>{derived.jurisdictionLabel}</strong> y decido continuar como <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong> bajo mi responsabilidad.
+                              </span>
+                            </label>
+                          </div>
                         </AlertDescription>
                       </Alert>
                     );
