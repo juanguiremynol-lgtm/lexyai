@@ -53,6 +53,7 @@ import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailD
 import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 import CpacaDetailModule from "./CpacaDetailModule";
+import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
 
 import type { WorkItem } from "@/types/work-item";
 
