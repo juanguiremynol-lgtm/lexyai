@@ -342,6 +342,7 @@ export function computeSamaiEstadosFingerprint(
     pub_date: fecha,
     tipo_publicacion: actuacion,
     title: actuacion,
+    party_hint: null,
   });
 }
 
