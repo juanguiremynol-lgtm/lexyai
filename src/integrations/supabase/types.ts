@@ -16570,6 +16570,7 @@ export type Database = {
         Args: { p_hint: string; p_raw: string }
         Returns: string
       }
+      canon_normalize_date: { Args: { p_input: string }; Returns: string }
       canon_normalize_title: { Args: { p_raw: string }; Returns: string }
       canon_pub_fingerprint: {
         Args: {
@@ -16582,6 +16583,7 @@ export type Database = {
         Returns: string
       }
       canon_simple_hash: { Args: { p_data: string }; Returns: string }
+      canon_strip_title_noise: { Args: { p_raw: string }; Returns: string }
       canonicalize_legal_text: { Args: { p_text: string }; Returns: string }
       check_and_increment_login_sync: {
         Args: {
