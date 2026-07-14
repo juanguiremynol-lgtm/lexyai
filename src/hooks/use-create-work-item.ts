@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
-import { registerAndSyncCpnu, registerAndSyncPp, registerAndSyncSamai } from "@/lib/cpnu/register-and-sync";
 import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
 
 // Interface for initial actuaciones from lookup
@@ -13,9 +12,12 @@ interface InitialActuacion {
   actuacion: string;
   anotacion?: string;
   fecha_registro?: string;
+  fecha_inicia_termino?: string;
+  fecha_finaliza_termino?: string;
   estado?: string;
   anexos?: number;
   indice?: string;
+  documentos?: Array<{ nombre: string; url: string }>;
 }
 
 export interface CreateWorkItemData {
@@ -66,6 +68,9 @@ export interface CreateWorkItemData {
   // Initial actuaciones from lookup (to persist on creation)
   initial_actuaciones?: InitialActuacion[];
   lookup_source?: string; // e.g., 'CPNU', 'SAMAI'
+  /** True when the user overrode the corp-guard suggestion. Persisted to
+   *  work_items.raw_data for audit. */
+  wizard_override_workflow?: boolean;
 }
 
 export function useCreateWorkItem() {
