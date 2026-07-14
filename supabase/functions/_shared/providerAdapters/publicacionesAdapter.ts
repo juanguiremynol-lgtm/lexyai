@@ -355,6 +355,7 @@ function normalizeOnePublicacion(
     p.key,
     tituloStr,
     options?.crossProviderDedup,
+    { pubDate: fecha || null, tipo: tipo || null, partyHint: null },
   );
 
   if (!fecha && !title) return null;
