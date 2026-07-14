@@ -90,6 +90,13 @@ interface ProcessData {
     fecha: string;
     actuacion: string;
     anotacion?: string;
+    fecha_registro?: string;
+    fecha_inicia_termino?: string;
+    fecha_finaliza_termino?: string;
+    estado?: string;
+    anexos?: number;
+    indice?: string;
+    documentos?: Array<{ nombre: string; url: string }>;
   }>;
   total_actuaciones?: number;
   // TUTELA-specific fields
@@ -999,6 +1006,9 @@ Deno.serve(async (req) => {
       const firstWinsFields = [
         'despacho', 'ciudad', 'departamento', 'demandante', 'demandado',
         'tipo_proceso', 'clase_proceso', 'fecha_radicacion',
+        // Structured party list — first non-empty provider wins so we don't
+        // clobber CPNU's richer sujetos with SAMAI's shallow list.
+        'sujetos_procesales',
       ];
 
       for (const r of allFound) {
