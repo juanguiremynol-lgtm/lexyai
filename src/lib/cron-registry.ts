@@ -334,9 +334,10 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     schedule_cot: "07:20 COT",
     edge_function: "sync-terminos-alertas",
     role: "ALERTS",
-    critical: true,
-    expected_active: true,
-    notes: "Lee /terminos y genera alertas TERMINO_CRITICO/TERMINO_VENCIDO",
+    critical: false,
+    expected_active: false,
+    notes:
+      "DEPRECATED (2026-07-14). Andromeda /terminos audit: catalog empty, calendar-day arithmetic, scrape-timestamp anchor. Local engine (work_item_deadlines) is the sole source of truth.",
     wiring: {
       orchestrator_phase: null,
       is_orchestrator_job: false,
