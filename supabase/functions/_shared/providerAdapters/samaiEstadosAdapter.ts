@@ -273,10 +273,14 @@ function normalizeOneEstado(
   e: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion | null {
-  const fecha = normalizeDate(
-    e['Fecha Providencia'] ?? e['Fecha Estado'] ?? e.fechaProvidencia ??
-    e.fechaEstado ?? e.fecha ?? '',
+  const fechaEstado = normalizeDate(
+    e['Fecha Estado'] ?? e.fechaEstado ?? e.fecha_estado ??
+    e.fecha_fijacion ?? e.fecha_publicacion ?? e.fecha ?? '',
   );
+  const fechaProvidencia = normalizeDate(
+    e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
+  );
+  const fecha = fechaEstado || fechaProvidencia;
   const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
   const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? '');
 
@@ -312,12 +316,17 @@ function normalizeOneEstado(
     title,
     tipo_publicacion: actuacion || 'Estado SAMAI',
     fecha_fijacion: fecha || '',
+    fecha_providencia: fechaProvidencia || undefined,
     hash_fingerprint: fingerprint,
     source_platform: PROVIDER_KEY,
     sources: [PROVIDER_KEY],
     pdf_url: pdfUrl,
     attachments: attachments.length > 0 ? attachments : undefined,
-    raw_data: e,
+    raw_data: {
+      ...e,
+      fecha_estado_normalizada: fechaEstado || null,
+      fecha_providencia_normalizada: fechaProvidencia || null,
+    },
   };
 }
 

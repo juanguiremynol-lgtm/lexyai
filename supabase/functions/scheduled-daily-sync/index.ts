@@ -7,6 +7,7 @@ import {
   buildAuditEvidence,
   enrichDemonitorCandidates,
   PUBLICACIONES_WORKFLOWS,
+  SAMAI_ESTADOS_ONLY_WORKFLOWS,
   DEFAULT_STALENESS_GUARD_DAYS,
 } from "../_shared/syncPolicy.ts";
 import {
@@ -227,6 +228,7 @@ Deno.serve(async (req) => {
   // Parse optional continuation params from body
   let bodyParams: {
     org_id?: string;
+    work_item_id?: string;
     resume_after_id?: string;
     is_continuation?: boolean;
     continuation_of?: string;
@@ -316,6 +318,28 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  if (bodyParams.work_item_id) {
+    const { data: item, error: itemError } = await supabase
+      .from("work_items")
+      .select("id, organization_id, radicado, workflow_type, stage, total_actuaciones")
+      .eq("id", bodyParams.work_item_id)
+      .maybeSingle();
+
+    if (itemError || !item) {
+      return new Response(
+        JSON.stringify({ ok: false, reason: "WORK_ITEM_NOT_FOUND", work_item_id: bodyParams.work_item_id }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    console.log(`[daily-sync] DIRECT_ITEM work_item_id=${item.id} workflow=${item.workflow_type} trigger=${triggerSource}`);
+    const result = await syncSingleItem(supabase, item as EligibleWorkItem, item.organization_id, undefined, true);
+    return new Response(
+      JSON.stringify({ ok: true, mode: "DIRECT_ITEM", work_item_id: item.id, result }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   // ── Heartbeat: start (try/finally guarantees finish) ──
   let hb: HeartbeatHandle | null = null;
@@ -1192,11 +1216,15 @@ async function syncSingleItem(
       .eq("id", item.id);
   }
 
-  // Sync publicaciones if act sync succeeded and workflow supports it
+  // Sync estados/publicaciones when the workflow has an estados provider.
+  // CPACA/SAMAI_ESTADOS must run even when the actuaciones branch returns
+  // EMPTY: a case can have estados while the SAMAI actuaciones feed is cold,
+  // and routing repair depends on this path to hydrate Publicaciones.
+  const hasPpEstados = (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type);
+  const hasSamaiEstados = (SAMAI_ESTADOS_ONLY_WORKFLOWS as readonly string[]).includes(item.workflow_type);
   if (
-    syncOk &&
-    shouldRunPublicaciones(syncResult) &&
-    (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)
+    (hasPpEstados || hasSamaiEstados) &&
+    (shouldRunPublicaciones(syncResult) || hasSamaiEstados)
   ) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     
@@ -1224,11 +1252,26 @@ async function syncSingleItem(
         await new Promise((r) => setTimeout(r, 2000));
       }
       try {
-        await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-          body: { work_item_id: item.id, _scheduled: true },
+        const functionsUrl = Deno.env.get("SUPABASE_URL");
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (!functionsUrl || !serviceKey) {
+          throw new Error("Missing function invocation credentials");
+        }
+        const pubResp = await fetch(`${functionsUrl}/functions/v1/sync-publicaciones-by-work-item`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ work_item_id: item.id, _scheduled: true, _force: true }),
         });
+        if (!pubResp.ok) {
+          const errText = await pubResp.text().catch(() => "");
+          throw new Error(`sync-publicaciones HTTP ${pubResp.status}: ${errText.slice(0, 200)}`);
+        }
       } catch (_pubErr) {
         // Pub errors don't count as item failure
+        console.warn(`[daily-sync] sync-publicaciones failed wi=${item.id}:`, (_pubErr as Error)?.message ?? _pubErr);
       }
     }
 
@@ -1238,8 +1281,10 @@ async function syncSingleItem(
     // mis-routed estados into work_item_acts (see canonical provider policy).
   }
 
-  // If sync wasn't successful and wasn't scraping_pending, this is a soft failure
-  if (!syncOk && !isScrapingPending(syncResult)) {
+  // If sync wasn't successful and wasn't scraping_pending, this is a soft failure.
+  // For SAMAI_ESTADOS-only workflows, do not throw after the estados branch ran:
+  // actuaciones can be empty while estados are still the actionable feed.
+  if (!syncOk && !isScrapingPending(syncResult) && !hasSamaiEstados) {
     if (syncResult?.ok === false) {
       throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
     }

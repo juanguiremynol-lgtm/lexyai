@@ -73,6 +73,8 @@ export interface NormalizedPublicacion {
   tipo_publicacion: string;
   /** ISO date YYYY-MM-DD */
   fecha_fijacion: string;
+  /** ISO date YYYY-MM-DD — date of the underlying court order, when distinct from fijación */
+  fecha_providencia?: string;
   /** ISO date YYYY-MM-DD */
   fecha_desfijacion?: string;
   /** Pre-computed fingerprint for dedup */
