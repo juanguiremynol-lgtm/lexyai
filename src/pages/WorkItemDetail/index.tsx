@@ -370,6 +370,7 @@ export default function WorkItemDetail() {
               a single mapping in src/lib/externalSyncDisplay.ts. Never hardcode
               per-category tab logic here. */}
           {(() => { return null; })()}
+          <WorkItemDeadlinesBanner workItemId={workItem.id} />
           {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
             {(() => null)()}
