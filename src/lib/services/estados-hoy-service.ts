@@ -192,6 +192,7 @@ export async function getEstadosHoy(
       `, { count: 'exact' })
       .eq('work_items.organization_id', organizationId)
       .in('work_items.workflow_type', workflowFilter)
+      .eq('is_archived', false)
       .order('fecha_fijacion', { ascending: false }),
 
     // Actuaciones from CPNU/SAMAI (via work_item_acts) — filter by act_date
@@ -222,6 +223,7 @@ export async function getEstadosHoy(
       `, { count: 'exact' })
       .eq('work_items.organization_id', organizationId)
       .in('work_items.workflow_type', workflowFilter)
+      .eq('is_archived', false)
       .order('act_date', { ascending: false })
   ]);
   
