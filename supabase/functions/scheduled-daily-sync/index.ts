@@ -1266,8 +1266,10 @@ async function syncSingleItem(
     // mis-routed estados into work_item_acts (see canonical provider policy).
   }
 
-  // If sync wasn't successful and wasn't scraping_pending, this is a soft failure
-  if (!syncOk && !isScrapingPending(syncResult)) {
+  // If sync wasn't successful and wasn't scraping_pending, this is a soft failure.
+  // For SAMAI_ESTADOS-only workflows, do not throw after the estados branch ran:
+  // actuaciones can be empty while estados are still the actionable feed.
+  if (!syncOk && !isScrapingPending(syncResult) && !hasSamaiEstados) {
     if (syncResult?.ok === false) {
       throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
     }
