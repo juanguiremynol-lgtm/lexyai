@@ -15,6 +15,16 @@
  * Title normalization strips accents, lowercases, trims/collapses whitespace,
  * and drops any anotación tail appended after " - " / " — " (adapters concat
  * anotaciones onto description; the stable identifier is only the head).
+ *
+ * P0 bug 2026-07-14 (call-site divergence): three pub call-sites and five act
+ * call-sites passed different subsets of fields to the helper (some omitted
+ * `tipo`, some passed raw title with `.pdf`, some stripped it, one substituted
+ * radicado for work_item_id). Same juridical fact → different hash → duplicate
+ * row. The fix (a) makes required fields explicit and non-optional in the
+ * types, (b) internally normalizes title (strip trailing `.pdf`/duplicate-copy
+ * suffixes like ` (1) (1)`), (c) internally normalizes act/pub date to
+ * YYYY-MM-DD regardless of input format (ISO, timestamptz, DD/MM/YYYY), and
+ * (d) validates that work_item_id is a UUID (rejects radicado fallback).
  */
 
 function stripAccents(s: string): string {
@@ -98,18 +108,76 @@ export function normalizeTitle(raw: string | null | undefined): string {
   return s.slice(0, 200);
 }
 
+/** Strip common non-identifying suffixes from a raw title/filename before it
+ *  reaches normalizeTitle. Keeps the fact stable across code paths that do or
+ *  don't pre-clean their inputs.
+ *  - trailing `.pdf` extension
+ *  - trailing whitespace-separated copy markers " (1)", " (2)", " (1) (1)"
+ *  - trailing bare date tail like " 18/06/2026" (some PP payloads append it) */
+function stripTitleNoise(raw: string): string {
+  let s = raw;
+  // Strip .pdf and repeated (n) copy markers, in any order at the tail.
+  // Loop because we may have "foo.pdf (1) (1)" or "foo (1).pdf".
+  for (let i = 0; i < 5; i++) {
+    const before = s;
+    s = s.replace(/\s*\(\d+\)\s*$/, "");
+    s = s.replace(/\.pdf\s*$/i, "");
+    if (s === before) break;
+  }
+  return s.trim();
+}
+
+/** Coerce any date-ish input to YYYY-MM-DD (UTC). Returns "unknown" for null,
+ *  empty, or unparseable inputs so the fingerprint never diverges on format
+ *  (ISO vs timestamptz vs DD/MM/YYYY vs bare date). */
+function normalizeDate(input: string | null | undefined): string {
+  if (!input) return "unknown";
+  const s = String(input).trim();
+  if (!s) return "unknown";
+  // Already YYYY-MM-DD prefix (fast path).
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  // DD/MM/YYYY or DD-MM-YYYY.
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) {
+    const [, d, m, y] = dmy;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  // Fallback: let Date parse it (handles ISO timestamps).
+  const t = new Date(s);
+  if (!Number.isNaN(t.getTime())) return t.toISOString().slice(0, 10);
+  return "unknown";
+}
+
+/** Reject non-UUID values so callers can't accidentally pass a radicado. */
+function normalizeWorkItemId(input: string | null | undefined): string {
+  if (!input) return "noscope";
+  const s = String(input).trim().toLowerCase();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (!uuid.test(s)) {
+    // Callers that lack a real UUID (e.g. cpnuAdapter with only a radicado)
+    // will get a stable but distinct scope so their hash never accidentally
+    // collides with a real work-item's hash.
+    return `nowi:${simpleHash(s).slice(0, 8)}`;
+  }
+  return s.slice(0, 8);
+}
+
 /** Canonical, source-agnostic fingerprint for a work_item_acts row. */
 export function canonicalActFingerprint(input: {
-  work_item_id?: string | null;
-  act_date?: string | null;
+  work_item_id: string | null;
+  act_date: string | null;
+  /** Prefer `actuacion` (the stable act type). `description` is accepted for
+   *  legacy callers but internally treated identically after normalization. */
+  actuacion: string | null;
+  /** Required — pass `null` if not available. Prevents silent divergence. */
+  party_hint: string | null;
+  /** Legacy alias — merged with `actuacion` if that field is empty. */
   description?: string | null;
-  actuacion?: string | null;
-  /** Optional raw_data.parte / raw_data.docum_a_notif hint for party discrimination. */
-  party_hint?: string | null;
 }): string {
-  const wi = (input.work_item_id || "noscope").slice(0, 8);
-  const date = (input.act_date || "unknown").trim();
-  const rawTitle = input.actuacion ?? input.description ?? "";
+  const wi = normalizeWorkItemId(input.work_item_id);
+  const date = normalizeDate(input.act_date);
+  const rawTitle = stripTitleNoise(input.actuacion ?? input.description ?? "");
   const title = normalizeTitle(rawTitle);
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
@@ -118,17 +186,19 @@ export function canonicalActFingerprint(input: {
 
 /** Canonical, source-agnostic fingerprint for a work_item_publicaciones row. */
 export function canonicalPubFingerprint(input: {
-  work_item_id?: string | null;
-  pub_date?: string | null;
-  tipo_publicacion?: string | null;
-  title?: string | null;
+  work_item_id: string | null;
+  pub_date: string | null;
+  tipo_publicacion: string | null;
+  /** Prefer `title`; `description` accepted for legacy callers. */
+  title: string | null;
+  /** Required — pass `null` if not available. Prevents silent divergence. */
+  party_hint: string | null;
   description?: string | null;
-  party_hint?: string | null;
 }): string {
-  const wi = (input.work_item_id || "noscope").slice(0, 8);
-  const date = (input.pub_date || "unknown").trim();
+  const wi = normalizeWorkItemId(input.work_item_id);
+  const date = normalizeDate(input.pub_date);
   const tipo = normalizeTitle(input.tipo_publicacion || "");
-  const rawTitle = input.title ?? input.description ?? "";
+  const rawTitle = stripTitleNoise(input.title ?? input.description ?? "");
   const title = normalizeTitle(rawTitle);
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
