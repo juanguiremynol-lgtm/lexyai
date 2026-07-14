@@ -268,6 +268,15 @@ export function toWizardResult(result: ProviderAdapterResult): WizardProviderRes
     fecha: a.fecha_actuacion || '',
     actuacion: a.actuacion || '',
     anotacion: a.anotacion || '',
+    // Extended term-engine + evidence fields — propagated so the wizard
+    // preview and use-create-work-item can persist them on initial acts.
+    fecha_registro: a.fecha_registro,
+    fecha_inicia_termino: a.fecha_inicia_termino,
+    fecha_finaliza_termino: a.fecha_finaliza_termino,
+    estado: a.estado,
+    anexos: a.anexos_count,
+    indice: a.indice,
+    documentos: a.documentos,
   }));
 
   const processData: WizardProcessData = {
