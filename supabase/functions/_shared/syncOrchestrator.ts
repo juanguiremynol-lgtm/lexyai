@@ -1126,62 +1126,13 @@ export async function orchestrateSync(
 // FINGERPRINT HELPERS (canonical, deduplicated)
 // ═══════════════════════════════════════════
 
-/**
- * Generate canonical fingerprint for actuaciones deduplication.
- *
- * POLICY DECISION: `source` inclusion depends on execution mode.
- *   - CHAIN mode (CGP, LABORAL, etc.): includes source to prevent cross-provider
- *     collisions (same event from different providers = different fingerprints).
- *   - FANOUT mode (TUTELA): EXCLUDES source so the same event from CPNU and
- *     TUTELAS produces the SAME fingerprint → DB ON CONFLICT deduplicates.
- *
- * Includes indice to prevent same-day actuación collisions.
- *
- * This is the SINGLE source of truth — all edge functions must use this.
- *
- * @param crossProviderDedup - When true, excludes source from fingerprint
- *        (set this for FANOUT/TUTELA workflows)
- */
-export function generateActuacionFingerprint(
-  workItemId: string,
-  date: string,
-  text: string,
-  indice?: string,
-  source?: string,
-  crossProviderDedup = false,
-): string {
-  const sourcePart = source && !crossProviderDedup ? `|${source}` : "";
-  const indexPart = indice ? `|${indice}` : "";
-  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}${sourcePart}`;
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    const char = normalized.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `wi_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
-}
-
-/**
- * Generate canonical fingerprint for publicaciones deduplication.
- * Uses asset_id (guaranteed unique per publication) or falls back to key/title.
- */
-export function generatePublicacionFingerprint(
-  workItemId: string,
-  assetId: string | undefined,
-  key: string | undefined,
-  title: string,
-): string {
-  const uniqueId = assetId || key || title;
-  const data = `${workItemId}|${uniqueId}`;
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `pub_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
-}
+// Legacy `generateActuacionFingerprint` / `generatePublicacionFingerprint` were
+// removed on 2026-07-14 as part of the call-site harmonization P0 fix. They
+// used a non-canonical hash algorithm distinct from `canonicalActFingerprint`
+// / `canonicalPubFingerprint` and had no external callers — keeping them
+// exported invited future divergence. Use the canonical helpers from
+// `_shared/canonicalFingerprint.ts` directly, passing EVERY field (including
+// `party_hint: null` when unavailable) so all write paths agree on identity.
 
 // ═══════════════════════════════════════════
 // PROVIDER REGISTRY HELPER
