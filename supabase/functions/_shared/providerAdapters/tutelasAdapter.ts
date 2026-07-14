@@ -449,6 +449,7 @@ export function computeTutelasFingerprint(
     work_item_id: workItemId,
     act_date: fecha,
     actuacion: tipo,
+    party_hint: null,
   });
 }
 
