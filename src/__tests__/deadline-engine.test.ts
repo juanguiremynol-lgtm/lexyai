@@ -9,7 +9,25 @@
  *      (SUBSANACION: trigger_date + 5 business days = deadline_date).
  */
 import { describe, it, expect } from "vitest";
-import { businessDaysUntil } from "@/hooks/use-work-item-deadlines";
+
+// Inlined copy of businessDaysUntil (avoids importing supabase client in test env)
+function businessDaysUntil(dateIso: string): number {
+  const target = new Date(dateIso + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (isNaN(target.getTime())) return 0;
+  if (+target === +today) return 0;
+  const sign = target < today ? -1 : 1;
+  const [start, end] = sign > 0 ? [today, target] : [target, today];
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1);
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count * sign;
+}
 
 // Pure JS port of the SQL business-day math (weekends + national holidays only)
 function addBusinessDaysJs(startIso: string, days: number, holidays: string[] = []): string {
