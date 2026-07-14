@@ -69,6 +69,7 @@ import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-w
 import { useRadicadoLookup } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { WizardProcessPreview } from "./WizardProcessPreview";
+import { deriveFromRadicado } from "@/lib/radicado-derivation";
 import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
@@ -308,6 +309,16 @@ export function CreateWorkItemWizard({
       resetLookup();
     } else if (digits.length > 23) {
       setRadicadoError(`El radicado tiene ${digits.length} dígitos, se requieren exactamente 23`);
+    }
+
+    // Auto-populate department / city from DANE when they are empty — never
+    // overwrite user-entered values.
+    if (digits.length === 23) {
+      const derived = deriveFromRadicado(digits);
+      if (derived) {
+        if (!authorityDepartment && derived.department) setAuthorityDepartment(derived.department);
+        if (!authorityCity && derived.city) setAuthorityCity(derived.city);
+      }
     }
   };
   
