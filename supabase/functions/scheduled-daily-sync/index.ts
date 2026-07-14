@@ -1232,16 +1232,10 @@ async function syncSingleItem(
       }
     }
 
-    // ── Sync PP actuaciones (23-digit radicados) ──
-    if (syncOk && item.radicado?.replace(/\D/g, "").length === 23) {
-      try {
-        await supabase.functions.invoke("sync-pp-by-work-item", {
-          body: { work_item_id: item.id, _scheduled: true },
-        });
-      } catch (_ppErr) {
-        // PP sync errors are non-blocking
-      }
-    }
+    // Note: PP (Publicaciones Procesales) is an ESTADOS-family provider and
+    // is fully handled by sync-publicaciones-by-work-item above. The legacy
+    // sync-pp-by-work-item invocation was removed on 2026-07-14 because it
+    // mis-routed estados into work_item_acts (see canonical provider policy).
   }
 
   // If sync wasn't successful and wasn't scraping_pending, this is a soft failure
