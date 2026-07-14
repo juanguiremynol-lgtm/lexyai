@@ -227,6 +227,7 @@ Deno.serve(async (req) => {
   // Parse optional continuation params from body
   let bodyParams: {
     org_id?: string;
+    work_item_id?: string;
     resume_after_id?: string;
     is_continuation?: boolean;
     continuation_of?: string;
@@ -316,6 +317,28 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  if (bodyParams.work_item_id) {
+    const { data: item, error: itemError } = await supabase
+      .from("work_items")
+      .select("id, organization_id, radicado, workflow_type, stage, total_actuaciones")
+      .eq("id", bodyParams.work_item_id)
+      .maybeSingle();
+
+    if (itemError || !item) {
+      return new Response(
+        JSON.stringify({ ok: false, reason: "WORK_ITEM_NOT_FOUND", work_item_id: bodyParams.work_item_id }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    console.log(`[daily-sync] DIRECT_ITEM work_item_id=${item.id} workflow=${item.workflow_type} trigger=${triggerSource}`);
+    const result = await syncSingleItem(supabase, item as EligibleWorkItem, item.organization_id, undefined, true);
+    return new Response(
+      JSON.stringify({ ok: true, mode: "DIRECT_ITEM", work_item_id: item.id, result }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   // ── Heartbeat: start (try/finally guarantees finish) ──
   let hb: HeartbeatHandle | null = null;
