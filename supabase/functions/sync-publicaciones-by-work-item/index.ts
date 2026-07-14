@@ -1617,6 +1617,11 @@ Deno.serve(withSyncTimeline(async (req) => {
                 tipo: np.tipo_publicacion || 'Estado',
                 titulo: np.title || np.tipo_publicacion || 'Estado SAMAI',
                 fecha_publicacion: pubFecha || null,
+                fecha_estado_raw: pubFecha || null,
+                fecha_auto_raw:
+                  (np as any).fecha_providencia ||
+                  (np as any).raw_data?.fecha_providencia_normalizada ||
+                  null,
                 pdf_url: np.pdf_url,
                 tipo_evento: 'Estado Electrónico',
                 asset_id: `samai_${hashDoc}`,
@@ -1950,8 +1955,10 @@ Deno.serve(withSyncTimeline(async (req) => {
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
           published_at: isoDate,
-          fecha_fijacion: isSamai ? null : fijacionIso,
-          fecha_providencia: isSamai ? isoDate : providenciaIso,
+          fecha_fijacion: isSamai ? (parsedEstadoDate ? fijacionIso : null) : fijacionIso,
+          fecha_providencia: isSamai
+            ? (providenciaIso || (!parsedEstadoDate ? isoDate : null))
+            : providenciaIso,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
