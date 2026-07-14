@@ -47,10 +47,13 @@ function addBusinessDaysJs(startIso: string, days: number, holidays: string[] = 
 }
 
 describe("business-day math (mirrors add_business_days_sql)", () => {
-  it("Auto admite CGP: fecha_fijacion 2026-05-04 (Mon) + 20 hábiles contestación → 2026-06-02", () => {
-    // Excluding May 25 (Día de la Madre? no — verify May 2026 has no national holiday between May 5–Jun 2)
-    // Colombian holidays in that window: 25 May 2026 = no holiday; Jun 1 2026 = no (Ascensión moves)
-    expect(addBusinessDaysJs("2026-05-04", 20, [])).toBe("2026-06-01");
+  it("Auto admite CGP: fecha_fijacion 2026-05-04 (Mon) + 20 hábiles → 2026-06-02 (Ascensión moved to Mon May 18 is skipped)", () => {
+    // Colombian moveable holidays affecting this window in 2026:
+    //   Ascensión de Jesús → lunes 18 may 2026 (por Ley Emiliani)
+    // Sin este festivo, el 20º día hábil sería lunes 1-jun. Al saltar el 18-may
+    // (que cuenta como día hábil 10 pero es festivo) todo se corre 1 día y
+    // termina martes 2-jun-2026 — coincide con add_business_days_sql en la DB.
+    expect(addBusinessDaysJs("2026-05-04", 20, ["2026-05-18"])).toBe("2026-06-02");
   });
 
   it("SUBSANACION: 2026-05-26 (Tue) + 5 hábiles → 2026-06-02", () => {
