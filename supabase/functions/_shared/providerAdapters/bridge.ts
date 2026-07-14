@@ -87,6 +87,13 @@ export interface WizardProcessData {
     fecha: string;
     actuacion: string;
     anotacion?: string;
+    fecha_registro?: string;
+    fecha_inicia_termino?: string;
+    fecha_finaliza_termino?: string;
+    estado?: string;
+    anexos?: number;
+    indice?: string;
+    documentos?: Array<{ nombre: string; url: string }>;
   }>;
   total_actuaciones?: number;
   ponente?: string;
