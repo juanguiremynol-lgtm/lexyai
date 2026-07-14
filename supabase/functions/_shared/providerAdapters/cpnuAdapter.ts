@@ -95,9 +95,13 @@ function computeCpnuFingerprint(
   _instancia?: string,
 ): string {
   return canonicalActFingerprint({
-    work_item_id: workItemId || radicado,
+    // Never fall back to radicado — canonical helper rejects non-UUID inputs
+    // and produces a distinct `nowi:` scope for them, which would silently
+    // split a real work-item's hashes across ingestion paths.
+    work_item_id: workItemId ?? null,
     act_date: fecha,
     actuacion,
+    party_hint: null,
   });
 }
 
