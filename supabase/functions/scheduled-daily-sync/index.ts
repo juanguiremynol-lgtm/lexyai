@@ -1252,11 +1252,26 @@ async function syncSingleItem(
         await new Promise((r) => setTimeout(r, 2000));
       }
       try {
-        await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-          body: { work_item_id: item.id, _scheduled: true, _force: true },
+        const functionsUrl = Deno.env.get("SUPABASE_URL");
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (!functionsUrl || !serviceKey) {
+          throw new Error("Missing function invocation credentials");
+        }
+        const pubResp = await fetch(`${functionsUrl}/functions/v1/sync-publicaciones-by-work-item`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ work_item_id: item.id, _scheduled: true, _force: true }),
         });
+        if (!pubResp.ok) {
+          const errText = await pubResp.text().catch(() => "");
+          throw new Error(`sync-publicaciones HTTP ${pubResp.status}: ${errText.slice(0, 200)}`);
+        }
       } catch (_pubErr) {
         // Pub errors don't count as item failure
+        console.warn(`[daily-sync] sync-publicaciones failed wi=${item.id}:`, (_pubErr as Error)?.message ?? _pubErr);
       }
     }
 
