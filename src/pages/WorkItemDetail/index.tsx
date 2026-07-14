@@ -102,11 +102,13 @@ export default function WorkItemDetail() {
         .from("work_item_publicaciones")
         .select("id", { count: "exact", head: true })
         .eq("work_item_id", workItem!.id)
+        .eq("is_archived", false)
         .eq("source", "publicaciones");
       const { count: estadosCount } = await supabase
         .from("work_item_publicaciones")
         .select("id", { count: "exact", head: true })
         .eq("work_item_id", workItem!.id)
+        .eq("is_archived", false)
         .eq("source", "samai_estados");
       return { pub: pubCount ?? 0, estados: estadosCount ?? 0 };
     },
