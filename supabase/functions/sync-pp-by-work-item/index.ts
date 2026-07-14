@@ -1,15 +1,23 @@
 /**
  * sync-pp-by-work-item Edge Function
  *
- * Syncs actuaciones from the Publicaciones Procesales (PP) API
- * into work_item_acts for a single work item.
+ * DEPRECATED (2026-07-14). Publicaciones Procesales (PP) is an ESTADOS-family
+ * provider. Per canonical policy — ACTUACIONES = CPNU/SAMAI exclusively;
+ * ESTADOS = PP + SAMAI_ESTADOS — this function must NOT write to
+ * work_item_acts. All PP estados ingestion is handled by
+ * sync-publicaciones-by-work-item, which writes to work_item_publicaciones.
+ *
+ * This stub is retained for backward-compatible invocation only. It performs
+ * a best-effort PP registration (populating work_items.pp_id when missing so
+ * downstream tooling can still cross-reference) and updates pp_estado, but
+ * it never inserts, updates, or upserts rows in work_item_acts. A structural
+ * BEFORE INSERT guard on work_item_acts also rejects `source='pp'` writes.
  *
  * Input: { work_item_id: string, _scheduled?: boolean }
- * Output: { ok, inserted_count, skipped_count }
+ * Output: { ok, deprecated: true, inserted_count: 0, skipped_count: 0 }
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 
 const PP_API_BASE = "https://pp-read-api-zcrd2ua7xq-uc.a.run.app";
 
@@ -26,14 +34,6 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Parse DD/MM/YYYY → YYYY-MM-DD */
-function parseDDMMYYYY(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!m) return null;
-  return `${m[3]}-${m[2]}-${m[1]}`;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
   // Health check
   const url = new URL(req.url);
   if (url.searchParams.get("health") === "true") {
-    return json({ ok: true, function: "sync-pp-by-work-item" });
+    return json({ ok: true, function: "sync-pp-by-work-item", deprecated: true });
   }
 
   try {
@@ -112,156 +112,56 @@ Deno.serve(async (req) => {
       return json({ error: "Work item has no radicado" }, 400);
     }
 
+    // ── DEPRECATED PATH ──
+    // PP is an ESTADOS-family provider; sync-publicaciones-by-work-item
+    // handles all ingestion into work_item_publicaciones. We keep pp_id
+    // registration best-effort so cross-provider tooling can reference the
+    // upstream PP record, then return without writing any acts.
     let ppId: number | null = workItem.pp_id;
-
-    // ── 2. Register in PP if no pp_id ──
     if (!ppId) {
-      console.log(`[sync-pp] Registering radicado ${radicado} in PP API`);
-      const regRes = await fetch(`${PP_API_BASE}/work-items`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ radicado }),
-      });
-      if (!regRes.ok) {
-        const errText = await regRes.text();
-        console.error(`[sync-pp] PP registration failed: ${regRes.status} ${errText}`);
-        return json({ error: "PP registration failed", detail: errText }, 502);
+      try {
+        const regRes = await fetch(`${PP_API_BASE}/work-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ radicado }),
+        });
+        if (regRes.ok) {
+          const regBody = await regRes.json();
+          ppId = regBody?.item?.id ?? null;
+          if (ppId) {
+            await supabase
+              .from("work_items")
+              .update({ pp_id: ppId })
+              .eq("id", workItemId);
+          }
+        }
+      } catch (regErr) {
+        console.warn(`[sync-pp][deprecated] pp_id registration failed (non-blocking):`, regErr);
       }
-      const regBody = await regRes.json();
-      ppId = regBody?.item?.id ?? null;
-      if (!ppId) {
-        return json({ error: "PP registration returned no id" }, 502);
-      }
-      // Save pp_id
-      await supabase
-        .from("work_items")
-        .update({ pp_id: ppId })
-        .eq("id", workItemId);
-      console.log(`[sync-pp] Registered pp_id=${ppId} for ${workItemId}`);
     }
 
-    // ── 3. Fetch actuaciones from PP ──
-    const actRes = await fetch(`${PP_API_BASE}/work-items/${ppId}/actuaciones`);
-    if (!actRes.ok) {
-      const errText = await actRes.text();
-      console.error(`[sync-pp] PP fetch failed: ${actRes.status} ${errText}`);
-
-      await supabase
-        .from("work_items")
-        .update({
-          pp_ultima_sync: new Date().toISOString(),
-          pp_estado: "error",
-        })
-        .eq("id", workItemId);
-
-      return json({ error: "PP API fetch failed", detail: errText }, 502);
-    }
-
-    const actBody = await actRes.json();
-    // Handle both array and { actuaciones: [...] } responses
-    const actuaciones: any[] = Array.isArray(actBody)
-      ? actBody
-      : actBody?.actuaciones ?? [];
-
-    if (actuaciones.length === 0) {
-      await supabase
-        .from("work_items")
-        .update({
-          pp_ultima_sync: new Date().toISOString(),
-          pp_estado: "ok",
-          pp_novedades_pendientes: 0,
-        })
-        .eq("id", workItemId);
-      return json({ ok: true, inserted_count: 0, skipped_count: 0 });
-    }
-
-    // ── 4. Map to work_item_acts ──
     const now = new Date().toISOString();
-    const rawRecords = actuaciones.map((act: any) => {
-      const description =
-        act.descripcion || act.actuacion || act.anotacion || "Sin descripción";
-      const actDate = parseDDMMYYYY(act.fecha_actuacion) || null;
-      const fechaRegistro = parseDDMMYYYY(act.fecha_registro) || null;
-      // Source-agnostic canonical fingerprint — matches sync-by-work-item so
-      // the same juridical fact does not double-insert across PP + CPNU/SAMAI.
-      const partyHint = act?.parte ?? act?.docum_a_notif ?? null;
-      const fingerprint = canonicalActFingerprint({
-        work_item_id: workItemId,
-        act_date: actDate,
-        actuacion: description,
-        party_hint: partyHint,
-      });
-
-      return {
-        work_item_id: workItemId,
-        owner_id: workItem.owner_id,
-        organization_id: workItem.organization_id,
-        hash_fingerprint: fingerprint,
-        content_hash: fingerprint,
-        description,
-        act_date: actDate,
-        act_date_raw: act.fecha_actuacion || null,
-        act_type: "publicacion_pp",
-        source: "pp",
-        source_platform: "pp",
-        raw_data: act,
-        detected_at: now,
-        last_seen_at: now,
-        fecha_registro_source: fechaRegistro,
-        despacho: act.despacho || null,
-        source_url: act.enlace || act.url || null,
-      };
-    });
-
-    // Dedupe within the batch: PP occasionally returns duplicate entries that
-    // collapse to the same canonical fingerprint (same date + normalized title
-    // + party). Postgres ON CONFLICT cannot affect the same row twice in a
-    // single upsert, so we keep the last occurrence per fingerprint.
-    const byFp = new Map<string, any>();
-    for (const r of rawRecords) byFp.set(r.hash_fingerprint, r);
-    const records = Array.from(byFp.values());
-
-    // ── 5. Upsert ──
-    const { data: upserted, error: upsertErr } = await supabase
-      .from("work_item_acts")
-      .upsert(records, {
-        onConflict: "work_item_id,hash_fingerprint",
-        ignoreDuplicates: false,
-      })
-      .select("id");
-
-    if (upsertErr) {
-      console.error(`[sync-pp] Upsert error:`, upsertErr);
-      await supabase
-        .from("work_items")
-        .update({
-          pp_ultima_sync: now,
-          pp_estado: "error",
-        })
-        .eq("id", workItemId);
-      return json({ error: "Upsert failed", detail: upsertErr.message }, 500);
-    }
-
-    const insertedCount = upserted?.length ?? 0;
-    const skippedCount = records.length - insertedCount;
-
-    // ── 6. Update tracking ──
     await supabase
       .from("work_items")
       .update({
         pp_ultima_sync: now,
-        pp_estado: "ok",
-        pp_novedades_pendientes: insertedCount,
-        // "último éxito" — distinct from last_synced_at; only advances on success.
-        last_successful_sync_at: now,
+        pp_estado: "deprecated",
+        pp_novedades_pendientes: 0,
       })
       .eq("id", workItemId);
 
     console.log(
-      `[sync-pp] Done for ${workItemId}: inserted=${insertedCount}, skipped=${skippedCount}`
+      `[sync-pp][deprecated] Skipped acts write for ${workItemId}; PP data flows through sync-publicaciones-by-work-item.`
     );
 
-    return json({ ok: true, inserted_count: insertedCount, skipped_count: skippedCount });
+    return json({
+      ok: true,
+      deprecated: true,
+      message:
+        "sync-pp-by-work-item is a no-op. PP is an ESTADOS provider; use sync-publicaciones-by-work-item.",
+      inserted_count: 0,
+      skipped_count: 0,
+    });
   } catch (err) {
     console.error("[sync-pp] Unexpected error:", err);
     return json({ error: "Internal error", detail: String(err) }, 500);
