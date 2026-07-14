@@ -1633,6 +1633,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                     np.tipo_publicacion,
                   es_descargable: !!(np.pdf_url && np.pdf_url.toLowerCase().includes('.pdf')),
                 },
+                raw_data: (np as any).raw_data,
                 _source_provider: 'samai_estados',
               } as PublicacionV3;
               fetchResult.publicaciones.push(v3);
