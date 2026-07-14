@@ -738,7 +738,7 @@ Deno.serve(async (req) => {
     // Track ALL canonical IDs that this provider confirms (inserted + dedup-matched)
     const allConfirmedActIds: string[] = [];
 
-    if (acts.length > 0) {
+    if (acts.length > 0 && !isEstadosProvider) {
       // Translate SAMAI-format Spanish field names to canonical before normalization
       const isSamaiFormat = isEstadosProvider || 
         (acts[0] && (acts[0]["Actuación"] || acts[0]["Fecha Providencia"] || acts[0]["actuacion"]));
@@ -747,24 +747,6 @@ Deno.serve(async (req) => {
       const normalized = await normalizeActuaciones(
         translatedActs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
-      if (isEstadosProvider) {
-        for (const record of normalized) {
-          record.source = "samai_estados";
-          record.act_type = "ESTADO";
-          record.source_platform = "samai_estados";
-          if (Array.isArray(record.sources)) {
-            const set = new Set(
-              record.sources
-                .map((s: unknown) => (typeof s === "string" ? (s.toUpperCase() === "SAMAI_ESTADOS" ? "samai_estados" : s) : s))
-                .filter((s: unknown): s is string => typeof s === "string"),
-            );
-            set.add("samai_estados");
-            record.sources = Array.from(set);
-          } else {
-            record.sources = ["samai_estados"];
-          }
-        }
-      }
 
       // ── Semantic dedup: match against existing canonical rows by (date, normalized_description) ──
       // This prevents duplicates when fingerprint schemes differ between built-in and external providers
@@ -874,6 +856,16 @@ Deno.serve(async (req) => {
           allConfirmedActIds.push(...inserted.map((r: any) => r.id));
         }
       }
+    } else if (acts.length > 0 && isEstadosProvider) {
+      // ESTADOS-family providers (samai_estados) MUST NOT write to work_item_acts.
+      // Canonical policy: ACTUACIONES = CPNU/SAMAI/Tutelas exclusively;
+      // ESTADOS = PP + SAMAI_ESTADOS → work_item_publicaciones only.
+      // The publicaciones branch below handles the correct destination.
+      console.log(
+        `[EXT_PROVIDER] Skipping acts write for ESTADOS-family provider ${connector?.key} ` +
+        `(${acts.length} records) — enforced by canonical provider policy. See ` +
+        `mem://governance/pp-write-guard-and-estados-actuaciones-separation.`,
+      );
     }
 
     if (pubs.length > 0) {
