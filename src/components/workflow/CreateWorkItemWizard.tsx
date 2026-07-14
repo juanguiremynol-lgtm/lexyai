@@ -530,6 +530,18 @@ export function CreateWorkItemWizard({
   const canProceedFromRadicado = () => {
     if (useRadicadoInput === 'manual') return true;
     if (radicado.length !== 23) return false;
+    // Corp-guard hard gate: block unless user accepted suggestion or ticked override.
+    const derived = deriveFromRadicado(radicado);
+    if (
+      derived &&
+      derived.workflow &&
+      derived.workflowConfidence === 'high' &&
+      workflowType &&
+      derived.workflow !== workflowType &&
+      !wizardOverrideWorkflow
+    ) {
+      return false;
+    }
     // Allow proceeding even if not found (manual entry)
     return lookupStatus === 'success' || lookupStatus === 'not_found' || lookupStatus === 'error';
   };
