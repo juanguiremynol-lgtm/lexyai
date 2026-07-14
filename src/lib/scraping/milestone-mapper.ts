@@ -7,7 +7,18 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import type { CgpMilestoneType } from '@/lib/cgp-terms-engine';
-import { NormalizedActuacion } from './adapter-interface';
+
+/**
+ * Minimal shape needed by the milestone mapper. Previously imported from the
+ * (now-removed) scraping adapter interface; kept local so this helper has no
+ * runtime dependency on the deleted adapter layer.
+ */
+export interface NormalizedActuacion {
+  normalizedText: string;
+  actDate: string;
+  hashFingerprint: string;
+  rawText: string;
+}
 
 export interface MilestonePattern {
   id: string;
