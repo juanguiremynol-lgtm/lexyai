@@ -4769,6 +4769,48 @@ export type Database = {
         }
         Relationships: []
       }
+      deadline_rules: {
+        Row: {
+          created_at: string
+          day_type: string
+          days_amount: number
+          deadline_type: string
+          description: string | null
+          id: string
+          is_active: boolean
+          norma: string | null
+          requires_manual_review: boolean
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          day_type: string
+          days_amount: number
+          deadline_type: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          norma?: string | null
+          requires_manual_review?: boolean
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          day_type?: string
+          days_amount?: number
+          deadline_type?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          norma?: string | null
+          requires_manual_review?: boolean
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       demo_events: {
         Row: {
           category_inferred: string | null
@@ -10793,6 +10835,51 @@ export type Database = {
           },
         ]
       }
+      providencia_classification_rules: {
+        Row: {
+          created_at: string
+          deadline_type: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          pattern_regex: string
+          priority: number
+          providencia_type: string
+          severity: string
+          triggers_deadline: boolean
+          updated_at: string
+          workflow_scope: string[] | null
+        }
+        Insert: {
+          created_at?: string
+          deadline_type?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          pattern_regex: string
+          priority: number
+          providencia_type: string
+          severity?: string
+          triggers_deadline?: boolean
+          updated_at?: string
+          workflow_scope?: string[] | null
+        }
+        Update: {
+          created_at?: string
+          deadline_type?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          pattern_regex?: string
+          priority?: number
+          providencia_type?: string
+          severity?: string
+          triggers_deadline?: boolean
+          updated_at?: string
+          workflow_scope?: string[] | null
+        }
+        Relationships: []
+      }
       provider_ai_messages: {
         Row: {
           content: string
@@ -16466,6 +16553,10 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      add_business_days_sql: {
+        Args: { p_days: number; p_start: string }
+        Returns: string
+      }
       admin_archive_record: {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
@@ -16601,11 +16692,40 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      classify_providencia: {
+        Args: { p_text: string; p_workflow?: string }
+        Returns: {
+          deadline_type: string
+          providencia_type: string
+          rule_id: string
+          severity: string
+          triggers_deadline: boolean
+        }[]
+      }
       cleanup_old_debug_payloads: {
         Args: { days_to_keep?: number }
         Returns: number
       }
       cleanup_trigger_error_log: { Args: never; Returns: undefined }
+      compute_deadline_for_actuacion: {
+        Args: { p_act_id: string }
+        Returns: string
+      }
+      compute_deadline_for_publicacion: {
+        Args: { p_pub_id: string }
+        Returns: string
+      }
+      compute_deadline_from_rule: {
+        Args: { p_anchor: string; p_deadline_type: string; p_workflow: string }
+        Returns: {
+          day_type: string
+          days_amount: number
+          deadline_date: string
+          norma: string
+          requires_manual_review: boolean
+          rule_id: string
+        }[]
+      }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
@@ -16784,6 +16904,7 @@ export type Database = {
         Returns: undefined
       }
       is_beta_enrollment_open: { Args: never; Returns: boolean }
+      is_business_day_sql: { Args: { p_date: string }; Returns: boolean }
       is_business_org_admin: { Args: { _org_id: string }; Returns: boolean }
       is_historico_by_legal_date: {
         Args: { p_legal_date: string }
