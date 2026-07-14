@@ -148,8 +148,9 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
           </MetaRow>
         )}
 
-        {/* Sujetos procesales if present and no parties */}
-        {!data.demandante && !data.demandado && data.sujetos_procesales && data.sujetos_procesales.length > 0 && (
+        {/* Sujetos procesales — always render when provider returned any, even
+            if demandante/demandado were also promoted (complementary info). */}
+        {data.sujetos_procesales && data.sujetos_procesales.length > 0 && (
           <MetaRow icon={<Users className="h-3.5 w-3.5" />} label="Sujetos Procesales">
             <div className="space-y-0.5">
               {data.sujetos_procesales.slice(0, 6).map((s, i) => (
@@ -162,6 +163,21 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
               )}
             </div>
           </MetaRow>
+        )}
+
+        {/* Explicit empty-state warnings so the user never confronts blank fields
+            without an explanation. */}
+        {!data.demandante && !data.demandado && (!data.sujetos_procesales || data.sujetos_procesales.length === 0) && (
+          <div className="text-xs rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-2 flex gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <span>No se pudieron recuperar las partes desde CPNU/SAMAI. Puedes ingresarlas manualmente en el paso siguiente.</span>
+          </div>
+        )}
+        {!data.despacho && (
+          <div className="text-xs rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-2 flex gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <span>La fuente no devolvió el despacho. Verifícalo manualmente en el paso siguiente.</span>
+          </div>
         )}
       </div>
 
