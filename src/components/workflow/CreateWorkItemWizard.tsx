@@ -70,6 +70,7 @@ import { useRadicadoLookup } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { WizardProcessPreview } from "./WizardProcessPreview";
 import { deriveFromRadicado } from "@/lib/radicado-derivation";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
@@ -118,6 +119,10 @@ export function CreateWorkItemWizard({
   const [radicado, setRadicado] = useState(''); // normalized 23-digit
   const [radicadoError, setRadicadoError] = useState<string | null>(null);
   const [useRadicadoInput, setUseRadicadoInput] = useState<'lookup' | 'manual'>('lookup');
+  // Corp-guard: when the radicado's derived workflow disagrees with the
+  // user's selection, we HARD-BLOCK progression unless they explicitly opt
+  // in via this checkbox. Persisted to audit_logs on create.
+  const [wizardOverrideWorkflow, setWizardOverrideWorkflow] = useState(false);
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
   
   // Step 2: Basic details
@@ -178,6 +183,7 @@ export function CreateWorkItemWizard({
       setRadicadoRaw('');
       setRadicado('');
       resetLookup();
+      setWizardOverrideWorkflow(false);
       setTitle('');
       setAuthorityName('');
       setAuthorityCity('');
@@ -304,6 +310,8 @@ export function CreateWorkItemWizard({
     const digits = normalizeRadicadoInput(value);
     setRadicado(digits);
     setRadicadoError(null);
+    // Any radicado edit invalidates a previously-granted override.
+    setWizardOverrideWorkflow(false);
     
     if (digits.length !== 23) {
       resetLookup();
@@ -318,6 +326,21 @@ export function CreateWorkItemWizard({
       if (derived) {
         if (!authorityDepartment && derived.department) setAuthorityDepartment(derived.department);
         if (!authorityCity && derived.city) setAuthorityCity(derived.city);
+        // HARD PRESELECT: if the corp code confidently maps to a workflow
+        // that differs from the user's pick, silently switch. This inverts
+        // the mental model — picking wrong must require effort.
+        if (
+          derived.workflow &&
+          derived.workflowConfidence === 'high' &&
+          workflowType &&
+          derived.workflow !== workflowType
+        ) {
+          setWorkflowType(derived.workflow);
+          resetLookup();
+          toast.info(
+            `Clasificación ajustada a ${WORKFLOW_TYPES[derived.workflow].shortLabel} según el radicado (corp ${derived.corp} = ${derived.jurisdictionLabel})`,
+          );
+        }
       }
     }
   };
