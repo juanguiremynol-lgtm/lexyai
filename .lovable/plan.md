@@ -1,123 +1,97 @@
-# Outlook + Graph → Work Items (auditoría + plan por fases)
+## Objetivo
 
-## FASE 1 — Auditoría del andamiaje existente
+Convertir el wizard de alta en un flujo "confirmar, no digitar": el usuario nunca ingresa manualmente lo que el radicado o CPNU ya saben, y todo fallo silencioso se vuelve visible.
 
-### Inventario de tablas email (recurso → estado → qué hace)
+## Alcance (todo en un turno)
 
-| Recurso | Filas | Estado | Qué hace hoy |
-|---|---|---|---|
-| `emails` | 0 | **Muerto** | Modelo legacy de filings antiguos. No hay escrituras vivas. |
-| `email_threads` | 0 | **Muerto** | Igual, legacy de filings. |
-| `court_emails` | 0 | **Esqueleto** | Referenciada por `resolve-courthouse-email` y `backfill-courthouse-emails` (pipeline de resolución de email de juzgado), pero sin datos. |
-| `work_item_email_events` | 4 | **Vivo mínimo** | Escrito por `dispatch-update-emails`/`send-signing-email` para trazar envíos salientes vinculados a un WI. **No** almacena entrantes. |
-| `integrations` | 1 (ICARUS DISCONNECTED) | **Vivo (genérico)** | Tabla ya lista para OAuth: tiene `secret_encrypted`, `expires_at`, `last_sync_at`, `status`, `metadata`. **Se puede reutilizar tal cual para MICROSOFT_GRAPH** añadiendo enum. |
-| `org_integration_settings` | 0 | **Esqueleto** | Config por-org. Sin usos activos relevantes a email entrante. |
-| `system_email_mailbox` / `system_email_messages` / `system_email_settings` / `system_email_setup_state` / `email_provider_config` / `platform_email_actions` | 0–7 | **Vivo pero de otro scope** | Todo esto es el **buzón institucional `info@andromeda.legal`** (consola de plataforma, Resend/SES/etc). No es email personal del abogado. **No mezclar** con esta feature. |
-| `email_outbox` | 116 | **Vivo** | Cola saliente transaccional (auth, notificaciones). No relevante. |
-| `inbound_messages` / `inbound_attachments` / `message_links` | 0 | **Esqueleto FUERTE — reutilizable** | Definidos en `src/types/email.ts` y en `src/components/email/` (`EmailInbox`, `EmailListPane`, `EmailDetailPane`, `EmailLinkDialog`, `EmailMessageCard`, `EntityEmailTab`, `EmailInboxPage`). La UI de bandeja de revisión + vínculos por confianza YA está construida en frontend. Falta el productor (ingesta). |
+### 1. Diagnóstico del render de partes (WI de prueba `05001333301520260011300`)
 
-### 2. OAuth Microsoft Graph — ¿existe?
-**No existe nada.** Búsqueda de `MS_CLIENT`, `graph.microsoft`, `outlook` en `supabase/functions`: solo aparece `outlook.com` como dominio genérico en `verify-generic-email`, y `graph.facebook.com` (WhatsApp). **Hay que construir el flujo OAuth Graph desde cero**, pero `integrations` sirve de tabla base.
+Ruta a auditar en vivo con el radicado real:
+`useRadicadoLookup.lookup()` → edge `sync-by-radicado` (LOOKUP) → `adapter-cpnu` → `ProcessData.sujetos_procesales[]` → `WizardProcessPreview` (líneas 120–162).
 
-### 3. `email_linking_enabled` (true en 40 WIs)
-**Flag semi-huérfano.** Solo lo lee `supabase/functions/inbound-email/index.ts` para filtrar candidatos. Como esa función solo recibe webhooks Resend (que no hay), el flag hoy no dispara nada. Está listo para que esta feature lo use.
+Hipótesis a validar con logs y payload real (una llamada, un fixture guardado en `/tmp/`):
+- **A.** `sync-by-radicado` promueve `sujetos_procesales` a `demandante`/`demandado` (line 873–874 de `adapter-cpnu`), pero en jurisdicción administrativa los tipos suelen ser `DEMANDANTE`, `ACCIONANTE`, `CONVOCANTE`, `TERCERO` — el filtro por `.includes('demandante')` puede fallar si CPNU devuelve solo `PARTE ACTIVA` o similar.
+- **B.** El wizard solo renderiza `sujetos_procesales` si `demandante` **y** `demandado` están vacíos (línea 152). Si CPNU trae uno de los dos, el otro no se muestra ni desde sujetos.
+- **C.** `sync-by-radicado.mergeProviderResults` puede estar dropeando `sujetos_procesales` en el merge (no está en `firstWinsFields`).
 
-### 4. Motor de correlación correo→WI — ¿existe?
-**Sí, un primer esqueleto vivo** en `supabase/functions/inbound-email/index.ts` (`findLinkCandidates`):
-- Extrae radicados del texto y los matchea contra `work_items.radicado` normalizado sin guiones (conf 0.95, auto).
-- Match por email del cliente en from/to/cc (conf 0.9, auto).
-- Match por `court_email == from_email` (conf 0.75, sugerido).
-- Persiste en `inbound_messages` + `message_links` con status `AUTO_LINKED` / `LINK_SUGGESTED`.
+Fix aplicable a las tres:
+- Ampliar el matcher tipo→rol en el edge (`demandante|accionante|convocante|parte activa` → demandantes; `demandado|accionado|convocado|parte pasiva|entidad demandada` → demandados).
+- Preservar `sujetos_procesales` en el merge (agregar a `firstWinsFields`).
+- En `WizardProcessPreview` renderizar **siempre** sujetos si existen, y completar demandantes/demandados vacíos derivándolos del array de sujetos (no un fallback exclusivo).
 
-**Gap vs visión del Doctor:** hoy 1 factor = auto-link. La regla de "≥2 factores" no está implementada. El adapter solo entiende webhook Resend, no pull Graph. `court_emails` y `work_item_email_events` sí existen pero no cierran ciclo con esta bandeja.
+### 2. Auto-población obligatoria en el wizard
 
-### 5. LLM para extracción del cuerpo — ¿existe?
-**Sí, reutilizable.** `callGeminiViaEdge` en `src/lib/services/atenia-ai-engine` está usado por `src/lib/platform/email-ai-service.ts` (draft, triage, clasificación de emails de plataforma). Edge functions Gemini vivas: `atenia-ai-autopilot`, `atenia-ai-supervisor`, `hearing-ai-insights`, `provider-wizard-ai-guide`, `lexy-daily-message`. **Modelo Gemini vía Lovable AI Gateway ya cableado.** Se puede añadir un prompt específico "extraer fase procesal / términos / alertas" sin nueva infraestructura.
+Nuevo helper `src/lib/radicado-derivation.ts`:
+- `deriveWorkflowFromCorp(corp: '02'|'03'|'04'|'05'|'06'|'07'|'08'|'10'|'11'|'12'|'13'|'14'|'15'|'20'|'21'|'22'|'23'|'30'|'31'|'33'|'40'|'41'|'45'|'50'|...)`
+  - `30`–`32` → CGP civil/comercial/familia
+  - `33`–`35` → CPACA
+  - `40`–`42` → LABORAL
+  - `06`–`09` / `36` → PENAL_906
+  - resto → `null` (sugerencia débil)
+- `deriveLocationFromDane(dane5: string)` — usa un lookup mínimo embebido de departamentos DANE (`05`→Antioquia, `11`→Bogotá D.C., `76`→Valle, etc.) y para municipio consulta `courthouse_directory.municipio` cuando el par (`dane5`, ciudad) exista; si no, deja municipio vacío pero devuelve depto siempre.
 
-### Resumen ejecutivo Fase 1
-- **Reutilizar completo:** `inbound_messages`/`inbound_attachments`/`message_links` (esquema + UI ya listos), `integrations` (OAuth tokens), correlador base de `inbound-email`, stack Gemini existente.
-- **Descartar / no tocar:** `emails`, `email_threads`, buzón institucional (`system_email_*`, `email_provider_config`, consola `info@andromeda.legal`) — es otro dominio.
-- **Construir nuevo:** OAuth Microsoft Graph, worker pull Graph (Mail + Calendar + Junk), regla 2-factores, extractor IA de cuerpo, detección administrativa, botón descarga PDF on-demand, pantalla de ajustes por usuario.
+Uso en `CreateWorkItemWizard.tsx`:
+- En el step `radicado`, cuando `radicado.length === 23`, calcular `derived = { workflow, city, department, corp, esp }` y mostrarlo antes del botón "Buscar":
+  - Banner **verde** si `derived.workflow === workflowType`.
+  - Banner **amarillo** con CTA "Cambiar a CPACA" (o el que corresponda) si difieren — al hacer clic reasigna `workflowType` y limpia lookup previo. Si el usuario confirma el mismatch, guardar un flag `wizard_override_workflow=true` en `notes`/audit para trazabilidad.
+- Autopoblar `authorityDepartment`/`authorityCity` desde DANE si el lookup no los trae.
+- Preservar lo que ya trae la fuente: solo llenar campos vacíos, nunca sobrescribir input del usuario.
 
----
+### 3. Feedback explícito ante fallo o payload parcial
 
-## FASE 2 — Plan por fases
+En `WizardProcessPreview` añadir estados visibles:
+- `sin partes` → "No se pudieron recuperar las partes desde CPNU/SAMAI. Puedes ingresarlas manualmente abajo."
+- `sin despacho` → "El despacho no llegó en la respuesta. Verifica manualmente."
+- `sources_found` vacío pero `pp_lookup=processing` → "Estamos escaneando el portal en segundo plano — los datos se completarán solos en el próximo ciclo."
+- Cuando `attempts[].success=false` para todos, mostrar el error real (no genérico).
 
-### Fase A — Conexión OAuth Microsoft Graph (por-usuario, sin código)
-**Alcance:** Auth Code + PKCE para Microsoft identity platform (multi-tenant `common`), tokens por usuario, revocable.
-- **Scopes exactos (solo lectura, offline):**
-  - `offline_access` (refresh token)
-  - `User.Read` (identidad)
-  - `Mail.Read` (Inbox + Junk son carpetas del mismo scope)
-  - `Calendars.Read`
-  - `MailboxSettings.Read` (zona horaria del calendario)
-- **Secrets que el Doctor debe pegar (App Registration en Entra ID):**
-  - `MS_GRAPH_CLIENT_ID`
-  - `MS_GRAPH_CLIENT_SECRET`
-  - `MS_GRAPH_TENANT` = `common`
-  - Redirect URI = `https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/ms-graph-oauth-callback`
-- **Tablas:** reutilizar `integrations` (añadir valor `MICROSOFT_GRAPH` al enum de provider); `secret_encrypted` = refresh_token cifrado; `metadata` = `{ upn, tenant_id, scopes, connected_at }`; `expires_at` = expiración access token.
-- **Edge functions nuevas:** `ms-graph-oauth-start` (devuelve URL de consentimiento), `ms-graph-oauth-callback` (canjea code→tokens, cifra, guarda).
-- **Riesgos:** secreto profesional del abogado — el consentimiento debe mostrar explícitamente scopes leídos; revocación en 1 click debe borrar refresh_token del registro.
-- **Config manual del Doctor:** App Registration en portal.azure.com + pegar 3 secrets.
+En el paso `details` del wizard, si algún autopoblado vino vacío, marcar el input con borde ámbar y helper "sugerido manualmente".
 
-### Fase B — Ingesta ligera (pull, no store)
-- **Edge function nueva:** `ms-graph-sync-mailbox` (por usuario). Estrategia: **Microsoft Graph delta query** sobre `/me/mailFolders/inbox/messages/delta` y `/me/mailFolders/junkemail/messages/delta` — solo trae mensajes nuevos, guarda `deltaLink` en `integrations.metadata`.
-- **Campos que trae Graph por mensaje:** `id`, `subject`, `from`, `toRecipients`, `ccRecipients`, `receivedDateTime`, `bodyPreview` (primeros 255 chars), `hasAttachments`, `conversationId`, `webLink`, `internetMessageHeaders`. **Sólo se descarga el `body.content` completo bajo demanda** (siguiente llamada per-message) cuando corresponda para extracción IA; **no se persiste** — se pasa a Gemini en memoria y se descarta.
-- **Persistencia mínima en `inbound_messages`:** `source_provider='MS_GRAPH'`, `source_message_id`, from, to/cc, subject, `body_preview` (los 255 chars de Graph, no el cuerpo completo), `date_header`, `thread_id=conversationId`, `raw_payload_hash`. `text_body`/`html_body` = **NULL a propósito**.
-- **Filtro de alcance (privacidad máxima):** por defecto solo procesar mensajes cuyo remitente, asunto o `bodyPreview` matchee patrones judiciales/administrativos (regex radicado, dominios `.gov.co`, `rama judicial`, `notificacionesjudiciales@`, `secretaria`, nombres de despacho de la directory `courthouse_directory`, o nombre/email de un cliente registrado). Todo lo demás se ignora sin llegar a `inbound_messages`. Doctor puede subir a "todo el buzón" con un toggle en ajustes.
-- **Cadencia:** default cada 15 min por usuario conectado, más un barrido consolidado al cron 07:00 ya existente. Configurable por-usuario.
-- **Riesgos:** cuota Graph (10k req/10min/app) — delta query minimiza; secreto profesional — filtro por default estrecho.
+### 4. Auditoría de flujo post-creación
 
-### Fase C — Correlador de 2 factores
-- Extender `findLinkCandidates` (o crear `_shared/emailCorrelator.ts`) con **scoring por factor**:
-  1. Radicado normalizado (quita `-`, `.`, espacios) contra `work_items.radicado`.
-  2. Despacho/juzgado: match del `authority_name`/`court_email` contra from/subject.
-  3. Fecha: `receivedDateTime` cercano a `filing_date` / `hearing_date` / plazo activo.
-  4. Partes: fuzzy match de `demandantes`/`demandados` en asunto/preview.
-  5. Cliente: nombre o email de `clients` en from/to/cc.
-- **Regla ≥2 factores distintos → `AUTO_LINKED`** en `message_links` (conf ≥0.8). 1 factor → `LINK_SUGGESTED` (bandeja de revisión). 0 → si passó el filtro de Fase B, queda en `inbound_messages` sin link para revisión.
-- Reutiliza tablas `message_links`, `inbound_messages`. Escribe traza en `work_item_email_events` cuando auto-vincula.
-- **UI ya lista:** `EmailInbox`, `EmailLinkDialog`, `EntityEmailTab` — solo hay que apuntarlas al feed real.
+Verificar en `useCreateWorkItem.onSuccess`:
+- `set_work_item_lifecycle(..., 'ACTIVE', 'USER', ...)` explícito tras el `INSERT` — el INSERT solo pone `monitoring_enabled=true` pero no dispara `gcp_lifecycle_outbox`. Agregar la RPC.
+- Consolidar los 3 registros paralelos (`registerAndSyncCpnu/Pp/Samai`) — todos son no-ops (ya deprecados). Eliminar las llamadas y dejar un solo comentario apuntando al cron server-side. Reduce ruido en consola y evita confusión.
+- Encadenar `sync-publicaciones-by-work-item` **antes** de `sync-by-work-item` (publicaciones puebla estados; los triggers de deadline se disparan al insertar el estado con `fecha_fijacion`). Hoy corren en paralelo.
+- Preservar los campos CPNU perdidos: en `initial_actuaciones` (líneas 149–194 del hook), enriquecer `raw_data` con `fecha_registro`, `fecha_inicia_termino`, `fecha_finaliza_termino`, `indice`, `documentos`, `anexos` **si el edge los devolvió** (requiere que `sync-by-radicado` deje de aplanarlos — cambio en `ProcessData.actuaciones` type y en el merge de línea 1014).
 
-### Fase D — Extracción IA del cuerpo (Gemini, no persistir)
-- **Edge function nueva:** `ms-graph-extract-body` — para un `inbound_messages.id` vinculado a un WI, hace fetch on-demand a Graph `/messages/{id}` (body completo), llama `callGeminiViaEdge` con prompt estructurado:
-  - Salida JSON: `{ suggested_stage, detected_terms:[{tipo, plazo_dias, fecha_base}], alerts:[{severity, message}], summary_note }`.
-- **Persistencia del resultado (no del cuerpo):**
-  - `suggested_stage` → nueva fila en `work_item_stage_suggestions` (tabla ya existente).
-  - `detected_terms` → `work_item_deadlines` (existe) + `work_item_reminders`.
-  - `alerts` → `alert_instances` (existe).
-  - `summary_note` → `work_items.notes` o nueva tabla `work_item_email_extractions(message_id, work_item_id, summary, model, created_at)` de una sola fila por mensaje (sin body).
-- **Cero almacenamiento de cuerpo:** el `body.content` viaja Gemini→resultado y se descarta.
-- Riesgo: coste tokens — llamar solo cuando `message_links.link_status='AUTO_LINKED'` o el usuario aprueba desde bandeja.
+### 5. Backfill puntual del WI del Doctor
 
-### Fase E — Detección de correos administrativos → propuesta de WI
-- Mismo pipeline de Fase D pero cuando **no** hay match de radicado y el remitente/dominio es autoridad administrativa (`.gov.co`, `mintrabajo`, `superintendencia`, `dian`, `alcaldía`, `secretaría`, etc., lista curable) o Gemini clasifica el asunto como `PETICION_ADMIN`.
-- Resultado: fila en `inbound_messages` marcada + entrada en la bandeja de revisión con acción **"Crear peticion/proceso admin desde este correo"** (prellena `NewProcess` wizard) o **"Vincular a WI existente"** (autocomplete sobre `work_items` tipo PETICION/PROCESO_ADMIN).
-- Nada de auto-creación silenciosa: siempre requiere click del Doctor.
+Una migración corta:
+```sql
+UPDATE work_items
+   SET authority_city = COALESCE(NULLIF(authority_city,''), 'Medellín'),
+       authority_department = COALESCE(NULLIF(authority_department,''), 'Antioquia')
+ WHERE id = '6153c00f-4e3f-4ee8-aad2-064693ac3bb2';
+```
+Sin tocar partes (el Doctor las digitó).
 
-### Fase F — Adjuntos PDF (descarga on-demand, no store)
-- `inbound_attachments` guarda solo metadatos: `filename`, `mime_type`, `size_bytes`, `content_hash` (opcional), y `storage_path=NULL`. Añadir columna `graph_attachment_id` y `graph_message_id`.
-- **Edge function nueva:** `ms-graph-download-attachment` — recibe `{message_id, attachment_id}`, valida ownership, refresca access token si vence, hace stream de Graph `/messages/{id}/attachments/{aid}/$value` directo al response con `Content-Disposition: attachment`. **Nunca escribe a Storage.**
-- UI: botón "Descargar PDF" en `EmailDetailPane` que llama la function con auth de Supabase. Link válido solo mientras hay sesión.
+### 6. Verificación end-to-end
 
-### Fase G — UI (ajustes + bandeja + WI)
-- **Ajustes (`/settings/integrations` o nueva `IntegrationsSettingsPage`):**
-  - Tarjeta "Outlook / Microsoft 365" con botón **Conectar** (abre `ms-graph-oauth-start`), estado (email conectado, última sync, próxima sync), botón **Desconectar** (revoca refresh token y borra `integrations` row).
-  - Toggle "Ampliar barrido a todo el buzón" (default off).
-  - Toggle "Sincronizar calendario también" (default on).
-- **Bandeja de revisión:** ya existe `EmailInboxPage` + `EmailInbox` con tabs Pendientes/Vinculados/Todos — apuntar a `inbound_messages` real y añadir columna "Fuente: Outlook".
-- **En el WI:** `EmailsTab` ya existe — mostrar mensajes con `message_links.entity_type='WORK_ITEM'`, un badge con score, y para cada uno: preview (255 chars), fecha, "Descargar adjuntos", "Ver en Outlook" (`webLink`).
-- **Calendario:** función `ms-graph-sync-calendar` — matchea eventos por radicado en subject/body preview contra WIs, crea/updatea `hearings` (tabla existente) con `source='outlook'`; alerta si hay conflictos.
+- **Reproducción viva:** llamar `sync-by-radicado` LOOKUP con el radicado del Doctor desde exec y guardar el payload en `/tmp/wizard-repro/cpnu.json`. Contar sujetos, verificar que ahora se promueven a demandantes/demandados.
+- **E2E sintético:** crear un WI con radicado sintético controlado (`11001333103320260099999`), ver que:
+  - El banner corp→CPACA aparece.
+  - DANE `11001` autopobla Bogotá D.C.
+  - Post-creación: `lifecycle_state=ACTIVE`, `gcp_lifecycle_outbox` recibe evento, sync arranca.
+  - Purga total del WI de prueba al final (via `set_work_item_lifecycle → DELETED` + purga del outbox).
+- **Typecheck** + suite existente en verde (`bunx vitest run`).
 
-### Dependencias del Doctor
-- Registrar app en Entra ID + pegar 3 secrets (Fase A). Todo lo demás activable desde UI.
+## Detalles técnicos
 
-### Riesgos transversales
-- **Confidencialidad:** filtro estrecho por default (Fase B) + no-store de cuerpos (Fase B/D) + no-store de PDFs (Fase F).
-- **Tokens Graph:** cifrado con la misma técnica que `integrations.secret_encrypted` hoy (revisar la existente antes de codear).
-- **Cuota Graph + coste Gemini:** delta query + extracción IA solo tras auto-link.
+Archivos que se modifican:
+- `supabase/functions/adapter-cpnu/index.ts` — ampliar matcher tipo→rol.
+- `supabase/functions/sync-by-radicado/index.ts` — preservar `sujetos_procesales` y campos CPNU (`fecha_registro/inicia_termino/finaliza_termino/indice/documentos/anexos`) en el shape `ProcessData.actuaciones` y en `mergeProviderResults.firstWinsFields`.
+- `src/hooks/use-radicado-lookup.ts` — extender tipo `ProcessData.actuaciones` con los campos preservados.
+- `src/lib/radicado-derivation.ts` — nuevo helper (corp→workflow, DANE→depto/ciudad).
+- `src/components/workflow/CreateWorkItemWizard.tsx` — banner de derivación workflow, autopoblado depto/ciudad, feedback partial.
+- `src/components/workflow/WizardProcessPreview.tsx` — render siempre-visible de partes, mensajes explícitos por estado degradado.
+- `src/hooks/use-create-work-item.ts` — llamar `set_work_item_lifecycle` explícito, enriquecer `raw_data` de `initial_actuaciones` con campos CPNU completos, encadenar publicaciones → actuaciones sync, eliminar los 3 no-ops de `registerAndSync*`.
+- Migración: backfill de ciudad/depto del WI del Doctor.
 
----
+Nada de tocar `client.ts`, `types.ts`, `config.toml` ni schemas ajenos. Sin cambios en la lógica de cálculo de términos (solo se preservan los inputs que ya necesita).
 
-**No se ejecuta nada hasta tu OK.** Confirmá si (1) reutilizo `inbound_messages`/`message_links` tal cual o querés esquema nuevo dedicado a Graph, (2) el filtro Fase B default estrecho te parece bien o preferís "todo el buzón desde el arranque", y (3) empezamos por Fase A o querés ver primero un mock de la pantalla de ajustes.
+## Fuera de alcance
+
+- Rediseñar el orden de pasos del wizard (workflow→radicado→details→client sigue igual).
+- Nuevos campos en `work_items` — todo cabe en columnas existentes.
+- Cambios en el motor de términos.
