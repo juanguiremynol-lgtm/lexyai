@@ -474,6 +474,7 @@ export function CreateWorkItemWizard({
       // Provider metadata from lookup
       source: lookupResult?.found_in_source ? 'SCRAPE_API' as const : 'MANUAL' as const,
       source_reference: lookupResult?.source_used || undefined,
+      wizard_override_workflow: wizardOverrideWorkflow || undefined,
     };
     
     // Workflow-specific fields
