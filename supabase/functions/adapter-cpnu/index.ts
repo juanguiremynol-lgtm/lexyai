@@ -870,8 +870,12 @@ function processExternalApiResponse(data: any, radicado: string): {
     clase_proceso: proceso.clase,
     contenido_radicacion: proceso.contenido_radicacion,
     sujetos_procesales: sujetos,
-    demandante: sujetos.find(s => s.tipo.toLowerCase().includes('demandante'))?.nombre,
-    demandado: sujetos.find(s => s.tipo.toLowerCase().includes('demandado'))?.nombre,
+    demandante: sujetos
+      .filter(s => /demandante|accionante|convocante|parte\s*activa|solicitante|actor|tutelante|peticionario/i.test(s.tipo))
+      .map(s => s.nombre).join(' | ') || undefined,
+    demandado: sujetos
+      .filter(s => /demandado|accionado|convocado|parte\s*pasiva|entidad\s*demandada|tutelado|accionada|convocada/i.test(s.tipo))
+      .map(s => s.nombre).join(' | ') || undefined,
   });
   
   // Extract actuaciones

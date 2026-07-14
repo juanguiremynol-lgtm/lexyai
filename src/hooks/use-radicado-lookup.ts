@@ -19,6 +19,16 @@ export interface ProcessData {
     fecha: string;
     actuacion: string;
     anotacion?: string;
+    /** Registro date from CPNU/SAMAI (fechaRegistro). Anchor for term engine. */
+    fecha_registro?: string;
+    /** Term start date populated by the despacho (authoritative override). */
+    fecha_inicia_termino?: string;
+    /** Term end date populated by the despacho. */
+    fecha_finaliza_termino?: string;
+    estado?: string;
+    anexos?: number;
+    indice?: string;
+    documentos?: Array<{ nombre: string; url: string }>;
   }>;
   total_actuaciones?: number;
   // TUTELA-specific fields
