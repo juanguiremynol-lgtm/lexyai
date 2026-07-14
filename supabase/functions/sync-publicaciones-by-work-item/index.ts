@@ -1309,7 +1309,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Prevent stampede on Cloud Run after outage recovery. Scheduled jobs and
     // login-triggered syncs respect the cooldown. Manual "refresh now" bypasses
     // via a future flag; today _scheduled=false counts as manual.
-    const manualBypass = !_scheduled && !isServiceRole && (payload as any)?._force === true;
+    const manualBypass = (payload as any)?._force === true && (!isServiceRole || _scheduled === true);
     if (!manualBypass && workItem.last_synced_at) {
       const ageMs = Date.now() - new Date(workItem.last_synced_at as string).getTime();
       if (ageMs >= 0 && ageMs < SYNC_COOLDOWN_MS) {
