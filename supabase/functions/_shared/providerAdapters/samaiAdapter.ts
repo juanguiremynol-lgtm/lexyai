@@ -434,6 +434,7 @@ export function computeSamaiFingerprint(
     work_item_id: options.workItemId,
     act_date: fecha,
     actuacion,
+    party_hint: null,
   });
 }
 
