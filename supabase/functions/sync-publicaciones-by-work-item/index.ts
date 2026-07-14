@@ -1162,6 +1162,33 @@ function generatePublicacionFingerprint(
   });
 }
 
+async function inferSamaiFijacionFromActs(
+  supabase: any,
+  workItemId: string,
+  providenciaDate: string | null,
+): Promise<string | null> {
+  if (!providenciaDate) return null;
+  const start = new Date(`${providenciaDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
+
+  try {
+    const { data } = await supabase
+      .from('work_item_acts' as any)
+      .select('act_date, description, event_summary')
+      .eq('work_item_id', workItemId)
+      .gte('act_date', providenciaDate)
+      .lte('act_date', end)
+      .or('description.ilike.%Fijacion estado%,description.ilike.%Fijación estado%,event_summary.ilike.%Fijacion estado%,event_summary.ilike.%Fijación estado%')
+      .order('act_date', { ascending: true })
+      .limit(1);
+    return data?.[0]?.act_date ?? null;
+  } catch (err: any) {
+    console.warn(`[sync-pub][samai_estados] fijacion inference failed: ${err?.message}`);
+    return null;
+  }
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(withSyncTimeline(async (req) => {
@@ -1617,7 +1644,10 @@ Deno.serve(withSyncTimeline(async (req) => {
                 tipo: np.tipo_publicacion || 'Estado',
                 titulo: np.title || np.tipo_publicacion || 'Estado SAMAI',
                 fecha_publicacion: pubFecha || null,
-                fecha_estado_raw: pubFecha || null,
+                fecha_estado_raw:
+                  (np as any).raw_data?.fecha_estado_normalizada ||
+                  (np as any).fecha_estado ||
+                  null,
                 fecha_auto_raw:
                   (np as any).fecha_providencia ||
                   (np as any).raw_data?.fecha_providencia_normalizada ||
@@ -1924,8 +1954,12 @@ Deno.serve(withSyncTimeline(async (req) => {
       // `parsedFecha` above so behavior stays identical for legacy responses.
       const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
       const parsedAutoDate = parseDate(pub.fecha_auto_raw);
-      const fijacionIso = parsedEstadoDate
-        ? new Date(parsedEstadoDate + 'T12:00:00Z').toISOString()
+      const inferredSamaiFijacionDate = isSamai && !parsedEstadoDate
+        ? await inferSamaiFijacionFromActs(supabase, work_item_id, parsedAutoDate || parsedFecha)
+        : null;
+      const effectiveEstadoDate = parsedEstadoDate || inferredSamaiFijacionDate;
+      const fijacionIso = effectiveEstadoDate
+        ? new Date(effectiveEstadoDate + 'T12:00:00Z').toISOString()
         : isoDate;
       const providenciaIso = parsedAutoDate
         ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
@@ -1955,10 +1989,10 @@ Deno.serve(withSyncTimeline(async (req) => {
           pdf_url: pub.pdf_url || null,
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: isoDate,
-          fecha_fijacion: isSamai ? (parsedEstadoDate ? fijacionIso : null) : fijacionIso,
+          published_at: isSamai ? (fijacionIso || isoDate) : isoDate,
+          fecha_fijacion: isSamai ? (effectiveEstadoDate ? fijacionIso : null) : fijacionIso,
           fecha_providencia: isSamai
-            ? (providenciaIso || (!parsedEstadoDate ? isoDate : null))
+            ? (providenciaIso || isoDate)
             : providenciaIso,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
@@ -1999,7 +2033,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             title: pub.titulo || pub.key || 'Sin título',
             pdf_url: pub.pdf_url || null,
             entry_url: pub.url || null,
-            fecha_fijacion: parsedFecha,
+            fecha_fijacion: effectiveEstadoDate || parsedFecha,
             fecha_desfijacion: null,
             tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
             terminos_inician: null,
