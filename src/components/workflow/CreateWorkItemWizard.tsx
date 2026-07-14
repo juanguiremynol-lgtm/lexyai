@@ -704,6 +704,50 @@ export function CreateWorkItemWizard({
                       </>
                     )}
                   </Button>
+
+                  {/* Corp-code derivation banner: green when workflow matches
+                      the radicado's corporation code, amber (with one-click
+                      switch) when they disagree. Prevents silent
+                      misclassification (e.g. corp 33 = administrativo → CPACA). */}
+                  {radicado.length === 23 && workflowType && (() => {
+                    const derived = deriveFromRadicado(radicado);
+                    if (!derived || !derived.workflow) return null;
+                    if (derived.workflow === workflowType) {
+                      return (
+                        <Alert className="border-primary/40 bg-primary/5">
+                          <CheckCircle2 className="h-4 w-4 text-primary" />
+                          <AlertTitle className="text-sm">Clasificación coherente</AlertTitle>
+                          <AlertDescription className="text-xs">
+                            La corporación {derived.corp} ({derived.jurisdictionLabel}) coincide con {WORKFLOW_TYPES[workflowType].shortLabel}.
+                          </AlertDescription>
+                        </Alert>
+                      );
+                    }
+                    return (
+                      <Alert className="border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20">
+                        <AlertCircle className="h-4 w-4 text-amber-600" />
+                        <AlertTitle className="text-sm">Posible clasificación incorrecta</AlertTitle>
+                        <AlertDescription className="text-xs space-y-2">
+                          <p>
+                            La corporación {derived.corp} del radicado corresponde a jurisdicción {derived.jurisdictionLabel} → sugerido{' '}
+                            <strong>{WORKFLOW_TYPES[derived.workflow].shortLabel}</strong>, pero elegiste{' '}
+                            <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setWorkflowType(derived.workflow);
+                              resetLookup();
+                              toast.success(`Cambiado a ${WORKFLOW_TYPES[derived.workflow!].shortLabel}`);
+                            }}
+                          >
+                            Cambiar a {WORKFLOW_TYPES[derived.workflow].shortLabel}
+                          </Button>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  })()}
                   
                   {/* Lookup Result */}
                   {lookupStatus === 'success' && lookupResult?.found_in_source && (
