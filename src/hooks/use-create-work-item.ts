@@ -151,6 +151,27 @@ export function useCreateWorkItem() {
         throw new Error(error.message);
       }
 
+      // Audit trail for corp-guard override (user proceeded despite the
+      // radicado's derived jurisdiction disagreeing with their choice).
+      if (data.wizard_override_workflow && workItem?.organization_id) {
+        try {
+          await supabase.from("audit_logs").insert({
+            organization_id: workItem.organization_id,
+            entity_type: "work_item",
+            entity_id: workItem.id,
+            actor_type: "user",
+            actor_user_id: user.id,
+            action: "WIZARD_WORKFLOW_OVERRIDE",
+            metadata: {
+              chosen_workflow: workItem.workflow_type,
+              radicado: workItem.radicado,
+            },
+          });
+        } catch (err) {
+          console.warn("[use-create-work-item] audit_logs insert failed:", err);
+        }
+      }
+
       // Save initial actuaciones to CANONICAL work_item_acts table (NOT legacy actuaciones)
       if (data.initial_actuaciones && data.initial_actuaciones.length > 0 && workItem) {
         console.log(`[use-create-work-item] Saving ${data.initial_actuaciones.length} initial acts to work_item_acts`);
