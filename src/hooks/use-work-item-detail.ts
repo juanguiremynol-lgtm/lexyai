@@ -310,6 +310,7 @@ async function fetchActuaciones(id: string): Promise<any[]> {
     .from("work_item_acts") as any)
     .select("*")
     .eq("work_item_id", id)
+    .eq("is_archived", false)
     .order("act_date", { ascending: false, nullsFirst: false });
 
   return data || [];
