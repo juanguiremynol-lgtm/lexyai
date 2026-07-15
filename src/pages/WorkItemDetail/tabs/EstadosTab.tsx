@@ -313,8 +313,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
               // path (no full URL and no raw_data direct URL), route
               // through the signed-URL edge function so the user is not
               // sent to a broken relative link.
-              if (!estado.id.startsWith("local-")) return undefined;
-              const localId = estado.id.slice("local-".length);
+              const idStr = String(estado.id);
+              if (!idStr.startsWith("local-")) return undefined;
+              const localId = idStr.slice("local-".length);
               const src = (localPubs ?? []).find((p: any) => p.id === localId);
               if (!src) return undefined;
               const { directUrl, storagePath } = resolveLocalPubUrls(src);
