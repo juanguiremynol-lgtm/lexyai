@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getColombiaToday } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 import { Link } from "react-router-dom";
+import { isColombianHoliday } from "@/lib/colombian-holidays";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,9 +95,15 @@ interface DeadlineRow {
 
 /* ── helpers ── */
 
-/** Colombia (UTC-5) day-key for a UTC ISO. */
+/** Colombia (UTC-5) day-key for a UTC ISO or a date-only YYYY-MM-DD string.
+ *  Date-only inputs are returned as-is (no TZ shift). Full ISO strings are
+ *  converted to America/Bogota. Fixes off-by-one for dates like '2026-07-17'
+ *  which JS parses as UTC midnight → 2026-07-16 19:00 COT under en-CA.
+ */
 function bogotaDayKey(iso: string | null | undefined): string | null {
   if (!iso) return null;
+  // Pure date (YYYY-MM-DD) → use verbatim, no timezone math.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
@@ -121,20 +128,41 @@ function sourceBadge(source: string): { label: string; cls: string } {
   return { label: source || "—", cls: "bg-muted text-muted-foreground border-border" };
 }
 
-/** Business-days between today (Bogotá) and a target ISO date. Weekends only. */
+/**
+ * Business-days between today (Bogotá) and a target date, excluding
+ * weekends AND Colombian national holidays (source: `colombian_holidays`
+ * DB table, hydrated at boot via `useColombianHolidays`).
+ *
+ * Convention (documented, applied everywhere in this page):
+ *   - Today counts as day 0 (not consumed).
+ *   - The deadline day itself IS counted (it's a business day you still have).
+ *   - Weekends and holidays are skipped.
+ *   - Negative result = overdue by N business days.
+ *
+ * Examples with today = mié 15-jul-2026, festivo lun 20-jul:
+ *   deadline 16-jul (jue) → 1
+ *   deadline 17-jul (vie) → 2
+ *   deadline 21-jul (mar, salta 20-jul festivo) → 3
+ *   deadline 22-jul (mié) → 4
+ */
 function businessDaysUntilBogota(dateStr: string): number {
   const todayKey = getColombiaToday();
+  const target = bogotaDayKey(dateStr);
+  if (!target) return 0;
+  if (target === todayKey) return 0;
   const today = new Date(todayKey + "T00:00:00");
-  const target = new Date(dateStr + "T00:00:00");
-  if (isNaN(target.getTime())) return 0;
-  const sign = target < today ? -1 : 1;
-  const [start, end] = sign > 0 ? [today, target] : [target, today];
+  const end = new Date(target + "T00:00:00");
+  if (isNaN(end.getTime())) return 0;
+  const sign = end < today ? -1 : 1;
+  const [a, b] = sign > 0 ? [today, end] : [end, today];
   let count = 0;
-  const cursor = new Date(start);
-  while (cursor < end) {
+  const cursor = new Date(a);
+  while (cursor < b) {
     cursor.setDate(cursor.getDate() + 1);
     const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) count++;
+    if (dow === 0 || dow === 6) continue;
+    if (isColombianHoliday(cursor).isHoliday) continue;
+    count++;
   }
   return count * sign;
 }
@@ -522,7 +550,7 @@ function EstadoCard({ e, kind }: { e: EstadoRow; kind: "today" | "late" }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <Link
-              to={`/work-items/${e.work_item_id}`}
+              to={e.radicado ? `/app/radicados/${encodeURIComponent(e.radicado)}` : `/app/work-items/${e.work_item_id}`}
               className="font-mono text-sm font-semibold text-primary hover:underline break-all"
             >
               {e.radicado || "—"}
@@ -610,7 +638,7 @@ function DeadlineCard({ d }: { d: DeadlineRow }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <Link
-              to={`/work-items/${d.work_item_id}`}
+              to={d.radicado ? `/app/radicados/${encodeURIComponent(d.radicado)}` : `/app/work-items/${d.work_item_id}`}
               className="font-mono text-sm font-semibold text-primary hover:underline break-all"
             >
               {d.radicado || "—"}
