@@ -398,9 +398,24 @@ export function normalizeSamaiActuaciones(
     const fechaRegistro = normalizeDate(
       String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
     );
-    const estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
+    let estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
     const anexosCount = Number(act.anexos ?? 0) || undefined;
     const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
+
+    // Annulled-act detection: SAMAI does not carry a first-class flag, but the
+    // portal signals annulled rows through the "Actuación" title
+    // ("Inconsistencia", "ERROR DE INGRESO") or the annotation text ("Actuación
+    // anulada", "anulada el:", etc.). We flag them here so the UI can show an
+    // ANULADA badge and the term/notify layers can filter them out downstream.
+    const annulledSignal =
+      /\b(ANULAD[AO]|ERROR DE INGRESO|INCONSISTENCIA)\b/i;
+    const isAnnulled =
+      annulledSignal.test(actuacion) ||
+      (anotacion ? annulledSignal.test(anotacion) : false);
+    if (isAnnulled) estado = 'ANULADA';
+
+    const rawEnriched: Record<string, unknown> = { ...(act as Record<string, unknown>) };
+    if (isAnnulled) rawEnriched.is_annulled = true;
 
     return {
       fecha_actuacion: fecha,
@@ -413,7 +428,7 @@ export function normalizeSamaiActuaciones(
       estado,
       anexos_count: anexosCount,
       indice,
-      raw_data: act as Record<string, unknown>,
+      raw_data: rawEnriched,
     };
   });
 }
