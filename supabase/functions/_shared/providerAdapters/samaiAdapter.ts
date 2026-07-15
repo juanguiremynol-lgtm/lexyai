@@ -464,6 +464,20 @@ export function extractSamaiMetadata(
   const fechas = data.fechas as Record<string, unknown> | undefined;
   const salas = data.salas as Record<string, unknown> | undefined;
 
+  // Per-row fallback for the samai-read-api /buscar feed shape, which does NOT
+  // return top-level despacho/clase/ponente. Each actuacion row carries them:
+  //   { "Ponente": "JUEZ 10 ADMINISTRATIVO ORAL DE MEDELLIN",
+  //     "Clase":   "ACCION CONTRACTUAL",
+  //     "Demandante": "...", "Demandado": "..." }
+  const rowsAny = (data.actuaciones as Array<Record<string, unknown>> | undefined)
+    ?? (data.feedCombinado as Array<Record<string, unknown>> | undefined)
+    ?? [];
+  const firstRow = rowsAny.find((r) =>
+    r && (r['Ponente'] || r['Clase'] || r['Demandante'] || r['Demandado'])
+  ) as Record<string, unknown> | undefined;
+  const rowPonente = firstRow?.['Ponente'] as string | undefined;
+  const rowClase = firstRow?.['Clase'] as string | undefined;
+
   // Extract ministerio publico from sujetos
   const ministerioPublico = sujetos
     .filter(s => String(s.tipo || '').toLowerCase().includes('ministerio'))
@@ -472,14 +486,14 @@ export function extractSamaiMetadata(
     .join(' | ') || undefined;
 
   return {
-    despacho: (data.corporacionNombre || data.corporacion || data.despacho || data.despacho_actual) as string ?? null,
+    despacho: ((data.corporacionNombre || data.corporacion || data.despacho || data.despacho_actual || rowPonente) as string) ?? null,
     ciudad: (data.ciudad || data.sede) as string ?? null,
     departamento: data.departamento as string ?? null,
-    tipo_proceso: (clasificacion?.tipoProceso || data.tipo_proceso || data.tipo || data.clase) as string ?? null,
-    clase_proceso: (clasificacion?.clase || data.clase_proceso || data.clase || data.subclase_proceso) as string ?? null,
+    tipo_proceso: ((clasificacion?.tipoProceso || data.tipo_proceso || data.tipo || data.clase || rowClase) as string) ?? null,
+    clase_proceso: ((clasificacion?.clase || data.clase_proceso || data.clase || data.subclase_proceso || rowClase) as string) ?? null,
     fecha_radicacion: (data.fecha_radicado || data.fecha_radicacion || fechas?.radicado) as string ?? null,
     // SAMAI-specific fields
-    ponente: data.ponente as string ?? null,
+    ponente: ((data.ponente || rowPonente) as string) ?? null,
     etapa: data.etapa as string ?? null,
     origen: data.origen as string ?? null,
     ubicacion: data.ubicacion as string ?? null,
@@ -509,17 +523,40 @@ export function extractSamaiMetadata(
  */
 export function extractSamaiParties(
   sujetos: Array<Record<string, unknown>>,
+  rows?: Array<Record<string, unknown>>,
 ): ExtractedParties {
-  if (!sujetos || sujetos.length === 0) {
-    return { demandante: null, demandado: null };
-  }
-
-  const normalized = sujetos.map(s => ({
+  // Per-row fallback (samai-read-api feed): each actuacion carries the
+  // parties as comma-separated strings. When the top-level sujetos array is
+  // absent we synthesize it from the first non-empty row so demandante/
+  // demandado + sujetos_procesales still populate downstream (wizard preview,
+  // work-item creation, party notifications).
+  let effective: Array<{ tipo: string; nombre: string }> = (sujetos || []).map(s => ({
     tipo: String(s.tipo || ''),
     nombre: String(s.nombre || ''),
   }));
 
-  const parsed = parseSujetosArray(normalized);
+  if (effective.length === 0 && rows && rows.length > 0) {
+    const firstRow = rows.find(r => r && (r['Demandante'] || r['Demandado'])) as Record<string, unknown> | undefined;
+    if (firstRow) {
+      const splitCsv = (v: unknown): string[] =>
+        String(v ?? '')
+          .split(/\s*,\s*/)
+          .map(s => s.trim())
+          .filter(Boolean);
+      for (const nombre of splitCsv(firstRow['Demandante'])) {
+        effective.push({ tipo: 'Demandante', nombre });
+      }
+      for (const nombre of splitCsv(firstRow['Demandado'])) {
+        effective.push({ tipo: 'Demandado', nombre });
+      }
+    }
+  }
+
+  if (effective.length === 0) {
+    return { demandante: null, demandado: null };
+  }
+
+  const parsed = parseSujetosArray(effective);
 
   return {
     demandante: parsed.demandante || null,
