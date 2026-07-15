@@ -123,7 +123,42 @@ export function CreateWorkItemWizard({
   // user's selection, we HARD-BLOCK progression unless they explicitly opt
   // in via this checkbox. Persisted to audit_logs on create.
   const [wizardOverrideWorkflow, setWizardOverrideWorkflow] = useState(false);
+  // Duplicate-guard: when the entered radicado already exists in the user's
+  // portfolio we HARD-BLOCK creating another WI unless the user confirms an
+  // explicit re-registration override (same UX pattern as the corp-guard).
+  const [wizardOverrideDuplicate, setWizardOverrideDuplicate] = useState(false);
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
+
+  // Look up existing work_items with the same radicado in the current
+  // owner/org scope. Any hit (active, paused, or archived) is enough to
+  // trigger the duplicate banner — silent duplicates cause double monitoring
+  // and double alerts.
+  const { data: existingDuplicates = [] } = useQuery({
+    queryKey: ["wizard-duplicate-check", radicado, organization?.id ?? null],
+    enabled: open && radicado.length === 23,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      let query = supabase
+        .from("work_items")
+        .select("id, title, stage, workflow_type, status, deleted_at, created_at")
+        .eq("radicado", radicado)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (organization?.id) {
+        query = query.eq("organization_id", organization.id);
+      } else {
+        query = query.eq("owner_id", user.id);
+      }
+      const { data, error } = await query;
+      if (error) {
+        console.warn("[wizard-duplicate-check] query failed", error);
+        return [];
+      }
+      return data ?? [];
+    },
+  });
+  const hasDuplicate = existingDuplicates.length > 0;
   
   // Step 2: Basic details
   const [title, setTitle] = useState('');
