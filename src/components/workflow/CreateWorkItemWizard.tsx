@@ -893,7 +893,13 @@ export function CreateWorkItemWizard({
                                   size="sm"
                                   onClick={() => {
                                     onOpenChange(false);
-                                    navigate(`/matters/${w.id}`);
+                                    // Canonical detail route is /app/radicados/:radicado.
+                                    // Fallback to /app/work-items/:id when the row has no radicado.
+                                    navigate(
+                                      radicado
+                                        ? `/app/radicados/${encodeURIComponent(radicado)}`
+                                        : `/app/work-items/${w.id}`
+                                    );
                                   }}
                                 >
                                   Abrir
