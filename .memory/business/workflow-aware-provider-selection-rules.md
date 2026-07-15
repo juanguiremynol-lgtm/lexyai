@@ -5,7 +5,12 @@ Provider selection is workflow-aware with STRICT NO-FALLBACK enforcement for CGP
 
 - **CGP/LABORAL**: CPNU is PRIMARY and ONLY provider. NO fallback to SAMAI under any circumstance because civil/labor/family processes in CPNU are NOT found in SAMAI (the fallback is technically useless and generates noise). If CPNU fails with error, returns HTTP 502 with code CPNU_SYNC_FAILED.
 
-- **CPACA**: SAMAI is PRIMARY (administrative litigation); CPNU is optional fallback (disabled by default).
+- **CPACA (CASCADE — ratificado por el Doctor 2026-07-15)**: SAMAI is PRIMARY (administrative litigation).
+  CPNU is FALLBACK, but fires **only on EMPTY / NOT_FOUND** from SAMAI — never on transient errors
+  (timeout/5xx/PROVIDER_ERROR). Espejo exacto de la regla de tutelas. Razón: juzgados administrativos
+  con expediente aún no migrado a SAMAI (caso 05001333301520260011300 — Juzgado 15 Administrativo de
+  Medellín) conservan sus actuaciones sólo en CPNU. CPACA estados quedan intactas: SAMAI_ESTADOS
+  exclusivo, PP sigue prohibido para CPACA.
 
 - **TUTELA (constitutional jurisdiction — CASCADE)**: Any judge can hear a tutela
   (ordinary/CGP or administrative/CPACA), so both provider families are legitimate.
