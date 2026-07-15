@@ -24,6 +24,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
+import { toast } from "sonner";
 
 interface EstadosTabProps {
   workItem: WorkItem;
@@ -74,7 +75,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     queryFn: async () => {
       const { data, error: qErr } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, fecha_fijacion, pdf_url, created_at")
+        .select("id, title, source, fecha_fijacion, pdf_url, created_at, raw_data")
         .eq("work_item_id", workItem.id)
         .eq("is_archived", false);
       if (qErr) throw qErr;
@@ -84,12 +85,61 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     staleTime: 60 * 1000,
   });
 
+  // Resolve the best openable URL for a local publicacion row. The
+  // `pdf_url` column often stores a *storage path* (e.g.
+  // "<pub_id>/<base64>.pdf") rather than a full URL — opening it directly
+  // yields a 404 because the browser treats it as a relative link. Prefer,
+  // in order:
+  //   1. raw_data.raw_data.gcs_url         (public GCS URL from SAMAI)
+  //   2. raw_data.pdf_url                  (samai-estados-api proxy URL)
+  //   3. pdf_url if it starts with http    (legacy full URL)
+  //   4. otherwise signal storage-bucket flow via `storage_path`
+  const resolveLocalPubUrls = (p: any) => {
+    const raw = (p?.raw_data ?? {}) as Record<string, any>;
+    const nested = (raw?.raw_data ?? {}) as Record<string, any>;
+    const gcsUrl = typeof nested?.gcs_url === "string" ? nested.gcs_url : null;
+    const rawPdfUrl = typeof raw?.pdf_url === "string" ? raw.pdf_url : null;
+    const rawUrlDescarga = typeof nested?.url_descarga === "string" ? nested.url_descarga : null;
+    const stored = typeof p?.pdf_url === "string" ? p.pdf_url : null;
+    const isFullUrl = stored && /^https?:\/\//i.test(stored);
+    const directUrl = gcsUrl || rawPdfUrl || rawUrlDescarga || (isFullUrl ? stored : null);
+    const storagePath = !isFullUrl && stored ? stored : null;
+    return { directUrl, storagePath };
+  };
+
+  const openLocalPubAttachment = async (
+    publicacionId: string,
+    storagePath: string,
+    fallbackUrl: string | null,
+  ) => {
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("get-estado-attachment-url", {
+        body: { publicacion_id: publicacionId, storage_path: storagePath },
+      });
+      if (!fnErr && data?.url) {
+        window.open(data.url as string, "_blank", "noopener,noreferrer");
+        return;
+      }
+      console.warn("[EstadosTab] get-estado-attachment-url failed", fnErr?.message, data);
+    } catch (err) {
+      console.warn("[EstadosTab] get-estado-attachment-url threw", err);
+    }
+    if (fallbackUrl) {
+      window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    toast.error("No se pudo abrir el PDF", {
+      description: "El archivo no está disponible en este momento.",
+    });
+  };
+
   const mergedEstados = useMemo<PpEstado[]>(() => {
     const fromApi = Array.isArray(estados) ? estados : [];
     // Step 1: gather every candidate row from API + local DB.
     const candidates: PpEstado[] = [];
     for (const e of fromApi) candidates.push(e);
     for (const p of localPubs ?? []) {
+      const { directUrl } = resolveLocalPubUrls(p);
       candidates.push({
         fuente: (p.source || "PUBLICACIONES").toUpperCase(),
         id: `local-${p.id}`,
@@ -97,7 +147,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         descripcion: (p.title || "").trim() || "Sin descripción",
         gcs_url_auto: null,
         gcs_url_tabla: null,
-        pdf_url: p.pdf_url || null,
+        pdf_url: directUrl,
         titulo_original: null,
         estado_numero: null,
       });
@@ -258,6 +308,22 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
             gcs_url_auto: estado.gcs_url_auto || null,
             gcs_url_tabla: estado.gcs_url_tabla || null,
             pdf_url: estado.pdf_url || null,
+            onOpenFile: (() => {
+              // For local-DB rows whose `pdf_url` column held a storage
+              // path (no full URL and no raw_data direct URL), route
+              // through the signed-URL edge function so the user is not
+              // sent to a broken relative link.
+              if (!estado.id.startsWith("local-")) return undefined;
+              const localId = estado.id.slice("local-".length);
+              const src = (localPubs ?? []).find((p: any) => p.id === localId);
+              if (!src) return undefined;
+              const { directUrl, storagePath } = resolveLocalPubUrls(src);
+              if (directUrl) return undefined; // EstadosTable will open it directly
+              if (storagePath) {
+                return () => openLocalPubAttachment(localId, storagePath, null);
+              }
+              return undefined;
+            })(),
           }))}
         />
       )}
