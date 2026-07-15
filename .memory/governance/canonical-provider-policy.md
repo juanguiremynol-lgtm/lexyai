@@ -9,7 +9,7 @@ These are the ONLY 5 external data providers in ATENIA. No more, no less.
 
 | # | Key            | Display Name              | Scope        | Target Table               | Primary For            | Fallback For      |
 |---|----------------|---------------------------|--------------|----------------------------|------------------------|--------------------|
-| 1 | cpnu           | CPNU (Rama Judicial)      | ACTUACIONES  | work_item_acts             | CGP, LABORAL, PENAL_906 | TUTELA, CPACA      |
+| 1 | cpnu           | CPNU (Rama Judicial)      | ACTUACIONES  | work_item_acts             | CGP, LABORAL, PENAL_906 | TUTELA, CPACA (empty-only) |
 | 2 | samai          | SAMAI (Consejo de Estado) | ACTUACIONES  | work_item_acts             | CPACA                  | CGP, LABORAL       |
 | 3 | publicaciones  | Publicaciones Procesales  | ESTADOS      | work_item_publicaciones    | ALL categories         | —                  |
 | 4 | samai_estados  | SAMAI Estados             | ESTADOS      | work_item_publicaciones    | CPACA                  | —                  |
@@ -28,7 +28,7 @@ These are the ONLY 5 external data providers in ATENIA. No more, no less.
 CGP         → actuaciones: [cpnu]                    → estados: [publicaciones]
 LABORAL     → actuaciones: [cpnu]                    → estados: [publicaciones]
 PENAL_906   → actuaciones: [cpnu]                    → estados: [publicaciones]
-CPACA       → actuaciones: [samai]                   → estados: [publicaciones, samai_estados]
+CPACA       → actuaciones: [samai → cpnu (fb empty)] → estados: [samai_estados]
 TUTELA      → actuaciones: [cpnu, tutelas, samai]    → estados: [publicaciones]
 ```
 
