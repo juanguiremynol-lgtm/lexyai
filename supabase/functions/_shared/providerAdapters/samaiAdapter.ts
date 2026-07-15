@@ -608,7 +608,7 @@ function buildSuccessResult(
 
   const metadata = extractSamaiMetadata(data, sujetos);
   const parties = options.includeParties !== false
-    ? extractSamaiParties(sujetos)
+    ? extractSamaiParties(sujetos, rawActuaciones)
     : null;
 
   return {
