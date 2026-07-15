@@ -566,6 +566,9 @@ export function CreateWorkItemWizard({
   const canProceedFromRadicado = () => {
     if (useRadicadoInput === 'manual') return true;
     if (radicado.length !== 23) return false;
+    // Duplicate-guard hard gate: same radicado already in portfolio →
+    // require explicit re-registration override.
+    if (hasDuplicate && !wizardOverrideDuplicate) return false;
     // Corp-guard hard gate: block unless user accepted suggestion or ticked override.
     const derived = deriveFromRadicado(radicado);
     if (
