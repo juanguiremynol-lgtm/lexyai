@@ -402,16 +402,33 @@ export function normalizeSamaiActuaciones(
     const anexosCount = Number(act.anexos ?? 0) || undefined;
     const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
 
-    // Annulled-act detection: SAMAI does not carry a first-class flag, but the
-    // portal signals annulled rows through the "Actuación" title
-    // ("Inconsistencia", "ERROR DE INGRESO") or the annotation text ("Actuación
-    // anulada", "anulada el:", etc.). We flag them here so the UI can show an
-    // ANULADA badge and the term/notify layers can filter them out downstream.
+    // Annulled-act detection — REFINED (2026-07-15, caso 05001333301020230019900).
+    //
+    // Riesgo: una providencia real (p.ej. "Auto resuelve excepciones") puede
+    // arrastrar en su anotación el texto de una anulación previa hecha por
+    // SAMAI, y si la marcamos como anulada suprimimos silenciosamente una
+    // decisión que corre términos. Reglas conservadoras:
+    //
+    //   1. Señal autoritativa: SAMAI emite `estado="ANULADA"` en la fila
+    //      misma → confiar.
+    //   2. Título coincide con patrón: "ERROR DE INGRESO" / "INCONSISTENCIA"
+    //      / "ANULADA" en el título de la actuación → confiar (el título ES
+    //      la anulación).
+    //   3. Anotación coincide SOLO si el patrón está al inicio (la anotación
+    //      ES la nota de anulación, no una providencia real que la menciona)
+    //      Y la fila NO tiene documento/anexos adjuntos (una fila con PDF
+    //      real nunca se suprime por heurística).
     const annulledSignal =
       /\b(ANULAD[AO]|ERROR DE INGRESO|INCONSISTENCIA)\b/i;
+    const annulledAnchoredAtStart = anotacion
+      ? /^\s*(ERROR DE INGRESO|INCONSISTENCIA|ANULAD[AO]\b)/i.test(anotacion)
+      : false;
+    const hasAttachment = (anexosCount ?? 0) > 0;
+    const estadoIsAnnulled = String(estado ?? '').trim().toUpperCase() === 'ANULADA';
     const isAnnulled =
+      estadoIsAnnulled ||
       annulledSignal.test(actuacion) ||
-      (anotacion ? annulledSignal.test(anotacion) : false);
+      (annulledAnchoredAtStart && !hasAttachment);
     if (isAnnulled) estado = 'ANULADA';
 
     const rawEnriched: Record<string, unknown> = { ...(act as Record<string, unknown>) };
