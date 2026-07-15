@@ -91,6 +91,12 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       executionMode: "CHAIN",
       providers: [
         { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
+        // Ratified 2026-07-15 (Doctor decision, caso 05001333301520260011300).
+        // Juzgados administrativos con expediente aún NO migrado a SAMAI
+        // conservan sus actuaciones sólo en CPNU. Fallback dispara UNICAMENTE
+        // cuando SAMAI responde EMPTY / NOT_FOUND — nunca en errores
+        // transitorios (timeout/5xx). Espejo exacto de la regla de tutelas.
+        { key: "CPNU", role: "FALLBACK", type: "BUILTIN" },
       ],
     },
     ESTADOS: {
@@ -194,7 +200,8 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
   CPACA: {
-    ACTUACIONES: new Set(["SAMAI"]),
+    // CPACA actuaciones: SAMAI primary + CPNU fallback on empty/not_found.
+    ACTUACIONES: new Set(["SAMAI", "CPNU"]),
     ESTADOS: new Set(["SAMAI_ESTADOS"]),
   },
   TUTELA: {
