@@ -382,6 +382,28 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
             <span className="mr-1.5">{category.icon}</span>
             {actionType}
           </h4>
+          {(() => {
+            // ANULADA badge: SAMAI/CPNU sometimes surface annulled acts
+            // (title contains "ERROR DE INGRESO"/"INCONSISTENCIA" or the
+            // annotation contains "actuación anulada"). We ingest them so the
+            // expediente stays complete, but flag them visually and exclude
+            // them from term/notify downstream.
+            const isAnnulled =
+              Boolean(act.raw_data?.is_annulled) ||
+              String(act.raw_data?.estado ?? '').toUpperCase() === 'ANULADA' ||
+              /\b(ANULAD[AO]|ERROR DE INGRESO|INCONSISTENCIA)\b/i.test(
+                `${act.act_type ?? ''} ${act.description ?? ''} ${act.raw_data?.anotacion ?? ''}`,
+              );
+            if (!isAnnulled) return null;
+            return (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300"
+                title="Actuación marcada como anulada por SAMAI — se excluye del motor de términos y de alertas de novedad."
+              >
+                ⛔ ANULADA
+              </span>
+            );
+          })()}
           {act.changed_at && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" title={`Modificada: ${humanizeCreatedAt(act.changed_at)}`}>
               ✏️ Modificada

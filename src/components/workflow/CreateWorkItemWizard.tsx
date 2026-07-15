@@ -123,7 +123,42 @@ export function CreateWorkItemWizard({
   // user's selection, we HARD-BLOCK progression unless they explicitly opt
   // in via this checkbox. Persisted to audit_logs on create.
   const [wizardOverrideWorkflow, setWizardOverrideWorkflow] = useState(false);
+  // Duplicate-guard: when the entered radicado already exists in the user's
+  // portfolio we HARD-BLOCK creating another WI unless the user confirms an
+  // explicit re-registration override (same UX pattern as the corp-guard).
+  const [wizardOverrideDuplicate, setWizardOverrideDuplicate] = useState(false);
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
+
+  // Look up existing work_items with the same radicado in the current
+  // owner/org scope. Any hit (active, paused, or archived) is enough to
+  // trigger the duplicate banner — silent duplicates cause double monitoring
+  // and double alerts.
+  const { data: existingDuplicates = [] } = useQuery({
+    queryKey: ["wizard-duplicate-check", radicado, organization?.id ?? null],
+    enabled: open && radicado.length === 23,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      let query = supabase
+        .from("work_items")
+        .select("id, title, stage, workflow_type, status, deleted_at, created_at")
+        .eq("radicado", radicado)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (organization?.id) {
+        query = query.eq("organization_id", organization.id);
+      } else {
+        query = query.eq("owner_id", user.id);
+      }
+      const { data, error } = await query;
+      if (error) {
+        console.warn("[wizard-duplicate-check] query failed", error);
+        return [];
+      }
+      return data ?? [];
+    },
+  });
+  const hasDuplicate = existingDuplicates.length > 0;
   
   // Step 2: Basic details
   const [title, setTitle] = useState('');
@@ -312,6 +347,7 @@ export function CreateWorkItemWizard({
     setRadicadoError(null);
     // Any radicado edit invalidates a previously-granted override.
     setWizardOverrideWorkflow(false);
+    setWizardOverrideDuplicate(false);
     
     if (digits.length !== 23) {
       resetLookup();
@@ -530,6 +566,9 @@ export function CreateWorkItemWizard({
   const canProceedFromRadicado = () => {
     if (useRadicadoInput === 'manual') return true;
     if (radicado.length !== 23) return false;
+    // Duplicate-guard hard gate: same radicado already in portfolio →
+    // require explicit re-registration override.
+    if (hasDuplicate && !wizardOverrideDuplicate) return false;
     // Corp-guard hard gate: block unless user accepted suggestion or ticked override.
     const derived = deriveFromRadicado(radicado);
     if (
@@ -819,6 +858,67 @@ export function CreateWorkItemWizard({
                   })()}
                   
                   {/* Lookup Result */}
+                  {/* Duplicate-guard banner: the radicado is already tracked
+                      in the user's portfolio. Hard-block advance unless the
+                      user explicitly confirms a re-registration (same
+                      pattern as the corp-guard). */}
+                  {radicado.length === 23 && hasDuplicate && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle className="text-sm">
+                        Este radicado ya existe en su cartera
+                      </AlertTitle>
+                      <AlertDescription className="text-xs space-y-3">
+                        <div className="space-y-1">
+                          {existingDuplicates.map((w) => {
+                            const status = w.deleted_at
+                              ? 'archivado'
+                              : (w.status ? String(w.status).toLowerCase() : 'activo');
+                            return (
+                              <div key={w.id} className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate">
+                                    <strong>{w.title || 'Sin título'}</strong>
+                                    <span className="text-muted-foreground"> — {status}</span>
+                                  </div>
+                                  {w.workflow_type && (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {WORKFLOW_TYPES[w.workflow_type as WorkflowType]?.shortLabel ?? w.workflow_type}
+                                      {w.stage ? ` · ${w.stage}` : ''}
+                                    </div>
+                                  )}
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    onOpenChange(false);
+                                    navigate(`/matters/${w.id}`);
+                                  }}
+                                >
+                                  Abrir
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs">
+                          Crear otro proceso con el mismo radicado duplica el monitoreo, las alertas y el dedupe cruzado.
+                        </p>
+                        <label className="flex items-start gap-2 text-xs cursor-pointer">
+                          <Checkbox
+                            checked={wizardOverrideDuplicate}
+                            onCheckedChange={(v) => setWizardOverrideDuplicate(v === true)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            Entiendo que ya existe un proceso con este radicado y confirmo que quiero crear un nuevo registro (p. ej. re-alta tras archivo) bajo mi responsabilidad.
+                          </span>
+                        </label>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {lookupStatus === 'success' && lookupResult?.found_in_source && (
                     <WizardProcessPreview
                       lookupResult={lookupResult}
