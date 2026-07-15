@@ -347,6 +347,7 @@ export function CreateWorkItemWizard({
     setRadicadoError(null);
     // Any radicado edit invalidates a previously-granted override.
     setWizardOverrideWorkflow(false);
+    setWizardOverrideDuplicate(false);
     
     if (digits.length !== 23) {
       resetLookup();
