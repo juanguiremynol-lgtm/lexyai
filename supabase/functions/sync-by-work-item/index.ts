@@ -2195,10 +2195,12 @@ Deno.serve(withSyncTimeline(async (req) => {
           return jsonResponse(result, 202);
         }
         
-        // CPNU fallback for CPACA (only if explicitly enabled and NO scraping was initiated)
-        if (!fetchResult.ok && providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
-          console.log(`[sync-by-work-item] SAMAI failed/empty (no scraping), trying CPNU fallback`);
-          result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
+        // CPNU fallback for CPACA — ONLY on EMPTY / NOT_FOUND (mirror of tutela rule).
+        // Ratificado por el Doctor 2026-07-15 (caso 05001333301520260011300):
+        // transient errors (timeout/5xx) NO disparan fallback — SAMAI se reintenta.
+        if (!fetchResult.ok && fetchResult.isEmpty && providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
+          console.log(`[sync-by-work-item] SAMAI returned EMPTY/NOT_FOUND (no scraping), trying CPNU fallback`);
+          result.warnings.push(`SAMAI (primary) empty: ${fetchResult.error ?? 'no data'}`);
           
           const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
           stampCpnuBuscarMeta(result, cpnuResult);
@@ -2213,10 +2215,18 @@ Deno.serve(withSyncTimeline(async (req) => {
           
           if (cpnuResult.ok) {
             fetchResult = cpnuResult;
-            result.provider_order_reason = 'cpaca_samai_failed_cpnu_fallback';
+            result.provider_order_reason = 'cpaca_samai_empty_cpnu_fallback';
           } else {
             result.warnings.push(`CPNU fallback: ${cpnuResult.error}`);
           }
+        } else if (!fetchResult.ok && !fetchResult.isEmpty && !fetchResult.scrapingInitiated) {
+          // SAMAI transient error — do NOT cascade to CPNU. Retry SAMAI on next tick.
+          result.provider_attempts.push({
+            provider: 'cpnu',
+            status: 'skipped',
+            latencyMs: 0,
+            message: 'CPNU fallback skipped — SAMAI transient error (fallback only on empty/not_found)',
+          });
         } else if (!fetchResult.ok && !providerOrder.fallbackEnabled && !fetchResult.scrapingInitiated) {
           // Log that CPNU fallback is disabled for CPACA (only if no scraping was triggered)
           result.provider_attempts.push({
