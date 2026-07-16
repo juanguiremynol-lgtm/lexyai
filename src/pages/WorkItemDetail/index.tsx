@@ -54,6 +54,8 @@ import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
+import { useWorkItemActions, deriveLifecycleView } from "@/hooks/use-work-item-actions";
+import { Archive as ArchiveIcon, RotateCcw as RotateCcwIcon } from "lucide-react";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -134,6 +136,28 @@ export default function WorkItemDetail() {
           Volver
         </Button>
       </div>
+    );
+  }
+
+  // Soft-deleted (papelera) state — show recovery banner instead of live tabs.
+  const deletedAt = (workItem as any).deleted_at as string | null | undefined;
+  const purgeAfter = (workItem as any).purge_after as string | null | undefined;
+  const lifecycleView = deriveLifecycleView({
+    id: workItem.id,
+    lifecycle_state: (workItem as any).lifecycle_state ?? null,
+    monitoring_enabled: workItem.monitoring_enabled ?? null,
+    deleted_at: deletedAt ?? null,
+    stage: workItem.stage ?? null,
+  });
+
+  if (lifecycleView === "DELETED") {
+    return (
+      <DeletedWorkItemView
+        workItem={workItem as any}
+        purgeAfter={purgeAfter ?? null}
+        onBack={() => navigate(-1)}
+        onAfter={() => refetch()}
+      />
     );
   }
 
