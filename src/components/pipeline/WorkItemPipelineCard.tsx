@@ -55,6 +55,8 @@ interface WorkItemPipelineCardProps {
   onToggleFlag?: (item: WorkItemPipelineItem) => void;
   /** Called after any lifecycle action succeeds (invalidate lists). */
   onAfterAction?: () => void;
+  /** @deprecated — lifecycle actions now live inside WorkItemActionsMenu. Kept for backwards compat. */
+  onDelete?: (item: WorkItemPipelineItem) => void;
 }
 
 export function WorkItemPipelineCard({ 
