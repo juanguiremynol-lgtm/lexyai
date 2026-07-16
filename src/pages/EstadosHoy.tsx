@@ -25,7 +25,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { getColombiaToday } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 import { Link } from "react-router-dom";
-import { isColombianHoliday } from "@/lib/colombian-holidays";
+import {
+  bogotaDayKey,
+  fmtFecha,
+  DeadlineCard,
+  useDeadlinesQuery,
+} from "@/lib/hoy-shared";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,45 +84,7 @@ interface EstadoRow {
   demandados: string | null;
 }
 
-interface DeadlineRow {
-  id: string;
-  work_item_id: string;
-  radicado: string;
-  workflow_type: string | null;
-  deadline_type: string;
-  label: string;
-  trigger_date: string;
-  deadline_date: string;
-  business_days_remaining: number;
-  urgency: "VENCIDO" | "URGENTE" | "PROXIMO" | "VIGENTE";
-  norma: string | null;
-}
-
 /* ── helpers ── */
-
-/** Colombia (UTC-5) day-key for a UTC ISO or a date-only YYYY-MM-DD string.
- *  Date-only inputs are returned as-is (no TZ shift). Full ISO strings are
- *  converted to America/Bogota. Fixes off-by-one for dates like '2026-07-17'
- *  which JS parses as UTC midnight → 2026-07-16 19:00 COT under en-CA.
- */
-function bogotaDayKey(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  // Pure date (YYYY-MM-DD) → use verbatim, no timezone math.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
-}
-
-function fmtFecha(iso: string | null | undefined): string {
-  const key = bogotaDayKey(iso);
-  if (!key) return "—";
-  try {
-    return format(new Date(key + "T12:00:00"), "dd MMM yyyy", { locale: es });
-  } catch {
-    return key;
-  }
-}
 
 function sourceBadge(source: string): { label: string; cls: string } {
   const s = (source || "").toUpperCase();
@@ -126,77 +93,6 @@ function sourceBadge(source: string): { label: string; cls: string } {
   if (s === "PP" || s.includes("PUBLICACIONES"))
     return { label: "Rama Judicial", cls: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30" };
   return { label: source || "—", cls: "bg-muted text-muted-foreground border-border" };
-}
-
-/**
- * Business-days between today (Bogotá) and a target date, excluding
- * weekends AND Colombian national holidays (source: `colombian_holidays`
- * DB table, hydrated at boot via `useColombianHolidays`).
- *
- * Convention (documented, applied everywhere in this page):
- *   - Today counts as day 0 (not consumed).
- *   - The deadline day itself IS counted (it's a business day you still have).
- *   - Weekends and holidays are skipped.
- *   - Negative result = overdue by N business days.
- *
- * Examples with today = mié 15-jul-2026, festivo lun 20-jul:
- *   deadline 16-jul (jue) → 1
- *   deadline 17-jul (vie) → 2
- *   deadline 21-jul (mar, salta 20-jul festivo) → 3
- *   deadline 22-jul (mié) → 4
- */
-function businessDaysUntilBogota(dateStr: string): number {
-  const todayKey = getColombiaToday();
-  const target = bogotaDayKey(dateStr);
-  if (!target) return 0;
-  if (target === todayKey) return 0;
-  const today = new Date(todayKey + "T00:00:00");
-  const end = new Date(target + "T00:00:00");
-  if (isNaN(end.getTime())) return 0;
-  const sign = end < today ? -1 : 1;
-  const [a, b] = sign > 0 ? [today, end] : [end, today];
-  let count = 0;
-  const cursor = new Date(a);
-  while (cursor < b) {
-    cursor.setDate(cursor.getDate() + 1);
-    const dow = cursor.getDay();
-    if (dow === 0 || dow === 6) continue;
-    if (isColombianHoliday(cursor).isHoliday) continue;
-    count++;
-  }
-  return count * sign;
-}
-
-function classifyUrgency(days: number): DeadlineRow["urgency"] {
-  if (days < 0) return "VENCIDO";
-  if (days <= 1) return "URGENTE";
-  if (days <= 3) return "PROXIMO";
-  return "VIGENTE";
-}
-
-function urgencyClass(u: DeadlineRow["urgency"]) {
-  switch (u) {
-    case "VENCIDO":
-      return {
-        border: "border-l-red-500",
-        badge: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-300",
-      };
-    case "URGENTE":
-      return {
-        border: "border-l-orange-500",
-        badge: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-300",
-      };
-    case "PROXIMO":
-      return {
-        border: "border-l-yellow-500",
-        badge: "bg-yellow-500/15 text-yellow-800 dark:text-yellow-400 border-yellow-300",
-      };
-    default:
-      return {
-        border: "border-l-green-500",
-        badge: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-300",
-      };
-  }
 }
 
 /* ── page ── */
@@ -299,45 +195,8 @@ export default function EstadosHoy() {
     return { fijadosHoy: applySearch(fijados), deteccionTardia: applySearch(tardios) };
   }, [estados, debouncedSearch, todayKey]);
 
-  /* ── Términos procesales: motor local ── */
-  const { data: deadlines = [] } = useQuery({
-    queryKey: ["work-item-deadlines-pending", organization?.id],
-    queryFn: async (): Promise<DeadlineRow[]> => {
-      if (!organization?.id) return [];
-      const { data, error } = await supabase
-        .from("work_item_deadlines")
-        .select(
-          `id, work_item_id, deadline_type, label, trigger_date, deadline_date, calculation_meta,
-           work_items!inner(id, radicado, workflow_type, organization_id)`
-        )
-        .eq("work_items.organization_id", organization.id)
-        .eq("status", "PENDING")
-        .order("deadline_date", { ascending: true })
-        .limit(200);
-      if (error) {
-        console.error("[work-item-deadlines-pending]", error);
-        return [];
-      }
-      return (data || []).map((r: any) => {
-        const days = businessDaysUntilBogota(r.deadline_date);
-        return {
-          id: r.id,
-          work_item_id: r.work_item_id,
-          radicado: r.work_items?.radicado || "",
-          workflow_type: r.work_items?.workflow_type || null,
-          deadline_type: r.deadline_type,
-          label: r.label,
-          trigger_date: r.trigger_date,
-          deadline_date: r.deadline_date,
-          business_days_remaining: days,
-          urgency: classifyUrgency(days),
-          norma: r?.calculation_meta?.norma || null,
-        } as DeadlineRow;
-      });
-    },
-    enabled: !!organization?.id,
-    staleTime: 60_000,
-  });
+  /* ── Términos procesales: motor local (fuente compartida) ── */
+  const { data: deadlines = [] } = useDeadlinesQuery(organization?.id);
 
   const deadlinesOrdered = useMemo(() => {
     const order = { VENCIDO: 0, URGENTE: 1, PROXIMO: 2, VIGENTE: 3 } as const;
@@ -623,67 +482,3 @@ function EstadoCard({ e, kind }: { e: EstadoRow; kind: "today" | "late" }) {
   );
 }
 
-function DeadlineCard({ d }: { d: DeadlineRow }) {
-  const cls = urgencyClass(d.urgency);
-  const diasTxt =
-    d.business_days_remaining < 0
-      ? `Vencido hace ${Math.abs(d.business_days_remaining)} día${Math.abs(d.business_days_remaining) === 1 ? "" : "s"} hábil${Math.abs(d.business_days_remaining) === 1 ? "" : "es"}`
-      : d.business_days_remaining === 0
-        ? "Vence hoy"
-        : `Vence en ${d.business_days_remaining} día${d.business_days_remaining === 1 ? "" : "s"} hábil${d.business_days_remaining === 1 ? "" : "es"}`;
-
-  return (
-    <Card className={cn("border-l-4 transition-shadow hover:shadow-md", cls.border)}>
-      <CardContent className="py-4 space-y-3">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <Link
-              to={d.radicado ? `/app/radicados/${encodeURIComponent(d.radicado)}` : `/app/work-items/${d.work_item_id}`}
-              className="font-mono text-sm font-semibold text-primary hover:underline break-all"
-            >
-              {d.radicado || "—"}
-            </Link>
-            {d.workflow_type && (
-              <Badge variant="secondary" className="text-xs">
-                {d.workflow_type}
-              </Badge>
-            )}
-            <Badge variant="outline" className="text-xs">
-              {d.deadline_type}
-            </Badge>
-          </div>
-          <Badge variant="outline" className={cn("text-xs font-semibold", cls.badge)}>
-            {d.urgency}
-          </Badge>
-        </div>
-
-        <p className="text-sm font-semibold text-foreground">{d.label}</p>
-
-        <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-          <span>Disparado: {fmtFecha(d.trigger_date)}</span>
-          <span>·</span>
-          <span className="font-semibold text-foreground">
-            Vencimiento: {fmtFecha(d.deadline_date)}
-          </span>
-          <span>·</span>
-          <span
-            className={cn(
-              "font-semibold",
-              d.urgency === "VENCIDO" && "text-red-600 dark:text-red-400",
-              d.urgency === "URGENTE" && "text-orange-600 dark:text-orange-400",
-              d.urgency === "PROXIMO" && "text-yellow-700 dark:text-yellow-400",
-            )}
-          >
-            {diasTxt}
-          </span>
-          {d.norma && (
-            <>
-              <span>·</span>
-              <span>{d.norma}</span>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
