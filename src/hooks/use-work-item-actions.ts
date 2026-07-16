@@ -8,7 +8,7 @@
  * / `useHardPurgeWorkItems`. This hook does NOT open modals — callers own UX.
  */
 
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -97,11 +97,9 @@ export function useWorkItemActions(
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Lazy-load user id
-  useState(() => {
+  useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
-    return 0;
-  });
+  }, []);
 
   const state: LifecycleView = wi ? deriveLifecycleView(wi) : "ACTIVE";
   const available = actionsForState(state);
@@ -192,7 +190,7 @@ export function useWorkItemActions(
       invalidate();
       options.onSuccess?.("eliminar_definitivo");
     },
-  } as any);
+  });
 
   const eliminarMut = useMutation({
     mutationFn: async (reason?: string) => {
@@ -228,7 +226,7 @@ export function useWorkItemActions(
     cerrarMut.isPending ||
     eliminarMut.isPending ||
     restore.isRestoring ||
-    (hardPurge as any).isPending === true;
+    hardPurge.isPurging;
 
   return {
     state,
@@ -240,7 +238,7 @@ export function useWorkItemActions(
       cerrar: (reason?: string) => cerrarMut.mutateAsync(reason),
       eliminar: (reason?: string) => eliminarMut.mutateAsync(reason),
       restaurar: () => (wi ? restore.restoreSingle(wi.id) : Promise.resolve()),
-      eliminarDefinitivo: () => (wi ? (hardPurge as any).purgeSingle?.(wi.id) : Promise.resolve()),
+      eliminarDefinitivo: () => (wi ? hardPurge.purgeSingle(wi.id) : Promise.resolve()),
     },
   };
 }
