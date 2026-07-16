@@ -10,10 +10,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface DeleteWorkItemDialogProps {
   open: boolean;
@@ -35,15 +33,11 @@ export function DeleteWorkItemDialog({
   itemInfo,
 }: DeleteWorkItemDialogProps) {
   const [understood, setUnderstood] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
-
-  const isValid = understood && confirmText === "DELETE";
+  const isValid = understood;
 
   const handleClose = (isOpen: boolean) => {
     if (!isOpen) {
-      // Reset state when closing
       setUnderstood(false);
-      setConfirmText("");
     }
     onOpenChange(isOpen);
   };
@@ -80,7 +74,7 @@ export function DeleteWorkItemDialog({
               <div className="flex items-start gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="text-sm space-y-1">
-                  <p className="font-medium">El asunto será archivado:</p>
+                  <p className="font-medium">Esta acción moverá el asunto a la papelera:</p>
                   <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
                     <li>Dejará de aparecer en tus vistas y de sincronizarse.</li>
                     <li>Actuaciones, estados, alertas y tareas dejarán de ser visibles.</li>
@@ -103,25 +97,8 @@ export function DeleteWorkItemDialog({
                   htmlFor="understand"
                   className="text-sm font-normal cursor-pointer leading-relaxed"
                 >
-                  Entiendo que el asunto será archivado y se eliminará definitivamente después de <strong>10 días</strong>.
+                  Entiendo que el asunto irá a la papelera y se eliminará definitivamente después de <strong>10 días</strong>.
                 </Label>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirm-text" className="text-sm">
-                  Escribe <code className="bg-muted px-1.5 py-0.5 rounded text-destructive font-mono">DELETE</code> para confirmar:
-                </Label>
-                <Input
-                  id="confirm-text"
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
-                  placeholder="DELETE"
-                  disabled={isDeleting}
-                  className={cn(
-                    "font-mono",
-                    confirmText === "DELETE" && "border-destructive focus-visible:ring-destructive"
-                  )}
-                />
               </div>
             </div>
           </AlertDialogDescription>

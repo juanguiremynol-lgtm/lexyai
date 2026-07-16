@@ -101,7 +101,7 @@ export function CpacaPipeline() {
         .select(`
           id, workflow_type, stage, status,
           radicado, title, authority_name, authority_city, demandantes, demandados,
-          is_flagged, last_action_date, last_checked_at, monitoring_enabled,
+          is_flagged, last_action_date, last_checked_at, monitoring_enabled, lifecycle_state,
           auto_admisorio_date, created_at,
           client_id, clients(id, name)
         `)
@@ -136,6 +136,7 @@ export function CpacaPipeline() {
           last_action_date: item.last_action_date,
           last_checked_at: item.last_checked_at,
           monitoring_enabled: item.monitoring_enabled ?? false,
+          lifecycle_state: (item as any).lifecycle_state ?? null,
           auto_admisorio_date: item.auto_admisorio_date,
           created_at: item.created_at,
         };

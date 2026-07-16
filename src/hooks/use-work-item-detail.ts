@@ -107,7 +107,6 @@ async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
       matters(id, matter_name, practice_area, sharepoint_url)
     `)
     .eq("id", id)
-    .is("deleted_at", null)
     .maybeSingle();
 
   if (workItemData) {
@@ -373,7 +372,8 @@ export function useWorkItemDetail(
         .from("work_items")
         .select("id")
         .eq("radicado", opts.radicado)
-        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       return data?.id ?? null;
     },

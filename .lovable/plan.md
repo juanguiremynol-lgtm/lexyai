@@ -1,97 +1,112 @@
-## Objetivo
+# Auditoría (resultado del diagnóstico previo)
 
-Convertir el wizard de alta en un flujo "confirmar, no digitar": el usuario nunca ingresa manualmente lo que el radicado o CPNU ya saben, y todo fallo silencioso se vuelve visible.
+**Estado actual por superficie:**
 
-## Alcance (todo en un turno)
+| Superficie | Componente | Acciones actuales | Diagnóstico |
+|---|---|---|---|
+| Dashboard (Kanban CGP/Laboral/Penal/Admin) | `WorkItemPipelineCard` → `DropdownMenu` | Reclasificar · Marcar bandera · **Eliminar** | ⚠️ No hay Pausar/Reactivar en el menú. Nunca sale "Activar" para un activo desde este menú — pero cuando el ítem está pausado tampoco aparece cómo reactivar sin abrir el detalle. |
+| Lista de procesos | La app **no tiene lista tabular independiente** — la "lista" son los mismos pipelines. `src/pages/Matters.tsx` es otra entidad (matters legales, no work_items). | — | Confirmar con el Doctor si "lista" se refiere a algo distinto. |
+| Detalle (`WorkItemDetail`) | `WorkItemMonitoringControls` | Pausar · Reactivar · Cerrar · **Eliminar** | ✅ Funcional. Botón Eliminar invoca `softDeleteWorkItem` → `set_work_item_lifecycle` RPC → outbox GCP. |
 
-### 1. Diagnóstico del render de partes (WI de prueba `05001333301520260011300`)
+**Divergencias detectadas:**
+- CGP `WorkItemPipeline.tsx` invoca `useSoftDeleteWorkItems` + `ArchiveWorkItemDialog` (dice "Archivar", color ámbar).
+- Laboral/Penal/Admin pipelines invocan `useDeleteWorkItems` + `DeleteWorkItemDialog` (dice "Eliminar", color destructive, exige tipear DELETE).
+- Los dos flujos hacen exactamente lo mismo en DB (soft delete) pero la UI dice cosas distintas. Esto es la raíz de la confusión "Archivar vs Eliminar".
 
-Ruta a auditar en vivo con el radicado real:
-`useRadicadoLookup.lookup()` → edge `sync-by-radicado` (LOOKUP) → `adapter-cpnu` → `ProcessData.sujetos_procesales[]` → `WizardProcessPreview` (líneas 120–162).
+**Política soft/hard delete (recap del código):**
+- **Soft-delete usuario**: `set_work_item_lifecycle('DELETED')` marca `deleted_at`, `purge_after = now + 10 días`, apaga `monitoring_enabled/scraping_enabled`, cancela scrape jobs pendientes, escribe outbox GCP, `atenia_ai_actions` y `work_item_soft_deletes`. Recuperable con Andro IA por 10 días.
+- **Hard-delete** (`useHardPurgeWorkItems`): sólo Recycle Bin / Admin lifecycle / Master delete. No expuesto en dashboard/detalle.
+- Cascadas: `work_item_acts`, `work_item_publicaciones`, `work_item_deadlines`, `alert_instances`, `work_item_tasks`, `work_item_sources`, etc. quedan intactas 10 días; se purgan por `cron_purge_expired_soft_deletes`.
 
-Hipótesis a validar con logs y payload real (una llamada, un fixture guardado en `/tmp/`):
-- **A.** `sync-by-radicado` promueve `sujetos_procesales` a `demandante`/`demandado` (line 873–874 de `adapter-cpnu`), pero en jurisdicción administrativa los tipos suelen ser `DEMANDANTE`, `ACCIONANTE`, `CONVOCANTE`, `TERCERO` — el filtro por `.includes('demandante')` puede fallar si CPNU devuelve solo `PARTE ACTIVA` o similar.
-- **B.** El wizard solo renderiza `sujetos_procesales` si `demandante` **y** `demandado` están vacíos (línea 152). Si CPNU trae uno de los dos, el otro no se muestra ni desde sujetos.
-- **C.** `sync-by-radicado.mergeProviderResults` puede estar dropeando `sujetos_procesales` en el merge (no está en `firstWinsFields`).
+**Causa raíz del error "no se pudo eliminar"** (más probable, por confirmar reproduciendo en Playwright post-fix):
+1. `checkWorkItemRetention` bloquea la eliminación si hay documentos finalizados dentro del periodo de retención legal — devuelve un mensaje específico que estamos mostrando como toast, pero el usuario lo lee como "error genérico".
+2. `canActOnWorkItem` — MEMBER intentando borrar WI de otro MEMBER de la misma org sin ser ADMIN → devuelve "No tienes permiso". Verificaremos con el rol real del Doctor.
+3. Fallo silencioso en `set_work_item_lifecycle` cuando el estado destino = actual (`no_op`) — el helper ya retorna `ok:true` en ese caso, no debería fallar.
 
-Fix aplicable a las tres:
-- Ampliar el matcher tipo→rol en el edge (`demandante|accionante|convocante|parte activa` → demandantes; `demandado|accionado|convocado|parte pasiva|entidad demandada` → demandados).
-- Preservar `sujetos_procesales` en el merge (agregar a `firstWinsFields`).
-- En `WizardProcessPreview` renderizar **siempre** sujetos si existen, y completar demandantes/demandados vacíos derivándolos del array de sujetos (no un fallback exclusivo).
+# Plan de implementación
 
-### 2. Auto-población obligatoria en el wizard
+## 1. Hook centralizado `useWorkItemActions(workItem)`
 
-Nuevo helper `src/lib/radicado-derivation.ts`:
-- `deriveWorkflowFromCorp(corp: '02'|'03'|'04'|'05'|'06'|'07'|'08'|'10'|'11'|'12'|'13'|'14'|'15'|'20'|'21'|'22'|'23'|'30'|'31'|'33'|'40'|'41'|'45'|'50'|...)`
-  - `30`–`32` → CGP civil/comercial/familia
-  - `33`–`35` → CPACA
-  - `40`–`42` → LABORAL
-  - `06`–`09` / `36` → PENAL_906
-  - resto → `null` (sugerencia débil)
-- `deriveLocationFromDane(dane5: string)` — usa un lookup mínimo embebido de departamentos DANE (`05`→Antioquia, `11`→Bogotá D.C., `76`→Valle, etc.) y para municipio consulta `courthouse_directory.municipio` cuando el par (`dane5`, ciudad) exista; si no, deja municipio vacío pero devuelve depto siempre.
-
-Uso en `CreateWorkItemWizard.tsx`:
-- En el step `radicado`, cuando `radicado.length === 23`, calcular `derived = { workflow, city, department, corp, esp }` y mostrarlo antes del botón "Buscar":
-  - Banner **verde** si `derived.workflow === workflowType`.
-  - Banner **amarillo** con CTA "Cambiar a CPACA" (o el que corresponda) si difieren — al hacer clic reasigna `workflowType` y limpia lookup previo. Si el usuario confirma el mismatch, guardar un flag `wizard_override_workflow=true` en `notes`/audit para trazabilidad.
-- Autopoblar `authorityDepartment`/`authorityCity` desde DANE si el lookup no los trae.
-- Preservar lo que ya trae la fuente: solo llenar campos vacíos, nunca sobrescribir input del usuario.
-
-### 3. Feedback explícito ante fallo o payload parcial
-
-En `WizardProcessPreview` añadir estados visibles:
-- `sin partes` → "No se pudieron recuperar las partes desde CPNU/SAMAI. Puedes ingresarlas manualmente abajo."
-- `sin despacho` → "El despacho no llegó en la respuesta. Verifica manualmente."
-- `sources_found` vacío pero `pp_lookup=processing` → "Estamos escaneando el portal en segundo plano — los datos se completarán solos en el próximo ciclo."
-- Cuando `attempts[].success=false` para todos, mostrar el error real (no genérico).
-
-En el paso `details` del wizard, si algún autopoblado vino vacío, marcar el input con borde ámbar y helper "sugerido manualmente".
-
-### 4. Auditoría de flujo post-creación
-
-Verificar en `useCreateWorkItem.onSuccess`:
-- `set_work_item_lifecycle(..., 'ACTIVE', 'USER', ...)` explícito tras el `INSERT` — el INSERT solo pone `monitoring_enabled=true` pero no dispara `gcp_lifecycle_outbox`. Agregar la RPC.
-- Consolidar los 3 registros paralelos (`registerAndSyncCpnu/Pp/Samai`) — todos son no-ops (ya deprecados). Eliminar las llamadas y dejar un solo comentario apuntando al cron server-side. Reduce ruido en consola y evita confusión.
-- Encadenar `sync-publicaciones-by-work-item` **antes** de `sync-by-work-item` (publicaciones puebla estados; los triggers de deadline se disparan al insertar el estado con `fecha_fijacion`). Hoy corren en paralelo.
-- Preservar los campos CPNU perdidos: en `initial_actuaciones` (líneas 149–194 del hook), enriquecer `raw_data` con `fecha_registro`, `fecha_inicia_termino`, `fecha_finaliza_termino`, `indice`, `documentos`, `anexos` **si el edge los devolvió** (requiere que `sync-by-radicado` deje de aplanarlos — cambio en `ProcessData.actuaciones` type y en el merge de línea 1014).
-
-### 5. Backfill puntual del WI del Doctor
-
-Una migración corta:
-```sql
-UPDATE work_items
-   SET authority_city = COALESCE(NULLIF(authority_city,''), 'Medellín'),
-       authority_department = COALESCE(NULLIF(authority_department,''), 'Antioquia')
- WHERE id = '6153c00f-4e3f-4ee8-aad2-064693ac3bb2';
+Nuevo archivo `src/hooks/use-work-item-actions.ts`. Retorna:
+```ts
+{
+  available: Array<'pausar' | 'reactivar' | 'cerrar' | 'eliminar' | 'restaurar' | 'eliminar_definitivo'>,
+  actions: { pausar, reactivar, cerrar, eliminar, restaurar, eliminarDefinitivo }, // fns
+  isPending: boolean,
+  state: 'ACTIVE' | 'PAUSED' | 'CLOSED' | 'DELETED',
+}
 ```
-Sin tocar partes (el Doctor las digitó).
 
-### 6. Verificación end-to-end
+Reglas por `lifecycle_state`:
+- **ACTIVE** → `[pausar, cerrar, eliminar]`
+- **PAUSED** → `[reactivar, cerrar, eliminar]`
+- **CLOSED** → `[reactivar, eliminar]`
+- **DELETED** (dentro de purge_after) → `[restaurar, eliminar_definitivo]`
 
-- **Reproducción viva:** llamar `sync-by-radicado` LOOKUP con el radicado del Doctor desde exec y guardar el payload en `/tmp/wizard-repro/cpnu.json`. Contar sujetos, verificar que ahora se promueven a demandantes/demandados.
-- **E2E sintético:** crear un WI con radicado sintético controlado (`11001333103320260099999`), ver que:
-  - El banner corp→CPACA aparece.
-  - DANE `11001` autopobla Bogotá D.C.
-  - Post-creación: `lifecycle_state=ACTIVE`, `gcp_lifecycle_outbox` recibe evento, sync arranca.
-  - Purga total del WI de prueba al final (via `set_work_item_lifecycle → DELETED` + purga del outbox).
-- **Typecheck** + suite existente en verde (`bunx vitest run`).
+Fallback derivado cuando `lifecycle_state` es NULL: usar `deleted_at`/`monitoring_enabled` como en `isActive()` de `src/lib/lifecycle.ts`.
 
-## Detalles técnicos
+## 2. Unificar componente de acciones
 
-Archivos que se modifican:
-- `supabase/functions/adapter-cpnu/index.ts` — ampliar matcher tipo→rol.
-- `supabase/functions/sync-by-radicado/index.ts` — preservar `sujetos_procesales` y campos CPNU (`fecha_registro/inicia_termino/finaliza_termino/indice/documentos/anexos`) en el shape `ProcessData.actuaciones` y en `mergeProviderResults.firstWinsFields`.
-- `src/hooks/use-radicado-lookup.ts` — extender tipo `ProcessData.actuaciones` con los campos preservados.
-- `src/lib/radicado-derivation.ts` — nuevo helper (corp→workflow, DANE→depto/ciudad).
-- `src/components/workflow/CreateWorkItemWizard.tsx` — banner de derivación workflow, autopoblado depto/ciudad, feedback partial.
-- `src/components/workflow/WizardProcessPreview.tsx` — render siempre-visible de partes, mensajes explícitos por estado degradado.
-- `src/hooks/use-create-work-item.ts` — llamar `set_work_item_lifecycle` explícito, enriquecer `raw_data` de `initial_actuaciones` con campos CPNU completos, encadenar publicaciones → actuaciones sync, eliminar los 3 no-ops de `registerAndSync*`.
-- Migración: backfill de ciudad/depto del WI del Doctor.
+Nuevo `src/components/work-items/WorkItemActionsMenu.tsx` (dropdown lifecycle-aware). Sustituye la sección de acciones actual en:
+- `WorkItemPipelineCard` (mantiene Reclasificar/Bandera arriba + `<WorkItemActionsMenu />` para lifecycle abajo)
+- `WorkItemMonitoringControls` (detalle) — renderiza el mismo menú/botones
+- Cualquier `WorkItemCard` de listas futuras
 
-Nada de tocar `client.ts`, `types.ts`, `config.toml` ni schemas ajenos. Sin cambios en la lógica de cálculo de términos (solo se preservan los inputs que ya necesita).
+## 3. Consolidar diálogos de eliminación
 
-## Fuera de alcance
+- **Descartar `ArchiveWorkItemDialog` en CGP pipeline** — reemplazar por `DeleteWorkItemDialog` (mismo componente que Laboral/Penal/Admin). La palabra "Archivar" desaparece de esta superficie porque confunde al usuario respecto de "Eliminar".
+- Cambiar `useSoftDeleteWorkItems` → `useDeleteWorkItems` en `WorkItemPipeline.tsx` (idénticos por dentro, uniforma naming).
+- `DeleteWorkItemDialog` ya muestra radicado/título + aviso de "10 días con Andro IA". Ajustar copy para dejar claro "papelera" y quitar el requisito de tipear DELETE (fricción excesiva para un soft-delete recuperable — mantener sólo el checkbox de confirmación).
 
-- Rediseñar el orden de pasos del wizard (workflow→radicado→details→client sigue igual).
-- Nuevos campos en `work_items` — todo cabe en columnas existentes.
-- Cambios en el motor de términos.
+## 4. Prompt "cliente huérfano"
+
+Después de confirmar el borrado del WI, antes de ejecutar:
+```ts
+const { count } = await supabase
+  .from('work_items')
+  .select('id', { count: 'exact', head: true })
+  .eq('client_id', workItem.client_id)
+  .neq('id', workItem.id)
+  .is('deleted_at', null)
+  .in('lifecycle_state', ['ACTIVE','PAUSED','CLOSED']);
+```
+Si `count === 0` y hay `client_id`: mostrar segundo modal `OrphanClientDialog` con opciones **Sí, eliminar cliente** / **No, conservar**. El soft-delete del WI procede en paralelo. Si el usuario elige eliminar cliente: `DELETE FROM clients WHERE id = ?` (respetando RLS de owner).
+
+## 5. Estado post-eliminación en detalle
+
+En `WorkItemDetail/index.tsx`, si `lifecycle_state === 'DELETED'`:
+- Mostrar banner de página completa "Expediente en papelera — recuperable hasta {purge_after}" con botones **Restaurar** (via `useRestoreWorkItems`) y **Eliminar definitivamente** (via `useHardPurgeWorkItems`, sólo si el usuario es owner+admin).
+- Ocultar todos los tabs de datos vivos.
+- Si el usuario no tiene permisos → mostrar sólo la info de solo-lectura.
+
+## 6. Toast con "Deshacer"
+
+Al soft-delete exitoso, `toast.success(..., { action: { label: 'Deshacer', onClick: () => restore(id) } })`. Ventana visual 30s; el registro en DB ya existe, el "Deshacer" simplemente llama `useRestoreWorkItems`.
+
+## 7. Invalidación de queries
+
+Después de cualquier acción lifecycle, invalidar en un solo lugar (dentro del hook): `work-items`, `work-items-cgp-pipeline`, `work-items-laboral-pipeline`, `work-items-penal-pipeline`, `gov-procedure-work-items`, `cpaca-processes`, `dashboard-stats`, `work-item-detail`, `archived-work-items`. El hook llama esto internamente para eliminar el copy-paste actual.
+
+## 8. Diagnóstico y corrección del error real
+
+Instrumentar el toast de error con el mensaje textual del RPC/service (ya lo hace `WorkItemMonitoringControls`, verificar que `useSoftDeleteWorkItems` no lo esté genericando). Reproducir con Playwright autenticado sobre un WI del Doctor para capturar el error exacto y corregir la causa (retención de docs, permisos, o RLS).
+
+# Verificación al final
+
+- `tsgo` verde
+- Pipeline card muestra: ACTIVO → Pausar/Cerrar/Eliminar; PAUSADO → Reactivar/Cerrar/Eliminar
+- Diálogo único "Eliminar" en las 4 pipelines (CGP/Laboral/Penal/Admin)
+- Playwright: soft-delete de un WI de prueba → desaparece de la lista → navegar a URL de detalle → ver banner "en papelera" → Deshacer → reaparece
+
+# Detalles técnicos
+
+- **No tocar** `src/lib/lifecycle.ts` ni `set_work_item_lifecycle` RPC (contrato ya establecido).
+- **No introducir** nueva ruta ni migración. Todo es UI + hook + reutilización de RPCs existentes.
+- Preservar `WorkItemBulkDeleteDialog` para acciones masivas (ya usa lenguaje "Eliminar"/"archivar").
+- La lógica del hook debe funcionar tanto con work items del pipeline (donde `WorkItemPipelineItem` no trae `lifecycle_state`) — se añadirá el campo al `select` de las queries de pipeline.
+
+# Puntos de aclaración
+
+1. **"Lista de procesos"** — ¿te refieres a los mismos pipelines (Dashboard) o hay otra vista tabular que estás viendo? No encontré una lista tabular separada de work_items.
+2. **Purga definitiva desde detalle** — ¿el usuario final debe poder disparar hard-delete desde el banner "en papelera", o eso queda sólo para el Recycle Bin / admin?
+3. **Cliente huérfano** — cuando el WI está compartido dentro de una org, ¿verificamos huerfanía a nivel de owner o de organization?
