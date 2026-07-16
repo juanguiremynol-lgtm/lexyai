@@ -55,7 +55,7 @@ import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonito
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
 import { useWorkItemActions, deriveLifecycleView } from "@/hooks/use-work-item-actions";
-import { Archive as ArchiveIcon, RotateCcw as RotateCcwIcon } from "lucide-react";
+import { DeletedWorkItemView } from "./DeletedWorkItemView";
 
 import type { WorkItem } from "@/types/work-item";
 
