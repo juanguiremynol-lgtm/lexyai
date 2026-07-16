@@ -8,7 +8,7 @@
  * / `useHardPurgeWorkItems`. This hook does NOT open modals — callers own UX.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -95,11 +95,6 @@ export function useWorkItemActions(
   options: UseWorkItemActionsOptions = {},
 ) {
   const queryClient = useQueryClient();
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
-  }, []);
 
   const state: LifecycleView = wi ? deriveLifecycleView(wi) : "ACTIVE";
   const available = actionsForState(state);
