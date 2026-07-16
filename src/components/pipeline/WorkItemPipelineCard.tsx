@@ -13,7 +13,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { User, ExternalLink, Scale, FileText, ArrowRightLeft, Flag, MoreVertical, Trash2 } from "lucide-react";
+import { User, ExternalLink, Scale, FileText, ArrowRightLeft, Flag, MoreVertical } from "lucide-react";
+import { WorkItemActionsMenu } from "@/components/work-items/WorkItemActionsMenu";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -37,6 +38,8 @@ export interface WorkItemPipelineItem {
   last_action_date: string | null;
   last_checked_at: string | null;
   monitoring_enabled: boolean;
+  lifecycle_state?: string | null;
+  deleted_at?: string | null;
   auto_admisorio_date: string | null;
   created_at: string;
 }
@@ -50,7 +53,8 @@ interface WorkItemPipelineCardProps {
   onReclassify?: (item: WorkItemPipelineItem) => void;
   onToggleSelection?: (item: WorkItemPipelineItem, shiftKey: boolean) => void;
   onToggleFlag?: (item: WorkItemPipelineItem) => void;
-  onDelete?: (item: WorkItemPipelineItem) => void;
+  /** Called after any lifecycle action succeeds (invalidate lists). */
+  onAfterAction?: () => void;
 }
 
 export function WorkItemPipelineCard({ 
@@ -62,7 +66,7 @@ export function WorkItemPipelineCard({
   onReclassify,
   onToggleSelection,
   onToggleFlag,
-  onDelete,
+  onAfterAction,
 }: WorkItemPipelineCardProps) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
@@ -146,9 +150,10 @@ export function WorkItemPipelineCard({
                 >
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                
-                {/* Actions dropdown menu */}
-                <DropdownMenu>
+
+                {/* Reclassify / Flag submenu (non-lifecycle) */}
+                {(onReclassify || onToggleFlag) && (
+                  <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
@@ -183,23 +188,26 @@ export function WorkItemPipelineCard({
                         {item.is_flagged ? "Quitar bandera" : "Marcar con bandera"}
                       </DropdownMenuItem>
                     )}
-                    {onDelete && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDelete(item);
-                          }}
-                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Eliminar
-                        </DropdownMenuItem>
-                      </>
-                    )}
                   </DropdownMenuContent>
-                </DropdownMenu>
+                  </DropdownMenu>
+                )}
+
+                {/* Lifecycle actions (Pausar/Reactivar/Cerrar/Eliminar) */}
+                <WorkItemActionsMenu
+                  workItem={{
+                    id: item.id,
+                    radicado: item.radicado,
+                    title: item.title,
+                    client_id: item.client_id,
+                    workflow_type: item.workflow_type,
+                    lifecycle_state: item.lifecycle_state,
+                    monitoring_enabled: item.monitoring_enabled,
+                    deleted_at: item.deleted_at,
+                    stage: item.stage,
+                  }}
+                  clientName={item.client_name}
+                  onAfter={onAfterAction}
+                />
               </>
             )}
           </div>
