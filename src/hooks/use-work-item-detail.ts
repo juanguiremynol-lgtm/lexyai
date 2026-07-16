@@ -372,7 +372,8 @@ export function useWorkItemDetail(
         .from("work_items")
         .select("id")
         .eq("radicado", opts.radicado)
-        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       return data?.id ?? null;
     },
