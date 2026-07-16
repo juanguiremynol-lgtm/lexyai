@@ -54,7 +54,7 @@ import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
-import { useWorkItemActions, deriveLifecycleView } from "@/hooks/use-work-item-actions";
+import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 import { DeletedWorkItemView } from "./DeletedWorkItemView";
 
 import type { WorkItem } from "@/types/work-item";
