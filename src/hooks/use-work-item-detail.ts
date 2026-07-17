@@ -319,7 +319,7 @@ async function fetchDocuments(workItemId: string): Promise<any[]> {
   const { data } = await (supabase
     .from("documents") as any)
     .select("*")
-    .eq("work_item_id", workItemId)
+    .eq("filing_id", workItemId)
     .order("uploaded_at", { ascending: false });
   return data || [];
 }
@@ -327,7 +327,7 @@ async function fetchDocuments(workItemId: string): Promise<any[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchTasks(workItemId: string): Promise<any[]> {
   const { data } = await (supabase
-    .from("tasks") as any)
+    .from("work_item_tasks") as any)
     .select("*")
     .eq("work_item_id", workItemId)
     .order("due_at", { ascending: true });

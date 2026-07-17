@@ -287,7 +287,12 @@ export function useCreateWorkItem() {
         };
         
         if (isEligibleForReminders(workItemForReminders)) {
-          await createRemindersForWorkItem(workItemForReminders, workItem.owner_id);
+          // RLS policy: WITH CHECK (auth.uid() = owner_id AND (organization_id IS NULL OR is_org_member(organization_id))).
+          // Pass the work item's real organization_id (nullable for solo users) — NOT the owner_id.
+          await createRemindersForWorkItem(
+            workItemForReminders,
+            workItem.organization_id ?? null,
+          );
         }
       } catch (err) {
         console.error("Error creating reminders:", err);

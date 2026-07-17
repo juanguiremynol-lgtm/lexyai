@@ -33,7 +33,10 @@ export async function evaluateFreshnessClassification(
 
   const { data: items } = await (supabase
     .from('work_items') as any)
-    .select('id, radicado, freshness_tier, monitoring_enabled, last_successful_sync_at, last_viewed_at')
+    // last_viewed_at is not a column on work_items yet — omit it here so the
+    // classifier query does not error out. HIGH tier from "recently viewed"
+    // is therefore skipped until that column is added.
+    .select('id, radicado, freshness_tier, monitoring_enabled, last_successful_sync_at')
     .eq('organization_id', orgId)
     .eq('monitoring_enabled', true)
     .is('deleted_at', null)
@@ -70,13 +73,6 @@ export async function evaluateFreshnessClassification(
     // CRITICAL: upcoming court dates or active alerts
     if (hearingWorkItemIds.has(item.id) || alertedWorkItemIds.has(item.id)) {
       newTier = 'CRITICAL';
-    }
-    // HIGH: recently viewed (48h)
-    else if (
-      item.last_viewed_at &&
-      now.getTime() - new Date(item.last_viewed_at).getTime() < 48 * 60 * 60 * 1000
-    ) {
-      newTier = 'HIGH';
     }
     // LOW: dormant items (no sync in 90+ days)
     else if (item.last_successful_sync_at) {

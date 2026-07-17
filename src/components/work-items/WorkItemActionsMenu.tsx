@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   MoreVertical,
+  Settings2,
   Pause,
   Play,
   Lock,
@@ -147,8 +148,9 @@ export function WorkItemActionsMenu({
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           disabled={isPending}
+          title="Ciclo de vida"
         >
-          <MoreVertical className="h-4 w-4" />
+          <Settings2 className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">

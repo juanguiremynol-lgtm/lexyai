@@ -53,6 +53,8 @@ const INVALIDATE_KEYS = [
   "dashboard-stats",
   "archived-work-items",
   "cgp-items",
+  "cpaca-work-items-pipeline",
+  "tutelas-work-items",
 ];
 
 export function deriveLifecycleView(wi: WorkItemActionInput): LifecycleView {

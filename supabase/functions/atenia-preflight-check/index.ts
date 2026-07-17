@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
       const { data: secret } = await supabase
         .from("provider_instance_secrets")
         .select("id")
-        .eq("instance_id", instance.id)
+        .eq("provider_instance_id", instance.id)
         .limit(1)
         .maybeSingle();
 
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
       const { count: mappingCount } = await supabase
         .from("provider_mapping_specs")
         .select("*", { count: "exact", head: true })
-        .eq("connector_id", connector.id);
+        .eq("provider_connector_id", connector.id);
 
       const baseUrl = (instance as any).base_url;
       let connOk = false;

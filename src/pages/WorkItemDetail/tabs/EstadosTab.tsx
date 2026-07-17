@@ -300,6 +300,12 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
               estado.titulo_original?.trim() ||
               estado.descripcion?.trim() ||
               "Sin descripción",
+            // Surface the full body separately so the table can render it
+            // under the title. When titulo_original is empty we already used
+            // descripcion as the title — avoid duplicating it below.
+            descripcion: estado.titulo_original?.trim()
+              ? estado.descripcion || null
+              : null,
             despacho: workItem.authority_name || null,
             tipo_documento: estado.estado_numero
               ? `Estado N° ${estado.estado_numero}`

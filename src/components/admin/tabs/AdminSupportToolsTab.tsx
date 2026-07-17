@@ -178,7 +178,9 @@ export function AdminSupportToolsTab() {
         .from("work_items")
         .select("id")
         .eq("organization_id", organization.id)
-        .eq("lifecycle_state", "ACTIVE");
+        // Include every non-deleted lifecycle state so paused/closed demo
+        // items are also swept into the trash on reset.
+        .in("lifecycle_state", ["ACTIVE", "PAUSED", "CLOSED", "ARCHIVED"]);
       for (const wi of liveItems ?? []) {
         await setWorkItemLifecycle(supabase, {
           workItemId: wi.id,
