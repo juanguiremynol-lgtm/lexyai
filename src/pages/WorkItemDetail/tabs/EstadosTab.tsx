@@ -152,61 +152,91 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         estado_numero: null,
       });
     }
-    // Step 2: index dated rows by normalized title → detect NULL-fecha
-    // siblings that duplicate an existing dated fact.
-    const datedByTitle = new Map<string, PpEstado[]>();
+    // Step 2: canonical dedupe. Identity of an estado is
+    // (radicado, normalized_name, despacho). Since this tab already scopes
+    // to a single work_item (single radicado + single despacho), the key
+    // collapses to normalized_name. Two rows are treated as the SAME
+    // estado when their `fecha` values are within a 3 calendar-day window
+    // of each other — this collapses twin rows produced by the two
+    // ingestion passes (publication scrape vs document/PDF discovery),
+    // which often differ by 0-2 days. The merged row keeps the EARLIEST
+    // fecha and fills in whichever document link (auto/tabla/pdf) is
+    // missing, never overwriting an existing non-null link with null.
+    const DAY_MS = 86_400_000;
+    const WINDOW_DAYS = 3;
+    const parseDay = (s: string | null | undefined): number | null => {
+      if (!s) return null;
+      const t = new Date(s).getTime();
+      return Number.isFinite(t) ? Math.floor(t / DAY_MS) : null;
+    };
+    const groups = new Map<string, PpEstado[]>();
     for (const r of candidates) {
-      if (!r.fecha) continue;
-      const nt = normalizeTitleForDedupe(r.descripcion);
-      if (!nt) continue;
-      const arr = datedByTitle.get(nt) ?? [];
+      const nt = normalizeTitleForDedupe(r.descripcion) || `__notitle__:${r.fuente}-${r.id}`;
+      const arr = groups.get(nt) ?? [];
       arr.push(r);
-      datedByTitle.set(nt, arr);
+      groups.set(nt, arr);
     }
-    // Step 3: dedupe. Primary key = (normalized_title | date). NULL-fecha
-    // rows whose title matches exactly ONE dated sibling are absorbed into
-    // the dated row (merging PDF/URLs so we don't lose the attachment).
-    const outByKey = new Map<string, PpEstado>();
-    for (const r of candidates) {
-      const nt = normalizeTitleForDedupe(r.descripcion);
-      if (r.fecha) {
-        const key = `${nt}|${r.fecha}`;
-        const prev = outByKey.get(key);
-        if (!prev) {
-          outByKey.set(key, { ...r });
-        } else {
-          // Fold missing URLs from later duplicate into the winner.
-          outByKey.set(key, {
-            ...prev,
-            gcs_url_auto: prev.gcs_url_auto || r.gcs_url_auto || null,
-            gcs_url_tabla: prev.gcs_url_tabla || r.gcs_url_tabla || null,
-            pdf_url: prev.pdf_url || r.pdf_url || null,
-          });
+    const mergeInto = (target: PpEstado, next: PpEstado): PpEstado => {
+      const tDay = parseDay(target.fecha);
+      const nDay = parseDay(next.fecha);
+      // Keep earliest non-null fecha.
+      let fecha = target.fecha;
+      if (nDay !== null && (tDay === null || nDay < tDay)) fecha = next.fecha;
+      return {
+        ...target,
+        fecha,
+        gcs_url_auto: target.gcs_url_auto || next.gcs_url_auto || null,
+        gcs_url_tabla: target.gcs_url_tabla || next.gcs_url_tabla || null,
+        pdf_url: target.pdf_url || next.pdf_url || null,
+        titulo_original: target.titulo_original || next.titulo_original || null,
+        estado_numero: target.estado_numero || next.estado_numero || null,
+      };
+    };
+    const out: PpEstado[] = [];
+    for (const [, rows] of groups) {
+      // Sort by fecha asc (nulls last) for deterministic clustering that
+      // picks the earliest as the anchor.
+      const sorted = [...rows].sort((a, b) => {
+        const da = parseDay(a.fecha);
+        const db = parseDay(b.fecha);
+        if (da === null && db === null) return 0;
+        if (da === null) return 1;
+        if (db === null) return -1;
+        return da - db;
+      });
+      const clusters: PpEstado[] = [];
+      for (const r of sorted) {
+        const rDay = parseDay(r.fecha);
+        // Find an existing cluster whose anchor date is within window,
+        // OR (if r has no fecha) any cluster with the same normalized
+        // name — nameless-date rows always fold in when possible.
+        let absorbed = false;
+        for (let i = 0; i < clusters.length; i++) {
+          const cDay = parseDay(clusters[i].fecha);
+          const within =
+            rDay === null ||
+            cDay === null ||
+            Math.abs(rDay - cDay) <= WINDOW_DAYS;
+          if (within) {
+            clusters[i] = mergeInto(clusters[i], r);
+            absorbed = true;
+            break;
+          }
         }
-      } else {
-        // NULL-fecha row → try to absorb into a unique dated sibling.
-        const siblings = datedByTitle.get(nt) ?? [];
-        if (siblings.length === 1) {
-          const target = siblings[0];
-          const key = `${nt}|${target.fecha}`;
-          const prev = outByKey.get(key) ?? { ...target };
-          outByKey.set(key, {
-            ...prev,
-            gcs_url_auto: prev.gcs_url_auto || r.gcs_url_auto || null,
-            gcs_url_tabla: prev.gcs_url_tabla || r.gcs_url_tabla || null,
-            pdf_url: prev.pdf_url || r.pdf_url || null,
-          });
-          continue;
-        }
-        // 0 or >1 dated siblings → keep the NULL-fecha row (quarantine
-        // case: it is either a genuinely distinct fact or an orphan we
-        // cannot safely merge). Dedupe against other NULL-fecha rows with
-        // the same title so we don't double-render the orphan itself.
-        const key = `${nt}|__null__|${r.fuente}-${r.id}`;
-        outByKey.set(key, { ...r });
+        if (!absorbed) clusters.push({ ...r });
       }
+      for (const c of clusters) out.push(c);
     }
-    return Array.from(outByKey.values());
+    // Sort final list by fecha desc (nulls last) for display.
+    out.sort((a, b) => {
+      const da = parseDay(a.fecha);
+      const db = parseDay(b.fecha);
+      if (da === null && db === null) return 0;
+      if (da === null) return 1;
+      if (db === null) return -1;
+      return db - da;
+    });
+    return out;
   }, [estados, localPubs]);
 
   if (!radicado) {
