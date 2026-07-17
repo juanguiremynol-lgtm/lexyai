@@ -22,6 +22,8 @@ export interface EstadoRow {
   key: string;
   fuente: string;
   title: string;
+  /** Full ruling body — rendered under the title when present. */
+  descripcion?: string | null;
   despacho?: string | null;
   tipo_documento?: string | null;
   fecha?: string | null;
@@ -124,6 +126,11 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                         <span className="font-medium text-foreground leading-snug break-words">
                           {r.title || "Sin descripción"}
                         </span>
+                      )}
+                      {r.descripcion && r.descripcion.trim() && r.descripcion.trim() !== r.title?.trim() && (
+                        <p className="text-xs text-foreground/75 leading-snug whitespace-pre-wrap break-words">
+                          {r.descripcion.trim()}
+                        </p>
                       )}
                       <span
                         className={cn(

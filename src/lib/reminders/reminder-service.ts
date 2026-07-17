@@ -117,7 +117,7 @@ export async function createRemindersForWorkItem(
     
     try {
       const { error } = await supabase.from("work_item_reminders").insert({
-        organization_id: organizationId,
+        organization_id: organizationId ?? null,
         owner_id: workItem.owner_id,
         work_item_id: workItem.id,
         reminder_type: reminderType,

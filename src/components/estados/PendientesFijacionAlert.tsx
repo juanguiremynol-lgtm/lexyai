@@ -76,7 +76,7 @@ export function PendientesFijacionAlert() {
                     </div>
                   </div>
                   <Button asChild size="sm" variant="outline">
-                    <Link to={`/work-item/${wi.id}?tab=estados`}>Abrir</Link>
+                    <Link to={`/app/work-items/${wi.id}?tab=estados`}>Abrir</Link>
                   </Button>
                 </li>
               );
