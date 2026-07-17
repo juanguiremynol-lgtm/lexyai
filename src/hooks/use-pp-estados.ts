@@ -22,6 +22,13 @@ export interface PpEstado {
   estado_numero: string | null;
   demandante?: string;
   demandado?: string;
+  /** Strict YYYY-MM-DD when the upstream feed provides it. Preferred over
+   *  the legacy `fecha` string, which historically mixed DD/MM/YYYY and
+   *  scrape-date fallbacks that skewed by +1 day. */
+  fecha_providencia_iso?: string | null;
+  /** Provider-supplied document identity — used to avoid over-merging two
+   *  genuinely distinct estados that share name and date. */
+  hash_documento?: string | null;
 }
 
 export interface PpEstadosResponse {
@@ -42,7 +49,27 @@ export function usePpEstados(radicado: string | null | undefined, enabled = true
       }
       const body = (res.body ?? {}) as PpEstadosResponse;
       console.info("[usePpEstados] response", { total: body?.total, count: body?.estados?.length });
-      return Array.isArray(body?.estados) ? body.estados : [];
+      const rows = Array.isArray(body?.estados) ? body.estados : [];
+      // Prefer the additive ISO date field (`fecha_providencia_iso`,
+      // YYYY-MM-DD) whenever upstream provides it — that's now the source
+      // of truth. Fall back to the legacy `fecha` string only for older
+      // cached payloads, and log a warning so we can track how often the
+      // fallback path still runs.
+      return rows.map((r) => {
+        const iso =
+          typeof r.fecha_providencia_iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.fecha_providencia_iso)
+            ? r.fecha_providencia_iso
+            : null;
+        if (!iso) {
+          console.warn("[usePpEstados] missing fecha_providencia_iso; using legacy fecha", {
+            fuente: r.fuente,
+            id: r.id,
+            fecha: r.fecha,
+          });
+          return r;
+        }
+        return { ...r, fecha: iso };
+      });
     },
     enabled: !!radicado && enabled,
     staleTime: 2 * 60 * 1000,

@@ -140,6 +140,12 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     for (const e of fromApi) candidates.push(e);
     for (const p of localPubs ?? []) {
       const { directUrl } = resolveLocalPubUrls(p);
+      const rawAny = (p as any).raw_data ?? {};
+      const nestedAny = (rawAny.raw_data ?? {}) as Record<string, any>;
+      const hashDoc =
+        (typeof nestedAny?.hash_documento === "string" && nestedAny.hash_documento) ||
+        (typeof rawAny?.hash_documento === "string" && rawAny.hash_documento) ||
+        null;
       candidates.push({
         fuente: (p.source || "PUBLICACIONES").toUpperCase(),
         id: `local-${p.id}`,
@@ -150,6 +156,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         pdf_url: directUrl,
         titulo_original: null,
         estado_numero: null,
+        hash_documento: hashDoc,
       });
     }
     // Step 2: canonical dedupe. Identity of an estado is
@@ -162,12 +169,34 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     // which often differ by 0-2 days. The merged row keeps the EARLIEST
     // fecha and fills in whichever document link (auto/tabla/pdf) is
     // missing, never overwriting an existing non-null link with null.
+    // With both channels emitting `fecha_providencia_iso`, duplicates now
+    // carry identical dates. Tighten the window to ±2 days to match the
+    // backend canonical rule while still tolerating rare skew from legacy
+    // rows on the fallback path.
     const DAY_MS = 86_400_000;
-    const WINDOW_DAYS = 3;
+    const WINDOW_DAYS = 2;
     const parseDay = (s: string | null | undefined): number | null => {
       if (!s) return null;
       const t = new Date(s).getTime();
       return Number.isFinite(t) ? Math.floor(t / DAY_MS) : null;
+    };
+    // Document identity for the over-merge guard: prefer `hash_documento`
+    // when the provider supplied it, otherwise fall back to the pathname of
+    // whichever document URL is present. Returns null when no identity is
+    // available — those rows keep the legacy name+window merge behavior.
+    const docIdentity = (r: PpEstado): string | null => {
+      const h = (r as any).hash_documento;
+      if (typeof h === "string" && h.trim()) return `h:${h.trim()}`;
+      const url = r.pdf_url || r.gcs_url_auto || r.gcs_url_tabla;
+      if (typeof url === "string" && url.trim()) {
+        try {
+          const u = new URL(url);
+          return `u:${u.pathname}`;
+        } catch {
+          return `u:${url}`;
+        }
+      }
+      return null;
     };
     const groups = new Map<string, PpEstado[]>();
     for (const r of candidates) {
@@ -207,9 +236,15 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       const clusters: PpEstado[] = [];
       for (const r of sorted) {
         const rDay = parseDay(r.fecha);
+        const rIdent = docIdentity(r);
         // Find an existing cluster whose anchor date is within window,
         // OR (if r has no fecha) any cluster with the same normalized
         // name — nameless-date rows always fold in when possible.
+        // Over-merge guard: when BOTH candidates carry a document
+        // identity and the identities differ, do NOT merge — these are
+        // genuinely distinct estados that happen to share a title and
+        // date (e.g. three "Auto admite llamamiento en garantía" on the
+        // same day, each with a different attachment).
         let absorbed = false;
         for (let i = 0; i < clusters.length; i++) {
           const cDay = parseDay(clusters[i].fecha);
@@ -217,11 +252,12 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
             rDay === null ||
             cDay === null ||
             Math.abs(rDay - cDay) <= WINDOW_DAYS;
-          if (within) {
-            clusters[i] = mergeInto(clusters[i], r);
-            absorbed = true;
-            break;
-          }
+          if (!within) continue;
+          const cIdent = docIdentity(clusters[i]);
+          if (rIdent && cIdent && rIdent !== cIdent) continue;
+          clusters[i] = mergeInto(clusters[i], r);
+          absorbed = true;
+          break;
         }
         if (!absorbed) clusters.push({ ...r });
       }
