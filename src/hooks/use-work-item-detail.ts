@@ -330,7 +330,7 @@ async function fetchTasks(workItemId: string): Promise<any[]> {
     .from("work_item_tasks") as any)
     .select("*")
     .eq("work_item_id", workItemId)
-    .order("due_at", { ascending: true });
+    .order("due_date", { ascending: true });
   return data || [];
 }
 

@@ -371,11 +371,11 @@ Deno.serve(async (req) => {
       try {
         // Get user email — prefer alert_email from profile, fallback to auth email
         const [{ data: profile }, { data: userData }] = await Promise.all([
-          supabase.from("profiles").select("alert_email, email, full_name").eq("id", ownerId).maybeSingle(),
+          supabase.from("profiles").select("default_alert_email, email, full_name").eq("id", ownerId).maybeSingle(),
           supabase.auth.admin.getUserById(ownerId),
         ]);
 
-        const email = profile?.alert_email || profile?.email || userData?.user?.email;
+        const email = profile?.default_alert_email || profile?.email || userData?.user?.email;
         if (!email) {
           console.warn(`[dispatch-update-emails] No email for user ${ownerId}`);
           continue;
