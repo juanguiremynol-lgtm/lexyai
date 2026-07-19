@@ -15984,6 +15984,8 @@ export type Database = {
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
           legacy_peticion_id: string | null
+          lifecycle_actor: string | null
+          lifecycle_actor_user: string | null
           lifecycle_changed_at: string | null
           lifecycle_changed_by: string | null
           lifecycle_reason: string | null
@@ -16160,6 +16162,8 @@ export type Database = {
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
           legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
           lifecycle_changed_at?: string | null
           lifecycle_changed_by?: string | null
           lifecycle_reason?: string | null
@@ -16336,6 +16340,8 @@ export type Database = {
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
           legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
           lifecycle_changed_at?: string | null
           lifecycle_changed_by?: string | null
           lifecycle_reason?: string | null
