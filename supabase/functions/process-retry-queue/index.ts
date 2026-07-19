@@ -179,10 +179,31 @@ Deno.serve(async (req) => {
             }
           }
         } else if (task.kind === 'PUB_RETRY') {
-          const { data: pubResult, error: pubError } = await supabase.functions.invoke(
-            'sync-publicaciones-by-work-item',
-            { body: { work_item_id: task.work_item_id, _scheduled: true } }
-          );
+          // Use direct fetch with explicit service-role Bearer — the JS client's
+          // functions.invoke() does not reliably forward the service key as the
+          // Authorization header, which caused every PUB_RETRY to be rejected
+          // as UNAUTHORIZED by sync-publicaciones-by-work-item (isServiceRole
+          // check failed, then getUser() rejected the anon-key JWT).
+          let pubResult: any = null;
+          let pubError: any = null;
+          try {
+            const resp = await fetch(
+              `${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${supabaseServiceKey}`,
+                  'apikey': supabaseServiceKey,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ work_item_id: task.work_item_id, _scheduled: true }),
+              }
+            );
+            pubResult = await resp.json().catch(() => null);
+            if (!resp.ok) pubError = new Error(`HTTP ${resp.status}: ${pubResult?.error || 'unknown'}`);
+          } catch (e) {
+            pubError = e;
+          }
 
           if (pubError) {
             console.error(`[process-retry-queue] sync-pub invoke error:`, pubError);
