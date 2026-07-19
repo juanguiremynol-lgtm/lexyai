@@ -275,9 +275,21 @@ Deno.serve(async (req) => {
               if (shouldRunPublicaciones(syncResult) &&
                   (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)) {
                 try {
-                  await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-                    body: { work_item_id: item.id, _scheduled: true }
-                  });
+                  // Direct fetch with explicit service-role Bearer — the JS
+                  // client's functions.invoke() does not reliably forward the
+                  // service key, causing UNAUTHORIZED on the target.
+                  await fetch(
+                    `${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`,
+                    {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${supabaseServiceKey}`,
+                        'apikey': supabaseServiceKey,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ work_item_id: item.id, _scheduled: true }),
+                    }
+                  );
                 } catch {
                   // Non-blocking
                 }
