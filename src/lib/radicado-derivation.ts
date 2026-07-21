@@ -19,6 +19,15 @@ export interface DerivedRadicado {
   city: string | null;                // suggested city
   department: string | null;          // suggested department
   jurisdictionLabel: string | null;   // e.g. "Administrativo", "Laboral"
+  /**
+   * True when the specialty code marks a "mixed jurisdiction" despacho
+   * (promiscuo / pequeñas causas / competencia múltiple, esp 88/89).
+   * The wizard MUST present a category-selection step and cannot
+   * auto-classify; workflow will be null.
+   */
+  isMixed: boolean;
+  /** Human-readable rationale for the derivation, shown in wizard banners. */
+  reason: string;
 }
 
 /**
@@ -33,6 +42,13 @@ export interface DerivedRadicado {
  *   36    → Penal para adolescentes → PENAL_906
  *   otros → null (usuario decide manualmente)
  */
+/**
+ * Corp mapping is used ONLY when the specialty code does not already
+ * determine the workflow (LABORAL via esp 04/05 or MIXED via esp 88/89).
+ * Corp codes 40-42 no longer imply LABORAL by themselves — that was the
+ * source of the LABORAL misclassification for promiscuo / pequeñas causas
+ * despachos with esp 89.
+ */
 const CORP_TO_WORKFLOW: Record<string, { workflow: WorkflowType; label: string; confidence: "high" | "medium" }> = {
   "06": { workflow: "PENAL_906", label: "Penal municipal",       confidence: "high" },
   "07": { workflow: "PENAL_906", label: "Penal circuito",        confidence: "high" },
@@ -45,10 +61,39 @@ const CORP_TO_WORKFLOW: Record<string, { workflow: WorkflowType; label: string; 
   "34": { workflow: "CPACA",     label: "Tribunal Administrativo",confidence: "high" },
   "35": { workflow: "CPACA",     label: "Consejo de Estado",     confidence: "high" },
   "36": { workflow: "PENAL_906", label: "Penal adolescentes",    confidence: "high" },
-  "40": { workflow: "LABORAL",   label: "Laboral municipal",     confidence: "high" },
-  "41": { workflow: "LABORAL",   label: "Laboral circuito",      confidence: "high" },
-  "42": { workflow: "LABORAL",   label: "Sala Laboral",          confidence: "high" },
 };
+
+/**
+ * Specialty (esp) codes that unambiguously mark labor jurisdiction
+ * per the DANE codification of the Rama Judicial.
+ *   04 → Laboral
+ *   05 → Laboral (circuito / sala)
+ */
+const LABORAL_ESP = new Set(["04", "05"]);
+
+/**
+ * Specialty (esp) codes that mark mixed-jurisdiction despachos where
+ * the workflow CANNOT be inferred from the radicado and the wizard
+ * MUST prompt the user.
+ *   88 → Pequeñas causas y competencia múltiple
+ *   89 → Promiscuo (civil, laboral, familia)
+ */
+const MIXED_ESP = new Set(["88", "89"]);
+
+/**
+ * Detects "Juzgado Civil con Conocimiento en Asuntos Laborales" and
+ * similar despachos where a civil-corp code (30-32) actually hears
+ * labor matters. Returns true when the despacho name should suggest
+ * LABORAL as a user-confirmed override.
+ */
+export function detectLaboralFromDespacho(despacho: string | null | undefined): boolean {
+  if (!despacho) return false;
+  const t = despacho.toLowerCase();
+  // Positive: "civil ... conocimiento/asuntos laborales" or explicit "laboral" label
+  const hasCivilConoceLaboral = /(civil|circuito)[^.]*(conocimiento|asuntos)\s+laborales?/i.test(despacho);
+  const hasExplicitLaboral = /\b(juzgado|sala|tribunal)\s+laboral\b/i.test(despacho) || /\bsala\s+laboral\b/i.test(despacho);
+  return hasCivilConoceLaboral || hasExplicitLaboral;
+}
 
 /**
  * Department code (2 digits) → name.
@@ -106,19 +151,88 @@ export function deriveFromRadicado(radicado: string): DerivedRadicado | null {
   const parsed = parseRadicadoBlocks(radicado);
   if (!parsed.valid || !parsed.blocks) return null;
 
-  const { corp, dane, dept } = parsed.blocks;
-  const wfEntry = CORP_TO_WORKFLOW[corp] ?? null;
+  const { corp, esp, dane, dept } = parsed.blocks;
   const city = DANE_CITIES[dane] ?? null;
   const department = DEPT_NAMES[dept] ?? null;
 
+  // 1) Specialty-first rules override corp-based mapping.
+
+  // Mixed jurisdiction: refuse to auto-classify.
+  if (MIXED_ESP.has(esp)) {
+    return {
+      corp, esp, dane5: dane,
+      workflow: null,
+      workflowConfidence: "low",
+      city, department,
+      jurisdictionLabel: esp === "88" ? "Pequeñas causas / competencia múltiple" : "Promiscuo",
+      isMixed: true,
+      reason: `Especialidad ${esp} indica despacho de competencia mixta — la naturaleza del proceso debe confirmarse manualmente.`,
+    };
+  }
+
+  // Laboral unambiguously determined by specialty.
+  if (LABORAL_ESP.has(esp)) {
+    return {
+      corp, esp, dane5: dane,
+      workflow: "LABORAL",
+      workflowConfidence: "high",
+      city, department,
+      jurisdictionLabel: "Laboral",
+      isMixed: false,
+      reason: `Especialidad ${esp} corresponde a jurisdicción laboral.`,
+    };
+  }
+
+  // 2) Corp-based mapping for the remaining cases. Corp 40-42 without
+  //    laboral esp fall through to esp-based fallbacks below.
+  const wfEntry = CORP_TO_WORKFLOW[corp] ?? null;
+  if (wfEntry) {
+    return {
+      corp, esp, dane5: dane,
+      workflow: wfEntry.workflow,
+      workflowConfidence: wfEntry.confidence,
+      city, department,
+      jurisdictionLabel: wfEntry.label,
+      isMixed: false,
+      reason: `Corporación ${corp} (${wfEntry.label}).`,
+    };
+  }
+
+  // 3) Corp 40-42 with non-laboral esp: derive by esp when possible.
+  //    esp 03 civil, esp 08/09 familia → all handled under CGP taxonomy.
+  if (corp === "40" || corp === "41" || corp === "42") {
+    if (esp === "03") {
+      return {
+        corp, esp, dane5: dane,
+        workflow: "CGP",
+        workflowConfidence: "medium",
+        city, department,
+        jurisdictionLabel: "Civil (esp 03)",
+        isMixed: false,
+        reason: `Corporación ${corp} con especialidad civil (03).`,
+      };
+    }
+    if (esp === "08" || esp === "09") {
+      return {
+        corp, esp, dane5: dane,
+        workflow: "CGP",
+        workflowConfidence: "medium",
+        city, department,
+        jurisdictionLabel: "Familia (esp " + esp + ")",
+        isMixed: false,
+        reason: `Corporación ${corp} con especialidad familia (${esp}).`,
+      };
+    }
+  }
+
+  // 4) Unknown — wizard must ask.
   return {
-    corp,
-    esp: parsed.blocks.esp,
-    dane5: dane,
-    workflow: wfEntry?.workflow ?? null,
-    workflowConfidence: wfEntry?.confidence ?? "low",
-    city,
-    department,
-    jurisdictionLabel: wfEntry?.label ?? null,
+    corp, esp, dane5: dane,
+    workflow: null,
+    workflowConfidence: "low",
+    city, department,
+    jurisdictionLabel: null,
+    isMixed: false,
+    reason: `Corporación ${corp} / especialidad ${esp} no permite derivar la jurisdicción automáticamente.`,
   };
 }
