@@ -127,6 +127,10 @@ export function CreateWorkItemWizard({
   // portfolio we HARD-BLOCK creating another WI unless the user confirms an
   // explicit re-registration override (same UX pattern as the corp-guard).
   const [wizardOverrideDuplicate, setWizardOverrideDuplicate] = useState(false);
+  // Acknowledgment for mixed-jurisdiction despachos (esp 88/89): the
+  // radicado cannot decide LABORAL vs CGP vs CPACA, so the wizard forces
+  // an explicit user confirmation before advancing.
+  const [mixedJurisdictionAck, setMixedJurisdictionAck] = useState(false);
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
 
   // Look up existing work_items with the same radicado in the current
