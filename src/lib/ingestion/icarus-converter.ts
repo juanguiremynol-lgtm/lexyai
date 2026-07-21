@@ -67,16 +67,20 @@ function detectWorkflowTypeFromDespacho(despacho: string): SuggestedWorkflowType
   
   const lower = despacho.toLowerCase();
   
-  // LABORAL detection (check first - labor courts)
-  if (
-    lower.includes('laboral') ||
-    lower.includes('juzgado laboral') ||
-    lower.includes('sala laboral') ||
-    lower.includes('tribunal laboral') ||
-    lower.includes('seguridad social') ||
-    lower.includes('trabajo')
-  ) {
-    return 'LABORAL';
+  // LABORAL detection — only when the despacho is EXPLICITLY labor.
+  // Civil despachos with parenthetical "(conocimiento en asuntos
+  // laborales)" must NOT auto-classify as LABORAL — the wizard prompts
+  // the user instead. Same for generic mentions of "trabajo" that appear
+  // inside civil despacho names.
+  const isCivilConoceLaboral = /(civil|circuito)[^.]*(conocimiento|asuntos)\s+laborales?/i.test(despacho);
+  if (!isCivilConoceLaboral) {
+    if (
+      /\bjuzgado\s+laboral\b/i.test(despacho) ||
+      /\bsala\s+laboral\b/i.test(despacho) ||
+      /\btribunal\s+laboral\b/i.test(despacho)
+    ) {
+      return 'LABORAL';
+    }
   }
   
   // Tutela detection
@@ -97,12 +101,20 @@ function detectWorkflowTypeFromDespacho(despacho: string): SuggestedWorkflowType
     return 'CPACA';
   }
   
+  // Promiscuos / pequeñas causas → UNKNOWN (mixed jurisdiction, user decides)
+  if (
+    /\bpromiscuo\b/i.test(despacho) ||
+    /pequeñas\s+causas/i.test(despacho) ||
+    /competencia\s+múltiple/i.test(despacho)
+  ) {
+    return 'UNKNOWN';
+  }
+  
   // Civil courts → CGP
   if (
     lower.includes('civil') ||
     lower.includes('familia') ||
     lower.includes('comercial') ||
-    lower.includes('promiscuo') ||
     lower.includes('municipal') ||
     lower.includes('circuito')
   ) {
