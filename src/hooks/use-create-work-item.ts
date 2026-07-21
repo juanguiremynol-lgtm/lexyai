@@ -71,6 +71,17 @@ export interface CreateWorkItemData {
   /** True when the user overrode the corp-guard suggestion. Persisted to
    *  work_items.raw_data for audit. */
   wizard_override_workflow?: boolean;
+  /** Provenance marker for the workflow selection. Emitted by the wizard
+   *  and persisted as an audit log. Known values:
+   *    RADICADO_DERIVED         → matches derivation from radicado
+   *    USER_OVERRIDE_CORP       → user overrode a high-confidence derivation
+   *    USER_OVERRIDE_MIXED      → mixed-jurisdiction despacho (esp 88/89),
+   *                                user picked the workflow manually
+   *    USER_OVERRIDE_LABORAL    → user promoted a civil despacho to LABORAL
+   *                                after despacho lookup hinted labor.
+   *    MANUAL                   → no radicado / manual entry
+   */
+  workflow_origin?: string;
 }
 
 export function useCreateWorkItem() {
@@ -169,6 +180,29 @@ export function useCreateWorkItem() {
           });
         } catch (err) {
           console.warn("[use-create-work-item] audit_logs insert failed:", err);
+        }
+      }
+      
+      // Provenance audit: record how the workflow was resolved so
+      // downstream ops (Atenia, DATA_QUALITY sweeps) can distinguish
+      // radicado-derived items from manual overrides.
+      if (data.workflow_origin && workItem?.id) {
+        try {
+          await supabase.from("audit_logs").insert({
+            organization_id: workItem.organization_id ?? null,
+            entity_type: "work_item",
+            entity_id: workItem.id,
+            actor_type: "user",
+            actor_user_id: user.id,
+            action: "WIZARD_WORKFLOW_ORIGIN",
+            metadata: {
+              origin: data.workflow_origin,
+              chosen_workflow: workItem.workflow_type,
+              radicado: workItem.radicado,
+            },
+          });
+        } catch (err) {
+          console.warn("[use-create-work-item] workflow_origin audit failed:", err);
         }
       }
 
