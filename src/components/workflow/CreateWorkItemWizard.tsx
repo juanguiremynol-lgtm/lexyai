@@ -516,6 +516,21 @@ export function CreateWorkItemWizard({
       source_reference: lookupResult?.source_used || undefined,
       wizard_override_workflow: wizardOverrideWorkflow || undefined,
     };
+    // Provenance marker: how did we end up with this workflow_type?
+    {
+      const d = radicado.length === 23 ? deriveFromRadicado(radicado) : null;
+      if (!radicado || radicado.length !== 23) {
+        data.workflow_origin = 'MANUAL';
+      } else if (d?.isMixed && mixedJurisdictionAck) {
+        data.workflow_origin = 'USER_OVERRIDE_MIXED';
+      } else if (wizardOverrideWorkflow) {
+        data.workflow_origin = 'USER_OVERRIDE_CORP';
+      } else if (d?.workflow && d.workflow === workflowType) {
+        data.workflow_origin = 'RADICADO_DERIVED';
+      } else {
+        data.workflow_origin = 'MANUAL';
+      }
+    }
     
     // Workflow-specific fields
     if (workflowType === 'CGP') {
