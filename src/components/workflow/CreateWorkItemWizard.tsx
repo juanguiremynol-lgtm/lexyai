@@ -814,6 +814,8 @@ export function CreateWorkItemWizard({
                   {radicado.length === 23 && workflowType && (() => {
                     const derived = deriveFromRadicado(radicado);
                     if (!derived || !derived.workflow) return null;
+                    // Mixed-jurisdiction branch is rendered by the block below.
+                    if (derived.isMixed) return null;
                     if (derived.workflow === workflowType) {
                       return (
                         <Alert className="border-primary/40 bg-primary/5">
@@ -871,6 +873,31 @@ export function CreateWorkItemWizard({
                               </span>
                             </label>
                           </div>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  })()}
+                  
+                  {/* Mixed-jurisdiction banner (esp 88/89): the radicado
+                      cannot decide LABORAL vs CGP vs CPACA. User must
+                      explicitly acknowledge the manual choice. */}
+                  {radicado.length === 23 && workflowType && (() => {
+                    const d = deriveFromRadicado(radicado);
+                    if (!d?.isMixed) return null;
+                    return (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle className="text-sm">Despacho de competencia mixta</AlertTitle>
+                        <AlertDescription className="text-xs space-y-2">
+                          <p>{d.reason} Elegiste <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.</p>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={mixedJurisdictionAck}
+                              onCheckedChange={(v) => setMixedJurisdictionAck(v === true)}
+                              className="mt-0.5"
+                            />
+                            <span>Confirmo bajo mi responsabilidad que este asunto es <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.</span>
+                          </label>
                         </AlertDescription>
                       </Alert>
                     );
