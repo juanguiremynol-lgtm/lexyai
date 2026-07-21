@@ -127,6 +127,10 @@ export function CreateWorkItemWizard({
   // portfolio we HARD-BLOCK creating another WI unless the user confirms an
   // explicit re-registration override (same UX pattern as the corp-guard).
   const [wizardOverrideDuplicate, setWizardOverrideDuplicate] = useState(false);
+  // Acknowledgment for mixed-jurisdiction despachos (esp 88/89): the
+  // radicado cannot decide LABORAL vs CGP vs CPACA, so the wizard forces
+  // an explicit user confirmation before advancing.
+  const [mixedJurisdictionAck, setMixedJurisdictionAck] = useState(false);
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
 
   // Look up existing work_items with the same radicado in the current
@@ -512,6 +516,21 @@ export function CreateWorkItemWizard({
       source_reference: lookupResult?.source_used || undefined,
       wizard_override_workflow: wizardOverrideWorkflow || undefined,
     };
+    // Provenance marker: how did we end up with this workflow_type?
+    {
+      const d = radicado.length === 23 ? deriveFromRadicado(radicado) : null;
+      if (!radicado || radicado.length !== 23) {
+        data.workflow_origin = 'MANUAL';
+      } else if (d?.isMixed && mixedJurisdictionAck) {
+        data.workflow_origin = 'USER_OVERRIDE_MIXED';
+      } else if (wizardOverrideWorkflow) {
+        data.workflow_origin = 'USER_OVERRIDE_CORP';
+      } else if (d?.workflow && d.workflow === workflowType) {
+        data.workflow_origin = 'RADICADO_DERIVED';
+      } else {
+        data.workflow_origin = 'MANUAL';
+      }
+    }
     
     // Workflow-specific fields
     if (workflowType === 'CGP') {
@@ -795,6 +814,8 @@ export function CreateWorkItemWizard({
                   {radicado.length === 23 && workflowType && (() => {
                     const derived = deriveFromRadicado(radicado);
                     if (!derived || !derived.workflow) return null;
+                    // Mixed-jurisdiction branch is rendered by the block below.
+                    if (derived.isMixed) return null;
                     if (derived.workflow === workflowType) {
                       return (
                         <Alert className="border-primary/40 bg-primary/5">
@@ -852,6 +873,31 @@ export function CreateWorkItemWizard({
                               </span>
                             </label>
                           </div>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  })()}
+                  
+                  {/* Mixed-jurisdiction banner (esp 88/89): the radicado
+                      cannot decide LABORAL vs CGP vs CPACA. User must
+                      explicitly acknowledge the manual choice. */}
+                  {radicado.length === 23 && workflowType && (() => {
+                    const d = deriveFromRadicado(radicado);
+                    if (!d?.isMixed) return null;
+                    return (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle className="text-sm">Despacho de competencia mixta</AlertTitle>
+                        <AlertDescription className="text-xs space-y-2">
+                          <p>{d.reason} Elegiste <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.</p>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={mixedJurisdictionAck}
+                              onCheckedChange={(v) => setMixedJurisdictionAck(v === true)}
+                              className="mt-0.5"
+                            />
+                            <span>Confirmo bajo mi responsabilidad que este asunto es <strong>{WORKFLOW_TYPES[workflowType].shortLabel}</strong>.</span>
+                          </label>
                         </AlertDescription>
                       </Alert>
                     );
