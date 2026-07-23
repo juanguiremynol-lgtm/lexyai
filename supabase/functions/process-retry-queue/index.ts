@@ -270,6 +270,56 @@ Deno.serve(async (req) => {
               .eq('id', task.work_item_id);
           } else {
             console.log(`[process-retry-queue] PUB_RETRY exhausted for ${task.radicado} → coverage gap stands (no critical alert)`);
+
+            // Emit a user-facing alert confirming the WI has no real coverage
+            // of estados electrónicos after the full 48h re-check window.
+            // Idempotent per (work_item, day) via fingerprint.
+            try {
+              const { data: wi } = await supabase
+                .from('work_items')
+                .select('owner_id, organization_id, radicado, workflow_type')
+                .eq('id', task.work_item_id)
+                .maybeSingle();
+
+              if (wi?.owner_id) {
+                const confirmedFingerprint = `sin_cobertura_estados_confirmada_${task.work_item_id}`;
+                const { data: existingConfirmed } = await supabase
+                  .from('alert_instances')
+                  .select('id')
+                  .eq('entity_id', task.work_item_id)
+                  .eq('entity_type', 'WORK_ITEM')
+                  .eq('alert_type', 'SIN_COBERTURA_ESTADOS_CONFIRMADA')
+                  .in('status', ['PENDING', 'ACKNOWLEDGED'])
+                  .maybeSingle();
+
+                if (!existingConfirmed) {
+                  await supabase.from('alert_instances').insert({
+                    owner_id: wi.owner_id,
+                    organization_id: wi.organization_id ?? task.organization_id ?? null,
+                    entity_id: task.work_item_id,
+                    entity_type: 'WORK_ITEM',
+                    severity: 'WARNING',
+                    alert_type: 'SIN_COBERTURA_ESTADOS_CONFIRMADA',
+                    title: 'Sin cobertura de estados electrónicos confirmada',
+                    message: `Tras dos re-verificaciones automáticas (24h y 48h) el radicado ${task.radicado} sigue sin estados electrónicos publicados. Se confirma que el despacho no publica estados en el portal para este expediente. Andromeda seguirá monitoreando las actuaciones por otras vías; considere hacer seguimiento manual si espera notificaciones por estado.`,
+                    status: 'PENDING',
+                    fingerprint: confirmedFingerprint,
+                    payload: {
+                      workflow: wi.workflow_type,
+                      radicado: task.radicado,
+                      provider_key: 'publicaciones',
+                      data_kind: 'ESTADOS',
+                      attempts: task.attempt,
+                      exhausted_at: new Date().toISOString(),
+                      reason: 'PUB_RETRY_EXHAUSTED_EMPTY',
+                    },
+                  });
+                  console.log(`[process-retry-queue] SIN_COBERTURA_ESTADOS_CONFIRMADA alert emitted for ${task.radicado}`);
+                }
+              }
+            } catch (confirmedErr: any) {
+              console.warn('[process-retry-queue] Failed to emit confirmed no-coverage alert:', confirmedErr?.message);
+            }
           }
 
           // Create critical alert if we have an org (skip for PUB_RETRY —
