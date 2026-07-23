@@ -1874,6 +1874,43 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
 
       await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'empty');
+
+      // ============= SCHEDULED EMPTY-RETRY (24h + 48h) =============
+      // A single "empty" response is not enough to declare a WI truly
+      // devoid of estados: publicaciones frequently arrive with 12–36h of
+      // upstream lag (portal indexing, SAMAI Estados eventual consistency,
+      // etc.). Enqueue up to 2 automatic re-checks spaced 24h apart before
+      // we let the coverage gap stand on its own. The unique constraint
+      // (work_item_id, kind) makes this idempotent: repeated empty runs
+      // on the same WI reuse the existing row and do not reset the counter.
+      try {
+        const nextRunAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
+          .select('id, attempt, max_attempts')
+          .eq('work_item_id', work_item_id)
+          .eq('kind', 'PUB_RETRY')
+          .maybeSingle();
+
+        if (!existingRetry) {
+          await (supabase.from('sync_retry_queue') as any).insert({
+            work_item_id,
+            organization_id: workItem.organization_id,
+            radicado: normalizedRadicado,
+            workflow_type: workItem.workflow_type || 'CGP',
+            kind: 'PUB_RETRY',
+            provider: 'publicaciones',
+            attempt: 1,
+            max_attempts: 2, // 24h + 48h re-checks before giving up
+            next_run_at: nextRunAt,
+            last_error_code: result.result_code || 'SUCCESS_EMPTY',
+            last_error_message: 'Auto-scheduled 24h re-check after empty estados response',
+          });
+          console.log(`[sync-pub] Enqueued PUB_RETRY for ${work_item_id} → next_run_at=${nextRunAt}`);
+        }
+      } catch (retryErr: any) {
+        console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);
+      }
+
       return jsonResponse({
         ...result,
         coverage_gap: {
