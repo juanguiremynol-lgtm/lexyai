@@ -208,9 +208,19 @@ Deno.serve(async (req) => {
           if (pubError) {
             console.error(`[process-retry-queue] sync-pub invoke error:`, pubError);
           } else {
-            syncOk = pubResult?.ok === true;
-            if (syncOk) {
-              console.log(`[process-retry-queue] ✅ PUB retry succeeded for ${task.radicado}: inserted=${pubResult?.inserted_count}`);
+            // A PUB_RETRY is only "successful" when the upstream actually
+            // returned publications. An `ok: true + inserted_count: 0`
+            // response means the provider still has no estados for this
+            // radicado — we must keep the retry alive (24h cadence) so the
+            // WI does not get silently marked as done while data may still
+            // arrive within the following 48h window.
+            const inserted = Number(pubResult?.inserted_count ?? 0);
+            const hasData = pubResult?.ok === true && inserted > 0;
+            syncOk = hasData;
+            if (hasData) {
+              console.log(`[process-retry-queue] ✅ PUB retry succeeded for ${task.radicado}: inserted=${inserted}`);
+            } else if (pubResult?.ok === true) {
+              console.log(`[process-retry-queue] ⏳ PUB retry still empty for ${task.radicado} (attempt ${task.attempt}/${task.max_attempts})`);
             } else {
               console.log(`[process-retry-queue] ❌ PUB retry failed for ${task.radicado}: ${pubResult?.status || 'unknown'}`);
             }
@@ -243,18 +253,28 @@ Deno.serve(async (req) => {
             .delete()
             .eq('id', task.id);
 
-          await supabase
-            .from('work_items')
-            .update({
-              scrape_status: 'FAILED',
-              last_checked_at: new Date().toISOString(),
-              last_error_code: SCRAPING_STUCK,
-              last_error_at: new Date().toISOString(),
-            })
-            .eq('id', task.work_item_id);
+          // PUB_RETRY exhaustion is expected for despachos that do not
+          // publish estados electrónicos — coverage_gap + BRECHA_COBERTURA
+          // alert are already persisted by sync-publicaciones. Do NOT flip
+          // the WI to FAILED and do NOT raise a "sincronización fallida"
+          // alert in that case; just close out the retry.
+          if (task.kind !== 'PUB_RETRY') {
+            await supabase
+              .from('work_items')
+              .update({
+                scrape_status: 'FAILED',
+                last_checked_at: new Date().toISOString(),
+                last_error_code: SCRAPING_STUCK,
+                last_error_at: new Date().toISOString(),
+              })
+              .eq('id', task.work_item_id);
+          } else {
+            console.log(`[process-retry-queue] PUB_RETRY exhausted for ${task.radicado} → coverage gap stands (no critical alert)`);
+          }
 
-          // Create critical alert if we have an org
-          if (task.organization_id) {
+          // Create critical alert if we have an org (skip for PUB_RETRY —
+          // BRECHA_COBERTURA_ESTADOS already communicates the situation).
+          if (task.organization_id && task.kind !== 'PUB_RETRY') {
             try {
               const { data: membership } = await supabase
                 .from('organization_memberships')
@@ -291,16 +311,21 @@ Deno.serve(async (req) => {
 
           exhausted++;
         } else {
-          // Reschedule with policy-driven jitter
-          const nextRunAt = new Date(Date.now() + retryJitterMs()).toISOString();
+          // Reschedule. PUB_RETRY uses a fixed 24h cadence so the two
+          // remaining attempts land at +24h and +48h from the first empty
+          // response. Other kinds keep the policy-driven jitter.
+          const delayMs = task.kind === 'PUB_RETRY'
+            ? 24 * 60 * 60 * 1000
+            : retryJitterMs();
+          const nextRunAt = new Date(Date.now() + delayMs).toISOString();
 
           await (supabase.from('sync_retry_queue') as any)
             .update({
               attempt: task.attempt + 1,
               next_run_at: nextRunAt,
               claimed_at: null,
-              last_error_code: 'SCRAPING_TIMEOUT',
-              last_error_message: `Attempt ${task.attempt} failed, rescheduled`,
+              last_error_code: task.kind === 'PUB_RETRY' ? 'PUB_EMPTY_RECHECK' : 'SCRAPING_TIMEOUT',
+              last_error_message: `Attempt ${task.attempt} rescheduled (+${Math.round(delayMs / 3600000)}h)`,
             })
             .eq('id', task.id);
 
