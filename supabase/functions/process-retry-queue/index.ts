@@ -294,17 +294,15 @@ Deno.serve(async (req) => {
                 .eq('id', task.work_item_id)
                 .maybeSingle();
 
-              if (wi?.owner_id) {
-                // Final safety: never emit the "no coverage" confirmation
-                // if the WI already has publicaciones persisted.
-                const { count: pubCount } = await supabase
-                  .from('work_item_publicaciones')
-                  .select('id', { count: 'exact', head: true })
-                  .eq('work_item_id', task.work_item_id);
-                if ((pubCount ?? 0) > 0) {
-                  console.log(`[process-retry-queue] Skipping SIN_COBERTURA alert for ${task.radicado}: ${pubCount} publicaciones already present`);
-                  return;
-                }
+              // Final safety: never emit the "no coverage" confirmation
+              // if the WI already has publicaciones persisted.
+              const { count: pubCountGuard } = await supabase
+                .from('work_item_publicaciones')
+                .select('id', { count: 'exact', head: true })
+                .eq('work_item_id', task.work_item_id);
+              const hasPubsAlready = (pubCountGuard ?? 0) > 0;
+
+              if (wi?.owner_id && !hasPubsAlready) {
                 const confirmedFingerprint = `sin_cobertura_estados_confirmada_${task.work_item_id}`;
                 const { data: existingConfirmed } = await supabase
                   .from('alert_instances')
@@ -339,6 +337,8 @@ Deno.serve(async (req) => {
                   });
                   console.log(`[process-retry-queue] SIN_COBERTURA_ESTADOS_CONFIRMADA alert emitted for ${task.radicado}`);
                 }
+              } else if (hasPubsAlready) {
+                console.log(`[process-retry-queue] Skipping SIN_COBERTURA alert for ${task.radicado}: ${pubCountGuard} publicaciones already present`);
               }
             } catch (confirmedErr: any) {
               console.warn('[process-retry-queue] Failed to emit confirmed no-coverage alert:', confirmedErr?.message);
