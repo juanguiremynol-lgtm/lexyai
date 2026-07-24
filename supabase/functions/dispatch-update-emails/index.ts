@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
     if (workItemIds.length > 0) {
       const { data: workItems } = await supabase
         .from("work_items")
-        .select("id, title, radicado, court_name, authority_name, demandantes, demandados, workflow_type, client_id")
+        .select("id, title, radicado, authority_name, demandantes, demandados, workflow_type, client_id")
         .in("id", workItemIds);
 
       if (workItems) {
@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
             id: wi.id,
             title: wi.title,
             radicado: wi.radicado,
-            court_name: wi.court_name,
+            court_name: wi.authority_name || null,
             authority_name: wi.authority_name || null,
             demandantes: wi.demandantes || null,
             demandados: wi.demandados || null,
@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
     if (actIds.length > 0) {
       const { data: actDetails } = await supabase
         .from("work_item_acts")
-        .select("id, act_date, act_type, description, annotation, source, despacho, fecha_registro, inicia_termino, medio, event_summary")
+        .select("id, act_date, act_type, description, source, despacho, inicia_termino, event_summary")
         .in("id", actIds);
       for (const act of actDetails || []) {
         actDetailMap.set(act.id, act);
@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
     if (pubIds.length > 0) {
       const { data: pubDetails } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, published_at, source, pdf_url, fecha_fijacion, observacion, instancia, descripcion")
+        .select("id, title, published_at, source, pdf_url, fecha_fijacion")
         .in("id", pubIds);
       for (const pub of pubDetails || []) {
         pubDetailMap.set(pub.id, pub);
@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
       if (wiIds.length > 0) {
         const { data: fallbackActs } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, act_date, act_type, description, annotation, source, despacho, detected_at, event_summary")
+          .select("id, work_item_id, act_date, act_type, description, source, despacho, detected_at, event_summary")
           .in("work_item_id", wiIds)
           .order("detected_at", { ascending: false })
           .limit(wiIds.length * 3);
@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
       if (wiIds.length > 0) {
         const { data: fallbackPubs } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, title, fecha_fijacion, source, observacion, descripcion, detected_at, published_at")
+          .select("id, work_item_id, title, fecha_fijacion, source, detected_at, published_at")
           .in("work_item_id", wiIds)
           .order("detected_at", { ascending: false })
           .limit(wiIds.length * 3);
