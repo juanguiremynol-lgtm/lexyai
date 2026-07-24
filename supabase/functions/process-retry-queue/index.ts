@@ -295,6 +295,16 @@ Deno.serve(async (req) => {
                 .maybeSingle();
 
               if (wi?.owner_id) {
+                // Final safety: never emit the "no coverage" confirmation
+                // if the WI already has publicaciones persisted.
+                const { count: pubCount } = await supabase
+                  .from('work_item_publicaciones')
+                  .select('id', { count: 'exact', head: true })
+                  .eq('work_item_id', task.work_item_id);
+                if ((pubCount ?? 0) > 0) {
+                  console.log(`[process-retry-queue] Skipping SIN_COBERTURA alert for ${task.radicado}: ${pubCount} publicaciones already present`);
+                  return;
+                }
                 const confirmedFingerprint = `sin_cobertura_estados_confirmada_${task.work_item_id}`;
                 const { data: existingConfirmed } = await supabase
                   .from('alert_instances')
