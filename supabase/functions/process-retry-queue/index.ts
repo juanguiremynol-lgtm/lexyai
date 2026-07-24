@@ -220,7 +220,20 @@ Deno.serve(async (req) => {
             if (hasData) {
               console.log(`[process-retry-queue] ✅ PUB retry succeeded for ${task.radicado}: inserted=${inserted}`);
             } else if (pubResult?.ok === true) {
-              console.log(`[process-retry-queue] ⏳ PUB retry still empty for ${task.radicado} (attempt ${task.attempt}/${task.max_attempts})`);
+              // If publicaciones already exist for this WI (ingested by
+              // scheduled-daily-sync, manual refresh, or an earlier run),
+              // the retry is moot — clear it instead of continuing toward
+              // the false "no coverage" confirmation alert.
+              const { count: existingPubs } = await supabase
+                .from('work_item_publicaciones')
+                .select('id', { count: 'exact', head: true })
+                .eq('work_item_id', task.work_item_id);
+              if ((existingPubs ?? 0) > 0) {
+                console.log(`[process-retry-queue] ✅ PUB retry resolved for ${task.radicado}: ${existingPubs} publicaciones already present`);
+                syncOk = true;
+              } else {
+                console.log(`[process-retry-queue] ⏳ PUB retry still empty for ${task.radicado} (attempt ${task.attempt}/${task.max_attempts})`);
+              }
             } else {
               console.log(`[process-retry-queue] ❌ PUB retry failed for ${task.radicado}: ${pubResult?.status || 'unknown'}`);
             }
