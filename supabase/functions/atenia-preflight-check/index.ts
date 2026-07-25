@@ -61,22 +61,28 @@ Deno.serve(async (req) => {
 
   try {
     // === BUILT-IN PROVIDERS ===
-    const apiKey = Deno.env.get("EXTERNAL_X_API_KEY") ?? "";
+    // Per-provider keys take precedence over the shared EXTERNAL_X_API_KEY
+    // (matches the resolution logic used by integration-health and the sync workers).
+    const sharedKey = Deno.env.get("EXTERNAL_X_API_KEY") ?? "";
+    const keyFor = (name: string): string =>
+      Deno.env.get(`${name}_X_API_KEY`) ?? sharedKey;
 
     const builtIns = [
       {
         name: "CPNU",
         baseUrl: Deno.env.get("CPNU_BASE_URL"),
         testEndpoint: (r: string) => `/snapshot?numero_radicacion=${r}`,
-        testRadicado: "05001400301520240193000",
+        testRadicado: Deno.env.get("CPNU_TEST_RADICADO") ?? "05001400301520240193000",
         expectedFields: ["actuaciones", "radicado"],
+        apiKey: keyFor("CPNU"),
       },
       {
         name: "SAMAI",
         baseUrl: Deno.env.get("SAMAI_BASE_URL"),
         testEndpoint: (r: string) => `/buscar?numero_radicacion=${r}`,
-        testRadicado: "05001233300020240115300",
+        testRadicado: Deno.env.get("SAMAI_TEST_RADICADO") ?? "05001233300020240115300",
         expectedFields: ["actuaciones", "radicado"],
+        apiKey: keyFor("SAMAI"),
       },
       {
         name: "PUBLICACIONES",
@@ -84,19 +90,22 @@ Deno.serve(async (req) => {
         testEndpoint: (r: string) => `/snapshot/${r}`,
         testRadicado: "05001400301520240193000",
         expectedFields: ["publicaciones", "radicado"],
+        apiKey: keyFor("PUBLICACIONES"),
       },
       {
         name: "TUTELAS",
         baseUrl: Deno.env.get("TUTELAS_BASE_URL"),
-        testEndpoint: (r: string) => `/buscar?radicado=${r}`,
+        // Tutelas uses path-based lookups (matches integration-health + sync-by-work-item).
+        testEndpoint: (r: string) => `/expediente/${r}`,
         testRadicado: "05001400301520240193000",
         expectedFields: [],
+        apiKey: keyFor("TUTELAS"),
       },
     ];
 
     // Run built-in checks in parallel
     const builtInResults = await Promise.all(
-      builtIns.map((p) => checkBuiltInProvider(p, apiKey))
+      builtIns.map((p) => checkBuiltInProvider(p, p.apiKey))
     );
     results.push(...builtInResults);
 
@@ -313,12 +322,22 @@ async function checkBuiltInProvider(
     return result;
   }
 
+  if (!apiKey) {
+    result.checks.authentication = {
+      ok: false,
+      latency_ms: 0,
+      error: `Missing ${provider.name}_X_API_KEY (and no EXTERNAL_X_API_KEY fallback)`,
+    };
+    result.failure_reason = `No API key configured for ${provider.name}`;
+    return result;
+  }
+
   // Combined connectivity + auth + data shape in one authenticated request
   try {
     const url = `${provider.baseUrl}${provider.testEndpoint(provider.testRadicado)}`;
     const t0 = Date.now();
     const res = await fetch(url, {
-      headers: apiKey ? { "x-api-key": apiKey } : {},
+      headers: { "x-api-key": apiKey, Accept: "application/json" },
       signal: AbortSignal.timeout(8000),
     });
     const latency = Date.now() - t0;
@@ -343,8 +362,9 @@ async function checkBuiltInProvider(
       } catch {
         result.checks.data_shape = { ok: false, latency_ms: latency, error: "Response is not valid JSON" };
       }
-    } else if (res.status === 404) {
-      // 404 for test radicado = auth worked, radicado doesn't exist — OK
+    } else if (res.status === 404 || res.status === 400) {
+      // 404/400 on a synthetic test radicado = auth accepted, no data — treat as OK.
+      // Tutelas returns 400 for unknown expedientes; CPNU/SAMAI/Publicaciones return 404.
       result.checks.data_shape = { ok: true, latency_ms: latency };
     } else {
       result.checks.data_shape = { ok: false, latency_ms: latency, error: `Unexpected status ${res.status}` };
