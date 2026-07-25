@@ -2,7 +2,10 @@
  * atenia-preflight-check — Pre-flight API verification for all providers.
  *
  * Runs lightweight connectivity + auth + data-shape probes against:
- *   - 4 built-in providers (CPNU, SAMAI, Publicaciones, Tutelas)
+ *   - 4 built-in providers, agrupados por categoría:
+ *       Actuaciones: CPNU (primario), SAMAI (secundario)
+ *       Estados/Publicaciones: Publicaciones Procesales (primario), SAMAI Estados (secundario)
+ *     (Tutelas es una categoría de work item — NO un proveedor externo; usa los 4 en cascada.)
  *   - All active external provider connectors
  *
  * Called BEFORE daily sync, periodically from heartbeat (~every 90 min),
@@ -21,6 +24,8 @@ const corsHeaders = {
 interface PreflightResult {
   provider: string;
   provider_type: "BUILT_IN" | "EXTERNAL";
+  category?: "ACTUACIONES" | "ESTADOS";
+  role?: "PRIMARY" | "SECONDARY";
   checks: {
     connectivity: { ok: boolean; latency_ms: number; status_code?: number; error?: string };
     authentication: { ok: boolean; latency_ms: number; error?: string };
@@ -70,7 +75,10 @@ Deno.serve(async (req) => {
     const builtIns = [
       {
         name: "CPNU",
+        category: "ACTUACIONES" as const,
+        role: "PRIMARY" as const,
         baseUrl: Deno.env.get("CPNU_BASE_URL"),
+        method: "GET" as const,
         testEndpoint: (r: string) => `/snapshot?numero_radicacion=${r}`,
         testRadicado: Deno.env.get("CPNU_TEST_RADICADO") ?? "05001400301520240193000",
         expectedFields: ["actuaciones", "radicado"],
@@ -78,7 +86,10 @@ Deno.serve(async (req) => {
       },
       {
         name: "SAMAI",
+        category: "ACTUACIONES" as const,
+        role: "SECONDARY" as const,
         baseUrl: Deno.env.get("SAMAI_BASE_URL"),
+        method: "GET" as const,
         testEndpoint: (r: string) => `/buscar?numero_radicacion=${r}`,
         testRadicado: Deno.env.get("SAMAI_TEST_RADICADO") ?? "05001233300020240115300",
         expectedFields: ["actuaciones", "radicado"],
@@ -86,20 +97,28 @@ Deno.serve(async (req) => {
       },
       {
         name: "PUBLICACIONES",
+        category: "ESTADOS" as const,
+        role: "PRIMARY" as const,
         baseUrl: Deno.env.get("PUBLICACIONES_BASE_URL"),
+        method: "GET" as const,
         testEndpoint: (r: string) => `/snapshot/${r}`,
-        testRadicado: "05001400301520240193000",
+        testRadicado: Deno.env.get("PUBLICACIONES_TEST_RADICADO") ?? "05001400301520240193000",
         expectedFields: ["publicaciones", "radicado"],
         apiKey: keyFor("PUBLICACIONES"),
       },
       {
-        name: "TUTELAS",
-        baseUrl: Deno.env.get("TUTELAS_BASE_URL"),
-        // Tutelas uses path-based lookups (matches integration-health + sync-by-work-item).
-        testEndpoint: (r: string) => `/expediente/${r}`,
-        testRadicado: "05001400301520240193000",
-        expectedFields: [],
-        apiKey: keyFor("TUTELAS"),
+        // SAMAI Estados es el proveedor secundario para estados/publicaciones.
+        // Usa POST /snapshot con body { radicado } (ver samaiEstadosAdapter).
+        name: "SAMAI_ESTADOS",
+        category: "ESTADOS" as const,
+        role: "SECONDARY" as const,
+        baseUrl: Deno.env.get("SAMAI_ESTADOS_BASE_URL"),
+        method: "POST" as const,
+        testEndpoint: (_r: string) => `/snapshot`,
+        testBody: (r: string) => JSON.stringify({ radicado: r }),
+        testRadicado: Deno.env.get("SAMAI_ESTADOS_TEST_RADICADO") ?? "05001400301520240193000",
+        expectedFields: ["publicaciones"],
+        apiKey: keyFor("SAMAI_ESTADOS"),
       },
     ];
 
@@ -298,8 +317,12 @@ Deno.serve(async (req) => {
 async function checkBuiltInProvider(
   provider: {
     name: string;
+    category?: "ACTUACIONES" | "ESTADOS";
+    role?: "PRIMARY" | "SECONDARY";
     baseUrl?: string;
+    method?: "GET" | "POST";
     testEndpoint: (r: string) => string;
+    testBody?: (r: string) => string;
     testRadicado: string;
     expectedFields: string[];
   },
@@ -308,6 +331,8 @@ async function checkBuiltInProvider(
   const result: PreflightResult = {
     provider: provider.name,
     provider_type: "BUILT_IN",
+    category: provider.category,
+    role: provider.role,
     checks: {
       connectivity: { ok: false, latency_ms: 0 },
       authentication: { ok: false, latency_ms: 0 },
@@ -336,8 +361,16 @@ async function checkBuiltInProvider(
   try {
     const url = `${provider.baseUrl}${provider.testEndpoint(provider.testRadicado)}`;
     const t0 = Date.now();
+    const method = provider.method ?? "GET";
+    const headers: Record<string, string> = {
+      "x-api-key": apiKey,
+      Accept: "application/json",
+    };
+    if (method === "POST") headers["Content-Type"] = "application/json";
     const res = await fetch(url, {
-      headers: { "x-api-key": apiKey, Accept: "application/json" },
+      method,
+      headers,
+      body: method === "POST" && provider.testBody ? provider.testBody(provider.testRadicado) : undefined,
       signal: AbortSignal.timeout(8000),
     });
     const latency = Date.now() - t0;
@@ -364,7 +397,7 @@ async function checkBuiltInProvider(
       }
     } else if (res.status === 404 || res.status === 400) {
       // 404/400 on a synthetic test radicado = auth accepted, no data — treat as OK.
-      // Tutelas returns 400 for unknown expedientes; CPNU/SAMAI/Publicaciones return 404.
+      // Algunos proveedores devuelven 400 para radicados inexistentes; otros devuelven 404.
       result.checks.data_shape = { ok: true, latency_ms: latency };
     } else {
       result.checks.data_shape = { ok: false, latency_ms: latency, error: `Unexpected status ${res.status}` };
