@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Brain, RefreshCw, Loader2, ShieldAlert, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { Brain, Globe, RefreshCw, Loader2, ShieldAlert, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 // ─── Types ───
@@ -55,6 +55,7 @@ export function SuperAdminToolbar() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [analysisStats, setAnalysisStats] = useState<AnalysisStats | null>(null);
+  const [analysisScope, setAnalysisScope] = useState<"own" | "platform">("own");
 
   // Master Sync state
   const [syncProgress, setSyncProgress] = useState<SyncProgress>({
@@ -62,14 +63,17 @@ export function SuperAdminToolbar() {
   });
 
   // ─── Lexy Deep Analysis ───
-  const runLexyAnalysis = useCallback(async () => {
+  const runLexyAnalysis = useCallback(async (scope: "own" | "platform" = "own") => {
     setAnalysisLoading(true);
     setAnalysisResult(null);
     setAnalysisStats(null);
+    setAnalysisScope(scope);
     setAnalysisOpen(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("superadmin-lexy-analysis");
+      const { data, error } = await supabase.functions.invoke("superadmin-lexy-analysis", {
+        body: { scope },
+      });
 
       if (error) throw error;
 
@@ -210,15 +214,27 @@ export function SuperAdminToolbar() {
           variant="ghost"
           size="icon"
           className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
-          onClick={runLexyAnalysis}
+          onClick={() => runLexyAnalysis("own")}
           disabled={analysisLoading}
-          title="Análisis Lexy AI"
+          title="Análisis Lexy AI — mis asuntos"
         >
           {analysisLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Brain className="h-4 w-4" />
           )}
+        </Button>
+
+        {/* Lexy AI Platform-wide Analysis Button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+          onClick={() => runLexyAnalysis("platform")}
+          disabled={analysisLoading}
+          title="Análisis Lexy AI — plataforma completa"
+        >
+          <Globe className="h-4 w-4" />
         </Button>
 
         {/* Master Sync Button */}
@@ -266,8 +282,8 @@ export function SuperAdminToolbar() {
         <DialogContent className="max-w-3xl max-h-[85vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-amber-500" />
-              Análisis Lexy AI — Panorama Ejecutivo
+              {analysisScope === "platform" ? <Globe className="h-5 w-5 text-amber-500" /> : <Brain className="h-5 w-5 text-amber-500" />}
+              Análisis Lexy AI — {analysisScope === "platform" ? "Plataforma Completa" : "Panorama Ejecutivo"}
             </DialogTitle>
           </DialogHeader>
 
