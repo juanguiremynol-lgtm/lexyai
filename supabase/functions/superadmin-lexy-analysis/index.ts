@@ -77,6 +77,11 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Parse optional scope: "own" (caller's org, default) or "platform" (all orgs).
+    let payload: { scope?: "own" | "platform" } = {};
+    try { payload = await req.json(); } catch { /* no body */ }
+    const scope: "own" | "platform" = payload.scope === "platform" ? "platform" : "own";
+
     // Get user's organization
     const { data: profile } = await supabase
       .from("profiles")
@@ -84,19 +89,23 @@ Deno.serve(async (req) => {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (!profile?.organization_id) {
+    if (scope === "own" && !profile?.organization_id) {
       return new Response(JSON.stringify({ error: "No organization found" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const orgId = profile.organization_id;
-    const userName = profile.full_name || "Admin";
+    const orgId = profile?.organization_id ?? null;
+    const userName = profile?.full_name || "Admin";
     const today = todayCOT();
     const dayStartUTC = `${today}T05:00:00.000Z`;
 
-    console.log(`[superadmin-lexy] Gathering data for ${userName} org=${orgId}`);
+    console.log(`[superadmin-lexy] Gathering data for ${userName} scope=${scope} org=${orgId ?? "ALL"}`);
+
+    // Helper: apply org filter only when scope === "own".
+    const scopeOrg = <T extends { eq: (col: string, val: any) => T }>(q: T): T =>
+      scope === "own" && orgId ? q.eq("organization_id", orgId) : q;
 
     // ─── Gather comprehensive data in parallel ───
     const [
@@ -109,68 +118,73 @@ Deno.serve(async (req) => {
       milestonesRes,
     ] = await Promise.all([
       // All active work items
-      supabase
+      scopeOrg(supabase
         .from("work_items")
-        .select("id, radicado, title, workflow_type, stage, authority_name, last_synced_at, monitoring_enabled, total_actuaciones, created_at, last_event_at")
-        .eq("organization_id", orgId)
+        .select("id, radicado, title, workflow_type, stage, authority_name, last_synced_at, monitoring_enabled, total_actuaciones, created_at, last_event_at, organization_id")
         .eq("status", "ACTIVE")
+      )
         .order("last_event_at", { ascending: false, nullsFirst: true })
-        .limit(100),
+        .limit(scope === "platform" ? 300 : 100),
 
       // Recent actuaciones (last 7 days)
-      supabase
+      scopeOrg(supabase
         .from("work_item_acts")
         .select("id, work_item_id, description, act_date, source, created_at, work_items!inner(radicado, title, authority_name)")
-        .eq("organization_id", orgId)
         .eq("is_archived", false)
+      )
         .gte("act_date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
         .order("act_date", { ascending: false })
-        .limit(50),
+        .limit(scope === "platform" ? 150 : 50),
 
       // Recent publicaciones (last 7 days)
-      supabase
+      scopeOrg(supabase
         .from("work_item_publicaciones")
         .select("id, work_item_id, title, tipo_publicacion, fecha_fijacion, fecha_desfijacion, work_items!inner(radicado, title)")
-        .eq("organization_id", orgId)
         .eq("is_archived", false)
+      )
         .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
         .order("fecha_fijacion", { ascending: false })
-        .limit(30),
+        .limit(scope === "platform" ? 100 : 30),
 
       // Unresolved alerts
-      supabase
+      scopeOrg(supabase
         .from("alert_instances")
         .select("id, severity, title, message, fired_at, alert_type, entity_id")
-        .eq("organization_id", orgId)
         .in("status", ["PENDING", "SENT"])
+      )
         .order("fired_at", { ascending: false })
-        .limit(20),
+        .limit(scope === "platform" ? 60 : 20),
 
       // Active terms/deadlines (CGP term instances)
-      (supabase.from("cgp_term_instances") as any)
-        .select("id, term_name, due_date, status, start_date, work_item_id, work_items!inner(radicado, title)")
-        .eq("owner_id", user.id)
-        .in("status", ["RUNNING", "PAUSED", "NEAR_EXPIRY"])
-        .order("due_date", { ascending: true })
-        .limit(20),
+      // Own scope: only the caller's terms. Platform scope: all owners.
+      (() => {
+        const q = (supabase.from("cgp_term_instances") as any)
+          .select("id, term_name, due_date, status, start_date, work_item_id, work_items!inner(radicado, title)")
+          .in("status", ["RUNNING", "PAUSED", "NEAR_EXPIRY"]);
+        return (scope === "own" ? q.eq("owner_id", user.id) : q)
+          .order("due_date", { ascending: true })
+          .limit(scope === "platform" ? 60 : 20);
+      })(),
 
       // Work item deadlines
-      supabase
+      scopeOrg(supabase
         .from("work_item_deadlines")
         .select("id, deadline_type, deadline_date, status, description, work_item_id, work_items!inner(radicado, title)")
-        .eq("organization_id", orgId)
         .in("status", ["PENDING", "OVERDUE", "NEAR"])
+      )
         .order("deadline_date", { ascending: true })
-        .limit(20),
+        .limit(scope === "platform" ? 60 : 20),
 
       // Recent milestones
-      (supabase.from("cgp_milestones") as any)
-        .select("id, milestone_type, event_date, notes, occurred, work_item_id, work_items!inner(radicado, title)")
-        .eq("owner_id", user.id)
-        .eq("occurred", true)
-        .gte("event_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
-        .order("event_date", { ascending: false })
-        .limit(20),
+      (() => {
+        const q = (supabase.from("cgp_milestones") as any)
+          .select("id, milestone_type, event_date, notes, occurred, work_item_id, work_items!inner(radicado, title)")
+          .eq("occurred", true)
+          .gte("event_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+        return (scope === "own" ? q.eq("owner_id", user.id) : q)
+          .order("event_date", { ascending: false })
+          .limit(scope === "platform" ? 60 : 20);
+      })(),
     ]);
 
     // Log errors for debugging
@@ -192,11 +206,14 @@ Deno.serve(async (req) => {
     // ─── Build comprehensive prompt ───
     const nowCOT = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
 
-    const prompt = `Eres Lexy, la asistente de inteligencia legal de ATENIA. El superadministrador ${userName} te pide un análisis profundo del estado actual de TODOS sus asuntos judiciales.
+    const scopeLabel = scope === "platform"
+      ? "TODA LA PLATAFORMA (vista de superadministrador cross-organizacional)"
+      : "SUS asuntos judiciales";
+    const prompt = `Eres Lexy, la asistente de inteligencia legal de ATENIA. El superadministrador ${userName} te pide un análisis profundo del estado actual de ${scopeLabel}.
 
 Fecha/hora actual (Colombia): ${nowCOT}
 
-## RESUMEN DE PORTAFOLIO
+## RESUMEN DE PORTAFOLIO (${scope === "platform" ? "plataforma completa" : "organización del usuario"})
 
 Total asuntos activos: ${workItems.length}
 ${workItems.map((w: any) => `- [${w.workflow_type}] ${w.radicado || 'Sin radicado'} — "${w.title}" — Etapa: ${w.stage} — Autoridad: ${w.authority_name || 'N/A'} — Última actividad: ${w.last_event_at || 'N/A'} — Total actuaciones: ${w.total_actuaciones || 0}`).join("\n")}
@@ -280,6 +297,7 @@ Máximo 800 palabras.`;
     return new Response(
       JSON.stringify({
         ok: true,
+        scope,
         analysis,
         stats: {
           work_items: workItems.length,
