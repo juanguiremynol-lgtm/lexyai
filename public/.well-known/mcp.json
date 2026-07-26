@@ -1,0 +1,28 @@
+{
+  "name": "Andromeda - Gestión de Expedientes",
+  "description": "Servidor MCP de Andromeda: consulta expedientes judiciales colombianos, actuaciones, estados electrónicos, términos procesales, audiencias, tareas, alertas y clientes del abogado autenticado. Escritura limitada a notas y agendamiento de audiencias.",
+  "version": "0.3.0",
+  "documentation": "https://andromeda.legal/connect-ai",
+  "servers": [
+    {
+      "type": "mcp",
+      "transport": "streamable-http",
+      "url": "https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp"
+    }
+  ],
+  "mcp": {
+    "endpoint": "https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp",
+    "transport": "streamable-http"
+  },
+  "authorization": {
+    "type": "oauth2",
+    "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
+    "authorization_endpoint": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/oauth/authorize",
+    "token_endpoint": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/oauth/token",
+    "registration_endpoint": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/oauth/register",
+    "protected_resource_metadata": "https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp/.well-known/oauth-protected-resource",
+    "dynamic_client_registration": true,
+    "scopes_supported": ["openid", "email", "profile", "read", "read_write"]
+  },
+  "contact": "https://andromeda.legal"
+}
