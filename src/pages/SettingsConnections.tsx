@@ -9,8 +9,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Copy, Check, Plug, ShieldOff, RefreshCw } from "lucide-react";
+import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import { useEmailConnection } from "@/hooks/use-email-connection";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
 
@@ -106,12 +107,14 @@ export default function SettingsConnections() {
       <header className="space-y-2">
         <h1 className="flex items-center gap-2 text-2xl font-semibold">
           <Plug className="h-6 w-6 text-primary" aria-hidden />
-          Conexiones de IA
+          Conexiones
         </h1>
         <p className="text-muted-foreground">
-          Herramientas autorizadas para acceder a tu cartera mediante el servidor MCP de Andromeda.
+          Tu buzón de correo y las herramientas de IA autorizadas para acceder a tu cartera.
         </p>
       </header>
+
+      <OutlookConnectionCard />
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
