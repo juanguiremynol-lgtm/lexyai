@@ -79,6 +79,8 @@ interface CreateWorkItemWizardProps {
   onSuccess?: () => void;
   defaultClientId?: string;
   defaultWorkflowType?: WorkflowType;
+  /** Prefills the radicado step (used by the "detected in your email" queue). */
+  defaultRadicado?: string;
 }
 
 const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
@@ -100,6 +102,7 @@ export function CreateWorkItemWizard({
   onSuccess,
   defaultClientId,
   defaultWorkflowType,
+  defaultRadicado,
 }: CreateWorkItemWizardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -215,18 +218,21 @@ export function CreateWorkItemWizard({
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      setStep(defaultWorkflowType ? 'radicado' : 'workflow');
+      setStep(defaultWorkflowType || defaultRadicado ? 'radicado' : 'workflow');
       setWorkflowType(defaultWorkflowType || null);
       setCgpPhase('FILING');
       setStage('');
-      setRadicadoRaw('');
-      setRadicado('');
+      setRadicadoRaw(defaultRadicado ?? '');
+      setRadicado(defaultRadicado && defaultRadicado.replace(/\D/g, '').length === 23
+        ? defaultRadicado.replace(/\D/g, '')
+        : '');
       resetLookup();
       setWizardOverrideWorkflow(false);
       setTitle('');
+      const derivedPrefill = defaultRadicado ? deriveFromRadicado(defaultRadicado) : null;
       setAuthorityName('');
-      setAuthorityCity('');
-      setAuthorityDepartment('');
+      setAuthorityCity(derivedPrefill?.city ?? '');
+      setAuthorityDepartment(derivedPrefill?.department ?? '');
       setDemandantes('');
       setDemandados('');
       setNotes('');
@@ -241,7 +247,7 @@ export function CreateWorkItemWizard({
       setNewClientName('');
       setNewClientIdNumber('');
     }
-  }, [open, defaultWorkflowType, defaultClientId, resetLookup]);
+  }, [open, defaultWorkflowType, defaultClientId, defaultRadicado, resetLookup]);
   
   // Set default stage when workflow changes
   useEffect(() => {

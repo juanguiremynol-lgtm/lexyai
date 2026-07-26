@@ -1,8 +1,10 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Settings2 } from "lucide-react";
+import { Mail, Settings2, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EmailClientPage } from "@/components/email/EmailClientPage";
 import { EmailSettingsPanel } from "@/components/email/EmailSettingsPanel";
+import { DetectedProcessesQueue } from "@/components/email/DetectedProcessesQueue";
+import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 
 const PLATFORM_EMAIL = "info@andromeda.legal";
 
@@ -32,6 +34,9 @@ export default function EmailPage() {
           <TabsTrigger value="settings" className="gap-1.5">
             <Settings2 className="h-4 w-4" /> Configuración
           </TabsTrigger>
+          <TabsTrigger value="deteccion" className="gap-1.5">
+            <Inbox className="h-4 w-4" /> Detección
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox" className="mt-4">
@@ -40,6 +45,11 @@ export default function EmailPage() {
 
         <TabsContent value="settings" className="mt-4">
           <EmailSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="deteccion" className="mt-4 space-y-6">
+          <SuggestedEmailLinksQueue />
+          <DetectedProcessesQueue />
         </TabsContent>
       </Tabs>
     </div>

@@ -6,3 +6,5 @@ export { EmailClientPage } from "./EmailClientPage";
 export { EmailSettingsPanel } from "./EmailSettingsPanel";
 export { EmailComposeDialog } from "./EmailComposeDialog";
 export { OutlookComposeDialog } from "./OutlookComposeDialog";
+export { DetectedProcessesQueue } from "./DetectedProcessesQueue";
+export { SuggestedEmailLinksQueue } from "./SuggestedEmailLinksQueue";
