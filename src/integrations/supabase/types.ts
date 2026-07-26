@@ -16732,6 +16732,15 @@ export type Database = {
           rule_id: string
         }[]
       }
+      contribute_court_email: {
+        Args: {
+          p_court_city?: string
+          p_court_code?: string
+          p_court_email: string
+          p_court_name: string
+        }
+        Returns: string
+      }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
