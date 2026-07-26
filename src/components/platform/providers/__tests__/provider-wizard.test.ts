@@ -174,8 +174,8 @@ describe("Wizard Initial State", () => {
     expect(state.globalAcknowledged).toBe(false);
   });
 
-  it("wizard has 9 steps", () => {
-    expect(WIZARD_STEPS.length).toBe(9);
+  it("wizard has 11 steps", () => {
+    expect(WIZARD_STEPS.length).toBe(11);
   });
 });
 
