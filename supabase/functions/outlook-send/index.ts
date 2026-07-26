@@ -43,6 +43,7 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  let connectionId: string | null = null;
   try {
     const caller = await resolveCaller(req);
     if (caller.kind !== "user") return json({ error: "No autenticado" }, 401);
@@ -88,6 +89,7 @@ Deno.serve(async (req) => {
     if (!conn || conn.status !== "CONNECTED") {
       return json({ error: "No tienes un buzón de Outlook conectado." }, 400);
     }
+    connectionId = conn.id as string;
     if (!conn.can_send) {
       return json(
         {
@@ -170,6 +172,12 @@ Deno.serve(async (req) => {
     const message = e instanceof Error ? e.message : "Error inesperado";
     console.error("[outlook-send]", message);
     const status = /Graph \[401\]/.test(message) ? 401 : 500;
+    if (status === 401 && connectionId) {
+      await admin
+        .from("user_email_connections")
+        .update({ status: "ERROR", last_error: message.slice(0, 500) })
+        .eq("id", connectionId);
+    }
     return json({ error: message }, status);
   }
 });
