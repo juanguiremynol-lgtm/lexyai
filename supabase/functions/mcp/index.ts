@@ -114,6 +114,17 @@ async function callerOrganizationId(sb, userId) {
 function bogotaToday() {
   return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
+var NOT_PLATFORM_ADMIN = "Esta herramienta est\xE1 restringida a administradores de la plataforma.";
+async function requirePlatformAdmin(ctx) {
+  const sb = sbForUser(ctx);
+  const unauth = requireAuth(ctx);
+  if (unauth) return { error: unauth, sb };
+  const userId = ctx.getUserId?.();
+  if (!userId) return { error: NOT_PLATFORM_ADMIN, sb };
+  const { data, error } = await sb.from("platform_admins").select("user_id, role").eq("user_id", userId).maybeSingle();
+  if (error || !data) return { error: NOT_PLATFORM_ADMIN, sb };
+  return { error: null, sb };
+}
 async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
   let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
   if (args.id) q = q.eq("id", args.id);
@@ -952,23 +963,203 @@ var add_hearing_default = defineTool18({
   }
 });
 
+// src/lib/mcp/tools/list-email-links.ts
+import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z18 } from "npm:zod@^3.25.76";
+var list_email_links_default = defineTool19({
+  name: "list_email_links",
+  title: "Correos vinculados al expediente",
+  description: "Lists the email metadata linked to one matter (work_item_email_links): subject, direction, sender, date, evidence type, how it was matched, confidence, attachments and the Outlook web link. Read-only; Andromeda never stores email bodies.",
+  inputSchema: {
+    work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z18.string().trim().optional().describe("Radicado del asunto (alternativa al UUID)."),
+    status: z18.enum(["CONFIRMED", "SUGGESTED", "DISMISSED", "ALL"]).optional().describe("Estado del v\xEDnculo. Default: CONFIRMED + SUGGESTED."),
+    limit: z18.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
+    if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    const item = resolved.item;
+    let q = sb.from("work_item_email_links").select(
+      "id, subject, direction, sender, recipients, received_at, evidence_type, matched_by, matched_value, confidence, has_attachments, web_link, link_status"
+    ).eq("work_item_id", item.id).order("received_at", { ascending: false }).limit(limit ?? 30);
+    if (!status) q = q.in("link_status", ["CONFIRMED", "SUGGESTED"]);
+    else if (status !== "ALL") q = q.eq("link_status", status);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const links = data ?? [];
+    const titulo = workItemTitle(item);
+    return textResult(
+      `${links.length} correo(s) vinculado(s) a ${titulo} (${item.radicado ?? "sin radicado"}).`,
+      {
+        work_item: { id: item.id, radicado: item.radicado ?? null, titulo },
+        total: links.length,
+        links,
+        nota: "Solo metadatos. Andromeda nunca almacena el cuerpo de los correos."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-detected-processes.ts
+import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z19 } from "npm:zod@^3.25.76";
+var list_detected_processes_default = defineTool20({
+  name: "list_detected_processes",
+  title: "Procesos detectados en el correo",
+  description: "Lists judicial case numbers (radicados) found in the caller's mailbox that do NOT exist in their Andromeda portfolio yet (detected_processes queue). Use it to help the lawyer triage which ones deserve a matter. Read-only: creating the matter always happens in the app.",
+  inputSchema: {
+    status: z19.enum(["PENDING", "DISMISSED", "CREATED", "ALL"]).optional().describe("Estado de la detecci\xF3n. Default: PENDING."),
+    limit: z19.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    let q = sb.from("detected_processes").select(
+      "id, radicado, subject, sender, web_link, partes_inferidas, despacho_inferido, workflow_inferido, ciudad_inferida, first_seen_at, last_seen_at, occurrences, status"
+    ).order("last_seen_at", { ascending: false }).limit(limit ?? 50);
+    const wanted = status ?? "PENDING";
+    if (wanted !== "ALL") q = q.eq("status", wanted);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const rows = data ?? [];
+    return textResult(
+      `${rows.length} proceso(s) detectado(s) en el correo con estado ${wanted}.`,
+      {
+        total: rows.length,
+        status: wanted,
+        procesos: rows,
+        nota: "Andromeda nunca crea expedientes autom\xE1ticamente: el abogado decide en la app."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/atenia-health-overview.ts
+import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_health_overview_default = defineTool21({
+  name: "atenia_health_overview",
+  title: "Atenia \xB7 Salud de la plataforma (solo administradores)",
+  description: "PLATFORM ADMINS ONLY. Returns the current Andromeda platform health snapshot: latest Atenia preflight verdict, service heartbeats and the last cron runs. Non-admin callers get a clean refusal.",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  inputSchema: {},
+  handler: async (_args, ctx) => {
+    const { error: denied, sb } = await requirePlatformAdmin(ctx);
+    if (denied) return errorResult(denied);
+    const [preflight, heartbeats, crons] = await Promise.all([
+      sb.from("atenia_preflight_checks").select("id, trigger, started_at, finished_at, duration_ms, overall_status, decision, providers_tested, providers_passed, providers_failed").order("started_at", { ascending: false }).limit(1),
+      sb.from("system_health_heartbeat").select("service, last_status, last_ok_at, last_error_at, last_message, updated_at").order("service"),
+      sb.from("atenia_cron_runs").select("job_name, status, started_at, finished_at").order("started_at", { ascending: false }).limit(25)
+    ]);
+    const hb = heartbeats.data ?? [];
+    const cronRows = crons.data ?? [];
+    const degraded = hb.filter((h) => h.last_status !== "OK");
+    const failedCrons = cronRows.filter((c) => c.status === "FAILED");
+    return textResult(
+      `Salud de la plataforma: ${degraded.length} servicio(s) degradado(s), ${failedCrons.length} cron(s) fallido(s) en las \xFAltimas ejecuciones.`,
+      {
+        ultimo_preflight: (preflight.data ?? [])[0] ?? null,
+        heartbeats: hb,
+        servicios_degradados: degraded,
+        crons_recientes: cronRows,
+        crons_fallidos: failedCrons
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/atenia-provider-status.ts
+import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_provider_status_default = defineTool22({
+  name: "atenia_provider_status",
+  title: "Atenia \xB7 Estado de proveedores judiciales (solo administradores)",
+  description: "PLATFORM ADMINS ONLY. Per-provider status from the latest Atenia preflight run (CPNU, SAMAI, Publicaciones Procesales, SAMAI Estados), including consecutive failures. Non-admin callers get a clean refusal.",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  inputSchema: {},
+  handler: async (_args, ctx) => {
+    const { error: denied, sb } = await requirePlatformAdmin(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sb.from("atenia_preflight_checks").select("id, trigger, started_at, overall_status, decision, results, consecutive_failures_by_provider, providers_tested, providers_passed, providers_failed").order("started_at", { ascending: false }).limit(1);
+    if (error) return errorResult(error.message);
+    const run = (data ?? [])[0];
+    if (!run) return textResult("No hay ejecuciones de preflight registradas.", { proveedores: [] });
+    const results = Array.isArray(run.results) ? run.results : [];
+    const failing = results.filter((r) => String(r.status ?? "").toUpperCase() !== "OK");
+    return textResult(
+      `Preflight ${String(run.overall_status)}: ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo.`,
+      {
+        ejecutado_en: run.started_at,
+        overall_status: run.overall_status,
+        decision: run.decision ?? null,
+        proveedores: results,
+        proveedores_con_fallo: failing,
+        fallos_consecutivos: run.consecutive_failures_by_provider ?? {}
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/atenia-recent-incidents.ts
+import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z20 } from "npm:zod@^3.25.76";
+var atenia_recent_incidents_default = defineTool23({
+  name: "atenia_recent_incidents",
+  title: "Atenia \xB7 Incidentes recientes (solo administradores)",
+  description: "PLATFORM ADMINS ONLY. Lists WARN/ERROR system health events and failed cron runs in the last N days (default 7). Non-admin callers get a clean refusal.",
+  inputSchema: {
+    days: z20.number().int().min(1).max(90).optional().describe("Ventana en d\xEDas (default 7)."),
+    limit: z20.number().int().min(1).max(200).optional().describe("M\xE1ximo de eventos (default 100).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ days, limit }, ctx) => {
+    const { error: denied, sb } = await requirePlatformAdmin(ctx);
+    if (denied) return errorResult(denied);
+    const window = days ?? 7;
+    const since = new Date(Date.now() - window * 864e5).toISOString();
+    const [events, crons] = await Promise.all([
+      sb.from("system_health_events").select("id, service, status, message, metadata, created_at, organization_id").in("status", ["WARN", "ERROR"]).gte("created_at", since).order("created_at", { ascending: false }).limit(limit ?? 100),
+      sb.from("atenia_cron_runs").select("id, job_name, status, started_at, finished_at, details").eq("status", "FAILED").gte("started_at", since).order("started_at", { ascending: false }).limit(limit ?? 100)
+    ]);
+    if (events.error) return errorResult(events.error.message);
+    const evRows = events.data ?? [];
+    const cronRows = crons.data ?? [];
+    return textResult(
+      `\xDAltimos ${window} d\xEDa(s): ${evRows.length} evento(s) WARN/ERROR y ${cronRows.length} cron(s) fallido(s).`,
+      {
+        ventana_dias: window,
+        desde: since,
+        eventos: evRows,
+        crons_fallidos: cronRows
+      }
+    );
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.3.0",
+  version: "0.4.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
     "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
     "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos.",
+    "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buz\xF3n que a\xFAn no existen como expediente.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
     "Escritura: solo `add_note` y `add_hearing`, y ambas exigen el permiso `read_write`. Nunca existe eliminaci\xF3n, reclasificaci\xF3n ni cambio de ciclo de vida v\xEDa MCP.",
-    "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente."
+    "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
+    "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
@@ -989,10 +1180,15 @@ var mcp_default = defineMcp({
     list_hearings_default,
     list_tasks_default,
     get_document_url_default,
+    list_email_links_default,
+    list_detected_processes_default,
     list_clients_default,
     get_client_default,
     add_note_default,
-    add_hearing_default
+    add_hearing_default,
+    atenia_health_overview_default,
+    atenia_provider_status_default,
+    atenia_recent_incidents_default
   ]
 });
 
