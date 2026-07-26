@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { bogotaToday, businessDaysBetween, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { bogotaToday, businessDaysBetween, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult, workItemTitle } from "../shared";
 
 export default defineTool({
   name: "list_deadlines",
@@ -69,16 +69,8 @@ export default defineTool({
     const deadlines = rows.map((r) => {
       const row = r as Record<string, unknown>;
       const wi = byId.get(String(row.work_item_id)) ?? null;
-      // Normalized title: never the workflow_type, never null.
-      const rawTitle = wi?.title ? String(wi.title).trim() : "";
-      const wf = wi?.workflow_type ? String(wi.workflow_type).trim() : "";
-      const dte = wi?.demandantes ? String(wi.demandantes).trim() : "";
-      const ddo = wi?.demandados ? String(wi.demandados).trim() : "";
-      const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
-      const titulo =
-        rawTitle && rawTitle.toUpperCase() !== wf.toUpperCase()
-          ? rawTitle
-          : partes || (wi?.radicado ? String(wi.radicado) : String(row.work_item_id));
+      // Normalized title: never a workflow token, never null, never gigantic.
+      const titulo = workItemTitle(wi, String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
       const urgencia =

@@ -21,6 +21,35 @@ function sbForUser(ctx) {
     }
   );
 }
+var WORKFLOW_TOKENS = /* @__PURE__ */ new Set([
+  "CGP",
+  "CPACA",
+  "LABORAL",
+  "PENAL_906",
+  "PENAL",
+  "TUTELA",
+  "PETICION",
+  "GOV_PROCEDURE",
+  "GENERIC"
+]);
+function collapseParties(raw) {
+  const parts = raw.split(/\s*(?:,|;|\||\/| y otros? )\s*/i).map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 2) return parts.join(", ") || raw.trim();
+  return `${parts.slice(0, 2).join(", ")} y ${parts.length - 2} m\xE1s`;
+}
+function workItemTitle(wi, fallback) {
+  const raw = wi?.title ? String(wi.title).trim() : "";
+  const normalized = raw.toUpperCase().replace(/[\s-]+/g, "_");
+  if (raw && !WORKFLOW_TOKENS.has(normalized)) {
+    return raw.length > 180 ? `${raw.slice(0, 177)}\u2026` : raw;
+  }
+  const dte = wi?.demandantes ? collapseParties(String(wi.demandantes)) : "";
+  const ddo = wi?.demandados ? collapseParties(String(wi.demandados)) : "";
+  const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
+  if (partes) return partes;
+  if (wi?.radicado) return String(wi.radicado);
+  return fallback ? String(fallback) : "Asunto sin t\xEDtulo";
+}
 var MAX_JSON_CHARS = 9e4;
 function textResult(text, structuredContent) {
   if (!structuredContent) {
@@ -462,12 +491,7 @@ var list_deadlines_default = defineTool9({
     const deadlines = rows.map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
-      const rawTitle = wi?.title ? String(wi.title).trim() : "";
-      const wf = wi?.workflow_type ? String(wi.workflow_type).trim() : "";
-      const dte = wi?.demandantes ? String(wi.demandantes).trim() : "";
-      const ddo = wi?.demandados ? String(wi.demandados).trim() : "";
-      const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
-      const titulo = rawTitle && rawTitle.toUpperCase() !== wf.toUpperCase() ? rawTitle : partes || (wi?.radicado ? String(wi.radicado) : String(row.work_item_id));
+      const titulo = workItemTitle(wi, String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
       const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
