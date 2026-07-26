@@ -37,7 +37,7 @@ export default defineTool({
 
     const [{ data: acts }, { data: estados }] = await Promise.all([
       sb.from("work_item_acts").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
-      sb.from("work_item_estados").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
+      sb.from("work_item_publicaciones").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
     ]);
 
     return {

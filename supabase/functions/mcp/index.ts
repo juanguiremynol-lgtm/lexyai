@@ -81,7 +81,7 @@ var get_work_item_default = defineTool2({
     if (!item) return { content: [{ type: "text", text: "Asunto no encontrado." }], isError: true };
     const [{ data: acts }, { data: estados }] = await Promise.all([
       sb.from("work_item_acts").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
-      sb.from("work_item_estados").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20)
+      sb.from("work_item_publicaciones").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20)
     ]);
     return {
       content: [
@@ -117,7 +117,7 @@ var list_recent_estados_default = defineTool3({
     }
     const sb = sbForUser3(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
-    const { data, error } = await sb.from("work_item_estados").select("id, work_item_id, radicado, title, detected_at, source, workflow_type").gte("detected_at", since).order("detected_at", { ascending: false }).limit(limit ?? 25);
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: `${data?.length ?? 0} novedades en los \xFAltimos ${days ?? 3} d\xEDas.` }],
