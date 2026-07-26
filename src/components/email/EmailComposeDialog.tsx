@@ -201,10 +201,44 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
       <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Nuevo Email</DialogTitle>
-          <p className="text-xs text-muted-foreground">
-            Desde: <span className="font-medium text-foreground">{PLATFORM_EMAIL}</span>
-            {" "}— se enviará vía Resend
-          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Enviar desde</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={sender === "platform" ? "default" : "outline"}
+                onClick={() => setSender("platform")}
+              >
+                Andromeda ({PLATFORM_EMAIL})
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={sender === "outlook" ? "default" : "outline"}
+                onClick={() => setSender("outlook")}
+                disabled={!canSend}
+              >
+                Mi Outlook{connection?.ms_account_email ? ` (${connection.ms_account_email})` : ""}
+              </Button>
+            </div>
+            {!canSend && (
+              <p className="text-xs text-muted-foreground">
+                {needsReconnectForSend
+                  ? "Reconecta Outlook para enviar desde tu propio buzón."
+                  : "Conecta tu buzón de Outlook en Ajustes → Conexiones para enviar desde tu cuenta."}
+                {needsReconnectForSend && (
+                  <button
+                    type="button"
+                    className="ml-1 text-primary hover:underline"
+                    onClick={() => connect.mutate()}
+                  >
+                    Reconectar
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="space-y-3 flex-1 overflow-y-auto py-2">
