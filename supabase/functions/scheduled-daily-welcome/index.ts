@@ -357,6 +357,20 @@ Deno.serve(async (req) => {
       } catch { /* batch mode */ }
     }
 
+    // ── Identity guard: a user may only generate their own welcome message ──
+    if (singleUserId) {
+      const caller = await resolveCaller(req);
+      if (caller.kind === "anon") {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (caller.kind === "user" && !caller.isPlatformAdmin) {
+        singleUserId = caller.userId;
+      }
+    }
+
     // ============= Business Day Validation =============
     if (!skipBusinessDayCheck) {
       const businessDayCheck = await isValidBusinessDay(supabase);

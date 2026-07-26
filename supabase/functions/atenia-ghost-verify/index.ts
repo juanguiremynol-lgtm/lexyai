@@ -63,6 +63,12 @@ Deno.serve(async (req) => {
       return json({ error: "work_item_id required" }, 400);
     }
 
+    // ── Identity guard: caller must belong to the work item's organization ──
+    const caller = await resolveCaller(req);
+    if (caller.kind === "anon") {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
     // ── 1. Load the failing work item ──
     const { data: workItem, error: wiErr } = await supabase
       .from("work_items")
@@ -77,6 +83,9 @@ Deno.serve(async (req) => {
     }
 
     const orgId = body.organization_id || workItem.organization_id;
+    if (!canAccessOrg(caller, workItem.organization_id)) {
+      return json({ error: "Forbidden" }, 403);
+    }
     const category = workItem.workflow_type;
 
     // ── 2. Load failure state ──
