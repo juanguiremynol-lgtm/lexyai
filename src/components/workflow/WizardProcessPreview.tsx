@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { ProcessData, LookupResult } from "@/hooks/use-radicado-lookup";
 import { formatRadicadoDisplay } from "@/lib/radicado-utils";
+import { getProviderChainLabel } from "@/lib/provider-chain-labels";
 
 interface WizardProcessPreviewProps {
   lookupResult: LookupResult;
