@@ -13529,6 +13529,7 @@ export type Database = {
         Row: {
           access_token_cipher: string | null
           access_token_nonce: string | null
+          can_send: boolean
           connected_at: string | null
           created_at: string
           delta_token_inbox: string | null
@@ -13551,6 +13552,7 @@ export type Database = {
         Insert: {
           access_token_cipher?: string | null
           access_token_nonce?: string | null
+          can_send?: boolean
           connected_at?: string | null
           created_at?: string
           delta_token_inbox?: string | null
@@ -13573,6 +13575,7 @@ export type Database = {
         Update: {
           access_token_cipher?: string | null
           access_token_nonce?: string | null
+          can_send?: boolean
           connected_at?: string | null
           created_at?: string
           delta_token_inbox?: string | null
