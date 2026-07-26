@@ -45,7 +45,10 @@ export default defineTool({
     // Radicado enrichment so each deadline is self-describing.
     const ids = [...new Set(rows.map((r) => (r as { work_item_id: string }).work_item_id))];
     const { data: items } = ids.length
-      ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
+      ? await sb
+          .from("work_items")
+          .select("id, radicado, title, workflow_type, authority_name, demandantes, demandados")
+          .in("id", ids)
       : { data: [] as Array<Record<string, unknown>> };
     const byId = new Map<string, Record<string, unknown>>(
       (items ?? []).map(
@@ -66,6 +69,16 @@ export default defineTool({
     const deadlines = rows.map((r) => {
       const row = r as Record<string, unknown>;
       const wi = byId.get(String(row.work_item_id)) ?? null;
+      // Normalized title: never the workflow_type, never null.
+      const rawTitle = wi?.title ? String(wi.title).trim() : "";
+      const wf = wi?.workflow_type ? String(wi.workflow_type).trim() : "";
+      const dte = wi?.demandantes ? String(wi.demandantes).trim() : "";
+      const ddo = wi?.demandados ? String(wi.demandados).trim() : "";
+      const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
+      const titulo =
+        rawTitle && rawTitle.toUpperCase() !== wf.toUpperCase()
+          ? rawTitle
+          : partes || (wi?.radicado ? String(wi.radicado) : String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
       const urgencia =
@@ -78,7 +91,7 @@ export default defineTool({
       return {
         ...row,
         radicado: wi?.radicado ?? null,
-        titulo: wi?.title ?? null,
+        titulo,
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null,
         vencimiento: dd,

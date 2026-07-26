@@ -10,9 +10,13 @@ export default defineTool({
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
     radicado: z.string().trim().optional().describe("Radicado exacto (23-dígitos u otro formato)."),
+    verbose: z
+      .boolean()
+      .optional()
+      .describe("Si es true devuelve el objeto work_item crudo completo (~150 campos internos). Default false."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ id, radicado }, ctx) => {
+  handler: async ({ id, radicado, verbose }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
@@ -67,11 +71,28 @@ export default defineTool({
       ultima_actuacion_descripcion: item.last_action_description ?? null,
     };
 
+    // Procedural-relevant projection: keeps the AI context window focused.
+    const ITEM_FIELDS = [
+      "id", "radicado", "workflow_type", "stage", "status", "lifecycle_state",
+      "title", "description",
+      "authority_name", "authority_email", "authority_city", "authority_department",
+      "demandantes", "demandados", "client_id",
+      "cgp_class", "cgp_variant", "cgp_cuantia", "cgp_instancia",
+      "ponente", "clase_proceso", "tipo_proceso", "fecha_radicado",
+      "total_actuaciones", "total_sujetos_procesales",
+      "monitoring_enabled", "last_successful_sync_at", "created_at",
+    ] as const;
+    const source = item as Record<string, unknown>;
+    const slimItem: Record<string, unknown> = {};
+    for (const key of ITEM_FIELDS) {
+      if (source[key] !== undefined && source[key] !== null) slimItem[key] = source[key];
+    }
+
     return textResult(
       `Asunto ${item.radicado ?? item.id} — ${item.workflow_type} — ${item.authority_name ?? "despacho sin registrar"} — ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} términos activos.`,
       {
         resumen,
-        item,
+        item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         terminos_activos: deadlines ?? [],

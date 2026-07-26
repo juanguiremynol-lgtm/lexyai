@@ -133,10 +133,11 @@ var get_work_item_default = defineTool2({
   description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
   inputSchema: {
     id: z2.string().uuid().optional().describe("work_item UUID."),
-    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato).")
+    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato)."),
+    verbose: z2.boolean().optional().describe("Si es true devuelve el objeto work_item crudo completo (~150 campos internos). Default false.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ id, radicado }, ctx) => {
+  handler: async ({ id, radicado, verbose }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
@@ -169,11 +170,46 @@ var get_work_item_default = defineTool2({
       ultima_actuacion: item.last_action_date ?? null,
       ultima_actuacion_descripcion: item.last_action_description ?? null
     };
+    const ITEM_FIELDS = [
+      "id",
+      "radicado",
+      "workflow_type",
+      "stage",
+      "status",
+      "lifecycle_state",
+      "title",
+      "description",
+      "authority_name",
+      "authority_email",
+      "authority_city",
+      "authority_department",
+      "demandantes",
+      "demandados",
+      "client_id",
+      "cgp_class",
+      "cgp_variant",
+      "cgp_cuantia",
+      "cgp_instancia",
+      "ponente",
+      "clase_proceso",
+      "tipo_proceso",
+      "fecha_radicado",
+      "total_actuaciones",
+      "total_sujetos_procesales",
+      "monitoring_enabled",
+      "last_successful_sync_at",
+      "created_at"
+    ];
+    const source = item;
+    const slimItem = {};
+    for (const key of ITEM_FIELDS) {
+      if (source[key] !== void 0 && source[key] !== null) slimItem[key] = source[key];
+    }
     return textResult(
       `Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
       {
         resumen,
-        item,
+        item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         terminos_activos: deadlines ?? [],
@@ -413,7 +449,7 @@ var list_deadlines_default = defineTool9({
     const rows = data ?? [];
     const today = bogotaToday();
     const ids = [...new Set(rows.map((r) => r.work_item_id))];
-    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name, demandantes, demandados").in("id", ids) : { data: [] };
     const byId = new Map(
       (items ?? []).map(
         (i) => [i.id, i]
@@ -426,13 +462,19 @@ var list_deadlines_default = defineTool9({
     const deadlines = rows.map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
+      const rawTitle = wi?.title ? String(wi.title).trim() : "";
+      const wf = wi?.workflow_type ? String(wi.workflow_type).trim() : "";
+      const dte = wi?.demandantes ? String(wi.demandantes).trim() : "";
+      const ddo = wi?.demandados ? String(wi.demandados).trim() : "";
+      const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
+      const titulo = rawTitle && rawTitle.toUpperCase() !== wf.toUpperCase() ? rawTitle : partes || (wi?.radicado ? String(wi.radicado) : String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
       const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
       return {
         ...row,
         radicado: wi?.radicado ?? null,
-        titulo: wi?.title ?? null,
+        titulo,
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null,
         vencimiento: dd,

@@ -133,6 +133,10 @@
             "radicado": {
               "type": "string",
               "description": "Radicado exacto (23-dígitos u otro formato)."
+            },
+            "verbose": {
+              "type": "boolean",
+              "description": "Si es true devuelve el objeto work_item crudo completo (~150 campos internos). Default false."
             }
           },
           "additionalProperties": false,
