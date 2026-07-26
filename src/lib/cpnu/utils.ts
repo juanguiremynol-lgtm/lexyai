@@ -194,20 +194,22 @@ export function classifyRun(
     return { classification: 'NON_JSON_RESPONSE', why_empty: 'ALL_RESPONSES_NON_JSON' };
   }
   
-  // Had successful fetch but no results extracted
-  const hadSuccess = attempts.some(a => a.success);
-  if (hadSuccess && resultCount === 0 && eventCount === 0) {
-    const method = parseMeta?.parseMethod || 'UNKNOWN';
-    return { classification: 'PARSE_BROKE', why_empty: `PARSE_${method}` };
-  }
-  
-  // Parse meta gives us a hint
-  if (parseMeta?.parseMethod === 'NO_RESULTS_MESSAGE') {
+  // Parse meta gives us a hint — these must be evaluated BEFORE the PARSE_BROKE
+  // fallback, otherwise a confirmed "no results" is misdiagnosed as a broken parser.
+  // Ratified policy: 0 records confirmed by the source is SUCCESS, not a parser failure.
+  if (parseMeta?.parseMethod === 'NO_RESULTS_MESSAGE' || parseMeta?.parseMethod === 'CPNU_API_EMPTY') {
     return { classification: 'NO_RESULTS_CONFIRMED', why_empty: 'CPNU_NO_MATCH_MESSAGE' };
   }
   
   if (parseMeta?.parseMethod === 'SPA_FORM_EMPTY') {
     return { classification: 'INTERACTION_FAILED_SELECTOR_CHANGED', why_empty: 'SPA_FORM_NOT_SUBMITTED' };
+  }
+  
+  // Had successful fetch but no results extracted and no confirming signal
+  const hadSuccess = attempts.some(a => a.success);
+  if (hadSuccess && resultCount === 0 && eventCount === 0) {
+    const method = parseMeta?.parseMethod || 'UNKNOWN';
+    return { classification: 'PARSE_BROKE', why_empty: `PARSE_${method}` };
   }
   
   return { classification: 'UNKNOWN', why_empty: 'UNCLASSIFIED_FAILURE' };
@@ -248,8 +250,9 @@ export function parseCpnuSearchResponse(json: unknown): {
   
   const data = json as CpnuSearchApiResponse;
   
-  // Check for procesos array
-  if (Array.isArray(data.procesos)) {
+  // Check for procesos array with content. An empty array is a source-confirmed
+  // "no results", not a parse outcome — it falls through to the EMPTY branch.
+  if (Array.isArray(data.procesos) && data.procesos.length > 0) {
     for (const proc of data.procesos) {
       if (!proc.idProceso) fieldsMissing.push('idProceso');
       
