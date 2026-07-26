@@ -142,6 +142,58 @@ function OutlookConnectionCard() {
   );
 }
 
+/** Immutable, user-owned history of every send attempt from the mailbox. */
+function OutlookSendHistoryCard() {
+  const { isConnected } = useEmailConnection();
+  const { data: entries = [], isLoading } = useOutlookSendAuditLog();
+  if (!isConnected) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldCheck className="h-4 w-4 text-primary" aria-hidden />
+          Historial de envíos
+        </CardTitle>
+        <CardDescription>
+          Registro inalterable de cada correo enviado desde tu buzón. Nadie —ni el soporte— puede
+          modificarlo ni borrarlo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aún no has enviado correos desde Andromeda.</p>
+        ) : (
+          <ul className="divide-y">
+            {entries.map((e) => (
+              <li key={e.id} className="space-y-1 py-3 text-sm first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={e.result === "SUCCESS" ? "secondary" : "destructive"}>
+                    {e.result === "SUCCESS" ? "Enviado" : "Falló"}
+                  </Badge>
+                  <span className="font-medium">{e.subject ?? "(sin asunto)"}</span>
+                  <span className="text-xs text-muted-foreground">{fmt(e.created_at)}</span>
+                </div>
+                <p className="break-words text-xs text-muted-foreground">
+                  Para: {e.recipients.join(", ") || "—"}
+                  {e.cc.length > 0 && ` · CC: ${e.cc.join(", ")}`}
+                  {e.attachment_count > 0 &&
+                    ` · ${e.attachment_count} adjunto(s): ${e.attachment_names.join(", ")}`}
+                </p>
+                {e.result === "ERROR" && e.error_message && (
+                  <p className="text-xs text-destructive">{e.error_message}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsConnections() {
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,6 +266,8 @@ export default function SettingsConnections() {
       </header>
 
       <OutlookConnectionCard />
+
+      <OutlookSendHistoryCard />
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
