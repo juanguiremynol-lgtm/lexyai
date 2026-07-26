@@ -1686,8 +1686,18 @@ export default function WorkItemDocumentWizard() {
                         onChange={setCourtHeader}
                         inferredEmail={inferredCourtEmail}
                         onSaveCourtEmail={(email, name, city) => {
-                          saveCourtEmailContribution(name, email, city, workItem?.radicado ? workItem.radicado.replace(/[^0-9]/g, "").substring(0, 14) : null);
-                          toast.success("Email del juzgado guardado para futuros documentos");
+                          void saveCourtEmailContribution(
+                            name,
+                            email,
+                            city,
+                            workItem?.radicado ? workItem.radicado.replace(/[^0-9]/g, "").substring(0, 14) : null,
+                          ).then((res) => {
+                            if (res.ok) {
+                              toast.success("Email del juzgado guardado para futuros documentos");
+                            } else {
+                              toast.error("No se pudo guardar el email del juzgado");
+                            }
+                          });
                         }}
                       />
                       <Separator />

@@ -163,22 +163,24 @@ export async function saveCourtEmailContribution(
   courtEmail: string,
   courtCity?: string,
   courtCode?: string | null,
-): Promise<void> {
+): Promise<{ ok: boolean; error?: string }> {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) return { ok: false, error: "No hay sesión activa" };
 
-  await (supabase as any).from("court_emails").upsert(
-    {
-      court_code: courtCode || null,
-      court_name: courtName,
-      court_email: courtEmail,
-      court_city: courtCity || null,
-      source: "user_contribution",
-      contributed_by: user.id,
-      verified_at: new Date().toISOString(),
-    },
-    { onConflict: "court_code" },
-  );
+  // Writes go through a SECURITY DEFINER RPC: direct INSERT on court_emails is
+  // restricted to platform admins by RLS.
+  const { error } = await (supabase as any).rpc("contribute_court_email", {
+    p_court_name: courtName,
+    p_court_email: courtEmail,
+    p_court_city: courtCity || null,
+    p_court_code: courtCode || null,
+  });
+
+  if (error) {
+    console.error("[saveCourtEmailContribution] Failed:", error.message);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 export const COURT_TYPE_OPTIONS = [
