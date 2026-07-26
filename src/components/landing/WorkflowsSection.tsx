@@ -22,7 +22,7 @@ const WORKFLOWS = [
   {
     icon: Gavel,
     title: "Tutelas",
-    badge: "Tutelas API · CPNU",
+    badge: "CPNU · SAMAI · Publicaciones",
     description:
       "Plazos estrictos de tutela con monitoreo multi-fuente. Notificaciones de impugnación, fallo y cumplimiento.",
     highlights: ["Alertas de 48 horas", "Seguimiento de impugnación", "Control de cumplimiento"],
@@ -38,7 +38,7 @@ const WORKFLOWS = [
   {
     icon: Briefcase,
     title: "Laboral",
-    badge: "CPNU · SAMAI",
+    badge: "CPNU · Publicaciones",
     description:
       "Procesos laborales con seguimiento de términos, audiencias de conciliación y fallos.",
     highlights: ["Términos laborales", "Conciliación obligatoria", "Seguimiento de sentencias"],
