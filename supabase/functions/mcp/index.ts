@@ -6,133 +6,13 @@
 import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.0";
 
 // src/lib/mcp/tools/list-work-items.ts
-import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
 import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z } from "npm:zod@^3.25.76";
-function sbForUser(ctx) {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
-var list_work_items_default = defineTool({
-  name: "list_work_items",
-  title: "Listar asuntos (work items)",
-  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION).",
-  inputSchema: {
-    search: z.string().trim().optional().describe("Free-text match on radicado, t\xEDtulo, partes, o autoridad."),
-    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
-    limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25).")
-  },
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ search, workflow_type, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
-    const sb = sbForUser(ctx);
-    let q = sb.from("work_items").select("id, radicado, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at").is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 25);
-    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
-    if (search) {
-      const s = `%${search}%`;
-      q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
-    }
-    const { data, error } = await q;
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `Encontrados ${data?.length ?? 0} asuntos.` }],
-      structuredContent: { items: data ?? [] }
-    };
-  }
-});
-
-// src/lib/mcp/tools/get-work-item.ts
-import { createClient as createClient2 } from "npm:@supabase/supabase-js@^2.89.0";
-import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z2 } from "npm:zod@^3.25.76";
-function sbForUser2(ctx) {
-  return createClient2(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
-var get_work_item_default = defineTool2({
-  name: "get_work_item",
-  title: "Detalle de asunto",
-  description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
-  inputSchema: {
-    id: z2.string().uuid().optional().describe("work_item UUID."),
-    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato).")
-  },
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ id, radicado }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
-    if (!id && !radicado) {
-      return { content: [{ type: "text", text: "Provide either id or radicado." }], isError: true };
-    }
-    const sb = sbForUser2(ctx);
-    let q = sb.from("work_items").select("*").is("deleted_at", null).limit(1);
-    if (id) q = q.eq("id", id);
-    else if (radicado) q = q.eq("radicado", radicado);
-    const { data: itemRows, error } = await q;
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    const item = itemRows?.[0];
-    if (!item) return { content: [{ type: "text", text: "Asunto no encontrado." }], isError: true };
-    const [{ data: acts }, { data: estados }] = await Promise.all([
-      sb.from("work_item_acts").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
-      sb.from("work_item_publicaciones").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20)
-    ]);
-    return {
-      content: [
-        { type: "text", text: `Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados.` }
-      ],
-      structuredContent: { item, recent_acts: acts ?? [], recent_estados: estados ?? [] }
-    };
-  }
-});
-
-// src/lib/mcp/tools/list-recent-estados.ts
-import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.89.0";
-import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z3 } from "npm:zod@^3.25.76";
-function sbForUser3(ctx) {
-  return createClient3(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
-var list_recent_estados_default = defineTool3({
-  name: "list_recent_estados",
-  title: "Novedades judiciales recientes",
-  description: "Lists the most recent judicial estados / actuaciones detected across the signed-in user's monitored matters, ordered by detected_at desc.",
-  inputSchema: {
-    days: z3.number().int().min(1).max(30).optional().describe("Ventana en d\xEDas (default 3)."),
-    limit: z3.number().int().min(1).max(100).optional().describe("M\xE1ximo filas (default 25).")
-  },
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ days, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
-    const sb = sbForUser3(ctx);
-    const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
-    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `${data?.length ?? 0} novedades en los \xFAltimos ${days ?? 3} d\xEDas.` }],
-      structuredContent: { estados: data ?? [] }
-    };
-  }
-});
-
-// src/lib/mcp/tools/get-user-context.ts
-import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
 
 // src/lib/mcp/shared.ts
-import { createClient as createClient4 } from "npm:@supabase/supabase-js@^2.89.0";
-function sbForUser4(ctx) {
-  return createClient4(
+import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
+function sbForUser(ctx) {
+  return createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
     {
@@ -141,8 +21,47 @@ function sbForUser4(ctx) {
     }
   );
 }
+var MAX_JSON_CHARS = 9e4;
 function textResult(text, structuredContent) {
-  return { content: [{ type: "text", text }], structuredContent };
+  if (!structuredContent) {
+    return { content: [{ type: "text", text }] };
+  }
+  let json = JSON.stringify(structuredContent, null, 2);
+  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) {
+    json = JSON.stringify(structuredContent);
+    if (json.length > MAX_JSON_CHARS) {
+      json = json.slice(0, MAX_JSON_CHARS);
+      truncated = true;
+    }
+  }
+  const body = truncated ? `${text}
+
+(Respuesta truncada: reduce el par\xE1metro \`limit\` para ver todo.)
+
+\`\`\`json
+${json}
+\`\`\`` : `${text}
+
+\`\`\`json
+${json}
+\`\`\``;
+  return { content: [{ type: "text", text: body }], structuredContent };
+}
+function businessDaysBetween(fromISO, toISO, holidays = /* @__PURE__ */ new Set()) {
+  const start = /* @__PURE__ */ new Date(`${fromISO}T12:00:00Z`);
+  const end = /* @__PURE__ */ new Date(`${toISO}T12:00:00Z`);
+  const sign = end < start ? -1 : 1;
+  let count = 0;
+  const cursor = new Date(sign > 0 ? start : end);
+  const stop = sign > 0 ? end : start;
+  while (cursor < stop) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const iso = cursor.toISOString().slice(0, 10);
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(iso)) count += 1;
+  }
+  return count * sign;
 }
 function errorResult(text) {
   return { content: [{ type: "text", text }], isError: true };
@@ -178,7 +97,126 @@ async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflo
   return { item, error: null };
 }
 
+// src/lib/mcp/tools/list-work-items.ts
+var list_work_items_default = defineTool({
+  name: "list_work_items",
+  title: "Listar asuntos (work items)",
+  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION).",
+  inputSchema: {
+    search: z.string().trim().optional().describe("Free-text match on radicado, t\xEDtulo, partes, o autoridad."),
+    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ search, workflow_type, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    let q = sb.from("work_items").select("id, radicado, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at").is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 25);
+    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (search) {
+      const s = `%${search}%`;
+      q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
+    }
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    return textResult(`Encontrados ${data?.length ?? 0} asuntos.`, { items: data ?? [] });
+  }
+});
+
+// src/lib/mcp/tools/get-work-item.ts
+import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z2 } from "npm:zod@^3.25.76";
+var get_work_item_default = defineTool2({
+  name: "get_work_item",
+  title: "Detalle de asunto",
+  description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
+  inputSchema: {
+    id: z2.string().uuid().optional().describe("work_item UUID."),
+    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ id, radicado }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
+    const sb = sbForUser(ctx);
+    let q = sb.from("work_items").select("*").is("deleted_at", null).limit(1);
+    if (id) q = q.eq("id", id);
+    else if (radicado) q = q.eq("radicado", radicado);
+    const { data: itemRows, error } = await q;
+    if (error) return errorResult(error.message);
+    const item = itemRows?.[0];
+    if (!item) return errorResult("Asunto no encontrado (o no pertenece a tu cuenta).");
+    const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
+      sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
+      sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
+      sb.from("work_item_deadlines").select("id, deadline_type, label, trigger_date, deadline_date, business_days_count, status").eq("work_item_id", item.id).eq("status", "PENDING").order("deadline_date", { ascending: true }).limit(20),
+      sb.from("work_item_hearings").select("id, custom_name, status, scheduled_at, modality, location").eq("work_item_id", item.id).order("scheduled_at", { ascending: true }).limit(10)
+    ]);
+    const resumen = {
+      radicado: item.radicado ?? null,
+      titulo: item.title ?? null,
+      workflow_type: item.workflow_type ?? null,
+      stage: item.stage ?? null,
+      status: item.status ?? null,
+      despacho: item.authority_name ?? null,
+      ciudad: item.authority_city ?? null,
+      departamento: item.authority_department ?? item.departamento ?? null,
+      demandantes: item.demandantes ?? null,
+      demandados: item.demandados ?? null,
+      client_id: item.client_id ?? null,
+      ultima_actuacion: item.last_action_date ?? null,
+      ultima_actuacion_descripcion: item.last_action_description ?? null
+    };
+    return textResult(
+      `Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
+      {
+        resumen,
+        item,
+        recent_acts: acts ?? [],
+        recent_estados: estados ?? [],
+        terminos_activos: deadlines ?? [],
+        audiencias: hearings ?? []
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-recent-estados.ts
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z3 } from "npm:zod@^3.25.76";
+var list_recent_estados_default = defineTool3({
+  name: "list_recent_estados",
+  title: "Novedades judiciales recientes",
+  description: "Lists the most recent judicial estados / actuaciones detected across the signed-in user's monitored matters, ordered by detected_at desc.",
+  inputSchema: {
+    days: z3.number().int().min(1).max(30).optional().describe("Ventana en d\xEDas (default 3)."),
+    limit: z3.number().int().min(1).max(100).optional().describe("M\xE1ximo filas (default 25).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ days, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
+    if (error) return errorResult(error.message);
+    const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map((i) => [i.id, i])
+    );
+    const estados = (data ?? []).map((r) => ({
+      ...r,
+      work_item: byId.get(r.work_item_id) ?? null
+    }));
+    return textResult(`${estados.length} novedades en los \xFAltimos ${days ?? 3} d\xEDas.`, { estados });
+  }
+});
+
 // src/lib/mcp/tools/get-user-context.ts
+import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
 var get_user_context_default = defineTool4({
   name: "get_user_context",
   title: "Contexto del abogado",
@@ -188,7 +226,7 @@ var get_user_context_default = defineTool4({
   handler: async (_input, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const [{ data: profile }, { data: items }] = await Promise.all([
       sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
       sb.from("work_items").select("workflow_type").is("deleted_at", null).limit(1e3)
@@ -226,7 +264,7 @@ var list_actuaciones_default = defineTool5({
   handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado });
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at, instancia").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 50);
@@ -259,7 +297,7 @@ var list_publicaciones_default = defineTool6({
   handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado });
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
@@ -289,7 +327,7 @@ var get_estados_hoy_default = defineTool7({
   handler: async ({ date, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
     const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").eq("fecha_fijacion", day).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
     if (error) return errorResult(error.message);
@@ -320,7 +358,7 @@ var get_actuaciones_hoy_default = defineTool8({
   handler: async ({ date, window, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const end = date ?? bogotaToday();
     const days = WINDOW_DAYS[window ?? "today"];
     const start = /* @__PURE__ */ new Date(`${end}T00:00:00Z`);
@@ -358,7 +396,7 @@ var list_deadlines_default = defineTool9({
   handler: async ({ status, radicado, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let workItem = null;
     if (radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -372,11 +410,42 @@ var list_deadlines_default = defineTool9({
     if (workItem) q = q.eq("work_item_id", workItem.id);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
+    const rows = data ?? [];
+    const today = bogotaToday();
+    const ids = [...new Set(rows.map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
+    );
+    const dates = rows.map((r) => String(r.deadline_date ?? "")).filter(Boolean).sort();
+    const horizonEnd = dates[dates.length - 1] ?? today;
+    const { data: holidayRows } = await sb.from("colombian_holidays").select("holiday_date").gte("holiday_date", dates[0] && dates[0] < today ? dates[0] : today).lte("holiday_date", horizonEnd > today ? horizonEnd : today);
+    const holidays = new Set((holidayRows ?? []).map((h) => String(h.holiday_date)));
+    const deadlines = rows.map((r) => {
+      const row = r;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
+      const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
+      const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null,
+        vencimiento: dd,
+        dias_habiles_restantes: restantes,
+        urgencia
+      };
+    });
     const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
-    return textResult(`${data?.length ?? 0} t\xE9rminos. ${note}`, {
+    return textResult(`${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
       status: mode,
+      hoy: today,
       work_item: workItem,
-      deadlines: data ?? []
+      deadlines
     });
   }
 });
@@ -396,7 +465,7 @@ var list_clients_default = defineTool10({
   handler: async ({ search, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let q = sb.from("clients").select("id, name, id_number, email, city, created_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
     if (search) q = q.or(`name.ilike.%${search}%,id_number.ilike.%${search}%`);
     const { data, error } = await q;
@@ -429,7 +498,7 @@ var get_client_default = defineTool11({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     if (!client_id && !name) return errorResult("Indica client_id o name.");
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
     if (client_id) q = q.eq("id", client_id);
     else if (name) q = q.ilike("name", `%${name}%`);
@@ -461,7 +530,7 @@ var add_note_default = defineTool12({
   handler: async ({ radicado, id, content }, ctx) => {
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
@@ -498,7 +567,7 @@ var search_default = defineTool13({
   handler: async ({ query, workflow_type, client_id, status, city, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const terms = query.split(/\s+/).filter((t) => t.length >= 3).slice(0, 4);
     const needles = terms.length ? terms : [query];
     let q = sb.from("work_items").select(
@@ -562,7 +631,7 @@ var list_alerts_default = defineTool14({
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let entityId = work_item_id ?? null;
     if (!entityId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -576,11 +645,36 @@ var list_alerts_default = defineTool14({
     if (entityId) q = q.eq("entity_id", entityId);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    const unread = (data ?? []).filter((a) => !a.read_at).length;
-    return textResult(
-      `${data?.length ?? 0} alertas (${unread} sin leer).`,
-      { status: status ?? "PENDING+ACKNOWLEDGED", work_item_id: entityId, unread, alerts: data ?? [] }
+    const rows = data ?? [];
+    const wiIds = [
+      ...new Set(
+        rows.filter((a) => String(a.entity_type ?? "").toUpperCase() === "WORK_ITEM").map((a) => String(a.entity_id ?? "")).filter(Boolean)
+      )
+    ];
+    const { data: items } = wiIds.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", wiIds) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
     );
+    const alerts = rows.map((a) => {
+      const row = a;
+      const wi = byId.get(String(row.entity_id ?? "")) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        leida: Boolean(row.read_at)
+      };
+    });
+    const unread = alerts.filter((a) => !a.leida).length;
+    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+      status: status ?? "PENDING+ACKNOWLEDGED",
+      work_item_id: entityId,
+      unread,
+      alerts
+    });
   }
 });
 
@@ -602,7 +696,7 @@ var list_hearings_default = defineTool15({
   handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let itemId = work_item_id ?? null;
     if (!itemId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -615,11 +709,37 @@ var list_hearings_default = defineTool15({
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    return textResult(`${data?.length ?? 0} audiencias.`, {
-      work_item_id: itemId,
-      range: { from: date_from ?? null, to: date_to ?? null },
-      hearings: data ?? []
+    const rows = data ?? [];
+    const ids = [...new Set(rows.map((r) => String(r.work_item_id)))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
+    );
+    const hearings = rows.map((r) => {
+      const row = r;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null
+      };
     });
+    const cap = limit ?? 50;
+    const hayMas = hearings.length === cap;
+    return textResult(
+      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado \u2014 puede haber m\xE1s; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      {
+        work_item_id: itemId,
+        range: { from: date_from ?? null, to: date_to ?? null },
+        limit: cap,
+        hay_mas: hayMas,
+        hearings
+      }
+    );
   }
 });
 
@@ -640,7 +760,7 @@ var list_tasks_default = defineTool16({
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let itemId = work_item_id ?? null;
     if (!itemId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -677,7 +797,7 @@ var get_document_url_default = defineTool17({
   handler: async ({ work_item_id, radicado, document_id }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id;
@@ -740,7 +860,7 @@ var add_hearing_default = defineTool18({
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const when = new Date(date);
     if (Number.isNaN(when.getTime())) return errorResult("Fecha inv\xE1lida: usa formato ISO 8601.");
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });

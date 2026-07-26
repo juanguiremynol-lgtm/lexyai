@@ -1,13 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
-import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
+import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-
-function sbForUser(ctx: ToolContext) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY!, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "list_recent_estados",
@@ -20,9 +13,8 @@ export default defineTool({
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ days, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 86400_000).toISOString();
     const { data, error } = await sb
@@ -32,10 +24,21 @@ export default defineTool({
       .or("is_archived.is.null,is_archived.eq.false")
       .order("detected_at", { ascending: false })
       .limit(limit ?? 25);
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `${data?.length ?? 0} novedades en los últimos ${days ?? 3} días.` }],
-      structuredContent: { estados: data ?? [] },
-    };
+    if (error) return errorResult(error.message);
+
+    // Enrich with the matter's radicado so the answer is self-contained.
+    const ids = [...new Set((data ?? []).map((r) => (r as { work_item_id: string }).work_item_id))];
+    const { data: items } = ids.length
+      ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids)
+      : { data: [] as Array<Record<string, unknown>> };
+    const byId = new Map<string, unknown>(
+      (items ?? []).map((i) => [(i as { id: string }).id, i] as [string, unknown]),
+    );
+    const estados = (data ?? []).map((r) => ({
+      ...(r as Record<string, unknown>),
+      work_item: byId.get((r as { work_item_id: string }).work_item_id) ?? null,
+    }));
+
+    return textResult(`${estados.length} novedades en los últimos ${days ?? 3} días.`, { estados });
   },
 });

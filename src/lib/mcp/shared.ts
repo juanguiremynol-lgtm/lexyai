@@ -22,8 +22,51 @@ export function sbForUser(ctx: ToolContext): SupabaseClient {
   );
 }
 
+/**
+ * MCP tool result.
+ *
+ * CRITICAL: most MCP clients (Claude, ChatGPT) only render the `content` text
+ * blocks and ignore `structuredContent`. Returning the payload solely as
+ * structured output made every tool look like a one-line summary. We therefore
+ * ALWAYS serialize the payload into the text block as JSON, and keep
+ * `structuredContent` for clients that do read it.
+ */
+const MAX_JSON_CHARS = 90_000;
+
 export function textResult(text: string, structuredContent?: Record<string, unknown>) {
-  return { content: [{ type: "text" as const, text }], structuredContent };
+  if (!structuredContent) {
+    return { content: [{ type: "text" as const, text }] };
+  }
+  let json = JSON.stringify(structuredContent, null, 2);
+  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) {
+    json = JSON.stringify(structuredContent);
+    if (json.length > MAX_JSON_CHARS) {
+      json = json.slice(0, MAX_JSON_CHARS);
+      truncated = true;
+    }
+  }
+  const body = truncated
+    ? `${text}\n\n(Respuesta truncada: reduce el parámetro \`limit\` para ver todo.)\n\n\`\`\`json\n${json}\n\`\`\``
+    : `${text}\n\n\`\`\`json\n${json}\n\`\`\``;
+  return { content: [{ type: "text" as const, text: body }], structuredContent };
+}
+
+/** Business days (Mon-Fri) between two ISO dates, excluding provided holidays. */
+export function businessDaysBetween(fromISO: string, toISO: string, holidays: Set<string> = new Set()): number {
+  const start = new Date(`${fromISO}T12:00:00Z`);
+  const end = new Date(`${toISO}T12:00:00Z`);
+  const sign = end < start ? -1 : 1;
+  let count = 0;
+  const cursor = new Date(sign > 0 ? start : end);
+  const stop = sign > 0 ? end : start;
+  while (cursor < stop) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const iso = cursor.toISOString().slice(0, 10);
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(iso)) count += 1;
+  }
+  return count * sign;
 }
 
 export function errorResult(text: string) {
