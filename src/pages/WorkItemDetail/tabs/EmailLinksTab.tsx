@@ -160,6 +160,15 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
           ))}
         </div>
       )}
+
+      <OutlookComposeDialog
+        open={reply !== null}
+        onOpenChange={(open) => !open && setReply(null)}
+        defaultTo={reply?.to ?? []}
+        defaultSubject={reply?.subject ?? ""}
+        workItemId={workItemId}
+        title="Responder desde mi Outlook"
+      />
     </div>
   );
 }
