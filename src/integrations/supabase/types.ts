@@ -13525,6 +13525,90 @@ export type Database = {
           },
         ]
       }
+      user_email_connections: {
+        Row: {
+          access_token_cipher: string | null
+          access_token_nonce: string | null
+          connected_at: string | null
+          created_at: string
+          delta_token_inbox: string | null
+          delta_token_sent: string | null
+          id: string
+          last_error: string | null
+          last_sync_at: string | null
+          ms_account_email: string | null
+          ms_tenant_id: string | null
+          organization_id: string | null
+          provider: string
+          refresh_token_cipher: string | null
+          refresh_token_nonce: string | null
+          scopes: string[]
+          status: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_cipher?: string | null
+          access_token_nonce?: string | null
+          connected_at?: string | null
+          created_at?: string
+          delta_token_inbox?: string | null
+          delta_token_sent?: string | null
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          ms_account_email?: string | null
+          ms_tenant_id?: string | null
+          organization_id?: string | null
+          provider?: string
+          refresh_token_cipher?: string | null
+          refresh_token_nonce?: string | null
+          scopes?: string[]
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_cipher?: string | null
+          access_token_nonce?: string | null
+          connected_at?: string | null
+          created_at?: string
+          delta_token_inbox?: string | null
+          delta_token_sent?: string | null
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          ms_account_email?: string | null
+          ms_tenant_id?: string | null
+          organization_id?: string | null
+          provider?: string
+          refresh_token_cipher?: string | null
+          refresh_token_nonce?: string | null
+          scopes?: string[]
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_email_connections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "user_email_connections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_feedback: {
         Row: {
           created_at: string
@@ -14626,6 +14710,106 @@ export type Database = {
           },
           {
             foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_item_email_links: {
+        Row: {
+          attachment_names: string[] | null
+          confidence: number
+          connection_id: string | null
+          conversation_id: string | null
+          created_at: string
+          direction: string
+          evidence_type: string | null
+          has_attachments: boolean
+          id: string
+          internet_message_id: string | null
+          link_status: string
+          matched_by: string
+          matched_value: string | null
+          message_id: string
+          organization_id: string | null
+          received_at: string | null
+          recipients: string[] | null
+          sender: string | null
+          subject: string | null
+          updated_at: string
+          user_id: string
+          web_link: string | null
+          work_item_id: string
+        }
+        Insert: {
+          attachment_names?: string[] | null
+          confidence: number
+          connection_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          direction: string
+          evidence_type?: string | null
+          has_attachments?: boolean
+          id?: string
+          internet_message_id?: string | null
+          link_status?: string
+          matched_by: string
+          matched_value?: string | null
+          message_id: string
+          organization_id?: string | null
+          received_at?: string | null
+          recipients?: string[] | null
+          sender?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_id: string
+          web_link?: string | null
+          work_item_id: string
+        }
+        Update: {
+          attachment_names?: string[] | null
+          confidence?: number
+          connection_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          direction?: string
+          evidence_type?: string | null
+          has_attachments?: boolean
+          id?: string
+          internet_message_id?: string | null
+          link_status?: string
+          matched_by?: string
+          matched_value?: string | null
+          message_id?: string
+          organization_id?: string | null
+          received_at?: string | null
+          recipients?: string[] | null
+          sender?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+          web_link?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_email_links_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "user_email_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_links_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"
@@ -16568,6 +16752,10 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      apply_email_evidence_to_deadlines: {
+        Args: { p_link_id: string }
+        Returns: number
+      }
       apply_rechazo_presunto_rule: {
         Args: { p_work_item_id?: string }
         Returns: Json
@@ -16756,6 +16944,10 @@ export type Database = {
       }
       find_auto_rechazo_act: {
         Args: { p_from: string; p_work_item_id: string }
+        Returns: string
+      }
+      find_email_memorial_evidence: {
+        Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
       }
       find_subsanacion_evidence_act: {
