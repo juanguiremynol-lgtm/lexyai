@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -29,6 +29,46 @@
           "$schema": "http://json-schema.org/draft-07/schema#",
           "type": "object",
           "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "search",
+        "title": "Búsqueda libre",
+        "description": "Free-text search across the caller's matters: radicado, título, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medellín'. Results are RLS-scoped to the caller.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Texto libre: parte, despacho, ciudad, radicado o título."
+            },
+            "workflow_type": {
+              "type": "string",
+              "description": "Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."
+            },
+            "city": {
+              "type": "string",
+              "description": "Filtro opcional por ciudad del despacho."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "description": "Máximo de resultados (default 20)."
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
         },
         "outputSchema": null
       },
@@ -306,6 +346,162 @@
         "outputSchema": null
       },
       {
+        "name": "list_alerts",
+        "title": "Alertas del abogado",
+        "description": "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Limitar a un asunto (UUID)."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Limitar a un asunto por radicado."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "ACKNOWLEDGED",
+                "RESOLVED",
+                "all"
+              ],
+              "description": "Default: pendientes + reconocidas."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo de filas (default 30)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_hearings",
+        "title": "Audiencias programadas",
+        "description": "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Limitar a un asunto (UUID)."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Limitar a un asunto por radicado."
+            },
+            "date_from": {
+              "type": "string",
+              "description": "Fecha inicial ISO (YYYY-MM-DD)."
+            },
+            "date_to": {
+              "type": "string",
+              "description": "Fecha final ISO (YYYY-MM-DD)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_tasks",
+        "title": "Tareas de expedientes",
+        "description": "Lists the caller's tasks (work_item_tasks), optionally filtered by matter and status. Default: open tasks ordered by due date.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Limitar a un asunto (UUID)."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Limitar a un asunto por radicado."
+            },
+            "status": {
+              "type": "string",
+              "description": "Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_document_url",
+        "title": "Enlace del documento de una publicación",
+        "description": "Returns a short-lived download URL for the PDF attached to a publicación (estado electrónico) of one of the caller's matters. It never generates new documents; it only exposes an existing attachment under the established access policy.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto."
+            },
+            "document_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la publicación (estado) cuyo PDF se solicita."
+            }
+          },
+          "required": [
+            "document_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
         "name": "list_clients",
         "title": "Listar clientes",
         "description": "Lists the signed-in lawyer's clients with the number of active matters linked to each one.",
@@ -391,6 +587,53 @@
           },
           "required": [
             "content"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_hearing",
+        "title": "Agendar audiencia",
+        "description": "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto."
+            },
+            "date": {
+              "type": "string",
+              "description": "Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogotá)."
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Nombre o descripción de la audiencia."
+            },
+            "location": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Lugar o enlace de la audiencia."
+            }
+          },
+          "required": [
+            "date",
+            "description"
           ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"

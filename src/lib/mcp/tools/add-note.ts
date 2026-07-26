@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { errorResult, requireWriteScope, resolveWorkItem, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "add_note",
@@ -14,8 +14,8 @@ export default defineTool({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
-    const unauth = requireAuth(ctx);
-    if (unauth) return errorResult(unauth);
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 
     const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");

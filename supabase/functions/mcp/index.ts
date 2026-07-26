@@ -150,6 +150,19 @@ function errorResult(text) {
 function requireAuth(ctx) {
   return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
 }
+function requireWriteScope(ctx) {
+  const unauth = requireAuth(ctx);
+  if (unauth) return unauth;
+  const claims = ctx.getClaims?.() ?? {};
+  const raw = claims.scope ?? claims.scopes ?? claims.scp;
+  if (raw == null) return null;
+  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
+  return granted.includes("read_write") ? null : "Esta conexi\xF3n es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+}
+async function callerOrganizationId(sb, userId) {
+  const { data } = await sb.from("organization_memberships").select("organization_id").eq("user_id", userId).limit(1).maybeSingle();
+  return data?.organization_id ?? null;
+}
 function bogotaToday() {
   return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
@@ -446,8 +459,8 @@ var add_note_default = defineTool12({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
-    const unauth = requireAuth(ctx);
-    if (unauth) return errorResult(unauth);
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
     const sb = sbForUser4(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
@@ -466,20 +479,292 @@ ${entry}` : entry;
   }
 });
 
+// src/lib/mcp/tools/search.ts
+import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z12 } from "npm:zod@^3.25.76";
+var search_default = defineTool13({
+  name: "search",
+  title: "B\xFAsqueda libre",
+  description: "Free-text search across the caller's matters: radicado, t\xEDtulo, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medell\xEDn'. Results are RLS-scoped to the caller.",
+  inputSchema: {
+    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, radicado o t\xEDtulo."),
+    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    city: z12.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
+    limit: z12.number().int().min(1).max(50).optional().describe("M\xE1ximo de resultados (default 20).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ query, workflow_type, city, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const terms = query.split(/\s+/).filter((t) => t.length >= 3).slice(0, 4);
+    const needles = terms.length ? terms : [query];
+    let q = sb.from("work_items").select(
+      "id, radicado, title, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at"
+    ).is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 20);
+    for (const term of needles) {
+      const s = `%${term}%`;
+      q = q.or(
+        [
+          `radicado.ilike.${s}`,
+          `title.ilike.${s}`,
+          `authority_name.ilike.${s}`,
+          `authority_city.ilike.${s}`,
+          `demandantes.ilike.${s}`,
+          `demandados.ilike.${s}`
+        ].join(",")
+      );
+    }
+    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (city) q = q.ilike("authority_city", `%${city}%`);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    return textResult(
+      `${data?.length ?? 0} asuntos coinciden con "${query}".`,
+      { query, filters: { workflow_type: workflow_type ?? null, city: city ?? null }, items: data ?? [] }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-alerts.ts
+import { defineTool as defineTool14 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z13 } from "npm:zod@^3.25.76";
+var list_alerts_default = defineTool14({
+  name: "list_alerts",
+  title: "Alertas del abogado",
+  description: "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
+  inputSchema: {
+    work_item_id: z13.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    status: z13.enum(["PENDING", "ACKNOWLEDGED", "RESOLVED", "all"]).optional().describe("Default: pendientes + reconocidas."),
+    limit: z13.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    let entityId = work_item_id ?? null;
+    if (!entityId && radicado) {
+      const resolved = await resolveWorkItem(sb, { radicado });
+      if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      entityId = resolved.item.id;
+    }
+    let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at").order("fired_at", { ascending: false }).limit(limit ?? 30);
+    if (!status || status === "all") {
+      if (!status) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
+    } else {
+      q = q.eq("status", status);
+    }
+    if (entityId) q = q.eq("entity_id", entityId);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const unread = (data ?? []).filter((a) => !a.read_at).length;
+    return textResult(
+      `${data?.length ?? 0} alertas (${unread} sin leer).`,
+      { status: status ?? "PENDING+ACKNOWLEDGED", work_item_id: entityId, unread, alerts: data ?? [] }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-hearings.ts
+import { defineTool as defineTool15 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z14 } from "npm:zod@^3.25.76";
+var list_hearings_default = defineTool15({
+  name: "list_hearings",
+  title: "Audiencias programadas",
+  description: "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+  inputSchema: {
+    work_item_id: z14.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z14.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    date_from: z14.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
+    date_to: z14.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
+    limit: z14.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    let itemId = work_item_id ?? null;
+    if (!itemId && radicado) {
+      const resolved = await resolveWorkItem(sb, { radicado });
+      if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      itemId = resolved.item.id;
+    }
+    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(limit ?? 50);
+    if (itemId) q = q.eq("work_item_id", itemId);
+    if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
+    if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    return textResult(`${data?.length ?? 0} audiencias.`, {
+      work_item_id: itemId,
+      range: { from: date_from ?? null, to: date_to ?? null },
+      hearings: data ?? []
+    });
+  }
+});
+
+// src/lib/mcp/tools/list-tasks.ts
+import { defineTool as defineTool16 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z15 } from "npm:zod@^3.25.76";
+var list_tasks_default = defineTool16({
+  name: "list_tasks",
+  title: "Tareas de expedientes",
+  description: "Lists the caller's tasks (work_item_tasks), optionally filtered by matter and status. Default: open tasks ordered by due date.",
+  inputSchema: {
+    work_item_id: z15.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z15.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    status: z15.string().trim().optional().describe("Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."),
+    limit: z15.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    let itemId = work_item_id ?? null;
+    if (!itemId && radicado) {
+      const resolved = await resolveWorkItem(sb, { radicado });
+      if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      itemId = resolved.item.id;
+    }
+    let q = sb.from("work_item_tasks").select("id, work_item_id, title, description, status, priority, due_date, completed_at, created_at").order("due_date", { ascending: true, nullsFirst: false }).limit(limit ?? 50);
+    if (itemId) q = q.eq("work_item_id", itemId);
+    if (!status) q = q.neq("status", "COMPLETED");
+    else if (status.toLowerCase() !== "all") q = q.eq("status", status.toUpperCase());
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    return textResult(`${data?.length ?? 0} tareas.`, {
+      work_item_id: itemId,
+      status: status ?? "abiertas",
+      tasks: data ?? []
+    });
+  }
+});
+
+// src/lib/mcp/tools/get-document-url.ts
+import { defineTool as defineTool17 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z16 } from "npm:zod@^3.25.76";
+var get_document_url_default = defineTool17({
+  name: "get_document_url",
+  title: "Enlace del documento de una publicaci\xF3n",
+  description: "Returns a short-lived download URL for the PDF attached to a publicaci\xF3n (estado electr\xF3nico) of one of the caller's matters. It never generates new documents; it only exposes an existing attachment under the established access policy.",
+  inputSchema: {
+    work_item_id: z16.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z16.string().trim().optional().describe("Radicado del asunto."),
+    document_id: z16.string().uuid().describe("UUID de la publicaci\xF3n (estado) cuyo PDF se solicita.")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, document_id }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
+    if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    const itemId = resolved.item.id;
+    const { data: pub, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, tipo_publicacion, fecha_fijacion, pdf_url, pdf_available").eq("id", document_id).maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!pub) return errorResult("Documento no encontrado (o no pertenece a tu cuenta).");
+    if (pub.work_item_id !== itemId) {
+      return errorResult("El documento no pertenece al asunto indicado.");
+    }
+    const publicUrl = pub.pdf_url ?? null;
+    if (publicUrl && /^https?:\/\//i.test(publicUrl) && /storage\.googleapis\.com/i.test(publicUrl)) {
+      return textResult(`Enlace p\xFAblico del documento de ${pub.title ?? "la publicaci\xF3n"}.`, {
+        document_id,
+        work_item_id: itemId,
+        url: publicUrl,
+        source: "public"
+      });
+    }
+    const base = process.env.SUPABASE_URL;
+    const res = await fetch(`${base}/functions/v1/get-estado-attachment-url`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ctx.getToken()}`,
+        apikey: process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ publicacion_id: document_id })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || !payload.url) {
+      return errorResult(
+        payload.error === "no_pdf_available" ? "Esta publicaci\xF3n no tiene PDF disponible." : `No se pudo obtener el documento: ${payload.error ?? res.status}`
+      );
+    }
+    return textResult("Enlace temporal generado (v\xE1lido ~10 minutos).", {
+      document_id,
+      work_item_id: itemId,
+      url: payload.url,
+      source: "signed",
+      expires_in_seconds: 600
+    });
+  }
+});
+
+// src/lib/mcp/tools/add-hearing.ts
+import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z17 } from "npm:zod@^3.25.76";
+var add_hearing_default = defineTool18({
+  name: "add_hearing",
+  title: "Agendar audiencia",
+  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+  inputSchema: {
+    work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z17.string().trim().optional().describe("Radicado del asunto."),
+    date: z17.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
+    description: z17.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
+    location: z17.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser4(ctx);
+    const when = new Date(date);
+    if (Number.isNaN(when.getTime())) return errorResult("Fecha inv\xE1lida: usa formato ISO 8601.");
+    const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
+    if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    const itemId = resolved.item.id;
+    const orgId = await callerOrganizationId(sb, ctx.getUserId());
+    const { data, error } = await sb.from("work_item_hearings").insert({
+      work_item_id: itemId,
+      organization_id: orgId,
+      custom_name: description,
+      scheduled_at: when.toISOString(),
+      location: location ?? null,
+      status: "SCHEDULED",
+      modality: location && /^https?:\/\//i.test(location) ? "VIRTUAL" : "PRESENCIAL",
+      created_by: ctx.getUserId(),
+      notes_plain_text: "Agendada v\xEDa asistente de IA (MCP)."
+    }).select("id, work_item_id, custom_name, scheduled_at, location, status").maybeSingle();
+    if (error) return errorResult(error.message);
+    return textResult(
+      `Audiencia agendada para el asunto ${resolved.item.radicado ?? itemId}.`,
+      { hearing: data ?? null }
+    );
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.2.0",
+  version: "0.3.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
-    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`.",
+    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
+    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
+    "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
-    "Escritura: solo `add_note`. Nunca existe eliminaci\xF3n, reclasificaci\xF3n ni cambio de ciclo de vida v\xEDa MCP.",
+    "Escritura: solo `add_note` y `add_hearing`, y ambas exigen el permiso `read_write`. Nunca existe eliminaci\xF3n, reclasificaci\xF3n ni cambio de ciclo de vida v\xEDa MCP.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente."
   ].join(" "),
   auth: auth.oauth.issuer({
@@ -488,6 +773,7 @@ var mcp_default = defineMcp({
   }),
   tools: [
     get_user_context_default,
+    search_default,
     list_work_items_default,
     get_work_item_default,
     list_actuaciones_default,
@@ -496,9 +782,14 @@ var mcp_default = defineMcp({
     get_estados_hoy_default,
     get_actuaciones_hoy_default,
     list_deadlines_default,
+    list_alerts_default,
+    list_hearings_default,
+    list_tasks_default,
+    get_document_url_default,
     list_clients_default,
     get_client_default,
-    add_note_default
+    add_note_default,
+    add_hearing_default
   ]
 });
 
