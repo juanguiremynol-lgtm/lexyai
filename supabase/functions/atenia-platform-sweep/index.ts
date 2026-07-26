@@ -7,6 +7,8 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { resolveCaller, isPrivileged } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

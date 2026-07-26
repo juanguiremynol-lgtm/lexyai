@@ -7,13 +7,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { PETICION_ALERT_TYPE } from "../_shared/peticionAlertTypeConstants.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { resolveCaller, isPrivileged } from "../_shared/callerIdentity.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-key",
 };
 
 interface Peticion {
