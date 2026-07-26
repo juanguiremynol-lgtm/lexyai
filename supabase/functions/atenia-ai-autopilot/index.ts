@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller, isPrivileged, canAccessOrg } from "../_shared/callerIdentity.ts";
 import {
   isTransientError,
   shouldDemonitor,
@@ -93,6 +94,12 @@ Deno.serve(async (req) => {
 
     const mode = (body.mode as string) || "SCHEDULED";
     const orgIdOverride = body.organization_id as string | undefined;
+
+    // ── Identity guard: control-plane operations are platform-scoped ──
+    const caller = await resolveCaller(req);
+    if (!isPrivileged(caller) && !canAccessOrg(caller, orgIdOverride)) {
+      return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+    }
 
     // ── Resolve organizations ──
     const orgIds = await resolveOrgIds(supabase, orgIdOverride);

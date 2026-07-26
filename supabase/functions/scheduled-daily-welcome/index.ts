@@ -20,6 +20,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller } from "../_shared/callerIdentity.ts";
 import { parseISO, isWeekend, startOfDay, endOfDay, isWithinInterval } from "npm:date-fns@3.6.0";
 
 const corsHeaders = {
@@ -355,6 +356,20 @@ Deno.serve(async (req) => {
         singleUserId = body.user_id || null;
         skipBusinessDayCheck = body._skip_business_day_check === true;
       } catch { /* batch mode */ }
+    }
+
+    // ── Identity guard: a user may only generate their own welcome message ──
+    if (singleUserId) {
+      const caller = await resolveCaller(req);
+      if (caller.kind === "anon") {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (caller.kind === "user" && !caller.isPlatformAdmin) {
+        singleUserId = caller.userId;
+      }
     }
 
     // ============= Business Day Validation =============

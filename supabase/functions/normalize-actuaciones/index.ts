@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller, unauthorized } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -282,11 +283,20 @@ Deno.serve(async (req) => {
       work_item_id,
       monitored_process_id,
       filing_id,
-      owner_id,
+      owner_id: requestedOwnerId,
       radicado,
       force_reprocess = false,
     } = body;
-    
+
+    // ── Identity guard: never trust owner_id from the request body ──
+    const caller = await resolveCaller(req);
+    if (caller.kind === "anon") {
+      return unauthorized(corsHeaders);
+    }
+    const owner_id = caller.kind === "user" && !caller.isPlatformAdmin
+      ? caller.userId
+      : requestedOwnerId;
+
     if (!owner_id) {
       return new Response(
         JSON.stringify({ ok: false, error: 'owner_id is required' }),

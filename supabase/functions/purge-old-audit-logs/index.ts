@@ -10,6 +10,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller, isPrivileged, forbidden } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -84,6 +85,12 @@ Deno.serve(async (req: Request) => {
     manual = body.manual === true;
   } catch {
     // No body is fine
+  }
+
+  // ── Identity guard: destructive, platform-wide operation ──
+  const caller = await resolveCaller(req);
+  if (!isPrivileged(caller)) {
+    return forbidden(corsHeaders, "Solo administradores de plataforma pueden ejecutar la purga");
   }
 
   console.log(`[purge-old-audit-logs] Mode: ${mode}, Org: ${organizationId || "ALL"}, Manual: ${manual}`);

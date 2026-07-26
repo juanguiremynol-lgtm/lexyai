@@ -14,6 +14,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAction } from "../_shared/action-logger.ts";
+import { resolveCaller, isPrivileged, canAccessOrg, forbidden } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +62,13 @@ Deno.serve(async (req) => {
 
   const orgId = body.organization_id;
   const trigger = body.trigger ?? "MANUAL";
+
+  // ── Identity guard: provider diagnostics expose platform configuration ──
+  const caller = await resolveCaller(req);
+  if (!isPrivileged(caller) && !canAccessOrg(caller, orgId)) {
+    return forbidden(corsHeaders, "No autorizado para ejecutar el preflight");
+  }
+
   const startTime = Date.now();
   const results: PreflightResult[] = [];
 
