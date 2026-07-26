@@ -141,8 +141,32 @@ function sbForUser4(ctx) {
     }
   );
 }
+var MAX_JSON_CHARS = 9e4;
 function textResult(text, structuredContent) {
-  return { content: [{ type: "text", text }], structuredContent };
+  if (!structuredContent) {
+    return { content: [{ type: "text", text }] };
+  }
+  let json = JSON.stringify(structuredContent, null, 2);
+  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) {
+    json = JSON.stringify(structuredContent);
+    if (json.length > MAX_JSON_CHARS) {
+      json = json.slice(0, MAX_JSON_CHARS);
+      truncated = true;
+    }
+  }
+  const body = truncated ? `${text}
+
+(Respuesta truncada: reduce el par\xE1metro \`limit\` para ver todo.)
+
+\`\`\`json
+${json}
+\`\`\`` : `${text}
+
+\`\`\`json
+${json}
+\`\`\``;
+  return { content: [{ type: "text", text: body }], structuredContent };
 }
 function errorResult(text) {
   return { content: [{ type: "text", text }], isError: true };
