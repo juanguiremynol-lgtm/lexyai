@@ -15,6 +15,7 @@ import { Send, Save, Paperclip, X, ChevronDown, ChevronUp, Loader2 } from "lucid
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmailConnection, useOutlookSend } from "@/hooks/use-email-connection";
+import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 
 const PLATFORM_EMAIL = "info@andromeda.legal";
 
@@ -212,17 +213,20 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
               >
                 Andromeda ({PLATFORM_EMAIL})
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={sender === "outlook" ? "default" : "outline"}
-                onClick={() => setSender("outlook")}
-                disabled={!canSend}
-              >
-                Mi Outlook{connection?.ms_account_email ? ` (${connection.ms_account_email})` : ""}
-              </Button>
+              {/* "Mi Outlook" stays hidden while outbound sending is disabled. */}
+              {OUTLOOK_SEND_ENABLED && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={sender === "outlook" ? "default" : "outline"}
+                  onClick={() => setSender("outlook")}
+                  disabled={!canSend}
+                >
+                  Mi Outlook{connection?.ms_account_email ? ` (${connection.ms_account_email})` : ""}
+                </Button>
+              )}
             </div>
-            {!canSend && (
+            {OUTLOOK_SEND_ENABLED && !canSend && (
               <p className="text-xs text-muted-foreground">
                 {needsReconnectForSend
                   ? "Reconecta Outlook para enviar desde tu propio buzón."

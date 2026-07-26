@@ -8,7 +8,12 @@
  *     When `work_item_id` is supplied we store metadata + evidence only.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders, ensureAccessToken, graphPost } from "../_shared/outlookGraph.ts";
+import {
+  corsHeaders,
+  ensureAccessToken,
+  graphPost,
+  OUTLOOK_SEND_ENABLED,
+} from "../_shared/outlookGraph.ts";
 import { resolveCaller } from "../_shared/callerIdentity.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -37,6 +42,12 @@ function recipients(list: unknown): { emailAddress: { address: string } }[] {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Kill switch: sending from the user's mailbox is not authorized. The
+  // implementation below is retained but unreachable until explicitly enabled.
+  if (!OUTLOOK_SEND_ENABLED) {
+    return json({ error: "Funcionalidad deshabilitada pendiente de revisión" }, 403);
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,

@@ -45,7 +45,7 @@ function fmt(value?: string | null) {
 
 /** Outlook mailbox: read-only metadata linking, per subscriber. */
 function OutlookConnectionCard() {
-  const { connection, isLoading, connect, disconnect, sync, canSend, needsReconnectForSend } =
+  const { connection, isLoading, connect, disconnect, sync, needsReconnectForSend } =
     useEmailConnection();
   const connected = connection?.status === "CONNECTED";
 
@@ -85,7 +85,7 @@ function OutlookConnectionCard() {
                 Última sincronización: {fmt(connection?.last_sync_at)}
               </p>
               <p className="text-xs text-muted-foreground">
-                Permisos: lectura de buzón{canSend ? " y envío de correos" : " (sin envío)"}
+                Permisos: lectura de buzón (solo lectura, sin envío)
               </p>
             </div>
             {needsReconnectForSend && (
