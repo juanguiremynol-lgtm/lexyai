@@ -53,6 +53,15 @@
               "type": "string",
               "description": "Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."
             },
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Filtro opcional por cliente (UUID)."
+            },
+            "status": {
+              "type": "string",
+              "description": "Filtro opcional por estado del asunto (p. ej. ACTIVE)."
+            },
             "city": {
               "type": "string",
               "description": "Filtro opcional por ciudad del despacho."
@@ -368,13 +377,7 @@
             },
             "status": {
               "type": "string",
-              "enum": [
-                "PENDING",
-                "ACKNOWLEDGED",
-                "RESOLVED",
-                "all"
-              ],
-              "description": "Default: pendientes + reconocidas."
+              "description": "pending | acknowledged | resolved | all. Default: pendientes + reconocidas."
             },
             "limit": {
               "type": "integer",

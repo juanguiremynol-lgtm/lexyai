@@ -10,11 +10,13 @@ export default defineTool({
   inputSchema: {
     query: z.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, radicado o título."),
     workflow_type: z.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    client_id: z.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
+    status: z.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
     limit: z.number().int().min(1).max(50).optional().describe("Máximo de resultados (default 20)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ query, workflow_type, city, limit }, ctx) => {
+  handler: async ({ query, workflow_type, client_id, status, city, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -47,14 +49,35 @@ export default defineTool({
       );
     }
     if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (client_id) q = q.eq("client_id", client_id);
+    if (status) q = q.eq("status", status.toUpperCase());
     if (city) q = q.ilike("authority_city", `%${city}%`);
 
     const { data, error } = await q;
     if (error) return errorResult(error.message);
 
+    // Relevance score: how many query terms the row matches across its
+    // searchable columns (radicado matches weigh double).
+    const scored = (data ?? []).map((row) => {
+      const r = row as Record<string, unknown>;
+      const hay = ["radicado", "title", "authority_name", "authority_city", "demandantes", "demandados"]
+        .map((k) => String(r[k] ?? "").toLowerCase());
+      let score = 0;
+      for (const term of needles) {
+        const t = term.toLowerCase();
+        if (hay[0].includes(t)) score += 2;
+        if (hay.slice(1).some((h) => h.includes(t))) score += 1;
+      }
+      return { ...r, relevance_score: score };
+    }).sort((a, b) => (b.relevance_score as number) - (a.relevance_score as number));
+
     return textResult(
-      `${data?.length ?? 0} asuntos coinciden con "${query}".`,
-      { query, filters: { workflow_type: workflow_type ?? null, city: city ?? null }, items: data ?? [] },
+      `${scored.length} asuntos coinciden con "${query}".`,
+      {
+        query,
+        filters: { workflow_type: workflow_type ?? null, client_id: client_id ?? null, status: status ?? null, city: city ?? null },
+        items: scored,
+      },
     );
   },
 });
