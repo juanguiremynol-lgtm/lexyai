@@ -143,7 +143,6 @@ function OutlookConnectionCard() {
 }
 
 export default function SettingsConnections() {
-
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
