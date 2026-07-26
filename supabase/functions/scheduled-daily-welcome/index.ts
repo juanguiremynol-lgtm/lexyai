@@ -20,6 +20,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller } from "../_shared/callerIdentity.ts";
 import { parseISO, isWeekend, startOfDay, endOfDay, isWithinInterval } from "npm:date-fns@3.6.0";
 
 const corsHeaders = {
