@@ -20,6 +20,9 @@ const LegacyClientRedirect = () => {
 import Auth from "./pages/Auth";
 import OAuthConsent from "./pages/OAuthConsent";
 import ConnectAssistant from "./pages/ConnectAssistant";
+import ConnectAI from "./pages/ConnectAI";
+import SettingsConnections from "./pages/SettingsConnections";
+import AuthCallback from "./pages/AuthCallback";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import VerifyAlertEmail from "./pages/VerifyAlertEmail";
@@ -159,6 +162,13 @@ const App = () => (
 
           {/* Lovable-hosted OAuth 2.1 consent screen for MCP clients */}
           <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+
+          {/* Stable public landing that hydrates the session after social OAuth */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
+
+          {/* Public marketing page for the MCP server */}
+          <Route path="/connect-ai" element={<ErrorBoundary><ConnectAI /></ErrorBoundary>} />
+          <Route path="/mcp" element={<Navigate to="/connect-ai" replace />} />
           
           {/* Public routes with PublicLayout */}
           <Route element={<PublicLayout />}>
@@ -257,6 +267,7 @@ const App = () => (
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="connect" element={<ErrorBoundary><ConnectAssistant /></ErrorBoundary>} />
+            <Route path="settings/connections" element={<ErrorBoundary><SettingsConnections /></ErrorBoundary>} />
           </Route>
           
           {/* ============================================ */}
