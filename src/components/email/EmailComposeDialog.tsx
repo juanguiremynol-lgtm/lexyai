@@ -14,7 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Send, Save, Paperclip, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useEmailConnection, useOutlookSend } from "@/hooks/use-email-connection";
+import { useEmailConnection } from "@/hooks/use-email-connection";
+import { useOutlookSend } from "@/hooks/use-outlook-send";
 import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 
 const PLATFORM_EMAIL = "info@andromeda.legal";
@@ -88,14 +89,19 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
     setSending(true);
     try {
       if (sender === "outlook") {
-        await outlookSend.mutateAsync({
-          to: toList,
-          cc: ccList,
-          bcc: bccList,
-          subject,
-          body,
-          content_type: "Text",
-        });
+        // Mandatory two-step confirmation is enforced inside the hook.
+        const sent = await outlookSend.requestSend(
+          {
+            to: toList,
+            cc: ccList,
+            bcc: bccList,
+            subject,
+            body,
+            content_type: "Text",
+          },
+          { senderEmail: connection?.ms_account_email },
+        );
+        if (!sent) return;
         resetForm();
         onOpenChange(false);
         onSent?.();
@@ -198,6 +204,7 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -294,5 +301,7 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {outlookSend.confirmationDialog}
+    </>
   );
 }
