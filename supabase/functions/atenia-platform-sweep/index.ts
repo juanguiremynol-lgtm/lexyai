@@ -7,11 +7,13 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { resolveCaller, isPrivileged } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-cron-key, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 interface OrgSweepResult {
@@ -41,6 +43,16 @@ Deno.serve(async (req) => {
       });
     }
   } catch { /* not JSON, proceed normally */ }
+
+  // ── Auth: dedicated cron secret, or a privileged app caller ──
+  if (!isCronCaller(req)) {
+    const caller = await resolveCaller(req);
+    if (!isPrivileged(caller)) {
+      return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

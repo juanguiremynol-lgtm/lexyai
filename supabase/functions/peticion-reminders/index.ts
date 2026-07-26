@@ -7,13 +7,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { PETICION_ALERT_TYPE } from "../_shared/peticionAlertTypeConstants.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { resolveCaller, isPrivileged } from "../_shared/callerIdentity.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-key",
 };
 
 interface Peticion {
@@ -139,6 +141,16 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // ── Auth: dedicated cron secret, or a privileged app caller ──
+  if (!isCronCaller(req)) {
+    const caller = await resolveCaller(req);
+    if (!isPrivileged(caller)) {
+      return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
 
   try {
