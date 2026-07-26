@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Send, Save, Paperclip, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useEmailConnection, useOutlookSend } from "@/hooks/use-email-connection";
 
 const PLATFORM_EMAIL = "info@andromeda.legal";
 
@@ -25,6 +26,9 @@ interface EmailComposeDialogProps {
 }
 
 export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeDialogProps) {
+  const { connection, canSend, needsReconnectForSend, connect } = useEmailConnection();
+  const outlookSend = useOutlookSend();
+  const [sender, setSender] = useState<"platform" | "outlook">("platform");
   const [to, setTo] = useState("");
   const [toList, setToList] = useState<string[]>([]);
   const [cc, setCc] = useState("");
@@ -82,6 +86,21 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
 
     setSending(true);
     try {
+      if (sender === "outlook") {
+        await outlookSend.mutateAsync({
+          to: toList,
+          cc: ccList,
+          bcc: bccList,
+          subject,
+          body,
+          content_type: "Text",
+        });
+        resetForm();
+        onOpenChange(false);
+        onSent?.();
+        return;
+      }
+
       const html = `<div style="font-family: sans-serif;">${body
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
