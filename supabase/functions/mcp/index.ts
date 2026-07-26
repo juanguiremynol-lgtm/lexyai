@@ -48,6 +48,21 @@ ${json}
 \`\`\``;
   return { content: [{ type: "text", text: body }], structuredContent };
 }
+function businessDaysBetween(fromISO, toISO, holidays = /* @__PURE__ */ new Set()) {
+  const start = /* @__PURE__ */ new Date(`${fromISO}T12:00:00Z`);
+  const end = /* @__PURE__ */ new Date(`${toISO}T12:00:00Z`);
+  const sign = end < start ? -1 : 1;
+  let count = 0;
+  const cursor = new Date(sign > 0 ? start : end);
+  const stop = sign > 0 ? end : start;
+  while (cursor < stop) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const iso = cursor.toISOString().slice(0, 10);
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(iso)) count += 1;
+  }
+  return count * sign;
+}
 function errorResult(text) {
   return { content: [{ type: "text", text }], isError: true };
 }
@@ -395,11 +410,40 @@ var list_deadlines_default = defineTool9({
     if (workItem) q = q.eq("work_item_id", workItem.id);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
+    const rows = data ?? [];
+    const today = bogotaToday();
+    const ids = [...new Set(rows.map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map((i) => [i.id, i])
+    );
+    const dates = rows.map((r) => String(r.deadline_date ?? "")).filter(Boolean).sort();
+    const horizonEnd = dates[dates.length - 1] ?? today;
+    const { data: holidayRows } = await sb.from("colombian_holidays").select("holiday_date").gte("holiday_date", dates[0] && dates[0] < today ? dates[0] : today).lte("holiday_date", horizonEnd > today ? horizonEnd : today);
+    const holidays = new Set((holidayRows ?? []).map((h) => String(h.holiday_date)));
+    const deadlines = rows.map((r) => {
+      const row = r;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
+      const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
+      const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null,
+        vencimiento: dd,
+        dias_habiles_restantes: restantes,
+        urgencia
+      };
+    });
     const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
-    return textResult(`${data?.length ?? 0} t\xE9rminos. ${note}`, {
+    return textResult(`${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
       status: mode,
+      hoy: today,
       work_item: workItem,
-      deadlines: data ?? []
+      deadlines
     });
   }
 });

@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { bogotaToday, businessDaysBetween, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "list_deadlines",
@@ -39,6 +39,52 @@ export default defineTool({
     const { data, error } = await q;
     if (error) return errorResult(error.message);
 
+    const rows = data ?? [];
+    const today = bogotaToday();
+
+    // Radicado enrichment so each deadline is self-describing.
+    const ids = [...new Set(rows.map((r) => (r as { work_item_id: string }).work_item_id))];
+    const { data: items } = ids.length
+      ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
+      : { data: [] as Array<Record<string, unknown>> };
+    const byId = new Map<string, Record<string, unknown>>(
+      (items ?? []).map((i) => [(i as { id: string }).id, i as Record<string, unknown>]),
+    );
+
+    // Colombian holidays inside the relevant horizon (business-day countdown).
+    const dates = rows.map((r) => String((r as { deadline_date?: string }).deadline_date ?? "")).filter(Boolean).sort();
+    const horizonEnd = dates[dates.length - 1] ?? today;
+    const { data: holidayRows } = await sb
+      .from("colombian_holidays")
+      .select("holiday_date")
+      .gte("holiday_date", dates[0] && dates[0] < today ? dates[0] : today)
+      .lte("holiday_date", horizonEnd > today ? horizonEnd : today);
+    const holidays = new Set((holidayRows ?? []).map((h) => String((h as { holiday_date: string }).holiday_date)));
+
+    const deadlines = rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
+      const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
+      const urgencia =
+        restantes == null ? "SIN_FECHA"
+          : restantes < 0 ? "VENCIDO"
+          : restantes === 0 ? "VENCE_HOY"
+          : restantes <= 2 ? "CRITICO"
+          : restantes <= 5 ? "PROXIMO"
+          : "NORMAL";
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null,
+        vencimiento: dd,
+        dias_habiles_restantes: restantes,
+        urgencia,
+      };
+    });
+
     const note =
       mode === "pending"
         ? "Solo términos activos."
@@ -46,10 +92,11 @@ export default defineTool({
           ? "Términos en revisión (vencidos en el backfill): NO son obligaciones vigentes."
           : "Incluye activos y en revisión; los PENDING_REVIEW no son obligaciones vigentes.";
 
-    return textResult(`${data?.length ?? 0} términos. ${note}`, {
+    return textResult(`${deadlines.length} términos. ${note} (hoy = ${today}, America/Bogota)`, {
       status: mode,
+      hoy: today,
       work_item: workItem,
-      deadlines: data ?? [],
+      deadlines,
     });
   },
 });
