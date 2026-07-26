@@ -25,6 +25,7 @@ import {
   Check, Loader2, Wand2, Bot, Send,
 } from "lucide-react";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
+import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 import { useEmailConnection } from "@/hooks/use-email-connection";
 
 import {
