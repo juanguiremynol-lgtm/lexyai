@@ -39,7 +39,8 @@ describe('buildSearchCandidates', () => {
     const candidates = buildSearchCandidates(testRadicado);
     
     for (const candidate of candidates) {
-      expect(candidate.url).toContain(testRadicado);
+      // POST candidates carry the radicado in the body, not the query string.
+      expect(`${candidate.url}${candidate.body ?? ''}`).toContain(testRadicado);
       // Ensure radicado is not cast to scientific notation or truncated
       expect(candidate.url).not.toMatch(/5e\+?\d+/);
       expect(candidate.url).not.toContain('5001400300220250100000');
@@ -538,9 +539,12 @@ describe('redactSensitiveData', () => {
   });
 
   it('should handle arrays', () => {
-    const data = ['email@test.com', 'other text'];
+    const data = ['juan.perez@juzgado.gov.co', 'other text'];
     const result = redactSensitiveData(data) as string[];
     
-    expect(result[0]).not.toContain('email@test.com');
+    // Redaction replaces any address with the fixed placeholder.
+    expect(result[0]).not.toContain('juan.perez@juzgado.gov.co');
+    expect(result[0]).toBe('email@test.com');
+    expect(result[1]).toBe('other text');
   });
 });

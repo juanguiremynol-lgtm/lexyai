@@ -63,7 +63,10 @@ describe("Pricing Engine", () => {
       discount_value: 10,
       is_active: true,
       valid_from: "2026-01-01T00:00:00-05:00",
-      valid_to: "2026-06-30T23:59:59-05:00",
+      // Open-ended on purpose: a fixed valid_to turns every eligibility test
+      // into a time bomb once the wall clock passes it. The expiry path has
+      // its own test that overrides valid_to and pins `atTime`.
+      valid_to: null,
       max_redemptions: 100,
       current_redemptions: 25,
       eligible_plans: ["plan-basic"],

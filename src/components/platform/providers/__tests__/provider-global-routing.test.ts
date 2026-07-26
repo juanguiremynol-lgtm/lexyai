@@ -27,14 +27,16 @@ function makeGlobalRoute(overrides: Partial<GlobalRoute> & { workflow: string; p
 }
 
 describe("resolveGlobalProviderChain", () => {
-  it("resolves global routes to org instances", () => {
+  // Ratified: GLOBAL routes resolve against PLATFORM instances only — they
+  // never fall back to org instances.
+  it("resolves global routes to platform instances", () => {
     const routes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-1", connector_name: "ExtProvider" }),
     ];
     const instances: ResolvedInstance[] = [
       { provider_connector_id: "conn-1", provider_instance_id: "inst-1", provider_name: "OrgExtProvider" },
     ];
-    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, instances);
+    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, [], instances);
     expect(chain[0].provider_instance_id).toBe("inst-1");
     expect(chain[0].provider_name).toBe("OrgExtProvider");
     expect(chain[0].source).toBe("EXTERNAL_PRIMARY");
@@ -61,14 +63,14 @@ describe("resolveGlobalProviderChain", () => {
     expect(chain[0].source).toBe("BUILTIN");
   });
 
-  it("FALLBACK routes also resolve to org instances", () => {
+  it("FALLBACK routes also resolve to platform instances", () => {
     const routes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-fb", route_kind: "FALLBACK", connector_name: "FBConn" }),
     ];
     const instances: ResolvedInstance[] = [
       { provider_connector_id: "conn-fb", provider_instance_id: "fb-inst-1", provider_name: "FBInstance" },
     ];
-    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, instances);
+    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, [], instances);
     // Built-in first, then fallback
     expect(chain[0].source).toBe("BUILTIN");
     expect(chain[1].provider_instance_id).toBe("fb-inst-1");
@@ -84,7 +86,7 @@ describe("resolveGlobalProviderChain", () => {
       { provider_connector_id: "c1", provider_instance_id: "i1", provider_name: "P1" },
       { provider_connector_id: "c2", provider_instance_id: "i2", provider_name: "P2" },
     ];
-    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, instances);
+    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, [], instances);
     expect(chain.map(c => c.attempt_index)).toEqual([0, 1, 2]);
   });
 });

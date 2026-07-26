@@ -1,3 +1,6 @@
+// The Supabase browser client reads localStorage at module load; the project
+// runs vitest in the `node` environment, so polyfill it before that import.
+import "./helpers/localstorage-polyfill";
 import { describe, it, expect } from "vitest";
 import { supabase } from "@/integrations/supabase/client";
 

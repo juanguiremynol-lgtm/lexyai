@@ -112,6 +112,10 @@ function partyNames(raw: string | null | undefined): string[] {
 /**
  * Score a message against the portfolio. Returns every candidate above 0.5;
  * the caller decides what to persist (>=0.7 confirmed, 0.5-0.7 suggested).
+ *
+ * Ratified thresholds: only RADICADO (1.0) and DESPACHO (0.85) are surgical
+ * enough to be CONFIRMED. CLIENTE/PARTE sit at 0.65 (SUGGESTED) because a
+ * single message to a client with N matters fans out to all N.
  */
 export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): MatchResult[] {
   const subject = norm(msg.subject);
@@ -160,7 +164,7 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
       }
     }
 
-    // 3. Parties / client in subject or snippet — 0.7
+    // 3. Parties / client in subject or snippet — 0.65 (suggestion only)
     const names = [
       ...partyNames(wi.demandantes),
       ...partyNames(wi.demandados),
@@ -173,7 +177,7 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
         organization_id: wi.organization_id,
         matched_by: wi.client_name && norm(wi.client_name).includes(hit) ? "CLIENTE" : "PARTE",
         matched_value: hit,
-        confidence: 0.7,
+        confidence: 0.65,
       });
     }
   }
