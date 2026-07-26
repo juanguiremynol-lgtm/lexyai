@@ -12,6 +12,7 @@ import logo from "@/assets/andromeda-logo.png";
 import { ShieldAlert } from "lucide-react";
 import { TermsAcceptanceModal } from "@/components/legal/TermsAcceptanceModal";
 import { recordTermsAcceptance } from "@/lib/terms-service";
+import { POST_AUTH_NEXT_KEY, sanitizeNext } from "@/pages/AuthCallback";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -28,10 +29,15 @@ export default function Auth() {
   // Preserve return target (e.g. /.lovable/oauth/consent?authorization_id=...)
   // through password login, signup email confirmation, and social OAuth.
   const rawNext = searchParams.get("next");
-  const safeNext =
-    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
+  const safeNext = sanitizeNext(rawNext);
   const postAuthTarget = safeNext ?? "/dashboard";
-  const absolutePostAuthTarget = `${window.location.origin}${postAuthTarget}`;
+  // Social OAuth must return to a PUBLIC same-origin callback, never straight
+  // to the destination: the session is written after the redirect lands.
+  const oauthCallbackUrl = `${window.location.origin}/auth/callback${
+    safeNext ? `?next=${encodeURIComponent(safeNext)}` : ""
+  }`;
+  // Email confirmation links can point at the callback too — same reasoning.
+  const signupRedirectUrl = oauthCallbackUrl;
 
   // Terms acceptance state
   const [showTerms, setShowTerms] = useState(false);
@@ -106,6 +112,8 @@ export default function Auth() {
     const setLoading = provider === "google" ? setGoogleLoading : setAppleLoading;
     setLoading(true);
     try {
+      // Survives the provider round-trip even if the query string is stripped.
+      if (safeNext) sessionStorage.setItem(POST_AUTH_NEXT_KEY, safeNext);
       sessionStorage.setItem(
         "pending_terms_acceptance",
         JSON.stringify({
@@ -116,7 +124,7 @@ export default function Auth() {
       );
 
       const { error } = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: absolutePostAuthTarget,
+        redirect_uri: oauthCallbackUrl,
       });
       if (error) throw error;
     } catch (error: any) {
