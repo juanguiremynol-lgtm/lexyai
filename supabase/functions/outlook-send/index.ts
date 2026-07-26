@@ -6,6 +6,11 @@
  *   - Only the caller's mailbox is ever used; no shared/platform sender here.
  *   - The body is transmitted to Graph but NEVER persisted by Andromeda.
  *     When `work_item_id` is supplied we store metadata + evidence only.
+ *   - HUMAN-ONLY: this function is invoked exclusively from the confirmation
+ *     modal in OutlookComposeDialog. No cron, trigger or business rule may
+ *     call it.
+ *   - Every attempt (success or failure) writes one row to the append-only
+ *     outlook_send_audit_log.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
@@ -43,8 +48,7 @@ function recipients(list: unknown): { emailAddress: { address: string } }[] {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Kill switch: sending from the user's mailbox is not authorized. The
-  // implementation below is retained but unreachable until explicitly enabled.
+  // Kill switch for the authorized-but-controlled send capability.
   if (!OUTLOOK_SEND_ENABLED) {
     return json({ error: "Funcionalidad deshabilitada pendiente de revisión" }, 403);
   }
@@ -54,10 +58,39 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  const ipAddress = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
+
   let connectionId: string | null = null;
+  /** Append-only audit row; written on every outcome. */
+  const audit = {
+    user_id: null as string | null,
+    organization_id: null as string | null,
+    work_item_id: null as string | null,
+    recipients: [] as string[],
+    cc: [] as string[],
+    subject: null as string | null,
+    attachment_count: 0,
+    attachment_names: [] as string[],
+    ip_address: ipAddress,
+  };
+  const writeAudit = async (
+    result: "SUCCESS" | "ERROR",
+    extra: { graph_message_id?: string | null; error_message?: string | null } = {},
+  ) => {
+    if (!audit.user_id) return;
+    const { error } = await admin.from("outlook_send_audit_log").insert({
+      ...audit,
+      result,
+      graph_message_id: extra.graph_message_id ?? null,
+      error_message: extra.error_message?.slice(0, 1000) ?? null,
+    });
+    if (error) console.error("[outlook-send] audit insert", error.message);
+  };
+
   try {
     const caller = await resolveCaller(req);
     if (caller.kind !== "user") return json({ error: "No autenticado" }, 401);
+    audit.user_id = caller.userId;
 
     const body = await req.json().catch(() => ({}));
     const to = recipients(body.to);
@@ -69,11 +102,20 @@ Deno.serve(async (req) => {
     const workItemId = typeof body.work_item_id === "string" ? body.work_item_id : null;
     const asMemorial = body.as_memorial === true;
 
+    audit.recipients = to.map((r) => r.emailAddress.address);
+    audit.cc = cc.map((r) => r.emailAddress.address);
+    audit.subject = subject || null;
+    audit.work_item_id = workItemId;
+
     if (to.length === 0) return json({ error: "Agrega al menos un destinatario válido." }, 400);
     if (!subject) return json({ error: "El asunto es obligatorio." }, 400);
     if (!content.trim()) return json({ error: "El mensaje está vacío." }, 400);
 
     const rawAttachments: Attachment[] = Array.isArray(body.attachments) ? body.attachments : [];
+    audit.attachment_count = rawAttachments.length;
+    audit.attachment_names = rawAttachments
+      .map((a) => (typeof a?.name === "string" ? a.name : "adjunto"))
+      .slice(0, 20);
     let attachmentBytes = 0;
     for (const a of rawAttachments) {
       if (!a?.name || typeof a.contentBytes !== "string") {
@@ -101,6 +143,7 @@ Deno.serve(async (req) => {
       return json({ error: "No tienes un buzón de Outlook conectado." }, 400);
     }
     connectionId = conn.id as string;
+    audit.organization_id = (conn.organization_id as string) ?? null;
     if (!conn.can_send) {
       return json(
         {
@@ -122,11 +165,12 @@ Deno.serve(async (req) => {
           (wi.organization_id && caller.orgIds.includes(wi.organization_id as string)));
       if (!owns) return json({ error: "El expediente no pertenece a tu cuenta." }, 403);
       workItem = { id: wi!.id as string, organization_id: (wi!.organization_id as string) ?? null };
+      audit.organization_id = workItem.organization_id ?? audit.organization_id;
     }
 
     const accessToken = await ensureAccessToken(admin, conn as never);
 
-    await graphPost("/me/sendMail", accessToken, {
+    const graphResponse = await graphPost("/me/sendMail", accessToken, {
       message: {
         subject,
         body: { contentType: isHtml ? "HTML" : "Text", content },
@@ -146,6 +190,9 @@ Deno.serve(async (req) => {
       },
       saveToSentItems: true,
     });
+
+    const graphMessageId = typeof graphResponse?.id === "string" ? graphResponse.id : null;
+    await writeAudit("SUCCESS", { graph_message_id: graphMessageId });
 
     let linkId: string | null = null;
     if (workItem) {
@@ -182,6 +229,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error inesperado";
     console.error("[outlook-send]", message);
+    await writeAudit("ERROR", { error_message: message });
     const status = /Graph \[401\]/.test(message) ? 401 : 500;
     if (status === 401 && connectionId) {
       await admin

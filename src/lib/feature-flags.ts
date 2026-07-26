@@ -7,11 +7,13 @@
  * Outbound email from the user's own Outlook mailbox (Microsoft Graph
  * `Mail.Send`).
  *
- * DISABLED BY DECISION: the ratified design principle for the Outlook
- * integration is read-only ("Mail.Read, jamás Mail.Send"). The code stays in
- * the repository but every entry point — UI and backend — is blocked until the
- * capability is explicitly approved with its own controls (per-send manual
- * confirmation, recipient allow-list of verified judicial domains, immutable
- * audit log).
+ * ENABLED BY EXPLICIT DECISION with two mandatory controls:
+ *   1. Every send passes through an explicit human confirmation modal that
+ *      shows recipients, CC, subject, linked work item and attachments.
+ *      There is no programmatic/automated send path — no cron, trigger or
+ *      business rule may invoke `outlook-send`.
+ *   2. Every attempt (success or failure) is recorded in the append-only
+ *      `outlook_send_audit_log`.
+ * No recipient allow-list: sending covers general case correspondence.
  */
-export const OUTLOOK_SEND_ENABLED = false;
+export const OUTLOOK_SEND_ENABLED = true;

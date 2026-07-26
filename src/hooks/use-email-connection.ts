@@ -104,12 +104,9 @@ export function useEmailConnection() {
     ...query,
     connection,
     isConnected,
-    /**
-     * Sending is disabled by decision (read-only integration). Kept behind the
-     * flag so the capability can be re-enabled deliberately.
-     */
+    /** Sending is authorized, always behind the explicit confirmation modal. */
     canSend: Boolean(OUTLOOK_SEND_ENABLED && isConnected && connection?.can_send),
-    /** Never prompts for a send-capable reconnect while sending is disabled. */
+    /** True when the mailbox was connected before Mail.Send was granted. */
     needsReconnectForSend: Boolean(
       OUTLOOK_SEND_ENABLED && isConnected && !connection?.can_send,
     ),
@@ -117,6 +114,38 @@ export function useEmailConnection() {
     disconnect,
     sync,
   };
+}
+
+export interface OutlookSendAuditEntry {
+  id: string;
+  created_at: string;
+  recipients: string[];
+  cc: string[];
+  subject: string | null;
+  attachment_count: number;
+  attachment_names: string[];
+  result: "SUCCESS" | "ERROR";
+  error_message: string | null;
+  work_item_id: string | null;
+}
+
+/** Immutable, user-owned history of every send attempt. */
+export function useOutlookSendAuditLog(limit = 25) {
+  return useQuery({
+    queryKey: ["outlook-send-audit-log", limit],
+    queryFn: async (): Promise<OutlookSendAuditEntry[]> => {
+      const { data, error } = await supabase
+        .from("outlook_send_audit_log")
+        .select(
+          "id, created_at, recipients, cc, subject, attachment_count, attachment_names, result, error_message, work_item_id",
+        )
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return (data ?? []) as OutlookSendAuditEntry[];
+    },
+    staleTime: 30_000,
+  });
 }
 
 export interface OutlookSendPayload {

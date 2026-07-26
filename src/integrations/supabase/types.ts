@@ -9613,6 +9613,57 @@ export type Database = {
         }
         Relationships: []
       }
+      outlook_send_audit_log: {
+        Row: {
+          attachment_count: number
+          attachment_names: string[]
+          cc: string[]
+          created_at: string
+          error_message: string | null
+          graph_message_id: string | null
+          id: string
+          ip_address: string | null
+          organization_id: string | null
+          recipients: string[]
+          result: string
+          subject: string | null
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          attachment_count?: number
+          attachment_names?: string[]
+          cc?: string[]
+          created_at?: string
+          error_message?: string | null
+          graph_message_id?: string | null
+          id?: string
+          ip_address?: string | null
+          organization_id?: string | null
+          recipients?: string[]
+          result: string
+          subject?: string | null
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          attachment_count?: number
+          attachment_names?: string[]
+          cc?: string[]
+          created_at?: string
+          error_message?: string | null
+          graph_message_id?: string | null
+          id?: string
+          ip_address?: string | null
+          organization_id?: string | null
+          recipients?: string[]
+          result?: string
+          subject?: string | null
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       payment_transactions: {
         Row: {
           amount_breakdown: Json | null
