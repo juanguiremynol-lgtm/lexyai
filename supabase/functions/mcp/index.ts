@@ -282,7 +282,9 @@ var get_estados_hoy_default = defineTool7({
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
-    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const byId = new Map(
+      (items ?? []).map((i) => [i.id, i])
+    );
     const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
     return textResult(`${rows.length} estados fijados el ${day} (America/Bogota).`, { date: day, estados: rows });
   }
@@ -315,7 +317,9 @@ var get_actuaciones_hoy_default = defineTool8({
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
-    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const byId = new Map(
+      (items ?? []).map((i) => [i.id, i])
+    );
     const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
     return textResult(`${rows.length} actuaciones entre ${from} y ${end} (America/Bogota).`, {
       date_from: from,
