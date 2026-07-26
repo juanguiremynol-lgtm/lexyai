@@ -183,7 +183,7 @@ export default function Auth() {
           email,
           password,
           options: {
-            emailRedirectTo: absolutePostAuthTarget,
+            emailRedirectTo: signupRedirectUrl,
             data: { full_name: fullName },
           },
         });
