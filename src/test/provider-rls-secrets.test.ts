@@ -1,6 +1,6 @@
-// @vitest-environment jsdom
-// The Supabase browser client reads localStorage at module load, so this suite
-// needs a DOM environment (the project default is `node`).
+// The Supabase browser client reads localStorage at module load; the project
+// runs vitest in the `node` environment, so polyfill it before that import.
+import "./helpers/localstorage-polyfill";
 import { describe, it, expect } from "vitest";
 import { supabase } from "@/integrations/supabase/client";
 
