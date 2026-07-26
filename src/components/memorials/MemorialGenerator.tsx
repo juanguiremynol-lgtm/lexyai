@@ -480,6 +480,16 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
           )}
         </div>
       </DialogContent>
+      <OutlookComposeDialog
+        open={outlookOpen}
+        onOpenChange={setOutlookOpen}
+        defaultTo={[workItem.authority_email].filter(Boolean) as string[]}
+        defaultSubject={`Memorial — Radicado ${workItem.radicado ?? ""}`.trim()}
+        defaultBody={generatedText}
+        workItemId={workItem.id}
+        asMemorial
+        title="Enviar memorial vía Outlook"
+      />
     </Dialog>
   );
 }
