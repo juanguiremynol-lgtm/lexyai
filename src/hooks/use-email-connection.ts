@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 
 export interface EmailConnection {
   id: string;
@@ -103,10 +104,15 @@ export function useEmailConnection() {
     ...query,
     connection,
     isConnected,
-    /** Mailbox connected AND the Microsoft consent includes Mail.Send. */
-    canSend: Boolean(isConnected && connection?.can_send),
-    /** Connected before Mail.Send was requested — one reconnect fixes it. */
-    needsReconnectForSend: Boolean(isConnected && !connection?.can_send),
+    /**
+     * Sending is disabled by decision (read-only integration). Kept behind the
+     * flag so the capability can be re-enabled deliberately.
+     */
+    canSend: Boolean(OUTLOOK_SEND_ENABLED && isConnected && connection?.can_send),
+    /** Never prompts for a send-capable reconnect while sending is disabled. */
+    needsReconnectForSend: Boolean(
+      OUTLOOK_SEND_ENABLED && isConnected && !connection?.can_send,
+    ),
     connect,
     disconnect,
     sync,
