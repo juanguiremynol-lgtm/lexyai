@@ -34,6 +34,39 @@ export function requireAuth(ctx: ToolContext): string | null {
   return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
 }
 
+/**
+ * Write-scope guard for the two mutating tools (`add_note`, `add_hearing`).
+ *
+ * Supabase-issued OAuth access tokens do not carry an OAuth `scope` claim, so a
+ * token without any scope claim is treated as a full-access user token (the
+ * connection was approved by the user on the consent screen). When a scope
+ * claim IS present, `read_write` must be among the granted scopes — this makes
+ * read-only tokens genuinely read-only as soon as the authorization server
+ * starts emitting scopes.
+ */
+export function requireWriteScope(ctx: ToolContext): string | null {
+  const unauth = requireAuth(ctx);
+  if (unauth) return unauth;
+  const claims = (ctx.getClaims?.() ?? {}) as Record<string, unknown>;
+  const raw = claims.scope ?? claims.scopes ?? claims.scp;
+  if (raw == null) return null; // no scope claim → user token, full access
+  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
+  return granted.includes("read_write")
+    ? null
+    : "Esta conexión es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+}
+
+/** Organization of the caller (used to stamp inserted rows). */
+export async function callerOrganizationId(sb: SupabaseClient, userId: string): Promise<string | null> {
+  const { data } = await sb
+    .from("organization_memberships")
+    .select("organization_id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  return (data as { organization_id?: string } | null)?.organization_id ?? null;
+}
+
 /** Bogota-local calendar day (YYYY-MM-DD) — the ratified "hoy" semantics. */
 export function bogotaToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
