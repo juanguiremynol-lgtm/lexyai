@@ -17,6 +17,7 @@ export interface EmailConnection {
   last_error: string | null;
   connected_at: string | null;
   last_sync_at: string | null;
+  can_send: boolean;
 }
 
 export function useEmailConnection() {
@@ -27,7 +28,7 @@ export function useEmailConnection() {
     queryFn: async (): Promise<EmailConnection | null> => {
       const { data, error } = await supabase
         .from("user_email_connections")
-        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at")
+        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send")
         .eq("provider", "outlook")
         .maybeSingle();
       if (error) throw error;
@@ -96,7 +97,61 @@ export function useEmailConnection() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { ...query, connection: query.data ?? null, connect, disconnect, sync };
+  const connection = query.data ?? null;
+  const isConnected = connection?.status === "CONNECTED";
+  return {
+    ...query,
+    connection,
+    isConnected,
+    /** Mailbox connected AND the Microsoft consent includes Mail.Send. */
+    canSend: Boolean(isConnected && connection?.can_send),
+    /** Connected before Mail.Send was requested — one reconnect fixes it. */
+    needsReconnectForSend: Boolean(isConnected && !connection?.can_send),
+    connect,
+    disconnect,
+    sync,
+  };
+}
+
+export interface OutlookSendPayload {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  body: string;
+  content_type?: "Text" | "HTML";
+  work_item_id?: string;
+  as_memorial?: boolean;
+  attachments?: { name: string; contentType?: string; contentBytes: string }[];
+}
+
+/** Sends a message from the signed-in user's own Outlook mailbox. */
+export function useOutlookSend() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: OutlookSendPayload) => {
+      const { data, error } = await supabase.functions.invoke("outlook-send", { body: payload });
+      if (error) {
+        let detail: string | null = null;
+        try {
+          const parsed = await (error as { context?: { json?: () => Promise<{ error?: string }> } })
+            .context?.json?.();
+          detail = parsed?.error ?? null;
+        } catch { /* ignore */ }
+        throw new Error(detail ?? error.message);
+      }
+      if (data?.error) throw new Error(data.error);
+      return data as { ok: boolean; sent_from?: string | null; link_id?: string | null };
+    },
+    onSuccess: (_data, variables) => {
+      toast.success("Correo enviado desde tu Outlook");
+      void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
+      if (variables.work_item_id) {
+        void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 }
 
 export interface WorkItemEmailLink {
