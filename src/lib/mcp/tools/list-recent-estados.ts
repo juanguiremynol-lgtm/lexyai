@@ -26,9 +26,10 @@ export default defineTool({
     const sb = sbForUser(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 86400_000).toISOString();
     const { data, error } = await sb
-      .from("work_item_estados")
-      .select("id, work_item_id, radicado, title, detected_at, source, workflow_type")
+      .from("work_item_publicaciones")
+      .select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source")
       .gte("detected_at", since)
+      .or("is_archived.is.null,is_archived.eq.false")
       .order("detected_at", { ascending: false })
       .limit(limit ?? 25);
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };

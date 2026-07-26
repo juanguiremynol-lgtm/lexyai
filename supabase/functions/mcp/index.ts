@@ -81,7 +81,7 @@ var get_work_item_default = defineTool2({
     if (!item) return { content: [{ type: "text", text: "Asunto no encontrado." }], isError: true };
     const [{ data: acts }, { data: estados }] = await Promise.all([
       sb.from("work_item_acts").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20),
-      sb.from("work_item_estados").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20)
+      sb.from("work_item_publicaciones").select("*").eq("work_item_id", item.id).order("detected_at", { ascending: false }).limit(20)
     ]);
     return {
       content: [
@@ -117,7 +117,7 @@ var list_recent_estados_default = defineTool3({
     }
     const sb = sbForUser3(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
-    const { data, error } = await sb.from("work_item_estados").select("id, work_item_id, radicado, title, detected_at, source, workflow_type").gte("detected_at", since).order("detected_at", { ascending: false }).limit(limit ?? 25);
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: `${data?.length ?? 0} novedades en los \xFAltimos ${days ?? 3} d\xEDas.` }],
@@ -126,18 +126,376 @@ var list_recent_estados_default = defineTool3({
   }
 });
 
+// src/lib/mcp/tools/get-user-context.ts
+import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
+
+// src/lib/mcp/shared.ts
+import { createClient as createClient4 } from "npm:@supabase/supabase-js@^2.89.0";
+function sbForUser4(ctx) {
+  return createClient4(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    }
+  );
+}
+function textResult(text, structuredContent) {
+  return { content: [{ type: "text", text }], structuredContent };
+}
+function errorResult(text) {
+  return { content: [{ type: "text", text }], isError: true };
+}
+function requireAuth(ctx) {
+  return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
+}
+function bogotaToday() {
+  return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+}
+async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
+  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
+  if (args.id) q = q.eq("id", args.id);
+  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
+  else return { item: null, error: "Indica el id o el radicado del asunto." };
+  const { data, error } = await q;
+  if (error) return { item: null, error: error.message };
+  const item = data?.[0];
+  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  return { item, error: null };
+}
+
+// src/lib/mcp/tools/get-user-context.ts
+var get_user_context_default = defineTool4({
+  name: "get_user_context",
+  title: "Contexto del abogado",
+  description: "Returns the signed-in lawyer's profile (name, firm) and portfolio counters (active matters by workflow type). Call this first so you can address the user correctly without asking.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (_input, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const [{ data: profile }, { data: items }] = await Promise.all([
+      sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
+      sb.from("work_items").select("workflow_type").is("deleted_at", null).limit(1e3)
+    ]);
+    const byType = {};
+    for (const row of items ?? []) {
+      const key = row.workflow_type ?? "SIN_TIPO";
+      byType[key] = (byType[key] ?? 0) + 1;
+    }
+    const total = items?.length ?? 0;
+    const name = profile?.full_name ?? ctx.getUserEmail() ?? "Usuario";
+    const firm = profile?.firm_name;
+    return textResult(
+      `${name}${firm ? ` (${firm})` : ""} \u2014 ${total} asuntos activos: ${Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(", ") || "ninguno"}.`,
+      { profile: profile ?? null, active_work_items: total, by_workflow_type: byType }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-actuaciones.ts
+import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z4 } from "npm:zod@^3.25.76";
+var list_actuaciones_default = defineTool5({
+  name: "list_actuaciones",
+  title: "Actuaciones de un asunto",
+  description: "Lists judicial actuaciones for one matter, newest first. Identify the matter by radicado or work item id. Archived and superseded rows are excluded.",
+  inputSchema: {
+    radicado: z4.string().trim().optional().describe("Radicado del asunto."),
+    id: z4.string().uuid().optional().describe("UUID del asunto (alternativa al radicado)."),
+    date_from: z4.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre act_date)."),
+    date_to: z4.string().optional().describe("Fecha final YYYY-MM-DD (sobre act_date)."),
+    limit: z4.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const { item, error } = await resolveWorkItem(sb, { id, radicado });
+    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    let q = sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at, instancia").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 50);
+    if (date_from) q = q.gte("act_date", date_from);
+    if (date_to) q = q.lte("act_date", date_to);
+    const { data, error: qErr } = await q;
+    if (qErr) return errorResult(qErr.message);
+    return textResult(
+      `${data?.length ?? 0} actuaciones para ${item.radicado ?? item.id}.`,
+      { work_item: item, actuaciones: data ?? [] }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-publicaciones.ts
+import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z5 } from "npm:zod@^3.25.76";
+var list_publicaciones_default = defineTool6({
+  name: "list_publicaciones",
+  title: "Estados electr\xF3nicos de un asunto",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id.",
+  inputSchema: {
+    radicado: z5.string().trim().optional().describe("Radicado del asunto."),
+    id: z5.string().uuid().optional().describe("UUID del asunto."),
+    date_from: z5.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
+    date_to: z5.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
+    limit: z5.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const { item, error } = await resolveWorkItem(sb, { id, radicado });
+    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
+    if (date_from) q = q.gte("fecha_fijacion", date_from);
+    if (date_to) q = q.lte("fecha_fijacion", date_to);
+    const { data, error: qErr } = await q;
+    if (qErr) return errorResult(qErr.message);
+    return textResult(
+      `${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
+      { work_item: item, publicaciones: data ?? [] }
+    );
+  }
+});
+
+// src/lib/mcp/tools/get-estados-hoy.ts
+import { defineTool as defineTool7 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z6 } from "npm:zod@^3.25.76";
+var get_estados_hoy_default = defineTool7({
+  name: "get_estados_hoy",
+  title: "Estados de hoy",
+  description: "Lists estados electr\xF3nicos fijados TODAY (America/Bogota) across the whole portfolio. An estado belongs to a day when its fecha_fijacion equals that calendar day in Bogota \u2014 not when it was detected.",
+  inputSchema: {
+    date: z6.string().optional().describe("D\xEDa YYYY-MM-DD en America/Bogota. Default: hoy."),
+    limit: z6.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 100).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ date, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const day = date ?? bogotaToday();
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").eq("fecha_fijacion", day).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
+    if (error) return errorResult(error.message);
+    const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
+    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
+    return textResult(`${rows.length} estados fijados el ${day} (America/Bogota).`, { date: day, estados: rows });
+  }
+});
+
+// src/lib/mcp/tools/get-actuaciones-hoy.ts
+import { defineTool as defineTool8 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z7 } from "npm:zod@^3.25.76";
+var WINDOW_DAYS = { today: 1, "3days": 3, week: 7 };
+var get_actuaciones_hoy_default = defineTool8({
+  name: "get_actuaciones_hoy",
+  title: "Actuaciones recientes de la cartera",
+  description: "Lists actuaciones registered across the whole portfolio within a recent window (today, last 3 days, or last week), based on act_date in America/Bogota.",
+  inputSchema: {
+    date: z7.string().optional().describe("D\xEDa final YYYY-MM-DD en America/Bogota. Default: hoy."),
+    window: z7.enum(["today", "3days", "week"]).optional().describe("Ventana hacia atr\xE1s. Default: today."),
+    limit: z7.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 100).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ date, window, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const end = date ?? bogotaToday();
+    const days = WINDOW_DAYS[window ?? "today"];
+    const start = /* @__PURE__ */ new Date(`${end}T00:00:00Z`);
+    start.setUTCDate(start.getUTCDate() - (days - 1));
+    const from = start.toISOString().slice(0, 10);
+    const { data, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, act_type, description, despacho, source, detected_at").gte("act_date", from).lte("act_date", end).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 100);
+    if (error) return errorResult(error.message);
+    const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
+    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
+    return textResult(`${rows.length} actuaciones entre ${from} y ${end} (America/Bogota).`, {
+      date_from: from,
+      date_to: end,
+      actuaciones: rows
+    });
+  }
+});
+
+// src/lib/mcp/tools/list-deadlines.ts
+import { defineTool as defineTool9 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z8 } from "npm:zod@^3.25.76";
+var list_deadlines_default = defineTool9({
+  name: "list_deadlines",
+  title: "T\xE9rminos procesales",
+  description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active \u2014 request them explicitly and never present them as live obligations.",
+  inputSchema: {
+    status: z8.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
+    radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    limit: z8.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ status, radicado, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    let workItem = null;
+    if (radicado) {
+      const resolved = await resolveWorkItem(sb, { radicado });
+      if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      workItem = resolved.item;
+    }
+    let q = sb.from("work_item_deadlines").select("id, work_item_id, deadline_type, label, description, trigger_event, trigger_date, deadline_date, business_days_count, status").order("deadline_date", { ascending: true }).limit(limit ?? 50);
+    const mode = status ?? "pending";
+    if (mode === "pending") q = q.eq("status", "PENDING");
+    else if (mode === "pending_review") q = q.eq("status", "PENDING_REVIEW");
+    if (workItem) q = q.eq("work_item_id", workItem.id);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
+    return textResult(`${data?.length ?? 0} t\xE9rminos. ${note}`, {
+      status: mode,
+      work_item: workItem,
+      deadlines: data ?? []
+    });
+  }
+});
+
+// src/lib/mcp/tools/list-clients.ts
+import { defineTool as defineTool10 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z9 } from "npm:zod@^3.25.76";
+var list_clients_default = defineTool10({
+  name: "list_clients",
+  title: "Listar clientes",
+  description: "Lists the signed-in lawyer's clients with the number of active matters linked to each one.",
+  inputSchema: {
+    search: z9.string().trim().optional().describe("B\xFAsqueda por nombre o identificaci\xF3n."),
+    limit: z9.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ search, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    let q = sb.from("clients").select("id, name, id_number, email, city, created_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
+    if (search) q = q.or(`name.ilike.%${search}%,id_number.ilike.%${search}%`);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const ids = (data ?? []).map((c) => c.id);
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, client_id").in("client_id", ids).is("deleted_at", null) : { data: [] };
+    const counts = {};
+    for (const it of items ?? []) {
+      const cid = it.client_id;
+      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    }
+    const rows = (data ?? []).map((c) => ({ ...c, active_work_items: counts[c.id] ?? 0 }));
+    return textResult(`${rows.length} clientes.`, { clients: rows });
+  }
+});
+
+// src/lib/mcp/tools/get-client.ts
+import { defineTool as defineTool11 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z10 } from "npm:zod@^3.25.76";
+var get_client_default = defineTool11({
+  name: "get_client",
+  title: "Detalle de cliente",
+  description: "Fetches one client and the matters linked to them. Identify the client by id or by exact/partial name.",
+  inputSchema: {
+    client_id: z10.string().uuid().optional().describe("UUID del cliente."),
+    name: z10.string().trim().optional().describe("Nombre del cliente (coincidencia parcial).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ client_id, name }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    if (!client_id && !name) return errorResult("Indica client_id o name.");
+    const sb = sbForUser4(ctx);
+    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
+    if (client_id) q = q.eq("id", client_id);
+    else if (name) q = q.ilike("name", `%${name}%`);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    const client = data?.[0];
+    if (!client) return errorResult("Cliente no encontrado (o no pertenece a tu cuenta).");
+    const { data: items } = await sb.from("work_items").select("id, radicado, title, workflow_type, stage, authority_name").eq("client_id", client.id).is("deleted_at", null).limit(200);
+    return textResult(
+      `${client.name} \u2014 ${items?.length ?? 0} asuntos activos.`,
+      { client, work_items: items ?? [] }
+    );
+  }
+});
+
+// src/lib/mcp/tools/add-note.ts
+import { defineTool as defineTool12 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z11 } from "npm:zod@^3.25.76";
+var add_note_default = defineTool12({
+  name: "add_note",
+  title: "Agregar nota a un asunto",
+  description: "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
+  inputSchema: {
+    radicado: z11.string().trim().optional().describe("Radicado del asunto."),
+    id: z11.string().uuid().optional().describe("UUID del asunto."),
+    content: z11.string().trim().min(1).max(4e3).describe("Texto de la nota.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async ({ radicado, id, content }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser4(ctx);
+    const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
+    const entry = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
+    const previous = (item.notes ?? "").trim();
+    const nextNotes = previous ? `${previous}
+
+${entry}` : entry;
+    const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
+    if (upErr) return errorResult(upErr.message);
+    return textResult(`Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+      work_item_id: item.id,
+      note: entry
+    });
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.1.0",
-  instructions: "Herramientas de Andromeda para abogados en Colombia. Usa `list_work_items` para listar asuntos del usuario, `get_work_item` para ver detalles y actuaciones, y `list_recent_estados` para novedades judiciales recientes. Toda informaci\xF3n queda restringida al usuario autenticado v\xEDa RLS.",
+  version: "0.2.0",
+  instructions: [
+    "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
+    "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
+    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`.",
+    "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
+    "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
+    "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
+    "Escritura: solo `add_note`. Nunca existe eliminaci\xF3n, reclasificaci\xF3n ni cambio de ciclo de vida v\xEDa MCP.",
+    "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente."
+  ].join(" "),
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated"
   }),
-  tools: [list_work_items_default, get_work_item_default, list_recent_estados_default]
+  tools: [
+    get_user_context_default,
+    list_work_items_default,
+    get_work_item_default,
+    list_actuaciones_default,
+    list_publicaciones_default,
+    list_recent_estados_default,
+    get_estados_hoy_default,
+    get_actuaciones_hoy_default,
+    list_deadlines_default,
+    list_clients_default,
+    get_client_default,
+    add_note_default
+  ]
 });
 
 // lovable-mcp-supabase-entry.ts

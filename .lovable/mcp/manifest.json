@@ -12,10 +12,26 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "title": "Andromeda Legal"
     },
     "tools": [
+      {
+        "name": "get_user_context",
+        "title": "Contexto del abogado",
+        "description": "Returns the signed-in lawyer's profile (name, firm) and portfolio counters (active matters by workflow type). Call this first so you can address the user correctly without asking.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
       {
         "name": "list_work_items",
         "title": "Listar asuntos (work items)",
@@ -76,6 +92,88 @@
         "outputSchema": null
       },
       {
+        "name": "list_actuaciones",
+        "title": "Actuaciones de un asunto",
+        "description": "Lists judicial actuaciones for one matter, newest first. Identify the matter by radicado or work item id. Archived and superseded rows are excluded.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto."
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto (alternativa al radicado)."
+            },
+            "date_from": {
+              "type": "string",
+              "description": "Fecha inicial YYYY-MM-DD (sobre act_date)."
+            },
+            "date_to": {
+              "type": "string",
+              "description": "Fecha final YYYY-MM-DD (sobre act_date)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_publicaciones",
+        "title": "Estados electrónicos de un asunto",
+        "description": "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto."
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "date_from": {
+              "type": "string",
+              "description": "Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."
+            },
+            "date_to": {
+              "type": "string",
+              "description": "Fecha final YYYY-MM-DD (sobre fecha_fijacion)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
         "name": "list_recent_estados",
         "title": "Novedades judiciales recientes",
         "description": "Lists the most recent judicial estados / actuaciones detected across the signed-in user's monitored matters, ordered by detected_at desc.",
@@ -100,6 +198,200 @@
               "description": "Máximo filas (default 25)."
             }
           },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_estados_hoy",
+        "title": "Estados de hoy",
+        "description": "Lists estados electrónicos fijados TODAY (America/Bogota) across the whole portfolio. An estado belongs to a day when its fecha_fijacion equals that calendar day in Bogota — not when it was detected.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "Día YYYY-MM-DD en America/Bogota. Default: hoy."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 100)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_actuaciones_hoy",
+        "title": "Actuaciones recientes de la cartera",
+        "description": "Lists actuaciones registered across the whole portfolio within a recent window (today, last 3 days, or last week), based on act_date in America/Bogota.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "Día final YYYY-MM-DD en America/Bogota. Default: hoy."
+            },
+            "window": {
+              "type": "string",
+              "enum": [
+                "today",
+                "3days",
+                "week"
+              ],
+              "description": "Ventana hacia atrás. Default: today."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 100)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_deadlines",
+        "title": "Términos procesales",
+        "description": "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active — request them explicitly and never present them as live obligations.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "pending_review",
+                "all"
+              ],
+              "description": "Default: pending (solo activos)."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Limitar a un asunto por radicado."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_clients",
+        "title": "Listar clientes",
+        "description": "Lists the signed-in lawyer's clients with the number of active matters linked to each one.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": "string",
+              "description": "Búsqueda por nombre o identificación."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_client",
+        "title": "Detalle de cliente",
+        "description": "Fetches one client and the matters linked to them. Identify the client by id or by exact/partial name.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del cliente."
+            },
+            "name": {
+              "type": "string",
+              "description": "Nombre del cliente (coincidencia parcial)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_note",
+        "title": "Agregar nota a un asunto",
+        "description": "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto."
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "description": "Texto de la nota."
+            }
+          },
+          "required": [
+            "content"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },
