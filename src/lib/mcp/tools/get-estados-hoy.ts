@@ -31,7 +31,9 @@ export default defineTool({
     const { data: items } = ids.length
       ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null)
       : { data: [] as Array<Record<string, unknown>> };
-    const byId = new Map((items ?? []).map((i) => [(i as { id: string }).id, i]));
+    const byId = new Map<string, unknown>(
+      (items ?? []).map((i) => [(i as { id: string }).id, i] as [string, unknown]),
+    );
     const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get((r as { work_item_id: string }).work_item_id) ?? null }));
 
     return textResult(`${rows.length} estados fijados el ${day} (America/Bogota).`, { date: day, estados: rows });
