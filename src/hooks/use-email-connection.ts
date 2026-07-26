@@ -148,46 +148,10 @@ export function useOutlookSendAuditLog(limit = 25) {
   });
 }
 
-export interface OutlookSendPayload {
-  to: string[];
-  cc?: string[];
-  bcc?: string[];
-  subject: string;
-  body: string;
-  content_type?: "Text" | "HTML";
-  work_item_id?: string;
-  as_memorial?: boolean;
-  attachments?: { name: string; contentType?: string; contentBytes: string }[];
-}
-
-/** Sends a message from the signed-in user's own Outlook mailbox. */
-export function useOutlookSend() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (payload: OutlookSendPayload) => {
-      const { data, error } = await supabase.functions.invoke("outlook-send", { body: payload });
-      if (error) {
-        let detail: string | null = null;
-        try {
-          const parsed = await (error as { context?: { json?: () => Promise<{ error?: string }> } })
-            .context?.json?.();
-          detail = parsed?.error ?? null;
-        } catch { /* ignore */ }
-        throw new Error(detail ?? error.message);
-      }
-      if (data?.error) throw new Error(data.error);
-      return data as { ok: boolean; sent_from?: string | null; link_id?: string | null };
-    },
-    onSuccess: (_data, variables) => {
-      toast.success("Correo enviado desde tu Outlook");
-      void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
-      if (variables.work_item_id) {
-        void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
-      }
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-}
+/**
+ * NOTE: sending lives in `use-outlook-send.tsx`, which forces the two-step
+ * confirmation screen. Never re-add an unguarded send mutation here.
+ */
 
 export interface WorkItemEmailLink {
   id: string;
