@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -509,6 +509,83 @@
         "outputSchema": null
       },
       {
+        "name": "list_email_links",
+        "title": "Correos vinculados al expediente",
+        "description": "Lists the email metadata linked to one matter (work_item_email_links): subject, direction, sender, date, evidence type, how it was matched, confidence, attachments and the Outlook web link. Read-only; Andromeda never stores email bodies.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto (alternativa al UUID)."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "SUGGESTED",
+                "DISMISSED",
+                "ALL"
+              ],
+              "description": "Estado del vínculo. Default: CONFIRMED + SUGGESTED."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo de filas (default 30)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_detected_processes",
+        "title": "Procesos detectados en el correo",
+        "description": "Lists judicial case numbers (radicados) found in the caller's mailbox that do NOT exist in their Andromeda portfolio yet (detected_processes queue). Use it to help the lawyer triage which ones deserve a matter. Read-only: creating the matter always happens in the app.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "DISMISSED",
+                "CREATED",
+                "ALL"
+              ],
+              "description": "Estado de la detección. Default: PENDING."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
         "name": "list_clients",
         "title": "Listar clientes",
         "description": "Lists the signed-in lawyer's clients with the number of active matters linked to each one.",
@@ -642,6 +719,68 @@
             "date",
             "description"
           ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "atenia_health_overview",
+        "title": "Atenia · Salud de la plataforma (solo administradores)",
+        "description": "PLATFORM ADMINS ONLY. Returns the current Andromeda platform health snapshot: latest Atenia preflight verdict, service heartbeats and the last cron runs. Non-admin callers get a clean refusal.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "atenia_provider_status",
+        "title": "Atenia · Estado de proveedores judiciales (solo administradores)",
+        "description": "PLATFORM ADMINS ONLY. Per-provider status from the latest Atenia preflight run (CPNU, SAMAI, Publicaciones Procesales, SAMAI Estados), including consecutive failures. Non-admin callers get a clean refusal.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "atenia_recent_incidents",
+        "title": "Atenia · Incidentes recientes (solo administradores)",
+        "description": "PLATFORM ADMINS ONLY. Lists WARN/ERROR system health events and failed cron runs in the last N days (default 7). Non-admin callers get a clean refusal.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "description": "Ventana en días (default 7)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de eventos (default 100)."
+            }
+          },
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },

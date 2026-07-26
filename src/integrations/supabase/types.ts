@@ -5080,6 +5080,81 @@ export type Database = {
           },
         ]
       }
+      detected_processes: {
+        Row: {
+          ciudad_inferida: string | null
+          created_at: string
+          created_work_item_id: string | null
+          departamento_inferido: string | null
+          despacho_inferido: string | null
+          dismissed_at: string | null
+          first_seen_at: string
+          id: string
+          internet_message_id: string | null
+          last_seen_at: string
+          message_id: string | null
+          occurrences: number
+          organization_id: string | null
+          partes_inferidas: string | null
+          radicado: string
+          sender: string | null
+          status: string
+          subject: string | null
+          updated_at: string
+          user_id: string
+          web_link: string | null
+          workflow_inferido: string | null
+        }
+        Insert: {
+          ciudad_inferida?: string | null
+          created_at?: string
+          created_work_item_id?: string | null
+          departamento_inferido?: string | null
+          despacho_inferido?: string | null
+          dismissed_at?: string | null
+          first_seen_at?: string
+          id?: string
+          internet_message_id?: string | null
+          last_seen_at?: string
+          message_id?: string | null
+          occurrences?: number
+          organization_id?: string | null
+          partes_inferidas?: string | null
+          radicado: string
+          sender?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string
+          user_id: string
+          web_link?: string | null
+          workflow_inferido?: string | null
+        }
+        Update: {
+          ciudad_inferida?: string | null
+          created_at?: string
+          created_work_item_id?: string | null
+          departamento_inferido?: string | null
+          despacho_inferido?: string | null
+          dismissed_at?: string | null
+          first_seen_at?: string
+          id?: string
+          internet_message_id?: string | null
+          last_seen_at?: string
+          message_id?: string | null
+          occurrences?: number
+          organization_id?: string | null
+          partes_inferidas?: string | null
+          radicado?: string
+          sender?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+          web_link?: string | null
+          workflow_inferido?: string | null
+        }
+        Relationships: []
+      }
       document_configurations: {
         Row: {
           created_at: string

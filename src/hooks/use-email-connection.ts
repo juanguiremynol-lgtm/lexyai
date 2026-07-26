@@ -222,3 +222,55 @@ export function useWorkItemEmailLinks(workItemId: string | undefined) {
     enabled: !!workItemId,
   });
 }
+
+/**
+ * Confirm or dismiss a medium-confidence (SUGGESTED) email link.
+ *
+ * Without this the 0.5-0.7 band stays invisible and the PARTE matcher is dead
+ * weight. Only the owner of the link can change its status (RLS).
+ */
+export function useUpdateEmailLinkStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "CONFIRMED" | "DISMISSED" }) => {
+      const { error } = await supabase
+        .from("work_item_email_links")
+        .update({ link_status: status })
+        .eq("id", id);
+      if (error) throw error;
+      return status;
+    },
+    onSuccess: (status) => {
+      toast.success(status === "CONFIRMED" ? "Vínculo confirmado" : "Vínculo descartado");
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export interface SuggestedEmailLink extends WorkItemEmailLink {
+  work_item_id: string;
+  matched_value: string | null;
+  work_items: { id: string; radicado: string | null; title: string | null } | null;
+}
+
+/** Global inbox of medium-confidence links awaiting the user's decision. */
+export function useSuggestedEmailLinks() {
+  return useQuery({
+    queryKey: ["suggested-email-links"],
+    queryFn: async (): Promise<SuggestedEmailLink[]> => {
+      const { data, error } = await supabase
+        .from("work_item_email_links")
+        .select(
+          "id, work_item_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, link_status, work_items(id, radicado, title)",
+        )
+        .eq("link_status", "SUGGESTED")
+        .order("received_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as unknown as SuggestedEmailLink[];
+    },
+    staleTime: 30_000,
+  });
+}

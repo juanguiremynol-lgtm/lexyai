@@ -152,6 +152,32 @@ export function bogotaToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
 
+/**
+ * Server-side platform-admin gate for the Atenia observability tools.
+ *
+ * The OAuth scope is NEVER enough: we validate the token's `sub` against
+ * `platform_admins`. Returns an error string for non-admins, null otherwise.
+ */
+export const NOT_PLATFORM_ADMIN =
+  "Esta herramienta está restringida a administradores de la plataforma.";
+
+export async function requirePlatformAdmin(
+  ctx: ToolContext,
+): Promise<{ error: string | null; sb: SupabaseClient }> {
+  const sb = sbForUser(ctx);
+  const unauth = requireAuth(ctx);
+  if (unauth) return { error: unauth, sb };
+  const userId = ctx.getUserId?.();
+  if (!userId) return { error: NOT_PLATFORM_ADMIN, sb };
+  const { data, error } = await sb
+    .from("platform_admins")
+    .select("user_id, role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return { error: NOT_PLATFORM_ADMIN, sb };
+  return { error: null, sb };
+}
+
 /** Resolve a work item by UUID or radicado, scoped by RLS to the caller. */
 export async function resolveWorkItem(
   sb: SupabaseClient,

@@ -19,6 +19,7 @@ import { resolveCaller } from "../_shared/callerIdentity.ts";
 import {
   matchMessage,
   classifyEvidence,
+  extractRadicados,
   type GraphMessage,
   type PortfolioItem,
 } from "../_shared/emailMatcher.ts";
@@ -144,10 +145,16 @@ async function syncConnection(admin: Admin, conn: Connection) {
     links_created: 0,
     suggestions_created: 0,
     memorial_evidence: 0,
+    detected_processes: 0,
   };
 
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
+  const knownRadicados = new Set(
+    portfolio
+      .map((p) => (p.radicado ?? "").replace(/\D/g, ""))
+      .filter((r) => r.length === 23),
+  );
 
   const folders: { folder: "inbox" | "sentitems"; direction: "received" | "sent"; token: string | null; column: string }[] = [
     { folder: "inbox", direction: "received", token: conn.delta_token_inbox, column: "delta_token_inbox" },
@@ -160,6 +167,46 @@ async function syncConnection(admin: Admin, conn: Connection) {
 
     for (const msg of messages) {
       const matches = matchMessage(msg, portfolio);
+
+      // FASE C — radicados válidos que NO están en la cartera del usuario.
+      // Nunca se crea el expediente en silencio: solo se encola para triage.
+      for (const rad of extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)) {
+        if (knownRadicados.has(rad)) continue;
+        const seenAt = msg.receivedDateTime ?? msg.sentDateTime ?? new Date().toISOString();
+        const { data: existing } = await admin
+          .from("detected_processes")
+          .select("id, occurrences")
+          .eq("user_id", conn.user_id)
+          .eq("radicado", rad)
+          .maybeSingle();
+        if (existing) {
+          await admin
+            .from("detected_processes")
+            .update({
+              last_seen_at: seenAt,
+              occurrences: ((existing as { occurrences?: number }).occurrences ?? 1) + 1,
+            })
+            .eq("id", (existing as { id: string }).id);
+          continue;
+        }
+        const { error: detErr } = await admin.from("detected_processes").insert({
+          user_id: conn.user_id,
+          organization_id: conn.organization_id,
+          radicado: rad,
+          message_id: msg.id,
+          internet_message_id: msg.internetMessageId ?? null,
+          subject: msg.subject ?? null,
+          sender:
+            msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
+          web_link: msg.webLink ?? null,
+          first_seen_at: seenAt,
+          last_seen_at: seenAt,
+          status: "PENDING",
+        });
+        if (detErr) console.error("[outlook-sync] detected_processes", detErr.message);
+        else summary.detected_processes++;
+      }
+
       for (const match of matches) {
         if (match.confidence < 0.5) continue;
         if (f.direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {

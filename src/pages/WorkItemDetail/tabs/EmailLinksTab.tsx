@@ -14,6 +14,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useWorkItemEmailLinks, useEmailConnection } from "@/hooks/use-email-connection";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
+import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 
 const EVIDENCE_LABELS: Record<string, string> = {
@@ -47,7 +48,8 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
     );
   }
 
-  const items = links ?? [];
+  const all = links ?? [];
+  const items = all.filter((l) => l.link_status !== "SUGGESTED");
 
   return (
     <div className="space-y-4">
@@ -79,6 +81,8 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
           </CardContent>
         </Card>
       )}
+
+      <SuggestedEmailLinksQueue workItemId={workItemId} hideWhenEmpty />
 
       {items.length === 0 ? (
         <Card>
