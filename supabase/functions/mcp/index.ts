@@ -157,15 +157,8 @@ var get_work_item_default = defineTool2({
 });
 
 // src/lib/mcp/tools/list-recent-estados.ts
-import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.89.0";
 import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z3 } from "npm:zod@^3.25.76";
-function sbForUser3(ctx) {
-  return createClient3(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
 var list_recent_estados_default = defineTool3({
   name: "list_recent_estados",
   title: "Novedades judiciales recientes",
@@ -176,17 +169,20 @@ var list_recent_estados_default = defineTool3({
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ days, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
-    const sb = sbForUser3(ctx);
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
     const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `${data?.length ?? 0} novedades en los \xFAltimos ${days ?? 3} d\xEDas.` }],
-      structuredContent: { estados: data ?? [] }
-    };
+    if (error) return errorResult(error.message);
+    const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids) : { data: [] };
+    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const estados = (data ?? []).map((r) => ({
+      ...r,
+      work_item: byId.get(r.work_item_id) ?? null
+    }));
+    return textResult(`${estados.length} novedades en los \xFAltimos ${days ?? 3} d\xEDas.`, { estados });
   }
 });
 
