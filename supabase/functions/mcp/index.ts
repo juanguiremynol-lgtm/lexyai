@@ -462,13 +462,19 @@ var list_deadlines_default = defineTool9({
     const deadlines = rows.map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
+      const rawTitle = wi?.title ? String(wi.title).trim() : "";
+      const wf = wi?.workflow_type ? String(wi.workflow_type).trim() : "";
+      const dte = wi?.demandantes ? String(wi.demandantes).trim() : "";
+      const ddo = wi?.demandados ? String(wi.demandados).trim() : "";
+      const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
+      const titulo = rawTitle && rawTitle.toUpperCase() !== wf.toUpperCase() ? rawTitle : partes || (wi?.radicado ? String(wi.radicado) : String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
       const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
       return {
         ...row,
         radicado: wi?.radicado ?? null,
-        titulo: wi?.title ?? null,
+        titulo,
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null,
         vencimiento: dd,
