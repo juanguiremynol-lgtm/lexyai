@@ -177,7 +177,9 @@ var list_recent_estados_default = defineTool3({
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids) : { data: [] };
-    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const byId = new Map(
+      (items ?? []).map((i) => [i.id, i])
+    );
     const estados = (data ?? []).map((r) => ({
       ...r,
       work_item: byId.get(r.work_item_id) ?? null

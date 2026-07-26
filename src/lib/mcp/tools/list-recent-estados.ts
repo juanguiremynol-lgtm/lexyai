@@ -31,7 +31,9 @@ export default defineTool({
     const { data: items } = ids.length
       ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids)
       : { data: [] as Array<Record<string, unknown>> };
-    const byId = new Map((items ?? []).map((i) => [(i as { id: string }).id, i]));
+    const byId = new Map<string, unknown>(
+      (items ?? []).map((i) => [(i as { id: string }).id, i] as [string, unknown]),
+    );
     const estados = (data ?? []).map((r) => ({
       ...(r as Record<string, unknown>),
       work_item: byId.get((r as { work_item_id: string }).work_item_id) ?? null,
