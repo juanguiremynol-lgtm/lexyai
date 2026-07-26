@@ -19,6 +19,7 @@ const LegacyClientRedirect = () => {
 // Pages
 import Auth from "./pages/Auth";
 import OAuthConsent from "./pages/OAuthConsent";
+import ConnectAssistant from "./pages/ConnectAssistant";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import VerifyAlertEmail from "./pages/VerifyAlertEmail";
@@ -184,6 +185,7 @@ const App = () => (
           <Route path="/tasks" element={<Navigate to="/app/tasks" replace />} />
           <Route path="/alerts" element={<Navigate to="/app/alerts" replace />} />
           <Route path="/settings" element={<Navigate to="/app/settings" replace />} />
+          <Route path="/connect" element={<Navigate to="/app/connect" replace />} />
           <Route path="/utilities" element={<Navigate to="/app/utilities" replace />} />
           <Route path="/links" element={<Navigate to="/app/links" replace />} />
           
@@ -254,6 +256,7 @@ const App = () => (
             <Route path="documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+            <Route path="connect" element={<ErrorBoundary><ConnectAssistant /></ErrorBoundary>} />
           </Route>
           
           {/* ============================================ */}
