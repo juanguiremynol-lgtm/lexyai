@@ -45,7 +45,7 @@ function fmt(value?: string | null) {
 
 /** Outlook mailbox: read-only metadata linking, per subscriber. */
 function OutlookConnectionCard() {
-  const { connection, isLoading, connect, disconnect, sync, canSend, needsReconnectForSend } =
+  const { connection, isLoading, connect, disconnect, sync, needsReconnectForSend } =
     useEmailConnection();
   const connected = connection?.status === "CONNECTED";
 
