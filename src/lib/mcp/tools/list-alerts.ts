@@ -10,7 +10,7 @@ export default defineTool({
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z.enum(["PENDING", "ACKNOWLEDGED", "RESOLVED", "all"]).optional().describe("Default: pendientes + reconocidas."),
+    status: z.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
     limit: z.number().int().min(1).max(100).optional().describe("Máximo de filas (default 30)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -32,11 +32,9 @@ export default defineTool({
       .order("fired_at", { ascending: false })
       .limit(limit ?? 30);
 
-    if (!status || status === "all") {
-      if (!status) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
-    } else {
-      q = q.eq("status", status);
-    }
+    const normalized = status?.toUpperCase();
+    if (!normalized) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
+    else if (normalized !== "ALL") q = q.eq("status", normalized);
     if (entityId) q = q.eq("entity_id", entityId);
 
     const { data, error } = await q;

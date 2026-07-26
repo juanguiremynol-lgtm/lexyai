@@ -377,13 +377,7 @@
             },
             "status": {
               "type": "string",
-              "enum": [
-                "PENDING",
-                "ACKNOWLEDGED",
-                "RESOLVED",
-                "all"
-              ],
-              "description": "Default: pendientes + reconocidas."
+              "description": "pending | acknowledged | resolved | all. Default: pendientes + reconocidas."
             },
             "limit": {
               "type": "integer",

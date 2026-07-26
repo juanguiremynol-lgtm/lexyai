@@ -555,7 +555,7 @@ var list_alerts_default = defineTool14({
   inputSchema: {
     work_item_id: z13.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z13.enum(["PENDING", "ACKNOWLEDGED", "RESOLVED", "all"]).optional().describe("Default: pendientes + reconocidas."),
+    status: z13.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
     limit: z13.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -570,11 +570,9 @@ var list_alerts_default = defineTool14({
       entityId = resolved.item.id;
     }
     let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at").order("fired_at", { ascending: false }).limit(limit ?? 30);
-    if (!status || status === "all") {
-      if (!status) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
-    } else {
-      q = q.eq("status", status);
-    }
+    const normalized = status?.toUpperCase();
+    if (!normalized) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
+    else if (normalized !== "ALL") q = q.eq("status", normalized);
     if (entityId) q = q.eq("entity_id", entityId);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
