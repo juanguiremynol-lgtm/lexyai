@@ -425,7 +425,7 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
               {copied === "rich" ? "¡Copiado!" : "Copiar como formato Word"}
             </Button>
 
-            {canSendOutlook && (
+            {OUTLOOK_SEND_ENABLED && canSendOutlook && (
               <Button variant="outline" onClick={() => setOutlookOpen(true)} className="gap-2">
                 <Send className="h-4 w-4" />
                 Enviar vía Outlook
@@ -481,7 +481,7 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
         </div>
       </DialogContent>
       <OutlookComposeDialog
-        open={outlookOpen}
+        open={OUTLOOK_SEND_ENABLED && outlookOpen}
         onOpenChange={setOutlookOpen}
         defaultTo={[workItem.authority_email].filter(Boolean) as string[]}
         defaultSubject={`Memorial — Radicado ${workItem.radicado ?? ""}`.trim()}
