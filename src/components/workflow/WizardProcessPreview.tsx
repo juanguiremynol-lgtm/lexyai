@@ -170,7 +170,9 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
         {!data.demandante && !data.demandado && (!data.sujetos_procesales || data.sujetos_procesales.length === 0) && (
           <div className="text-xs rounded-md border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-2 flex gap-2">
             <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
-            <span>No se pudieron recuperar las partes desde CPNU/SAMAI. Puedes ingresarlas manualmente en el paso siguiente.</span>
+            <span>
+              No se pudieron recuperar las partes desde {getProviderChainLabel(workflowType).acts}. Puedes ingresarlas manualmente en el paso siguiente.
+            </span>
           </div>
         )}
         {!data.despacho && (
