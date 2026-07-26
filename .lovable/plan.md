@@ -1,112 +1,93 @@
-# Auditoría (resultado del diagnóstico previo)
+# Andromeda como MCP server público — Diagnóstico y arquitectura
 
-**Estado actual por superficie:**
+## Respuestas a tus preguntas
 
-| Superficie | Componente | Acciones actuales | Diagnóstico |
-|---|---|---|---|
-| Dashboard (Kanban CGP/Laboral/Penal/Admin) | `WorkItemPipelineCard` → `DropdownMenu` | Reclasificar · Marcar bandera · **Eliminar** | ⚠️ No hay Pausar/Reactivar en el menú. Nunca sale "Activar" para un activo desde este menú — pero cuando el ítem está pausado tampoco aparece cómo reactivar sin abrir el detalle. |
-| Lista de procesos | La app **no tiene lista tabular independiente** — la "lista" son los mismos pipelines. `src/pages/Matters.tsx` es otra entidad (matters legales, no work_items). | — | Confirmar con el Doctor si "lista" se refiere a algo distinto. |
-| Detalle (`WorkItemDetail`) | `WorkItemMonitoringControls` | Pausar · Reactivar · Cerrar · **Eliminar** | ✅ Funcional. Botón Eliminar invoca `softDeleteWorkItem` → `set_work_item_lifecycle` RPC → outbox GCP. |
+**(a) ¿Qué hay hoy en `functions/v1/mcp`?**
+Ya existe y está más avanzado de lo que asumes. Es un servidor MCP generado por el SDK `@lovable.dev/mcp-js` desde `src/lib/mcp/` (entrada `index.ts` + 3 tools). El archivo `supabase/functions/mcp/index.ts` es autogenerado por `mcpPlugin()` en `vite.config.ts` — no se edita a mano.
 
-**Divergencias detectadas:**
-- CGP `WorkItemPipeline.tsx` invoca `useSoftDeleteWorkItems` + `ArchiveWorkItemDialog` (dice "Archivar", color ámbar).
-- Laboral/Penal/Admin pipelines invocan `useDeleteWorkItems` + `DeleteWorkItemDialog` (dice "Eliminar", color destructive, exige tipear DELETE).
-- Los dos flujos hacen exactamente lo mismo en DB (soft delete) pero la UI dice cosas distintas. Esto es la raíz de la confusión "Archivar vs Eliminar".
+- Tools expuestas hoy: `list_work_items`, `get_work_item`, `list_recent_estados`. Nada más.
+- Transporte: **no es SSE**. Es el handler Streamable HTTP del SDK (POST JSON-RPC en `/functions/v1/mcp`), más rutas auxiliares `/.mcp/list-tools`, `/.mcp/invoke-tool/<tool>` y `/.well-known/oauth-protected-resource`. Es decir, el estándar 2025 ya está; no hace falta un segundo transporte.
+- Auth: **ya es OAuth**, no anon/service key. `defineMcp` usa `auth.oauth.issuer({ issuer: https://<ref>.supabase.co/auth/v1, acceptedAudiences: "authenticated" })`, y valida el Bearer en cada llamada.
 
-**Política soft/hard delete (recap del código):**
-- **Soft-delete usuario**: `set_work_item_lifecycle('DELETED')` marca `deleted_at`, `purge_after = now + 10 días`, apaga `monitoring_enabled/scraping_enabled`, cancela scrape jobs pendientes, escribe outbox GCP, `atenia_ai_actions` y `work_item_soft_deletes`. Recuperable con Andro IA por 10 días.
-- **Hard-delete** (`useHardPurgeWorkItems`): sólo Recycle Bin / Admin lifecycle / Master delete. No expuesto en dashboard/detalle.
-- Cascadas: `work_item_acts`, `work_item_publicaciones`, `work_item_deadlines`, `alert_instances`, `work_item_tasks`, `work_item_sources`, etc. quedan intactas 10 días; se purgan por `cron_purge_expired_soft_deletes`.
+**(b) ¿Hay tablas de OAuth clients/tokens?**
+No hay ninguna en `public`, y **no hay que crearlas**. El authorization server es Supabase Auth (managed): authorize, token, refresh, JWKS, consentimiento y registro dinámico de clientes (DCR) ya están activos. Verificado ahora mismo: OAuth server *Enabled*, DCR *Enabled*, Site URL `https://andromeda.legal`, consent path `/.lovable/oauth/consent`, y `andromeda.legal` en la allow-list. Construir nuestras propias tablas de clients/tokens sería reimplementar (mal) un authorization server ya certificado.
 
-**Causa raíz del error "no se pudo eliminar"** (más probable, por confirmar reproduciendo en Playwright post-fix):
-1. `checkWorkItemRetention` bloquea la eliminación si hay documentos finalizados dentro del periodo de retención legal — devuelve un mensaje específico que estamos mostrando como toast, pero el usuario lo lee como "error genérico".
-2. `canActOnWorkItem` — MEMBER intentando borrar WI de otro MEMBER de la misma org sin ser ADMIN → devuelve "No tienes permiso". Verificaremos con el rol real del Doctor.
-3. Fallo silencioso en `set_work_item_lifecycle` cuando el estado destino = actual (`no_op`) — el helper ya retorna `ok:true` en ese caso, no debería fallar.
+**(c) ¿RLS o service role?**
+RLS con identidad real. Cada tool crea un cliente con la anon key + `Authorization: Bearer <token del caller>`, así que las políticas corren como ese usuario. Ninguna tool usa service role. El aislamiento multi-tenant es correcto por construcción — la regla dura a mantener es: **ninguna tool MCP puede tocar `SUPABASE_SERVICE_ROLE_KEY`**.
 
-# Plan de implementación
+**(d) Herramientas de IA conectadas hoy**
+Ninguna. No hay conectores MCP conectados al proyecto, y la memoria del proyecto no registra ninguna integración Claude/ChatGPT del Doctor. Sería la primera conexión externa; conviene hacer el piloto con Claude Desktop/claude.ai (el cliente MCP más maduro) y validar ChatGPT después.
 
-## 1. Hook centralizado `useWorkItemActions(workItem)`
+**(e) Recomendación: un solo endpoint.**
+Un solo edge function `mcp` con el verificador OAuth del SDK. Un `mcp-public` separado duplicaría transporte, catálogo y superficie de auditoría, y el "público" no es un endpoint distinto: el mismo endpoint es públicamente descubrible y cada llamada llega autenticada como un usuario concreto.
 
-Nuevo archivo `src/hooks/use-work-item-actions.ts`. Retorna:
-```ts
-{
-  available: Array<'pausar' | 'reactivar' | 'cerrar' | 'eliminar' | 'restaurar' | 'eliminar_definitivo'>,
-  actions: { pausar, reactivar, cerrar, eliminar, restaurar, eliminarDefinitivo }, // fns
-  isPending: boolean,
-  state: 'ACTIVE' | 'PAUSED' | 'CLOSED' | 'DELETED',
-}
+---
+
+## Correcciones a tu diseño (importantes)
+
+1. **No construir OAuth propio.** Tu punto 3 describe un authorization server que ya tenemos. `andromeda.legal/connect` no debe emitir tokens; el flujo real es: la herramienta descubre el authorization server → registra cliente por DCR → manda al usuario a `/.lovable/oauth/consent` → aprueba → recibe access+refresh. Andromeda solo aporta la **pantalla de consentimiento** y el **panel de revocación**.
+2. **Scopes granulares (`read:actuaciones`, `write:notes`) no existen en este authorization server.** Los tokens de Supabase llevan scopes de identidad (`openid email profile`), no permisos de dominio. La autorización real se aplica en dos capas que sí controlamos: **RLS** (el usuario solo ve lo suyo) y **el catálogo de tools** (si no existe una tool de borrado, nadie borra). El "modo solo lectura" se implementa como una preferencia por conexión almacenada en Andromeda, no como un scope OAuth.
+3. **Bloqueador real encontrado:** el JWKS del proyecto está **vacío** (sin clave asimétrica ES256). Con firma HS256 legacy, Supabase no puede firmar el ID token del flujo OAuth y el login desde Claude falla con *"HS256 is not supported for ID token signing"*. Hay que migrar las signing keys antes que cualquier otra cosa. Este es el motivo por el que hoy, aunque todo parece configurado, una conexión externa no completaría.
+4. **Bug latente en `get_work_item`:** consulta la tabla `work_item_estados`, que **no existe** (la real es `work_item_publicaciones`). Devuelve estados vacíos siempre.
+5. **`/.well-known/mcp.json` no es un mecanismo de descubrimiento real.** Claude y ChatGPT no lo leen: el usuario pega la URL del servidor y el cliente descubre auth vía `/.well-known/oauth-protected-resource` (que el SDK ya sirve). Vale la pena una página `/connect` **humana** con la URL a copiar e instrucciones por cliente, no un JSON inventado.
+6. **`add_audience` y `add_note` sí son viables**, pero las audiencias tienen reglas de dominio (tipos, plantillas de flujo). Empezar por notas y dejar audiencias para una segunda tanda, con `destructiveHint` y confirmación del lado del cliente.
+
+---
+
+## Arquitectura propuesta
+
+```text
+Claude / ChatGPT / Cursor
+        │  1. pega https://<ref>.supabase.co/functions/v1/mcp
+        ▼
+ /.well-known/oauth-protected-resource   (lo sirve el SDK)
+        │  2. descubre authorization server
+        ▼
+ Supabase Auth OAuth 2.1  ── DCR ──► cliente registrado
+        │  3. redirige al usuario
+        ▼
+ andromeda.legal/.lovable/oauth/consent   (UI de Andromeda)
+        │  4. aprueba
+        ▼
+ access_token (1h) + refresh_token  ──►  POST /functions/v1/mcp
+                                              │ verifica issuer + audiencia
+                                              ▼
+                                        tool handler
+                                              │ Bearer del usuario
+                                              ▼
+                                        Postgres con RLS
 ```
 
-Reglas por `lifecycle_state`:
-- **ACTIVE** → `[pausar, cerrar, eliminar]`
-- **PAUSED** → `[reactivar, cerrar, eliminar]`
-- **CLOSED** → `[reactivar, eliminar]`
-- **DELETED** (dentro de purge_after) → `[restaurar, eliminar_definitivo]`
+## Fases
 
-Fallback derivado cuando `lifecycle_state` es NULL: usar `deleted_at`/`monitoring_enabled` como en `isActive()` de `src/lib/lifecycle.ts`.
+**Fase 0 — Desbloqueo (sin esto nada conecta)**
+- Migrar signing keys a ES256 y verificar que el JWKS publica una clave asimétrica.
+- Endurecer la ruta de consentimiento: que `/auth?next=...` devuelva al usuario a la URL de consentimiento tras email/password, tras signup (`emailRedirectTo`) y tras Google (`redirect_uri`) — hoy es el fallo más común y silencioso.
+- Arreglar `work_item_estados` → `work_item_publicaciones`.
 
-## 2. Unificar componente de acciones
+**Fase 1 — Catálogo de tools (lectura)**
+Sobre las 3 existentes, añadir: `get_user_context`, `list_actuaciones`, `list_publicaciones`, `get_estados_hoy`, `get_actuaciones_hoy`, `list_deadlines`, `list_clients`, `get_client`. Reglas transversales: filtrar `deleted_at`, respetar la semántica ratificada de "hoy" (`fecha_fijacion` en America/Bogota), no exponer términos en `PENDING_REVIEW` como si estuvieran activos, límites de página duros, salida compacta (`content` en texto + `structuredContent`).
 
-Nuevo `src/components/work-items/WorkItemActionsMenu.tsx` (dropdown lifecycle-aware). Sustituye la sección de acciones actual en:
-- `WorkItemPipelineCard` (mantiene Reclasificar/Bandera arriba + `<WorkItemActionsMenu />` para lifecycle abajo)
-- `WorkItemMonitoringControls` (detalle) — renderiza el mismo menú/botones
-- Cualquier `WorkItemCard` de listas futuras
+**Fase 2 — Escritura mínima**
+`add_note` con `readOnlyHint:false`. Nada de eliminar, reclasificar ni cambiar lifecycle vía MCP en esta etapa — se mantiene la regla de no hard-delete y de confirmación humana. `add_hearing` queda para una tanda posterior.
 
-## 3. Consolidar diálogos de eliminación
+**Fase 3 — Superficie de usuario**
+- `/connect`: página pública con la URL del servidor e instrucciones por cliente (Claude, ChatGPT, Cursor).
+- `/settings/connections`: lista de aplicaciones autorizadas, última conexión, y revocación. Requiere una tabla propia (`mcp_connection_log`) alimentada por las tools, porque el registro de clientes vive en el authorization server; la revocación se hace contra Supabase Auth.
 
-- **Descartar `ArchiveWorkItemDialog` en CGP pipeline** — reemplazar por `DeleteWorkItemDialog` (mismo componente que Laboral/Penal/Admin). La palabra "Archivar" desaparece de esta superficie porque confunde al usuario respecto de "Eliminar".
-- Cambiar `useSoftDeleteWorkItems` → `useDeleteWorkItems` en `WorkItemPipeline.tsx` (idénticos por dentro, uniforma naming).
-- `DeleteWorkItemDialog` ya muestra radicado/título + aviso de "10 días con Andro IA". Ajustar copy para dejar claro "papelera" y quitar el requisito de tipear DELETE (fricción excesiva para un soft-delete recuperable — mantener sólo el checkbox de confirmación).
+**Fase 4 — Verificación**
+Conexión real desde Claude, prueba de aislamiento con dos usuarios distintos (usuario A no ve expedientes de B), y confirmación de que ninguna tool referencia service role.
 
-## 4. Prompt "cliente huérfano"
+## Detalles técnicos
 
-Después de confirmar el borrado del WI, antes de ejecutar:
-```ts
-const { count } = await supabase
-  .from('work_items')
-  .select('id', { count: 'exact', head: true })
-  .eq('client_id', workItem.client_id)
-  .neq('id', workItem.id)
-  .is('deleted_at', null)
-  .in('lifecycle_state', ['ACTIVE','PAUSED','CLOSED']);
-```
-Si `count === 0` y hay `client_id`: mostrar segundo modal `OrphanClientDialog` con opciones **Sí, eliminar cliente** / **No, conservar**. El soft-delete del WI procede en paralelo. Si el usuario elige eliminar cliente: `DELETE FROM clients WHERE id = ?` (respetando RLS de owner).
+- Toda tool nueva vive en `src/lib/mcp/tools/<nombre>.ts` y se registra en `src/lib/mcp/index.ts`; el edge function se regenera solo y hay que **desplegarlo** en cada cambio.
+- Tras cada cambio del MCP hay que regenerar el manifiesto (`.lovable/mcp/manifest.json`) para que el panel de integraciones y el catálogo de conectores queden al día.
+- Nada de lecturas de env ni I/O en el top level de `index.ts` ni de las tools: rompe el cold start y la extracción del manifiesto.
+- Textos de tools: título y descripción en español (los ve el Doctor y el modelo), identificadores y código en inglés.
 
-## 5. Estado post-eliminación en detalle
+## Lo que NO se hará (y por qué)
 
-En `WorkItemDetail/index.tsx`, si `lifecycle_state === 'DELETED'`:
-- Mostrar banner de página completa "Expediente en papelera — recuperable hasta {purge_after}" con botones **Restaurar** (via `useRestoreWorkItems`) y **Eliminar definitivamente** (via `useHardPurgeWorkItems`, sólo si el usuario es owner+admin).
-- Ocultar todos los tabs de datos vivos.
-- Si el usuario no tiene permisos → mostrar sólo la info de solo-lectura.
-
-## 6. Toast con "Deshacer"
-
-Al soft-delete exitoso, `toast.success(..., { action: { label: 'Deshacer', onClick: () => restore(id) } })`. Ventana visual 30s; el registro en DB ya existe, el "Deshacer" simplemente llama `useRestoreWorkItems`.
-
-## 7. Invalidación de queries
-
-Después de cualquier acción lifecycle, invalidar en un solo lugar (dentro del hook): `work-items`, `work-items-cgp-pipeline`, `work-items-laboral-pipeline`, `work-items-penal-pipeline`, `gov-procedure-work-items`, `cpaca-processes`, `dashboard-stats`, `work-item-detail`, `archived-work-items`. El hook llama esto internamente para eliminar el copy-paste actual.
-
-## 8. Diagnóstico y corrección del error real
-
-Instrumentar el toast de error con el mensaje textual del RPC/service (ya lo hace `WorkItemMonitoringControls`, verificar que `useSoftDeleteWorkItems` no lo esté genericando). Reproducir con Playwright autenticado sobre un WI del Doctor para capturar el error exacto y corregir la causa (retención de docs, permisos, o RLS).
-
-# Verificación al final
-
-- `tsgo` verde
-- Pipeline card muestra: ACTIVO → Pausar/Cerrar/Eliminar; PAUSADO → Reactivar/Cerrar/Eliminar
-- Diálogo único "Eliminar" en las 4 pipelines (CGP/Laboral/Penal/Admin)
-- Playwright: soft-delete de un WI de prueba → desaparece de la lista → navegar a URL de detalle → ver banner "en papelera" → Deshacer → reaparece
-
-# Detalles técnicos
-
-- **No tocar** `src/lib/lifecycle.ts` ni `set_work_item_lifecycle` RPC (contrato ya establecido).
-- **No introducir** nueva ruta ni migración. Todo es UI + hook + reutilización de RPCs existentes.
-- Preservar `WorkItemBulkDeleteDialog` para acciones masivas (ya usa lenguaje "Eliminar"/"archivar").
-- La lógica del hook debe funcionar tanto con work items del pipeline (donde `WorkItemPipelineItem` no trae `lifecycle_state`) — se añadirá el campo al `select` de las queries de pipeline.
-
-# Puntos de aclaración
-
-1. **"Lista de procesos"** — ¿te refieres a los mismos pipelines (Dashboard) o hay otra vista tabular que estás viendo? No encontré una lista tabular separada de work_items.
-2. **Purga definitiva desde detalle** — ¿el usuario final debe poder disparar hard-delete desde el banner "en papelera", o eso queda sólo para el Recycle Bin / admin?
-3. **Cliente huérfano** — cuando el WI está compartido dentro de una org, ¿verificamos huerfanía a nivel de owner o de organization?
+- Tablas propias de `oauth_clients` / `oauth_tokens`: las provee el authorization server.
+- Segundo endpoint `mcp-public`: duplica superficie de auditoría sin ganancia.
+- Scopes OAuth de dominio: no soportados por este emisor; se sustituyen por RLS + catálogo de tools.
+- `/.well-known/mcp.json`: ningún cliente relevante lo consume.
