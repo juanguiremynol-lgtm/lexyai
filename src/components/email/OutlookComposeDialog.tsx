@@ -19,6 +19,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Loader2, Paperclip, Send, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { useEmailConnection, useOutlookSend } from "@/hooks/use-email-connection";
@@ -66,6 +76,11 @@ export function OutlookComposeDialog({
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
   const [files, setFiles] = useState<File[]>([]);
+  /**
+   * Control 1 (ratified): no send may fire without the user seeing and
+   * confirming this screen — including pre-filled memorial flows.
+   */
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -74,6 +89,7 @@ export function OutlookComposeDialog({
     setBody(defaultBody);
     setCc("");
     setFiles([]);
+    setConfirmOpen(false);
   }, [open, defaultSubject, defaultBody, defaultTo.join(",")]);
 
   const parseList = (value: string) =>
@@ -81,15 +97,20 @@ export function OutlookComposeDialog({
 
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
 
-  const handleSend = async () => {
-    const toList = parseList(to);
+  const toList = parseList(to);
+  const ccList = parseList(cc);
+
+  const handleReview = () => {
     if (toList.length === 0) return toast.error("Agrega al menos un destinatario válido");
     if (!subject.trim()) return toast.error("Agrega un asunto");
     if (!body.trim()) return toast.error("El mensaje está vacío");
     if (totalBytes > MAX_ATTACHMENT_BYTES) {
       return toast.error("Los adjuntos superan 3 MB. Comparte un enlace en su lugar.");
     }
+    setConfirmOpen(true);
+  };
 
+  const handleConfirmedSend = async () => {
     const attachments = await Promise.all(
       files.map(async (f) => ({
         name: f.name,
@@ -100,7 +121,7 @@ export function OutlookComposeDialog({
 
     await send.mutateAsync({
       to: toList,
-      cc: parseList(cc),
+      cc: ccList,
       subject: subject.trim(),
       body,
       content_type: "Text",
@@ -108,11 +129,13 @@ export function OutlookComposeDialog({
       as_memorial: asMemorial,
       attachments,
     });
+    setConfirmOpen(false);
     onOpenChange(false);
     onSent?.();
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
@@ -207,14 +230,72 @@ export function OutlookComposeDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSend} disabled={!canSend || send.isPending}>
+          <Button onClick={handleReview} disabled={!canSend || send.isPending}>
             {send.isPending
               ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />
               : <Send className="mr-1 h-4 w-4" aria-hidden />}
-            Enviar
+            Revisar y enviar
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={confirmOpen} onOpenChange={(o) => !send.isPending && setConfirmOpen(o)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Confirmar envío</AlertDialogTitle>
+          <AlertDialogDescription>
+            Revisa los datos: el correo saldrá de tu buzón {connection?.ms_account_email ?? ""} y
+            quedará registrado en tu historial de envíos.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <dl className="space-y-2 rounded-md border p-3 text-sm">
+          <div>
+            <dt className="text-xs text-muted-foreground">Para</dt>
+            <dd className="break-words font-medium">{toList.join(", ")}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">CC</dt>
+            <dd className="break-words">{ccList.length ? ccList.join(", ") : "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Asunto</dt>
+            <dd className="break-words font-medium">{subject.trim()}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Expediente vinculado</dt>
+            <dd>
+              {workItemId
+                ? `Sí${asMemorial ? " · se registrará como memorial enviado" : ""}`
+                : "Sin vínculo a expediente"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Adjuntos</dt>
+            <dd>
+              {files.length === 0
+                ? "Ninguno"
+                : `${files.length}: ${files.map((f) => f.name).join(", ")}`}
+            </dd>
+          </div>
+        </dl>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={send.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault();
+              void handleConfirmedSend();
+            }}
+            disabled={send.isPending}
+          >
+            {send.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />}
+            Confirmar y enviar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
