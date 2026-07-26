@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plane } from "lucide-react";
+import { PROVIDER_MATRIX_LEGEND } from "@/lib/provider-chain-labels";
 
 interface PreflightCheck {
   id: string;
@@ -22,10 +23,24 @@ interface PreflightCheck {
     provider_type: string;
     overall: string;
     failure_reason?: string;
+    category?: string;
+    role?: string;
     checks: Record<string, { ok: boolean; latency_ms: number; error?: string }>;
   }>;
   created_at: string;
 }
+
+const CATEGORY_LABEL: Record<string, string> = {
+  ACTUACIONES: "Actuaciones",
+  ESTADOS: "Estados / Publicaciones",
+  PUBLICACIONES: "Estados / Publicaciones",
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  PRIMARY: "Primario",
+  SECONDARY: "Secundario",
+  FALLBACK: "Fallback",
+};
 
 export function AteniaPreflightStatus() {
   const { data: checks, isLoading } = useQuery({
@@ -96,6 +111,13 @@ export function AteniaPreflightStatus() {
                   }`}
                 >
                   <div className="font-medium">{r.provider}</div>
+                  {(r.category || r.role) && (
+                    <div className="text-[10px] text-muted-foreground">
+                      {[CATEGORY_LABEL[r.category ?? ""] ?? r.category, ROLE_LABEL[r.role ?? ""] ?? r.role]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
                   <div className="text-muted-foreground">{r.overall}</div>
                   {r.failure_reason && (
                     <div className="text-destructive mt-1 text-[10px]">{r.failure_reason}</div>
@@ -106,6 +128,17 @@ export function AteniaPreflightStatus() {
 
             <div className="text-xs text-muted-foreground">
               {checks?.length ?? 0} pre-vuelo(s) hoy · Último: {new Date(latest.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-2 space-y-1">
+              <p className="text-[11px] font-medium">
+                El pre-vuelo prueba la salud de cada API por separado — no es la cadena de un expediente.
+              </p>
+              {PROVIDER_MATRIX_LEGEND.map((row) => (
+                <p key={row.category} className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">{row.category}:</span> {row.chain}
+                </p>
+              ))}
             </div>
           </div>
         )}
