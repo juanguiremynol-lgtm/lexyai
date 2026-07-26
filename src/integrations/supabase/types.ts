@@ -16698,6 +16698,10 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      classify_deadline_birth_status: {
+        Args: { p_deadline_date: string }
+        Returns: string
+      }
       classify_providencia: {
         Args: { p_text: string; p_workflow?: string }
         Returns: {
