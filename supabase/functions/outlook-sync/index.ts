@@ -12,10 +12,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   corsHeaders,
-  decryptToken,
-  encryptToken,
-  refreshTokens,
   graphGet,
+  ensureAccessToken,
 } from "../_shared/outlookGraph.ts";
 import { resolveCaller } from "../_shared/callerIdentity.ts";
 import {
@@ -50,31 +48,45 @@ interface Connection {
   delta_token_sent: string | null;
 }
 
-async function accessTokenFor(admin: Admin, conn: Connection): Promise<string> {
-  const expiresAt = conn.token_expires_at ? Date.parse(conn.token_expires_at) : 0;
-  if (expiresAt > Date.now() + 60_000) {
-    const token = await decryptToken(conn.access_token_cipher, conn.access_token_nonce);
-    if (token) return token;
-  }
-  const refresh = await decryptToken(conn.refresh_token_cipher, conn.refresh_token_nonce);
-  if (!refresh) throw new Error("La conexión no tiene refresh token. Vuelve a conectar Outlook.");
+/**
+ * A message sent from Andromeda already produced a link row keyed by a
+ * synthetic `manual:` id. When the same message reappears in Sent Items we
+ * upgrade that row instead of inserting a duplicate.
+ */
+async function reconcileManualLink(
+  admin: Admin,
+  workItemId: string,
+  msg: GraphMessage,
+): Promise<boolean> {
+  const sentAt = msg.sentDateTime ?? msg.receivedDateTime;
+  if (!sentAt) return false;
+  const t = Date.parse(sentAt);
+  const { data } = await admin
+    .from("work_item_email_links")
+    .select("id, message_id, internet_message_id, subject")
+    .eq("work_item_id", workItemId)
+    .eq("direction", "sent")
+    .like("message_id", "manual:%")
+    .gte("received_at", new Date(t - 15 * 60_000).toISOString())
+    .lte("received_at", new Date(t + 15 * 60_000).toISOString());
 
-  const tokens = await refreshTokens(refresh);
-  const access = await encryptToken(tokens.access_token);
-  const patch: Record<string, unknown> = {
-    access_token_cipher: access.cipherHex,
-    access_token_nonce: access.nonceHex,
-    token_expires_at: new Date(Date.now() + (tokens.expires_in - 60) * 1000).toISOString(),
-    status: "CONNECTED",
-    last_error: null,
-  };
-  if (tokens.refresh_token) {
-    const nr = await encryptToken(tokens.refresh_token);
-    patch.refresh_token_cipher = nr.cipherHex;
-    patch.refresh_token_nonce = nr.nonceHex;
-  }
-  await admin.from("user_email_connections").update(patch).eq("id", conn.id);
-  return tokens.access_token;
+  const candidate = (data ?? []).find((row: Record<string, unknown>) =>
+    (msg.internetMessageId && row.internet_message_id === msg.internetMessageId) ||
+    ((row.subject ?? "") === (msg.subject ?? ""))
+  );
+  if (!candidate) return false;
+
+  await admin
+    .from("work_item_email_links")
+    .update({
+      message_id: msg.id,
+      internet_message_id: msg.internetMessageId ?? null,
+      conversation_id: msg.conversationId ?? null,
+      web_link: msg.webLink ?? null,
+      has_attachments: Boolean(msg.hasAttachments),
+    })
+    .eq("id", (candidate as { id: string }).id);
+  return true;
 }
 
 async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
@@ -134,7 +146,7 @@ async function syncConnection(admin: Admin, conn: Connection) {
     memorial_evidence: 0,
   };
 
-  const accessToken = await accessTokenFor(admin, conn);
+  const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
 
   const folders: { folder: "inbox" | "sentitems"; direction: "received" | "sent"; token: string | null; column: string }[] = [
@@ -150,6 +162,9 @@ async function syncConnection(admin: Admin, conn: Connection) {
       const matches = matchMessage(msg, portfolio);
       for (const match of matches) {
         if (match.confidence < 0.5) continue;
+        if (f.direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
+          continue;
+        }
         const confirmed = match.confidence >= 0.7;
         const evidence = confirmed
           ? classifyEvidence(msg, f.direction, match.matched_by)

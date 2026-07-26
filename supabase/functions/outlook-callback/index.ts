@@ -13,6 +13,8 @@ import {
   exchangeCode,
   encryptToken,
   graphGet,
+  parseScopes,
+  grantsSend,
 } from "../_shared/outlookGraph.ts";
 
 function page(title: string, message: string, ok: boolean) {
@@ -58,6 +60,8 @@ Deno.serve(async (req) => {
     const tokens = await exchangeCode(code);
     const access = await encryptToken(tokens.access_token);
     const refresh = tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null;
+    const scopes = parseScopes(tokens.scope);
+    const canSend = grantsSend(scopes);
 
     let accountEmail: string | null = null;
     try {
@@ -76,6 +80,8 @@ Deno.serve(async (req) => {
         organization_id: (payload.org as string) ?? null,
         provider: "outlook",
         ms_account_email: accountEmail,
+        scopes,
+        can_send: canSend,
         access_token_cipher: access.cipherHex,
         access_token_nonce: access.nonceHex,
         ...(refresh
@@ -94,7 +100,9 @@ Deno.serve(async (req) => {
 
     return page(
       "Outlook conectado",
-      `Andromeda leerá los metadatos de ${accountEmail ?? "tu buzón"} para vincular correos a tus expedientes. Puedes cerrar esta ventana.`,
+      `Andromeda leerá los metadatos de ${accountEmail ?? "tu buzón"} para vincular correos a tus expedientes${
+        canSend ? " y podrá enviar correos en tu nombre cuando tú lo pidas" : ""
+      }. Puedes cerrar esta ventana.`,
       true,
     );
   } catch (e) {

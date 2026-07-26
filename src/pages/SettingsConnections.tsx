@@ -45,7 +45,8 @@ function fmt(value?: string | null) {
 
 /** Outlook mailbox: read-only metadata linking, per subscriber. */
 function OutlookConnectionCard() {
-  const { connection, isLoading, connect, disconnect, sync } = useEmailConnection();
+  const { connection, isLoading, connect, disconnect, sync, canSend, needsReconnectForSend } =
+    useEmailConnection();
   const connected = connection?.status === "CONNECTED";
 
   return (
@@ -83,7 +84,27 @@ function OutlookConnectionCard() {
               <p className="text-xs text-muted-foreground">
                 Última sincronización: {fmt(connection?.last_sync_at)}
               </p>
+              <p className="text-xs text-muted-foreground">
+                Permisos: lectura de buzón{canSend ? " y envío de correos" : " (sin envío)"}
+              </p>
             </div>
+            {needsReconnectForSend && (
+              <div className="rounded-md border border-dashed p-3 text-sm">
+                <p className="text-muted-foreground">
+                  Esta conexión no incluye el permiso de envío. Vuelve a conectar Outlook para poder
+                  enviar correos y memoriales desde tu propia cuenta.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => connect.mutate()}
+                  disabled={connect.isPending}
+                >
+                  <Mail className="mr-2 h-4 w-4" aria-hidden />
+                  {connect.isPending ? "Abriendo Microsoft…" : "Reconectar con envío"}
+                </Button>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => sync.mutate()} disabled={sync.isPending}>
                 <RotateCw className="mr-2 h-4 w-4" aria-hidden />

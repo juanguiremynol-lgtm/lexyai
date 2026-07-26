@@ -5,8 +5,8 @@
  * Design invariants (ratified, non-negotiable):
  *   1. Multi-user: every subscriber connects their OWN mailbox.
  *   2. Inference, not mirroring: Andromeda never persists full message bodies.
- *   3. Read-only: the only mail scope requested is Mail.Read. Never Mail.Send
- *      and never Mail.ReadWrite.
+ *   3. Least privilege: reading uses Mail.Read, sending uses Mail.Send.
+ *      Mail.ReadWrite is never requested — Andromeda cannot modify the mailbox.
  */
 
 export const corsHeaders = {
@@ -15,7 +15,20 @@ export const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-export const GRAPH_SCOPES = ["Mail.Read", "offline_access", "User.Read"] as const;
+export const GRAPH_SCOPES = ["Mail.Read", "Mail.Send", "offline_access", "User.Read"] as const;
+
+/** Parses the space-delimited scope string Microsoft returns with the token. */
+export function parseScopes(scope: string | undefined | null): string[] {
+  return (scope ?? "")
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.split("/").pop() as string);
+}
+
+export function grantsSend(scopes: string[]): boolean {
+  return scopes.some((s) => s.toLowerCase() === "mail.send");
+}
 
 export function msConfig() {
   const clientId = Deno.env.get("MS_CLIENT_ID");
@@ -186,4 +199,77 @@ export async function graphGet(url: string, accessToken: string): Promise<Record
   const text = await res.text();
   if (!res.ok) throw new Error(`Graph [${res.status}]: ${text.slice(0, 600)}`);
   return text ? JSON.parse(text) : {};
+}
+
+/**
+ * POST to Graph. Returns the parsed body (empty object for 202/204 replies).
+ * Errors carry the provider status and body verbatim — never a generic 500.
+ */
+export async function graphPost(
+  url: string,
+  accessToken: string,
+  body: unknown,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(url.startsWith("http") ? url : `${GRAPH_BASE}${url}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Graph [${res.status}]: ${text.slice(0, 600)}`);
+  return text ? JSON.parse(text) : {};
+}
+
+// ------------------------------------------------------- connection tokens ---
+
+export interface StoredConnection {
+  id: string;
+  access_token_cipher: string | null;
+  access_token_nonce: string | null;
+  refresh_token_cipher: string | null;
+  refresh_token_nonce: string | null;
+  token_expires_at: string | null;
+}
+
+/**
+ * Returns a valid access token for the connection, refreshing and re-persisting
+ * it when the stored one is expired or about to expire.
+ */
+export async function ensureAccessToken(
+  admin: { from: (t: string) => any },
+  conn: StoredConnection,
+): Promise<string> {
+  const expiresAt = conn.token_expires_at ? Date.parse(conn.token_expires_at) : 0;
+  if (expiresAt > Date.now() + 60_000) {
+    const token = await decryptToken(conn.access_token_cipher, conn.access_token_nonce);
+    if (token) return token;
+  }
+  const refresh = await decryptToken(conn.refresh_token_cipher, conn.refresh_token_nonce);
+  if (!refresh) throw new Error("La conexión no tiene refresh token. Vuelve a conectar Outlook.");
+
+  const tokens = await refreshTokens(refresh);
+  const access = await encryptToken(tokens.access_token);
+  const scopes = parseScopes(tokens.scope);
+  const patch: Record<string, unknown> = {
+    access_token_cipher: access.cipherHex,
+    access_token_nonce: access.nonceHex,
+    token_expires_at: new Date(Date.now() + (tokens.expires_in - 60) * 1000).toISOString(),
+    status: "CONNECTED",
+    last_error: null,
+  };
+  if (scopes.length > 0) {
+    patch.scopes = scopes;
+    patch.can_send = grantsSend(scopes);
+  }
+  if (tokens.refresh_token) {
+    const nr = await encryptToken(tokens.refresh_token);
+    patch.refresh_token_cipher = nr.cipherHex;
+    patch.refresh_token_nonce = nr.nonceHex;
+  }
+  await admin.from("user_email_connections").update(patch).eq("id", conn.id);
+  return tokens.access_token;
 }

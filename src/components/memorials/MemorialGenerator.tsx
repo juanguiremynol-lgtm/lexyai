@@ -22,8 +22,10 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Copy, FileText, Sparkles, History, ChevronDown, ChevronUp,
-  Check, Loader2, Wand2, Bot,
+  Check, Loader2, Wand2, Bot, Send,
 } from "lucide-react";
+import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
+import { useEmailConnection } from "@/hooks/use-email-connection";
 
 import {
   MEMORIAL_TYPE_OPTIONS,
@@ -71,6 +73,8 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [textBeforeAI, setTextBeforeAI] = useState<string | null>(null);
+  const [outlookOpen, setOutlookOpen] = useState(false);
+  const { canSend: canSendOutlook } = useEmailConnection();
 
   // ─── Fetch profile ───────────────────────────────────
   const { data: profile } = useQuery({
@@ -421,6 +425,13 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
               {copied === "rich" ? "¡Copiado!" : "Copiar como formato Word"}
             </Button>
 
+            {canSendOutlook && (
+              <Button variant="outline" onClick={() => setOutlookOpen(true)} className="gap-2">
+                <Send className="h-4 w-4" />
+                Enviar vía Outlook
+              </Button>
+            )}
+
             <div className="flex-1" />
 
             {/* History toggle */}
@@ -469,6 +480,16 @@ export function MemorialGenerator({ open, onOpenChange, workItem }: MemorialGene
           )}
         </div>
       </DialogContent>
+      <OutlookComposeDialog
+        open={outlookOpen}
+        onOpenChange={setOutlookOpen}
+        defaultTo={[workItem.authority_email].filter(Boolean) as string[]}
+        defaultSubject={`Memorial — Radicado ${workItem.radicado ?? ""}`.trim()}
+        defaultBody={generatedText}
+        workItemId={workItem.id}
+        asMemorial
+        title="Enviar memorial vía Outlook"
+      />
     </Dialog>
   );
 }

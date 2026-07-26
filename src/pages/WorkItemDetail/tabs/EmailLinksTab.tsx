@@ -4,14 +4,16 @@
  * Solo metadata: asunto, dirección, fecha, evidencia y enlace a Outlook web.
  * Andromeda nunca almacena ni muestra el cuerpo del correo.
  */
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Mail, ArrowUpRight, ArrowDownLeft, Paperclip, ExternalLink, ShieldCheck } from "lucide-react";
+import { Mail, ArrowUpRight, ArrowDownLeft, Paperclip, ExternalLink, ShieldCheck, Reply } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useWorkItemEmailLinks, useEmailConnection } from "@/hooks/use-email-connection";
+import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
 
 const EVIDENCE_LABELS: Record<string, string> = {
   MEMORIAL_ENVIADO: "Memorial enviado",
@@ -31,7 +33,8 @@ const MATCH_LABELS: Record<string, string> = {
 
 export function EmailLinksTab({ workItemId }: { workItemId: string }) {
   const { data: links, isLoading } = useWorkItemEmailLinks(workItemId);
-  const { connection, sync } = useEmailConnection();
+  const { connection, sync, canSend } = useEmailConnection();
+  const [reply, setReply] = useState<{ to: string[]; subject: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -116,6 +119,22 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
                       </a>
                     </Button>
                   )}
+                  {canSend && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setReply({
+                          to: [link.sender ?? ""].filter(Boolean),
+                          subject: (link.subject ?? "").startsWith("Re:")
+                            ? (link.subject as string)
+                            : `Re: ${link.subject ?? ""}`.trim(),
+                        })}
+                    >
+                      <Reply className="mr-1 h-3.5 w-3.5" aria-hidden />
+                      Responder
+                    </Button>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {link.evidence_type && (
@@ -141,6 +160,15 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
           ))}
         </div>
       )}
+
+      <OutlookComposeDialog
+        open={reply !== null}
+        onOpenChange={(open) => !open && setReply(null)}
+        defaultTo={reply?.to ?? []}
+        defaultSubject={reply?.subject ?? ""}
+        workItemId={workItemId}
+        title="Responder desde mi Outlook"
+      />
     </div>
   );
 }
