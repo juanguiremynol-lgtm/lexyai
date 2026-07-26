@@ -1,13 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
-import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
+import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-
-function sbForUser(ctx: ToolContext) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY!, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "list_work_items",
@@ -21,9 +14,8 @@ export default defineTool({
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ search, workflow_type, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let q = sb
       .from("work_items")
@@ -37,10 +29,7 @@ export default defineTool({
       q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
     }
     const { data, error } = await q;
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `Encontrados ${data?.length ?? 0} asuntos.` }],
-      structuredContent: { items: data ?? [] },
-    };
+    if (error) return errorResult(error.message);
+    return textResult(`Encontrados ${data?.length ?? 0} asuntos.`, { items: data ?? [] });
   },
 });

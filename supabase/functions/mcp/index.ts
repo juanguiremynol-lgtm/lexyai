@@ -6,15 +6,83 @@
 import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.0";
 
 // src/lib/mcp/tools/list-work-items.ts
-import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
 import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z } from "npm:zod@^3.25.76";
+
+// src/lib/mcp/shared.ts
+import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
 function sbForUser(ctx) {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  return createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
+    {
+      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    }
+  );
 }
+var MAX_JSON_CHARS = 9e4;
+function textResult(text, structuredContent) {
+  if (!structuredContent) {
+    return { content: [{ type: "text", text }] };
+  }
+  let json = JSON.stringify(structuredContent, null, 2);
+  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) {
+    json = JSON.stringify(structuredContent);
+    if (json.length > MAX_JSON_CHARS) {
+      json = json.slice(0, MAX_JSON_CHARS);
+      truncated = true;
+    }
+  }
+  const body = truncated ? `${text}
+
+(Respuesta truncada: reduce el par\xE1metro \`limit\` para ver todo.)
+
+\`\`\`json
+${json}
+\`\`\`` : `${text}
+
+\`\`\`json
+${json}
+\`\`\``;
+  return { content: [{ type: "text", text: body }], structuredContent };
+}
+function errorResult(text) {
+  return { content: [{ type: "text", text }], isError: true };
+}
+function requireAuth(ctx) {
+  return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
+}
+function requireWriteScope(ctx) {
+  const unauth = requireAuth(ctx);
+  if (unauth) return unauth;
+  const claims = ctx.getClaims?.() ?? {};
+  const raw = claims.scope ?? claims.scopes ?? claims.scp;
+  if (raw == null) return null;
+  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
+  return granted.includes("read_write") ? null : "Esta conexi\xF3n es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+}
+async function callerOrganizationId(sb, userId) {
+  const { data } = await sb.from("organization_memberships").select("organization_id").eq("user_id", userId).limit(1).maybeSingle();
+  return data?.organization_id ?? null;
+}
+function bogotaToday() {
+  return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+}
+async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
+  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
+  if (args.id) q = q.eq("id", args.id);
+  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
+  else return { item: null, error: "Indica el id o el radicado del asunto." };
+  const { data, error } = await q;
+  if (error) return { item: null, error: error.message };
+  const item = data?.[0];
+  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  return { item, error: null };
+}
+
+// src/lib/mcp/tools/list-work-items.ts
 var list_work_items_default = defineTool({
   name: "list_work_items",
   title: "Listar asuntos (work items)",
@@ -26,9 +94,8 @@ var list_work_items_default = defineTool({
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ search, workflow_type, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let q = sb.from("work_items").select("id, radicado, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at").is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 25);
     if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
@@ -37,11 +104,8 @@ var list_work_items_default = defineTool({
       q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
     }
     const { data, error } = await q;
-    if (error) return { content: [{ type: "text", text: error.message }], isError: true };
-    return {
-      content: [{ type: "text", text: `Encontrados ${data?.length ?? 0} asuntos.` }],
-      structuredContent: { items: data ?? [] }
-    };
+    if (error) return errorResult(error.message);
+    return textResult(`Encontrados ${data?.length ?? 0} asuntos.`, { items: data ?? [] });
   }
 });
 
@@ -128,81 +192,6 @@ var list_recent_estados_default = defineTool3({
 
 // src/lib/mcp/tools/get-user-context.ts
 import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
-
-// src/lib/mcp/shared.ts
-import { createClient as createClient4 } from "npm:@supabase/supabase-js@^2.89.0";
-function sbForUser4(ctx) {
-  return createClient4(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
-    {
-      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-      auth: { persistSession: false, autoRefreshToken: false }
-    }
-  );
-}
-var MAX_JSON_CHARS = 9e4;
-function textResult(text, structuredContent) {
-  if (!structuredContent) {
-    return { content: [{ type: "text", text }] };
-  }
-  let json = JSON.stringify(structuredContent, null, 2);
-  let truncated = false;
-  if (json.length > MAX_JSON_CHARS) {
-    json = JSON.stringify(structuredContent);
-    if (json.length > MAX_JSON_CHARS) {
-      json = json.slice(0, MAX_JSON_CHARS);
-      truncated = true;
-    }
-  }
-  const body = truncated ? `${text}
-
-(Respuesta truncada: reduce el par\xE1metro \`limit\` para ver todo.)
-
-\`\`\`json
-${json}
-\`\`\`` : `${text}
-
-\`\`\`json
-${json}
-\`\`\``;
-  return { content: [{ type: "text", text: body }], structuredContent };
-}
-function errorResult(text) {
-  return { content: [{ type: "text", text }], isError: true };
-}
-function requireAuth(ctx) {
-  return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
-}
-function requireWriteScope(ctx) {
-  const unauth = requireAuth(ctx);
-  if (unauth) return unauth;
-  const claims = ctx.getClaims?.() ?? {};
-  const raw = claims.scope ?? claims.scopes ?? claims.scp;
-  if (raw == null) return null;
-  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
-  return granted.includes("read_write") ? null : "Esta conexi\xF3n es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
-}
-async function callerOrganizationId(sb, userId) {
-  const { data } = await sb.from("organization_memberships").select("organization_id").eq("user_id", userId).limit(1).maybeSingle();
-  return data?.organization_id ?? null;
-}
-function bogotaToday() {
-  return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
-}
-async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
-  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
-  if (args.id) q = q.eq("id", args.id);
-  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
-  else return { item: null, error: "Indica el id o el radicado del asunto." };
-  const { data, error } = await q;
-  if (error) return { item: null, error: error.message };
-  const item = data?.[0];
-  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
-  return { item, error: null };
-}
-
-// src/lib/mcp/tools/get-user-context.ts
 var get_user_context_default = defineTool4({
   name: "get_user_context",
   title: "Contexto del abogado",
@@ -212,7 +201,7 @@ var get_user_context_default = defineTool4({
   handler: async (_input, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const [{ data: profile }, { data: items }] = await Promise.all([
       sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
       sb.from("work_items").select("workflow_type").is("deleted_at", null).limit(1e3)
@@ -250,7 +239,7 @@ var list_actuaciones_default = defineTool5({
   handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado });
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at, instancia").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 50);
@@ -283,7 +272,7 @@ var list_publicaciones_default = defineTool6({
   handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado });
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
@@ -313,7 +302,7 @@ var get_estados_hoy_default = defineTool7({
   handler: async ({ date, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
     const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").eq("fecha_fijacion", day).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
     if (error) return errorResult(error.message);
@@ -344,7 +333,7 @@ var get_actuaciones_hoy_default = defineTool8({
   handler: async ({ date, window, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const end = date ?? bogotaToday();
     const days = WINDOW_DAYS[window ?? "today"];
     const start = /* @__PURE__ */ new Date(`${end}T00:00:00Z`);
@@ -382,7 +371,7 @@ var list_deadlines_default = defineTool9({
   handler: async ({ status, radicado, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let workItem = null;
     if (radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -420,7 +409,7 @@ var list_clients_default = defineTool10({
   handler: async ({ search, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let q = sb.from("clients").select("id, name, id_number, email, city, created_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
     if (search) q = q.or(`name.ilike.%${search}%,id_number.ilike.%${search}%`);
     const { data, error } = await q;
@@ -453,7 +442,7 @@ var get_client_default = defineTool11({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     if (!client_id && !name) return errorResult("Indica client_id o name.");
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
     if (client_id) q = q.eq("id", client_id);
     else if (name) q = q.ilike("name", `%${name}%`);
@@ -485,7 +474,7 @@ var add_note_default = defineTool12({
   handler: async ({ radicado, id, content }, ctx) => {
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
     if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
@@ -522,7 +511,7 @@ var search_default = defineTool13({
   handler: async ({ query, workflow_type, client_id, status, city, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const terms = query.split(/\s+/).filter((t) => t.length >= 3).slice(0, 4);
     const needles = terms.length ? terms : [query];
     let q = sb.from("work_items").select(
@@ -586,7 +575,7 @@ var list_alerts_default = defineTool14({
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let entityId = work_item_id ?? null;
     if (!entityId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -626,7 +615,7 @@ var list_hearings_default = defineTool15({
   handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let itemId = work_item_id ?? null;
     if (!itemId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -664,7 +653,7 @@ var list_tasks_default = defineTool16({
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     let itemId = work_item_id ?? null;
     if (!itemId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
@@ -701,7 +690,7 @@ var get_document_url_default = defineTool17({
   handler: async ({ work_item_id, radicado, document_id }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id;
@@ -764,7 +753,7 @@ var add_hearing_default = defineTool18({
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
-    const sb = sbForUser4(ctx);
+    const sb = sbForUser(ctx);
     const when = new Date(date);
     if (Number.isNaN(when.getTime())) return errorResult("Fecha inv\xE1lida: usa formato ISO 8601.");
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
