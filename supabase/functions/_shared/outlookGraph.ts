@@ -5,9 +5,10 @@
  * Design invariants (ratified, non-negotiable):
  *   1. Multi-user: every subscriber connects their OWN mailbox.
  *   2. Inference, not mirroring: Andromeda never persists full message bodies.
- *   3. Read-only: the consent requested is Mail.Read + offline_access +
- *      User.Read. Mail.Send and Mail.ReadWrite are never requested — Andromeda
- *      cannot send from, nor modify, the mailbox.
+ *   3. Mail.ReadWrite is never requested — Andromeda never modifies or deletes
+ *      anything in the mailbox. Mail.Send is requested so the user can send
+ *      from their own account, always through an explicit in-app confirmation
+ *      and always recorded in the append-only outlook_send_audit_log.
  */
 
 export const corsHeaders = {
@@ -17,13 +18,13 @@ export const corsHeaders = {
 };
 
 /**
- * Outbound sending is disabled by decision; the code is kept behind this flag.
- * Flipping it also requires re-adding "Mail.Send" to GRAPH_SCOPES.
+ * Outbound sending, authorized with two controls: explicit per-send human
+ * confirmation in the UI and an immutable audit log row per attempt.
  */
-export const OUTLOOK_SEND_ENABLED = false;
+export const OUTLOOK_SEND_ENABLED = true;
 
-/** Read-only consent (Fase A). Mail.Send is deliberately NOT requested. */
-export const GRAPH_SCOPES = ["Mail.Read", "offline_access", "User.Read"] as const;
+/** Consent: read + send. Mail.ReadWrite is deliberately NOT requested. */
+export const GRAPH_SCOPES = ["Mail.Read", "Mail.Send", "offline_access", "User.Read"] as const;
 
 /** Parses the space-delimited scope string Microsoft returns with the token. */
 export function parseScopes(scope: string | undefined | null): string[] {
