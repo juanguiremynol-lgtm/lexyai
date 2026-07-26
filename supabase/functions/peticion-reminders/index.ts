@@ -141,6 +141,16 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ── Auth: dedicated cron secret, or a privileged app caller ──
+  if (!isCronCaller(req)) {
+    const caller = await resolveCaller(req);
+    if (!isPrivileged(caller)) {
+      return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
