@@ -43,6 +43,81 @@ function fmt(value?: string | null) {
   return new Date(value).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" });
 }
 
+/** Outlook mailbox: read-only metadata linking, per subscriber. */
+function OutlookConnectionCard() {
+  const { connection, isLoading, connect, disconnect, sync } = useEmailConnection();
+  const connected = connection?.status === "CONNECTED";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Mail className="h-4 w-4 text-primary" aria-hidden />
+            Correo electrónico
+          </CardTitle>
+          <CardDescription>
+            Conecta tu buzón de Outlook para que Andromeda vincule los correos a tus expedientes.
+          </CardDescription>
+        </div>
+        {connected && (
+          <Badge variant="secondary" className="shrink-0">Conectado</Badge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-start gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <p>
+            Andromeda solo lee metadatos y vincula correos a tus expedientes. Nunca envía correos ni
+            almacena su contenido completo.
+          </p>
+        </div>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Cargando conexión…</p>
+        ) : connected ? (
+          <div className="space-y-3">
+            <div className="space-y-1 text-sm">
+              <p className="font-medium">{connection?.ms_account_email ?? "Cuenta de Outlook"}</p>
+              <p className="text-xs text-muted-foreground">Conectada el {fmt(connection?.connected_at)}</p>
+              <p className="text-xs text-muted-foreground">
+                Última sincronización: {fmt(connection?.last_sync_at)}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => sync.mutate()} disabled={sync.isPending}>
+                <RotateCw className="mr-2 h-4 w-4" aria-hidden />
+                {sync.isPending ? "Sincronizando…" : "Sincronizar ahora"}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
+              >
+                <ShieldOff className="mr-2 h-4 w-4" aria-hidden />
+                {disconnect.isPending ? "Desconectando…" : "Desconectar"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {connection?.status === "ERROR" && connection.last_error && (
+              <p className="text-sm text-destructive">
+                La última sincronización falló: {connection.last_error}
+              </p>
+            )}
+            <Button size="sm" onClick={() => connect.mutate()} disabled={connect.isPending}>
+              <Mail className="mr-2 h-4 w-4" aria-hidden />
+              {connect.isPending ? "Abriendo Microsoft…" : "Conectar Outlook"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsConnections() {
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
