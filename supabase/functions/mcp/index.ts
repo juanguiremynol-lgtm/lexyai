@@ -684,11 +684,37 @@ var list_hearings_default = defineTool15({
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    return textResult(`${data?.length ?? 0} audiencias.`, {
-      work_item_id: itemId,
-      range: { from: date_from ?? null, to: date_to ?? null },
-      hearings: data ?? []
+    const rows = data ?? [];
+    const ids = [...new Set(rows.map((r) => String(r.work_item_id)))];
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
+    );
+    const hearings = rows.map((r) => {
+      const row = r;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null
+      };
     });
+    const cap = limit ?? 50;
+    const hayMas = hearings.length === cap;
+    return textResult(
+      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado \u2014 puede haber m\xE1s; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      {
+        work_item_id: itemId,
+        range: { from: date_from ?? null, to: date_to ?? null },
+        limit: cap,
+        hay_mas: hayMas,
+        hearings
+      }
+    );
   }
 });
 

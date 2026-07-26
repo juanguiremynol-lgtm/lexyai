@@ -40,10 +40,41 @@ export default defineTool({
     const { data, error } = await q;
     if (error) return errorResult(error.message);
 
-    return textResult(`${data?.length ?? 0} audiencias.`, {
-      work_item_id: itemId,
-      range: { from: date_from ?? null, to: date_to ?? null },
-      hearings: data ?? [],
+    const rows = data ?? [];
+    const ids = [...new Set(rows.map((r) => String((r as { work_item_id: string }).work_item_id)))];
+    const { data: items } = ids.length
+      ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
+      : { data: [] as Array<Record<string, unknown>> };
+    const byId = new Map<string, Record<string, unknown>>(
+      (items ?? []).map(
+        (i) => [(i as { id: string }).id, i as Record<string, unknown>] as [string, Record<string, unknown>],
+      ),
+    );
+
+    const hearings = rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const wi = byId.get(String(row.work_item_id)) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        despacho: wi?.authority_name ?? null,
+      };
     });
+
+    const cap = limit ?? 50;
+    const hayMas = hearings.length === cap;
+
+    return textResult(
+      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado — puede haber más; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      {
+        work_item_id: itemId,
+        range: { from: date_from ?? null, to: date_to ?? null },
+        limit: cap,
+        hay_mas: hayMas,
+        hearings,
+      },
+    );
   },
 });
