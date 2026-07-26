@@ -16567,6 +16567,7 @@ export type Database = {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
       }
+      age_out_pending_review_deadlines: { Args: never; Returns: number }
       atenia_ai_claim_queue: {
         Args: { _limit?: number }
         Returns: {

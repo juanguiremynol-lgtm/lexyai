@@ -23,6 +23,43 @@ export function sbForUser(ctx: ToolContext): SupabaseClient {
 }
 
 /**
+ * Human-readable matter title for MCP payloads.
+ *
+ * Never returns null, never returns a bare workflow_type (some legacy rows were
+ * created with title='CGP'), and collapses very long party lists.
+ */
+const WORKFLOW_TOKENS = new Set([
+  "CGP", "CPACA", "LABORAL", "PENAL_906", "PENAL", "TUTELA", "PETICION",
+  "GOV_PROCEDURE", "GENERIC",
+]);
+
+function collapseParties(raw: string): string {
+  const parts = raw
+    .split(/\s*(?:,|;|\||\/| y otros? )\s*/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 2) return parts.join(", ") || raw.trim();
+  return `${parts.slice(0, 2).join(", ")} y ${parts.length - 2} más`;
+}
+
+export function workItemTitle(
+  wi: Record<string, unknown> | null | undefined,
+  fallback?: string | null,
+): string {
+  const raw = wi?.title ? String(wi.title).trim() : "";
+  const normalized = raw.toUpperCase().replace(/[\s-]+/g, "_");
+  if (raw && !WORKFLOW_TOKENS.has(normalized)) {
+    return raw.length > 180 ? `${raw.slice(0, 177)}…` : raw;
+  }
+  const dte = wi?.demandantes ? collapseParties(String(wi.demandantes)) : "";
+  const ddo = wi?.demandados ? collapseParties(String(wi.demandados)) : "";
+  const partes = dte && ddo ? `${dte} vs ${ddo}` : dte || ddo;
+  if (partes) return partes;
+  if (wi?.radicado) return String(wi.radicado);
+  return fallback ? String(fallback) : "Asunto sin título";
+}
+
+/**
  * MCP tool result.
  *
  * CRITICAL: most MCP clients (Claude, ChatGPT) only render the `content` text
