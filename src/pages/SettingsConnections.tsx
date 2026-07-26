@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
-import { useEmailConnection } from "@/hooks/use-email-connection";
+import { useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
 
@@ -85,7 +85,10 @@ function OutlookConnectionCard() {
                 Última sincronización: {fmt(connection?.last_sync_at)}
               </p>
               <p className="text-xs text-muted-foreground">
-                Permisos: lectura de buzón (solo lectura, sin envío)
+                Permisos: lectura de buzón
+                {connection?.can_send
+                  ? " y envío desde tu cuenta (con confirmación manual en cada correo)"
+                  : " (sin envío)"}
               </p>
             </div>
             {needsReconnectForSend && (
@@ -140,6 +143,7 @@ function OutlookConnectionCard() {
 }
 
 export default function SettingsConnections() {
+
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
