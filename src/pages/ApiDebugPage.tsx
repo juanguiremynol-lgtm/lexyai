@@ -190,33 +190,33 @@ const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, {
     primary: 'CPNU', 
     fallback: 'SAMAI', 
     fallbackEnabled: true,
-    description: 'CPNU primario, SAMAI fallback', 
+    description: 'Actuaciones: CPNU · Estados: Publicaciones Procesales', 
     notificationSource: 'Estados (términos legales)' 
   },
   LABORAL: { 
     primary: 'CPNU', 
     fallback: 'SAMAI', 
     fallbackEnabled: true,
-    description: 'CPNU primario, SAMAI fallback', 
+    description: 'Actuaciones: CPNU · Estados: Publicaciones Procesales', 
     notificationSource: 'Estados (términos legales)' 
   },
   CPACA: { 
     primary: 'SAMAI', 
     fallback: 'CPNU', 
     fallbackEnabled: false,
-    description: 'SAMAI primario (litigio administrativo), CPNU fallback deshabilitado' 
+    description: 'Actuaciones: SAMAI (fallback CPNU si vacío/not_found) · Estados: SAMAI Estados' 
   },
   TUTELA: { 
     primary: 'TUTELAS', 
     fallback: 'CPNU', 
     fallbackEnabled: true,
-    description: 'TUTELAS API primario, CPNU fallback si TUTELAS vacío' 
+    description: 'Cascada: CPNU · SAMAI · Publicaciones Procesales · SAMAI Estados' 
   },
   PENAL_906: { 
     primary: 'PUBLICACIONES', 
     fallback: 'CPNU', 
     fallbackEnabled: false,
-    description: '⚠️ Publicaciones es PRIMARY (se llama PRIMERO). CPNU/SAMAI deshabilitados.', 
+    description: '⚠️ Publicaciones Procesales es PRIMARY (se llama PRIMERO) · Actuaciones: CPNU', 
     notificationSource: 'Publicaciones Procesales' 
   },
 };

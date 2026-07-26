@@ -41,7 +41,8 @@ export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, on
             Asistente de Integración de Proveedores
           </h2>
           <p className="text-muted-foreground max-w-lg mx-auto text-sm">
-            Los proveedores externos complementan los datos built-in de Andromeda (CPNU, SAMAI) sin reemplazarlos.
+            Los proveedores externos complementan las fuentes built-in de Andromeda, que varían por categoría
+            (CGP/Laboral/Penal: CPNU · PP — CPACA: SAMAI · SAMAI Estados — Tutela: cascada de las cuatro), sin reemplazarlas.
             Integre APIs de terceros para enriquecer actuaciones, publicaciones y timelines de sus expedientes.
           </p>
         </div>

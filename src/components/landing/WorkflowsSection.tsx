@@ -8,7 +8,7 @@ const WORKFLOWS = [
     title: "CGP / Civil",
     badge: "CPNU · Publicaciones",
     description:
-      "Seguimiento de procesos del Código General del Proceso. Actuaciones via CPNU con fallback a SAMAI, estados via Publicaciones Procesales.",
+      "Seguimiento de procesos del Código General del Proceso. Actuaciones vía CPNU, estados vía Publicaciones Procesales.",
     highlights: ["Términos legales automáticos", "Alertas de traslado y audiencia", "Línea de tiempo completa"],
   },
   {
@@ -22,7 +22,7 @@ const WORKFLOWS = [
   {
     icon: Gavel,
     title: "Tutelas",
-    badge: "Tutelas API · CPNU",
+    badge: "CPNU · SAMAI · Publicaciones",
     description:
       "Plazos estrictos de tutela con monitoreo multi-fuente. Notificaciones de impugnación, fallo y cumplimiento.",
     highlights: ["Alertas de 48 horas", "Seguimiento de impugnación", "Control de cumplimiento"],
@@ -38,7 +38,7 @@ const WORKFLOWS = [
   {
     icon: Briefcase,
     title: "Laboral",
-    badge: "CPNU · SAMAI",
+    badge: "CPNU · Publicaciones",
     description:
       "Procesos laborales con seguimiento de términos, audiencias de conciliación y fallos.",
     highlights: ["Términos laborales", "Conciliación obligatoria", "Seguimiento de sentencias"],

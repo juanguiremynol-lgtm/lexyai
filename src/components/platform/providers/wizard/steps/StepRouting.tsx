@@ -356,7 +356,7 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
         <WizardExplanation
           title="Routing por Categoría"
           whatItDoes="Define para qué workflows (CGP, CPACA, etc.) y scopes (actuaciones, publicaciones) se usará este proveedor, y en qué orden de precedencia."
-          whyItMatters={`PRIMARY = se consulta primero, complementando los built-in (CPNU/SAMAI). FALLBACK = solo se activa si las fuentes principales fallan, mejorando la confiabilidad. ${strategy === "MERGE" ? "MERGE = consulta múltiples proveedores y fusiona los resultados para verificar y enriquecer datos." : ""}`}
+          whyItMatters={`PRIMARY = se consulta primero, complementando los built-in de la categoría (CGP/Laboral/Penal: CPNU · PP — CPACA: SAMAI · SAMAI Estados con fallback CPNU — Tutela: cascada de las cuatro). FALLBACK = solo se activa si las fuentes principales fallan, mejorando la confiabilidad. ${strategy === "MERGE" ? "MERGE = consulta múltiples proveedores y fusiona los resultados para verificar y enriquecer datos." : ""}`}
           commonMistakes={[
             "Configurar como PRIMARY sin probar E2E primero",
             "Los proveedores externos NO reemplazan los built-in, los complementan",
