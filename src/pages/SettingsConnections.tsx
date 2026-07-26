@@ -85,7 +85,7 @@ function OutlookConnectionCard() {
                 Última sincronización: {fmt(connection?.last_sync_at)}
               </p>
               <p className="text-xs text-muted-foreground">
-                Permisos: lectura de buzón{canSend ? " y envío de correos" : " (sin envío)"}
+                Permisos: lectura de buzón (solo lectura, sin envío)
               </p>
             </div>
             {needsReconnectForSend && (
