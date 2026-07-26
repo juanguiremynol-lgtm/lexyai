@@ -17218,6 +17218,8 @@ export type Database = {
         | "ALERT_CREATED"
         | "ADMIN_NOTIFICATION"
         | "DIAGNOSTIC_ESCALATION"
+        | "RECHAZO_PRESUNTO"
+        | "RECHAZO_CONFIRMADO"
       observation_severity: "INFO" | "WARNING" | "CRITICAL"
       pdf_provider_mode: "DEMO" | "DIRECT"
       peticion_phase:
@@ -17615,6 +17617,8 @@ export const Constants = {
         "ALERT_CREATED",
         "ADMIN_NOTIFICATION",
         "DIAGNOSTIC_ESCALATION",
+        "RECHAZO_PRESUNTO",
+        "RECHAZO_CONFIRMADO",
       ],
       observation_severity: ["INFO", "WARNING", "CRITICAL"],
       pdf_provider_mode: ["DEMO", "DIRECT"],
