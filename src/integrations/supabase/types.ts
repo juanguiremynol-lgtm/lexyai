@@ -16568,6 +16568,10 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      apply_rechazo_presunto_rule: {
+        Args: { p_work_item_id?: string }
+        Returns: Json
+      }
       atenia_ai_claim_queue: {
         Args: { _limit?: number }
         Returns: {
@@ -16749,6 +16753,14 @@ export type Database = {
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
+      }
+      find_auto_rechazo_act: {
+        Args: { p_from: string; p_work_item_id: string }
+        Returns: string
+      }
+      find_subsanacion_evidence_act: {
+        Args: { p_from: string; p_to: string; p_work_item_id: string }
+        Returns: string
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_active_terms: {
@@ -17218,6 +17230,8 @@ export type Database = {
         | "ALERT_CREATED"
         | "ADMIN_NOTIFICATION"
         | "DIAGNOSTIC_ESCALATION"
+        | "RECHAZO_PRESUNTO"
+        | "RECHAZO_CONFIRMADO"
       observation_severity: "INFO" | "WARNING" | "CRITICAL"
       pdf_provider_mode: "DEMO" | "DIRECT"
       peticion_phase:
@@ -17615,6 +17629,8 @@ export const Constants = {
         "ALERT_CREATED",
         "ADMIN_NOTIFICATION",
         "DIAGNOSTIC_ESCALATION",
+        "RECHAZO_PRESUNTO",
+        "RECHAZO_CONFIRMADO",
       ],
       observation_severity: ["INFO", "WARNING", "CRITICAL"],
       pdf_provider_mode: ["DEMO", "DIRECT"],
