@@ -154,7 +154,7 @@ export function WorkItemMonitoringToggle({
           <Textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Razón (ej. 'No existe en CPNU/SAMAI', 'Radicado mal digitado', etc.)"
+            placeholder="Razón (ej. 'No existe en las fuentes judiciales del expediente', 'Radicado mal digitado', etc.)"
             rows={3}
           />
           <DialogFooter>
