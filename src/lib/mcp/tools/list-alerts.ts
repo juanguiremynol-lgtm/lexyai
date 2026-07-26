@@ -40,10 +40,42 @@ export default defineTool({
     const { data, error } = await q;
     if (error) return errorResult(error.message);
 
-    const unread = (data ?? []).filter((a) => !(a as { read_at?: string | null }).read_at).length;
-    return textResult(
-      `${data?.length ?? 0} alertas (${unread} sin leer).`,
-      { status: status ?? "PENDING+ACKNOWLEDGED", work_item_id: entityId, unread, alerts: data ?? [] },
+    const rows = data ?? [];
+    const wiIds = [
+      ...new Set(
+        rows
+          .filter((a) => String((a as { entity_type?: string }).entity_type ?? "").toUpperCase() === "WORK_ITEM")
+          .map((a) => String((a as { entity_id?: string }).entity_id ?? ""))
+          .filter(Boolean),
+      ),
+    ];
+    const { data: items } = wiIds.length
+      ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", wiIds)
+      : { data: [] as Array<Record<string, unknown>> };
+    const byId = new Map<string, Record<string, unknown>>(
+      (items ?? []).map(
+        (i) => [(i as { id: string }).id, i as Record<string, unknown>] as [string, Record<string, unknown>],
+      ),
     );
+
+    const alerts = rows.map((a) => {
+      const row = a as Record<string, unknown>;
+      const wi = byId.get(String(row.entity_id ?? "")) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        leida: Boolean(row.read_at),
+      };
+    });
+
+    const unread = alerts.filter((a) => !a.leida).length;
+    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+      status: status ?? "PENDING+ACKNOWLEDGED",
+      work_item_id: entityId,
+      unread,
+      alerts,
+    });
   },
 });

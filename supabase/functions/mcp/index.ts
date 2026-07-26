@@ -645,11 +645,36 @@ var list_alerts_default = defineTool14({
     if (entityId) q = q.eq("entity_id", entityId);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    const unread = (data ?? []).filter((a) => !a.read_at).length;
-    return textResult(
-      `${data?.length ?? 0} alertas (${unread} sin leer).`,
-      { status: status ?? "PENDING+ACKNOWLEDGED", work_item_id: entityId, unread, alerts: data ?? [] }
+    const rows = data ?? [];
+    const wiIds = [
+      ...new Set(
+        rows.filter((a) => String(a.entity_type ?? "").toUpperCase() === "WORK_ITEM").map((a) => String(a.entity_id ?? "")).filter(Boolean)
+      )
+    ];
+    const { data: items } = wiIds.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", wiIds) : { data: [] };
+    const byId = new Map(
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
     );
+    const alerts = rows.map((a) => {
+      const row = a;
+      const wi = byId.get(String(row.entity_id ?? "")) ?? null;
+      return {
+        ...row,
+        radicado: wi?.radicado ?? null,
+        titulo_asunto: wi?.title ?? null,
+        workflow_type: wi?.workflow_type ?? null,
+        leida: Boolean(row.read_at)
+      };
+    });
+    const unread = alerts.filter((a) => !a.leida).length;
+    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+      status: status ?? "PENDING+ACKNOWLEDGED",
+      work_item_id: entityId,
+      unread,
+      alerts
+    });
   }
 });
 
