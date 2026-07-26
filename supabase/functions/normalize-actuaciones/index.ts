@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller, unauthorized } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

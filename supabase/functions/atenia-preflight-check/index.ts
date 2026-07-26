@@ -14,6 +14,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAction } from "../_shared/action-logger.ts";
+import { resolveCaller, isPrivileged, canAccessOrg, forbidden } from "../_shared/callerIdentity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
