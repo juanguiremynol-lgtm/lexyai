@@ -449,7 +449,7 @@ var list_deadlines_default = defineTool9({
     const rows = data ?? [];
     const today = bogotaToday();
     const ids = [...new Set(rows.map((r) => r.work_item_id))];
-    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
+    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name, demandantes, demandados").in("id", ids) : { data: [] };
     const byId = new Map(
       (items ?? []).map(
         (i) => [i.id, i]

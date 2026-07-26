@@ -45,7 +45,10 @@ export default defineTool({
     // Radicado enrichment so each deadline is self-describing.
     const ids = [...new Set(rows.map((r) => (r as { work_item_id: string }).work_item_id))];
     const { data: items } = ids.length
-      ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
+      ? await sb
+          .from("work_items")
+          .select("id, radicado, title, workflow_type, authority_name, demandantes, demandados")
+          .in("id", ids)
       : { data: [] as Array<Record<string, unknown>> };
     const byId = new Map<string, Record<string, unknown>>(
       (items ?? []).map(
