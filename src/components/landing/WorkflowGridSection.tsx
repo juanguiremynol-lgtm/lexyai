@@ -37,7 +37,7 @@ const WORKFLOW_TYPES: WorkflowType[] = [
     subtitle: "Código General del Proceso",
     color: "from-blue-500/20 to-blue-600/10 border-blue-500/30",
     features: [
-      { icon: Search, text: "Seguimiento automático de actuaciones vía CPNU y SAMAI" },
+      { icon: Search, text: "Seguimiento automático de actuaciones vía CPNU y estados vía Publicaciones Procesales" },
       { icon: Bell, text: "Alertas inteligentes de traslados, audiencias y términos" },
       { icon: Clock, text: "Cálculo automático de plazos legales y caducidades" },
       { icon: CheckCircle2, text: "Línea de tiempo completa con publicaciones procesales" },
@@ -66,7 +66,7 @@ const WORKFLOW_TYPES: WorkflowType[] = [
       { icon: Clock, text: "Términos laborales con cálculo de días hábiles" },
       { icon: Search, text: "Seguimiento de conciliación obligatoria y audiencias" },
       { icon: Bell, text: "Alertas de sentencias y recursos de apelación" },
-      { icon: CheckCircle2, text: "Monitoreo multi-fuente (CPNU + SAMAI)" },
+      { icon: CheckCircle2, text: "Monitoreo multi-fuente (CPNU · Publicaciones Procesales)" },
     ],
   },
   {

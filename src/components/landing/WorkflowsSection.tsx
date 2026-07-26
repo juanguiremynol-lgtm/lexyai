@@ -8,7 +8,7 @@ const WORKFLOWS = [
     title: "CGP / Civil",
     badge: "CPNU · Publicaciones",
     description:
-      "Seguimiento de procesos del Código General del Proceso. Actuaciones via CPNU con fallback a SAMAI, estados via Publicaciones Procesales.",
+      "Seguimiento de procesos del Código General del Proceso. Actuaciones vía CPNU, estados vía Publicaciones Procesales.",
     highlights: ["Términos legales automáticos", "Alertas de traslado y audiencia", "Línea de tiempo completa"],
   },
   {
