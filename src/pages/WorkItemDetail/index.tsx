@@ -12,7 +12,7 @@ import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
 import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2, Users } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2, Users, Mail } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { WorkItemAtAGlance } from "@/components/work-items/WorkItemAtAGlance";
 import { WorkItemExportPack } from "@/components/work-items/WorkItemExportPack";
@@ -35,6 +35,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocumentsTab";
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
+import { EmailLinksTab } from "./tabs/EmailLinksTab";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
@@ -401,7 +402,7 @@ export default function WorkItemDetail() {
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
             {(() => null)()}
             <TabsList
-              className={`w-full flex md:grid overflow-x-auto flex-nowrap justify-start md:justify-stretch scrollbar-hide snap-x snap-mandatory h-auto p-1 ${externalDisplayModeFor(workItem.workflow_type) === 'none' ? 'md:grid-cols-6' : 'md:grid-cols-7'}`}
+              className={`w-full flex md:grid overflow-x-auto flex-nowrap justify-start md:justify-stretch scrollbar-hide snap-x snap-mandatory h-auto p-1 ${externalDisplayModeFor(workItem.workflow_type) === 'none' ? 'md:grid-cols-7' : 'md:grid-cols-8'}`}
             >
               <TabsTrigger value="actuaciones" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <Scale className="h-4 w-4" />
@@ -444,6 +445,10 @@ export default function WorkItemDetail() {
                 <Scale className="h-4 w-4" />
                 Audiencias
               </TabsTrigger>
+              <TabsTrigger value="correos" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
+                <Mail className="h-4 w-4" />
+                Correos
+              </TabsTrigger>
               <TabsTrigger value="sync" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <Clock className="h-4 w-4" />
                 Sync
@@ -480,6 +485,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="audiencias" className="mt-4">
               <HearingsTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="correos" className="mt-4">
+              <EmailLinksTab workItemId={extendedWorkItem.id} />
             </TabsContent>
 
             <TabsContent value="sync" className="mt-4">
