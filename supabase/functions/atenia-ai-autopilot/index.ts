@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { resolveCaller, isPrivileged, canAccessOrg } from "../_shared/callerIdentity.ts";
 import {
   isTransientError,
   shouldDemonitor,
