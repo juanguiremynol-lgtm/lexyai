@@ -48,7 +48,9 @@ export default defineTool({
       ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
       : { data: [] as Array<Record<string, unknown>> };
     const byId = new Map<string, Record<string, unknown>>(
-      (items ?? []).map((i) => [(i as { id: string }).id, i as Record<string, unknown>]),
+      (items ?? []).map(
+        (i) => [(i as { id: string }).id, i as Record<string, unknown>] as [string, Record<string, unknown>],
+      ),
     );
 
     // Colombian holidays inside the relevant horizon (business-day countdown).

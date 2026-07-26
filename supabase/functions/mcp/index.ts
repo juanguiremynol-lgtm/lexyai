@@ -415,7 +415,9 @@ var list_deadlines_default = defineTool9({
     const ids = [...new Set(rows.map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
     const byId = new Map(
-      (items ?? []).map((i) => [i.id, i])
+      (items ?? []).map(
+        (i) => [i.id, i]
+      )
     );
     const dates = rows.map((r) => String(r.deadline_date ?? "")).filter(Boolean).sort();
     const horizonEnd = dates[dates.length - 1] ?? today;
