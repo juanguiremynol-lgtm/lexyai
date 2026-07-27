@@ -268,6 +268,7 @@ export function isExcludedMessage(msg: GraphMessage, selfAddress?: string | null
     Boolean(self) && from === self && recipients.length > 0 &&
     recipients.every((r) => r === self);
   if (selfSent) {
+    if (/^informe semanal/i.test((msg.subject ?? "").trim())) return true;
     const radicados = extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`);
     if (radicados.length > 3) return true;
   }
@@ -295,18 +296,34 @@ export function isSgdeMessage(msg: GraphMessage): boolean {
 export function parseSgdeEvidence(msg: GraphMessage, body: string): SgdeEvidence {
   const text = `${msg.subject ?? ""}\n${body ?? ""}`.replace(/<[^>]+>/g, " ");
   const radicado = extractRadicados(text)[0] ?? null;
-  const access_url = text.match(SGDE_LINK_RE)?.[0] ?? null;
+  const access_url =
+    text.match(SGDE_LINK_RE)?.[0] ?? extractExpedienteAccessUrl(msg, body);
 
-  let allowed_until: string | null = null;
-  const until = text.match(/consulta permitida hasta\s*:?\s*([^\n<]{0,40})/i)?.[1]?.trim();
-  if (until && !/indefinido/i.test(until)) {
-    const d = until.match(/(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
-    if (d) {
-      allowed_until = `${d[3]}-${d[2]}-${d[1]}T${d[4] ?? "23"}:${d[5] ?? "59"}:00-05:00`;
-    }
-  }
-  const expired = allowed_until !== null && Date.parse(allowed_until) < Date.now();
+  const allowed_until = parseAllowedUntil(text);
+  const expired =
+    allowed_until !== null && Date.parse(expiryInstant(allowed_until)) < Date.now();
   return { radicado, access_url, allowed_until, expired };
+}
+
+/**
+ * "Consulta permitida hasta" admite tres formas reales:
+ *   - "Indefinido"            → null (sin vencimiento)
+ *   - "31-07-2026"            → fecha ISO "2026-07-31"
+ *   - "31-07-2026 11:32"      → datetime ISO con offset de Bogotá
+ */
+export function parseAllowedUntil(text: string): string | null {
+  const until = text.match(/consulta permitida hasta\s*:?\s*([^\n<]{0,40})/i)?.[1]?.trim();
+  if (!until || /indefinido/i.test(until)) return null;
+  const d = until.match(/(\d{2})-(\d{2})-(\d{4})(?:[\sT]+(\d{1,2}):(\d{2}))?/);
+  if (!d) return null;
+  const date = `${d[3]}-${d[2]}-${d[1]}`;
+  if (d[4] === undefined) return date;
+  return `${date}T${d[4].padStart(2, "0")}:${d[5]}:00-05:00`;
+}
+
+/** Instante efectivo de vencimiento: las fechas sin hora vencen al final del día. */
+function expiryInstant(allowedUntil: string): string {
+  return /T/.test(allowedUntil) ? allowedUntil : `${allowedUntil}T23:59:59-05:00`;
 }
 
 /** Split a party field ("A, B y C") into normalized, meaningful names. */
@@ -442,6 +459,12 @@ const LOW_CONTENT_RE =
  */
 export function isLowContentMessage(msg: GraphMessage): boolean {
   const from = senderAddress(msg);
+  if (
+    from.startsWith("notificacionessgde@") &&
+    SGDE_TOKEN_SUBJECT_RE.test((msg.subject ?? "").trim())
+  ) {
+    return true;
+  }
   return LOW_CONTENT_RE.test(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""} ${from}`);
 }
 
