@@ -14,6 +14,7 @@ export interface PortfolioItem {
   demandados: string | null;
   title: string | null;
   client_name?: string | null;
+  workflow_type?: string | null;
 }
 
 export interface GraphMessage {
@@ -31,12 +32,19 @@ export interface GraphMessage {
   internetMessageId?: string | null;
 }
 
-export type MatchedBy = "RADICADO" | "PARTE" | "DESPACHO" | "CLIENTE" | "MANUAL";
+export type MatchedBy =
+  | "RADICADO"
+  | "RADICADO_PARCIAL"
+  | "PARTE"
+  | "DESPACHO"
+  | "CLIENTE"
+  | "MANUAL";
 export type EvidenceType =
   | "MEMORIAL_ENVIADO"
   | "NOTIFICACION_JUZGADO"
   | "TRASLADO"
   | "REQUERIMIENTO"
+  | "SGDE_ACCESO_EXPEDIENTE"
   | "OTRO";
 
 export interface MatchResult {
@@ -51,7 +59,20 @@ export const JUDICIAL_DOMAINS = [
   "cendoj.ramajudicial.gov.co",
   "notificacionesrj.gov.co",
   "ramajudicial.gov.co",
+  "ugpp.gov.co",
 ];
+
+/**
+ * Remitentes que NUNCA deben generar un vínculo: Andromeda no puede usar sus
+ * propios resúmenes como evidencia (circularidad).
+ */
+export const EXCLUDED_SENDERS = ["monitoreo@andromeda.legal"];
+
+/** Remitente del Sistema de Gestión Documental Electrónica de la Rama. */
+export const SGDE_SENDER = "notificacionessgde@cendoj.ramajudicial.gov.co";
+const SGDE_SUBJECT_RE = /se le ha compartido informaci[oó]n de proceso judicial/i;
+const SGDE_LINK_RE =
+  /https:\/\/siugj-sgde\.ramajudicial\.gov\.co\/expedientes\/usuario-externo\/[A-Za-z0-9._~+/=-]+/;
 
 export function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -64,6 +85,24 @@ export function norm(s: string | null | undefined): string {
 /** Digits-only 23-char radicado. */
 export function normalizeRadicado(raw: string): string {
   return String(raw ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Radicados cortos de tutela ("TUTELA 2026-00752"): año + consecutivo de 5
+ * dígitos, sin los bloques de despacho.
+ */
+export function extractPartialRadicados(text: string): string[] {
+  if (!text) return [];
+  const found = new Set<string>();
+  const re = /\b(19|20)(\d{2})\s*[-_/]\s*(\d{5})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) found.add(`${m[1]}${m[2]}${m[3]}`);
+  return [...found];
+}
+
+/** Sufijo año(4)+consecutivo(5) de un radicado completo de 23 dígitos. */
+export function radicadoSuffix(radicado23: string): string {
+  return radicado23.length === 23 ? radicado23.slice(12, 21) : "";
 }
 
 /**
