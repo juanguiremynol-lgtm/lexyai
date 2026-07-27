@@ -76,9 +76,21 @@ Deno.serve(async (req) => {
     // === BUILT-IN PROVIDERS ===
     // Per-provider keys take precedence over the shared EXTERNAL_X_API_KEY
     // (matches the resolution logic used by integration-health and the sync workers).
+    // CANONICAL key resolution — must match PROVIDER_KEY_MAP in
+    // _shared/radicadoUtils.ts, which is what the working sync adapters use.
+    // SAMAI Estados is the exception: its secret is SAMAI_ESTADOS_API_KEY
+    // (no `_X_` infix). Deriving the name blindly made the preflight send the
+    // shared EXTERNAL_X_API_KEY and get a 401 from a healthy service.
     const sharedKey = Deno.env.get("EXTERNAL_X_API_KEY") ?? "";
+    const PROVIDER_KEY_ENV: Record<string, string> = {
+      CPNU: "CPNU_X_API_KEY",
+      SAMAI: "SAMAI_X_API_KEY",
+      TUTELAS: "TUTELAS_X_API_KEY",
+      PUBLICACIONES: "PUBLICACIONES_X_API_KEY",
+      SAMAI_ESTADOS: "SAMAI_ESTADOS_API_KEY",
+    };
     const keyFor = (name: string): string =>
-      Deno.env.get(`${name}_X_API_KEY`) ?? sharedKey;
+      Deno.env.get(PROVIDER_KEY_ENV[name] ?? `${name}_X_API_KEY`) ?? sharedKey;
 
     const builtIns = [
       {
