@@ -3,6 +3,7 @@
  * item using ONLY metadata (subject, sender, snippet). Bodies are never
  * stored and never leave this function.
  */
+import { DEPT_NAMES } from "./radicadoUtils.ts";
 
 export interface PortfolioItem {
   id: string;
@@ -106,9 +107,31 @@ export function radicadoSuffix(radicado23: string): string {
 }
 
 /**
+ * Validación estructural de un radicado de 23 dígitos:
+ *   DANE(5) + CORP(2) + ESP(2) + DESP(3) + AÑO(4) + CONSEC(5) + RECURSO(2)
+ *
+ * Sin esta validación, un texto con una cadena larga de dígitos (números de
+ * oficio, teléfonos concatenados, fechas) genera decenas de radicados falsos
+ * por ventana deslizante. Es el freno al "enumeration garbage".
+ */
+export function isStructurallyValidRadicado(digits: string): boolean {
+  if (!/^\d{23}$/.test(digits)) return false;
+  const dane5 = digits.slice(0, 5);
+  const dept = digits.slice(0, 2);
+  const year = Number(digits.slice(12, 16));
+  const consec = digits.slice(16, 21);
+  if (dane5 === "00000") return false;
+  if (!DEPT_NAMES[dept]) return false;
+  const maxYear = new Date().getUTCFullYear() + 1;
+  if (!Number.isFinite(year) || year < 1990 || year > maxYear) return false;
+  if (consec === "00000") return false;
+  return true;
+}
+
+/**
  * Extract every 23-digit radicado present in a text, tolerating separators:
  * 05001400303420260089800, 05001-40-03-034-2026-00898-00, with underscores,
- * spaces or dots.
+ * spaces or dots. Toda candidata pasa por `isStructurallyValidRadicado`.
  */
 export function extractRadicados(text: string): string[] {
   if (!text) return [];
@@ -118,13 +141,55 @@ export function extractRadicados(text: string): string[] {
   while ((m = re.exec(text)) !== null) {
     const digits = m[0].replace(/\D/g, "");
     if (digits.length === 23) {
-      found.add(digits);
+      if (isStructurallyValidRadicado(digits)) found.add(digits);
     } else if (digits.length > 23) {
-      // Sliding window for concatenated noise (e.g. radicado + date suffix).
-      for (let i = 0; i + 23 <= digits.length; i++) found.add(digits.slice(i, i + 23));
+      // Ventana deslizante para ruido concatenado (radicado + fecha), pero
+      // solo se conservan las ventanas estructuralmente válidas.
+      for (let i = 0; i + 23 <= digits.length; i++) {
+        const w = digits.slice(i, i + 23);
+        if (isStructurallyValidRadicado(w)) found.add(w);
+      }
     }
   }
   return [...found];
+}
+
+/**
+ * Mensajes de reparto / oficina judicial: el radicado del día cero suele venir
+ * en el cuerpo estructurado ("NÚMERO RADICACIÓN: ..."), no en el asunto.
+ */
+const REPARTO_SENDER_RE = /oficinajudicial|reparto|ofjudicial/i;
+const REPARTO_SUBJECT_RE =
+  /reparto|radicaci[oó]n|acta de reparto|asignaci[oó]n de proceso|constancia de radicaci[oó]n/i;
+
+export function isRepartoMessage(msg: GraphMessage): boolean {
+  const from = (
+    msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? ""
+  ).toLowerCase();
+  return (
+    REPARTO_SENDER_RE.test(from) ||
+    REPARTO_SUBJECT_RE.test(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)
+  );
+}
+
+const REPARTO_LABEL_RE =
+  /(?:n[uú]mero\s+(?:de\s+)?radicaci[oó]n|radicado|no\.?\s*de\s*radicado)\s*:?\s*([\d\s._\-/]{20,45}\d)/gi;
+
+/**
+ * Extrae radicados de un cuerpo de reparto leído en memoria. Prioriza los
+ * valores etiquetados; si no hay etiquetas, cae al extractor genérico.
+ */
+export function extractRepartoRadicados(body: string): string[] {
+  const text = String(body ?? "").replace(/<[^>]+>/g, " ");
+  const labeled = new Set<string>();
+  let m: RegExpExecArray | null;
+  REPARTO_LABEL_RE.lastIndex = 0;
+  while ((m = REPARTO_LABEL_RE.exec(text)) !== null) {
+    const digits = (m[1] ?? "").replace(/\D/g, "");
+    if (isStructurallyValidRadicado(digits)) labeled.add(digits);
+  }
+  if (labeled.size > 0) return [...labeled];
+  return extractRadicados(text);
 }
 
 function senderAddress(msg: GraphMessage): string {

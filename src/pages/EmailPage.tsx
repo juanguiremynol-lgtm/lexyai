@@ -11,7 +11,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mail, PenSquare, RefreshCw, ShieldCheck, Settings2, Loader2 } from "lucide-react";
+import { Mail, PenSquare, RefreshCw, ShieldCheck, Settings2, Loader2, History } from "lucide-react";
 import { DetectedProcessesQueue } from "@/components/email/DetectedProcessesQueue";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
@@ -20,6 +20,7 @@ import { useEmailConnection } from "@/hooks/use-email-connection";
 export default function EmailPage() {
   const { connection, isConnected, canSend, sync } = useEmailConnection();
   const [composeOpen, setComposeOpen] = useState(false);
+  const [fullSweepRunning, setFullSweepRunning] = useState(false);
 
   return (
     <div className="container mx-auto space-y-6 px-4 py-6">
@@ -68,10 +69,33 @@ export default function EmailPage() {
             )}
             Revisar buzón ahora
           </Button>
+          <Button
+            variant="outline"
+            disabled={!isConnected || sync.isPending}
+            onClick={() => {
+              setFullSweepRunning(true);
+              sync.mutate(
+                { fullSweep: true, lookbackMonths: 12 },
+                { onSettled: () => setFullSweepRunning(false) },
+              );
+            }}
+          >
+            {fullSweepRunning ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <History className="mr-1.5 h-4 w-4" aria-hidden />
+            )}
+            Revisar buzón completo (12 meses)
+          </Button>
           <Button disabled={!canSend} onClick={() => setComposeOpen(true)}>
             <PenSquare className="mr-1.5 h-4 w-4" aria-hidden />
             Redactar correo
           </Button>
+          {fullSweepRunning && (
+            <p className="w-full text-xs text-muted-foreground" role="status">
+              Revisando buzón completo… puede tardar varios minutos.
+            </p>
+          )}
         </CardContent>
       </Card>
 

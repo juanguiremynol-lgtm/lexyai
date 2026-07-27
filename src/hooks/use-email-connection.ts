@@ -82,9 +82,17 @@ export function useEmailConnection() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const sync = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("outlook-sync", { body: {} });
+  const sync = useMutation<
+    { results?: { links_created?: number; messages_scanned?: number }[] },
+    Error,
+    { fullSweep?: boolean; lookbackMonths?: number } | void
+  >({
+    mutationFn: async (options) => {
+      const { data, error } = await supabase.functions.invoke("outlook-sync", {
+        body: options && options.fullSweep
+          ? { full_sweep: true, lookback_months: options.lookbackMonths ?? 12 }
+          : {},
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data as { results?: { links_created?: number; messages_scanned?: number }[] };
@@ -94,6 +102,8 @@ export function useEmailConnection() {
       toast.success(created > 0 ? `${created} correo(s) vinculado(s)` : "Buzón revisado, sin correos nuevos por vincular");
       void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
       void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["detected-processes"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
