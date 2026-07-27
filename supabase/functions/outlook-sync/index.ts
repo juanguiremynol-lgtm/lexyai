@@ -44,7 +44,7 @@ interface Connection {
   id: string;
   user_id: string;
   organization_id: string | null;
-  email_address: string | null;
+  ms_account_email: string | null;
   access_token_cipher: string | null;
   access_token_nonce: string | null;
   refresh_token_cipher: string | null;
@@ -173,7 +173,7 @@ async function syncConnection(admin: Admin, conn: Connection) {
 
     for (const msg of messages) {
       // Exclusiones duras: monitoreo propio y auto-informes multi-radicado.
-      if (isExcludedMessage(msg, conn.email_address ?? null)) continue;
+      if (isExcludedMessage(msg, conn.ms_account_email ?? null)) continue;
 
       // SGDE: único caso donde se lee el cuerpo (en memoria, nunca se guarda)
       // para extraer el enlace de acceso al expediente electrónico.
@@ -327,7 +327,7 @@ Deno.serve(async (req) => {
 
     let connections: Connection[] = [];
     const columns =
-      "id, user_id, organization_id, email_address, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
+      "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
 
     if (isCron) {
       const { data } = await admin
