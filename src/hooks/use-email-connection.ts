@@ -164,7 +164,18 @@ export interface WorkItemEmailLink {
   matched_by: string;
   confidence: number;
   evidence_type: string | null;
+  /** Acuses de recibo / respuestas automáticas: válidos pero sin sustancia. */
+  low_content: boolean;
+  /** Metadatos de evidencia (p. ej. enlace SGDE y su vigencia). */
+  evidence_meta: SgdeEvidenceMeta | null;
   link_status: "CONFIRMED" | "SUGGESTED" | "DISMISSED";
+}
+
+export interface SgdeEvidenceMeta {
+  access_url?: string | null;
+  allowed_until?: string | null;
+  expired?: boolean;
+  offer_access_link?: boolean;
 }
 
 export function useWorkItemEmailLinks(workItemId: string | undefined) {
@@ -175,13 +186,13 @@ export function useWorkItemEmailLinks(workItemId: string | undefined) {
       const { data, error } = await supabase
         .from("work_item_email_links")
         .select(
-          "id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, confidence, evidence_type, link_status",
+          "id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, confidence, evidence_type, low_content, evidence_meta, link_status",
         )
         .eq("work_item_id", workItemId)
         .neq("link_status", "DISMISSED")
         .order("received_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as WorkItemEmailLink[];
+      return (data ?? []) as unknown as WorkItemEmailLink[];
     },
     enabled: !!workItemId,
   });
@@ -216,7 +227,49 @@ export function useUpdateEmailLinkStatus() {
 export interface SuggestedEmailLink extends WorkItemEmailLink {
   work_item_id: string;
   matched_value: string | null;
-  work_items: { id: string; radicado: string | null; title: string | null } | null;
+  work_items: {
+    id: string;
+    radicado: string | null;
+    title: string | null;
+    expediente_url?: string | null;
+  } | null;
+}
+
+/**
+ * Confirma un correo SGDE y usa su enlace como acceso al expediente
+ * electrónico del work item. Nunca se autopobla: siempre pasa por aquí.
+ */
+export function useApplySgdeAccessLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      linkId,
+      workItemId,
+      accessUrl,
+    }: {
+      linkId: string;
+      workItemId: string;
+      accessUrl: string;
+    }) => {
+      const { error: wiError } = await supabase
+        .from("work_items")
+        .update({ expediente_url: accessUrl })
+        .eq("id", workItemId);
+      if (wiError) throw wiError;
+      const { error } = await supabase
+        .from("work_item_email_links")
+        .update({ link_status: "CONFIRMED" })
+        .eq("id", linkId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Enlace de acceso al expediente guardado");
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-item"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 }
 
 /** Global inbox of medium-confidence links awaiting the user's decision. */
@@ -227,7 +280,7 @@ export function useSuggestedEmailLinks() {
       const { data, error } = await supabase
         .from("work_item_email_links")
         .select(
-          "id, work_item_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, link_status, work_items(id, radicado, title)",
+          "id, work_item_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, low_content, evidence_meta, link_status, work_items(id, radicado, title, expediente_url)",
         )
         .eq("link_status", "SUGGESTED")
         .order("received_at", { ascending: false })
