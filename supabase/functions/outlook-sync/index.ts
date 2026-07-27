@@ -23,6 +23,7 @@ import {
   isLowContentMessage,
   isSgdeMessage,
   parseSgdeEvidence,
+  extractExpedienteAccessUrl,
   extractRadicados,
   isRepartoMessage,
   extractRepartoRadicados,
