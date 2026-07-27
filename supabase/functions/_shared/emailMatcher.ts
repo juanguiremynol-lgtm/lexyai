@@ -139,6 +139,66 @@ function isJudicialSender(address: string): boolean {
   return JUDICIAL_DOMAINS.some((d) => address.endsWith(`@${d}`) || address.endsWith(`.${d}`));
 }
 
+/**
+ * Exclusiones duras del matcher (punto 5 de la política ratificada):
+ *   - correos de monitoreo de la propia Andromeda (evidencia circular);
+ *   - auto-envíos del usuario que mencionan más de 3 radicados distintos
+ *     ("informe semanal" personal): matchearlos produce fan-out masivo.
+ * Los newsletters no requieren lista: sin radicado ni parte no matchean nada.
+ */
+export function isExcludedMessage(msg: GraphMessage, selfAddress?: string | null): boolean {
+  const from = senderAddress(msg);
+  if (EXCLUDED_SENDERS.includes(from)) return true;
+
+  const self = (selfAddress ?? "").toLowerCase();
+  const recipients = (msg.toRecipients ?? [])
+    .map((r) => (r.emailAddress?.address ?? "").toLowerCase())
+    .filter(Boolean);
+  const selfSent =
+    Boolean(self) && from === self && recipients.length > 0 &&
+    recipients.every((r) => r === self);
+  if (selfSent) {
+    const radicados = extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`);
+    if (radicados.length > 3) return true;
+  }
+  return false;
+}
+
+export interface SgdeEvidence {
+  radicado: string | null;
+  access_url: string | null;
+  allowed_until: string | null;
+  expired: boolean;
+}
+
+/** ¿El mensaje es una compartición de expediente electrónico del SGDE? */
+export function isSgdeMessage(msg: GraphMessage): boolean {
+  return (
+    senderAddress(msg) === SGDE_SENDER && SGDE_SUBJECT_RE.test(msg.subject ?? "")
+  );
+}
+
+/**
+ * Extrae el enlace de acceso y la vigencia. `body` es el cuerpo leído en
+ * memoria únicamente para este patrón: nunca se persiste.
+ */
+export function parseSgdeEvidence(msg: GraphMessage, body: string): SgdeEvidence {
+  const text = `${msg.subject ?? ""}\n${body ?? ""}`.replace(/<[^>]+>/g, " ");
+  const radicado = extractRadicados(text)[0] ?? null;
+  const access_url = text.match(SGDE_LINK_RE)?.[0] ?? null;
+
+  let allowed_until: string | null = null;
+  const until = text.match(/consulta permitida hasta\s*:?\s*([^\n<]{0,40})/i)?.[1]?.trim();
+  if (until && !/indefinido/i.test(until)) {
+    const d = until.match(/(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+    if (d) {
+      allowed_until = `${d[3]}-${d[2]}-${d[1]}T${d[4] ?? "23"}:${d[5] ?? "59"}:00-05:00`;
+    }
+  }
+  const expired = allowed_until !== null && Date.parse(allowed_until) < Date.now();
+  return { radicado, access_url, allowed_until, expired };
+}
+
 /** Split a party field ("A, B y C") into normalized, meaningful names. */
 function partyNames(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -168,6 +228,8 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
     const prev = results.get(r.work_item_id);
     if (!prev || r.confidence > prev.confidence) results.set(r.work_item_id, r);
   };
+
+  if (isExcludedMessage(msg)) return [];
 
   for (const wi of portfolio) {
     const wiRad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
@@ -221,13 +283,57 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
     }
   }
 
+  // 4. Radicado parcial ("TUTELA 2026-00752") — solo si no hubo radicado
+  // completo. Un único match en tutelas activas es determinante; 2+ es
+  // ambigüedad y baja a sugerencia.
+  if (radicados.size === 0) {
+    const partials = extractPartialRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`);
+    for (const partial of partials) {
+      const candidates = portfolio.filter((wi) => {
+        const rad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
+        return (
+          (wi.workflow_type ?? "").toUpperCase() === "TUTELA" &&
+          radicadoSuffix(rad) === partial
+        );
+      });
+      if (candidates.length === 0) continue;
+      const confidence = candidates.length === 1 ? 1 : 0.65;
+      for (const wi of candidates) {
+        push({
+          work_item_id: wi.id,
+          organization_id: wi.organization_id,
+          matched_by: "RADICADO_PARCIAL",
+          matched_value: `${partial.slice(0, 4)}-${partial.slice(4)}`,
+          confidence,
+        });
+      }
+    }
+  }
+
   return [...results.values()];
 }
 
-const MEMORIAL_RE =
-  /subsana|memorial|recurso|contestaci[oó]n|alegatos|solicitud|impugnaci[oó]n/i;
+/**
+ * Vocabulario ratificado de memoriales. Ampliado con evidencia real del buzón:
+ * los recursos (apelación, reposición, queja, súplica), la impugnación, la
+ * contestación, las excepciones, los alegatos y los traslados son memoriales
+ * igual que la subsanación.
+ */
+export const MEMORIAL_RE =
+  /subsana|subsanaci[oó]n|memorial|recurso de apelaci[oó]n|recurso de reposici[oó]n|recurso de queja|recurso de s[uú]plica|recurso|impugnaci[oó]n|contestaci[oó]n(?: de la demanda)?|excepciones|alegatos de conclusi[oó]n|alegatos|traslado(?: de excepciones)?|solicitud/i;
 const TRASLADO_RE = /traslado/i;
 const REQUERIMIENTO_RE = /requerimiento|requiere|requerido/i;
+const LOW_CONTENT_RE =
+  /respuesta autom[aá]tica|automatic reply|acuse de recibo|se acusa recibo|acusamos recibo|out of office|canned\.response/i;
+
+/**
+ * Acuses de recibo y auto-respuestas: evidencia válida de timestamp, pero sin
+ * contenido sustantivo. La UI los muestra en una línea.
+ */
+export function isLowContentMessage(msg: GraphMessage): boolean {
+  const from = senderAddress(msg);
+  return LOW_CONTENT_RE.test(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""} ${from}`);
+}
 
 export function classifyEvidence(
   msg: GraphMessage,
@@ -237,9 +343,10 @@ export function classifyEvidence(
   const subject = msg.subject ?? "";
   const address = senderAddress(msg);
 
+  if (isSgdeMessage(msg)) return "SGDE_ACCESO_EXPEDIENTE";
   if (
     direction === "sent" &&
-    matchedBy === "RADICADO" &&
+    (matchedBy === "RADICADO" || matchedBy === "RADICADO_PARCIAL") &&
     msg.hasAttachments === true &&
     MEMORIAL_RE.test(subject)
   ) {
