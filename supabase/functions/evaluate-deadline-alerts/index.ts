@@ -53,13 +53,55 @@ Deno.serve(async (req) => {
   );
 
   const today = todayIsoBogota();
-  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0 };
+  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0 };
 
   try {
+    // Pass 0: deadlines the engine could not compute (no confirmed anchor).
+    // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
+    const { data: manualReview, error: mrErr } = await supabase
+      .from("work_item_deadlines")
+      .select("id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta")
+      .eq("status", "REQUIERE_REVISION_MANUAL")
+      .is("deadline_date", null);
+
+    if (mrErr) throw mrErr;
+
+    for (const d of manualReview ?? []) {
+      const { error: insErr } = await supabase.from("alert_instances").insert({
+        owner_id: d.owner_id,
+        organization_id: d.organization_id,
+        entity_id: d.work_item_id,
+        entity_type: "WORK_ITEM",
+        severity: "WARNING",
+        alert_type: "TERMINO_DEADLINE",
+        title: "Término requiere verificación manual — sin fecha de fijación confirmada",
+        message: d.label,
+        status: "PENDING",
+        fingerprint: `deadline_MANUAL_REVIEW_${d.id}`,
+        payload: {
+          deadline_id: d.id,
+          deadline_type: d.deadline_type,
+          deadline_date: null,
+          bucket: "MANUAL_REVIEW",
+          trigger_date: d.trigger_date,
+          engine: "LOCAL",
+          rule: d.calculation_meta ?? null,
+        },
+      });
+      if (insErr) {
+        if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
+        else { stats.errors++; console.error("[evaluate-deadline-alerts:manual]", insErr); }
+      } else {
+        stats.manual_review_alerts++;
+        stats.alerts_created++;
+      }
+    }
+
     const { data: deadlines, error } = await supabase
       .from("work_item_deadlines")
       .select("id, work_item_id, owner_id, organization_id, deadline_type, label, deadline_date, calculation_meta")
       .eq("status", "PENDING")
+      .not("deadline_date", "is", null)
       .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10));
 
     if (error) throw error;
