@@ -60,6 +60,8 @@ export const JUDICIAL_DOMAINS = [
   "cendoj.ramajudicial.gov.co",
   "notificacionesrj.gov.co",
   "ramajudicial.gov.co",
+  "deaj.ramajudicial.gov.co",
+  "cortesuprema.gov.co",
   "ugpp.gov.co",
 ];
 
@@ -74,6 +76,49 @@ export const SGDE_SENDER = "notificacionessgde@cendoj.ramajudicial.gov.co";
 const SGDE_SUBJECT_RE = /se le ha compartido informaci[oó]n de proceso judicial/i;
 const SGDE_LINK_RE =
   /https:\/\/siugj-sgde\.ramajudicial\.gov\.co\/expedientes\/usuario-externo\/[A-Za-z0-9._~+/=-]+/;
+
+/**
+ * Correos de token de validación del SGDE: el radicado sigue sirviendo para
+ * matchear, pero no son evidencia sustantiva (mismo trato que un acuse).
+ */
+const SGDE_TOKEN_SUBJECT_RE = /^token validaci[oó]n de acceso/i;
+
+/**
+ * Enlaces de acceso al expediente electrónico aceptados: SGDE, Alfresco y TYBA
+ * siempre que estén alojados bajo la Rama Judicial.
+ */
+export const EXPEDIENTE_LINK_HOSTS = [
+  "siugj-sgde.ramajudicial.gov.co",
+  "alfresco.ramajudicial.gov.co",
+  "tyba.ramajudicial.gov.co",
+];
+const EXPEDIENTE_URL_RE = /https:\/\/([A-Za-z0-9.-]+)(\/[A-Za-z0-9._~+/=%?&#:-]*)?/g;
+
+function isAllowedExpedienteHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h.endsWith(".ramajudicial.gov.co") || EXPEDIENTE_LINK_HOSTS.includes(h)
+  );
+}
+
+/**
+ * Extrae el primer enlace de acceso al expediente (SGDE / Alfresco / TYBA)
+ * presente en un mensaje de un remitente judicial. `text` se lee en memoria y
+ * nunca se persiste.
+ */
+export function extractExpedienteAccessUrl(
+  msg: GraphMessage,
+  text: string,
+): string | null {
+  if (!isJudicialSender(senderAddress(msg))) return null;
+  const clean = `${msg.subject ?? ""}\n${text ?? ""}`.replace(/<[^>]+>/g, " ");
+  EXPEDIENTE_URL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EXPEDIENTE_URL_RE.exec(clean)) !== null) {
+    if (isAllowedExpedienteHost(m[1])) return m[0].replace(/[).,;"']+$/, "");
+  }
+  return null;
+}
 
 export function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
