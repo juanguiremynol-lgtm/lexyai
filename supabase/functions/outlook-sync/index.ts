@@ -171,6 +171,27 @@ async function syncConnection(admin: Admin, conn: Connection) {
     summary.messages_scanned += messages.length;
 
     for (const msg of messages) {
+      // Exclusiones duras: monitoreo propio y auto-informes multi-radicado.
+      if (isExcludedMessage(msg, conn.email_address ?? null)) continue;
+
+      // SGDE: único caso donde se lee el cuerpo (en memoria, nunca se guarda)
+      // para extraer el enlace de acceso al expediente electrónico.
+      let sgde: ReturnType<typeof parseSgdeEvidence> | null = null;
+      if (isSgdeMessage(msg)) {
+        try {
+          const full = await graphGet(
+            `https://graph.microsoft.com/v1.0/me/messages/${msg.id}?$select=body`,
+            accessToken,
+          );
+          const bodyContent =
+            ((full as { body?: { content?: string } }).body?.content ?? "") as string;
+          sgde = parseSgdeEvidence(msg, bodyContent);
+        } catch (e) {
+          console.error("[outlook-sync] sgde body", (e as Error).message);
+          sgde = parseSgdeEvidence(msg, msg.bodyPreview ?? "");
+        }
+      }
+
       const matches = matchMessage(msg, portfolio);
 
       // FASE C — radicados válidos que NO están en la cartera del usuario.
@@ -218,9 +239,25 @@ async function syncConnection(admin: Admin, conn: Connection) {
           continue;
         }
         const confirmed = match.confidence >= 0.7;
-        const evidence = confirmed
+        let evidence = confirmed
           ? classifyEvidence(msg, f.direction, match.matched_by)
           : null;
+        let linkStatus = confirmed ? "CONFIRMED" : "SUGGESTED";
+        let evidenceMeta: Record<string, unknown> | null = null;
+
+        if (sgde) {
+          evidence = "SGDE_ACCESO_EXPEDIENTE";
+          evidenceMeta = {
+            access_url: sgde.access_url,
+            allowed_until: sgde.allowed_until,
+            expired: sgde.expired,
+            // Vencido = evidencia histórica: no se ofrece para poblar el WI.
+            offer_access_link: Boolean(sgde.access_url) && !sgde.expired,
+          };
+          // Nunca autopoblar: si sirve, va a la cola de sugeridos para que el
+          // usuario confirme; si venció, queda como evidencia histórica.
+          linkStatus = sgde.expired ? "CONFIRMED" : "SUGGESTED";
+        }
 
         const row = {
           user_id: conn.user_id,
@@ -244,7 +281,9 @@ async function syncConnection(admin: Admin, conn: Connection) {
           matched_value: match.matched_value,
           confidence: match.confidence,
           evidence_type: evidence,
-          link_status: confirmed ? "CONFIRMED" : "SUGGESTED",
+          evidence_meta: evidenceMeta,
+          low_content: isLowContentMessage(msg),
+          link_status: linkStatus,
         };
 
         const { error } = await admin
@@ -254,7 +293,7 @@ async function syncConnection(admin: Admin, conn: Connection) {
           console.error("[outlook-sync] link upsert", error.message);
           continue;
         }
-        if (confirmed) summary.links_created++;
+        if (linkStatus === "CONFIRMED") summary.links_created++;
         else summary.suggestions_created++;
         if (evidence === "MEMORIAL_ENVIADO") summary.memorial_evidence++;
       }
