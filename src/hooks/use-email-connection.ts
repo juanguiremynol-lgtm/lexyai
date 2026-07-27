@@ -82,10 +82,14 @@ export function useEmailConnection() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const sync = useMutation({
-    mutationFn: async (options?: { fullSweep?: boolean; lookbackMonths?: number }) => {
+  const sync = useMutation<
+    { results?: { links_created?: number; messages_scanned?: number }[] },
+    Error,
+    { fullSweep?: boolean; lookbackMonths?: number } | void
+  >({
+    mutationFn: async (options) => {
       const { data, error } = await supabase.functions.invoke("outlook-sync", {
-        body: options?.fullSweep
+        body: options && options.fullSweep
           ? { full_sweep: true, lookback_months: options.lookbackMonths ?? 12 }
           : {},
       });
