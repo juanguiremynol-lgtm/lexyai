@@ -11,6 +11,10 @@
  *   - demo-radicado-lookup/index.ts
  */
 
+// Ambient Deno typing: this module is also pulled into the app's TS program by
+// the Vitest fixtures, where Deno's global types are not loaded.
+declare const Deno: { env: { get(key: string): string | undefined } };
+
 // ═══════════════════════════════════════════
 // RADICADO NORMALIZATION
 // ═══════════════════════════════════════════
