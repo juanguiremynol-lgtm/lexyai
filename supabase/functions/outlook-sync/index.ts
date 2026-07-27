@@ -44,6 +44,7 @@ interface Connection {
   id: string;
   user_id: string;
   organization_id: string | null;
+  email_address: string | null;
   access_token_cipher: string | null;
   access_token_nonce: string | null;
   refresh_token_cipher: string | null;
@@ -326,7 +327,7 @@ Deno.serve(async (req) => {
 
     let connections: Connection[] = [];
     const columns =
-      "id, user_id, organization_id, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
+      "id, user_id, organization_id, email_address, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
 
     if (isCron) {
       const { data } = await admin
