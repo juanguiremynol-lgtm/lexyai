@@ -10,6 +10,7 @@ import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
 import { SubscriptionBanner } from "@/components/subscription/SubscriptionBanner";
 import { DailyWelcomeDialog } from "@/components/daily-welcome";
+import { LexyPendingReviewDialog } from "@/components/lexy/LexyPendingReviewDialog";
 import { AteniaMascot } from "@/components/atenia-mascot/AteniaMascot";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,9 @@ export function TenantLayout() {
       
       {/* Daily Welcome Dialog - shows AI summary on business days */}
       <DailyWelcomeDialog />
+
+      {/* Lexy notice — suggested email links + deadlines needing manual review */}
+      <LexyPendingReviewDialog />
 
       {/* Atenia AI Mascot — always present for authenticated tenant users */}
       <AteniaMascot />
