@@ -17,8 +17,6 @@ const corsHeaders = {
 };
 
 // Legacy Gateway fallback
-const EMAIL_GATEWAY_BASE_URL = Deno.env.get("EMAIL_GATEWAY_BASE_URL");
-const EMAIL_GATEWAY_API_KEY = Deno.env.get("EMAIL_GATEWAY_API_KEY");
 
 // Retry backoff intervals in minutes
 const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
@@ -264,52 +262,28 @@ async function sendViaMailgun(email: EmailOutboxRow, config: Record<string, stri
   }
 }
 
-async function sendViaGateway(email: EmailOutboxRow, fromAddress: string): Promise<SendResult> {
-  if (!EMAIL_GATEWAY_BASE_URL || !EMAIL_GATEWAY_API_KEY) {
-    return { success: false, error: "Email gateway not configured", error_code: "GATEWAY_NOT_CONFIGURED" };
-  }
-
-  try {
-    const response = await fetch(`${EMAIL_GATEWAY_BASE_URL}/send`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${EMAIL_GATEWAY_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        organization_id: email.organization_id,
-        to: email.to_email,
-        subject: email.subject,
-        html: email.html,
-        from: fromAddress,
-        metadata: {
-          email_outbox_id: email.id,
-          work_item_id: email.work_item_id || null,
-          trigger_event: email.trigger_event || null,
-          alert_instance_id: email.alert_instance_id || null,
-          ...(email.metadata || {}),
-        },
-      }),
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      return { success: true, provider_message_id: result.id, statusCode: response.status };
-    } else {
-      const errorResult = await response.json();
-      return { success: false, error: errorResult.error || `Gateway error: ${response.status}`, error_code: errorResult.error_code, statusCode: response.status };
-    }
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Gateway connection failed", error_code: "NETWORK_ERROR" };
-  }
+/**
+ * RETIRED — Cloud Run email gateway (Option B).
+ *
+ * The ratified architecture is Supabase -> Resend directly (decision of the
+ * 12-13 Jul session). The gateway path required EMAIL_GATEWAY_BASE_URL /
+ * EMAIL_GATEWAY_API_KEY secrets that will never exist in this project, so the
+ * branch could only ever fail at runtime. It is removed rather than left as a
+ * dead fallback; the outbox now fails loudly when no provider is configured.
+ */
+function gatewayRetired(): SendResult {
+  return {
+    success: false,
+    error:
+      "No hay proveedor de correo configurado. Configure Resend en la consola de correo " +
+      "(el gateway de Cloud Run fue retirado de la arquitectura).",
+    error_code: "NO_EMAIL_PROVIDER_CONFIGURED",
+  };
 }
 
 // Route email to the correct provider
 async function sendEmail(email: EmailOutboxRow, provider: ResolvedProvider | null): Promise<SendResult> {
-  if (!provider) {
-    // Fallback to legacy gateway
-    return sendViaGateway(email, Deno.env.get("EMAIL_FROM_ADDRESS") || "ATENIA <noreply@placeholder.com>");
-  }
+  if (!provider) return gatewayRetired();
 
   switch (provider.type) {
     case "resend":
@@ -319,8 +293,11 @@ async function sendEmail(email: EmailOutboxRow, provider: ResolvedProvider | nul
     case "mailgun":
       return sendViaMailgun(email, provider.config, provider.fromAddress);
     default:
-      // Unknown provider — try gateway fallback
-      return sendViaGateway(email, provider.fromAddress);
+      return {
+        success: false,
+        error: `Proveedor de correo no soportado: ${provider.type}`,
+        error_code: "UNSUPPORTED_EMAIL_PROVIDER",
+      };
   }
 }
 
