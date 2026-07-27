@@ -60,6 +60,8 @@ export const JUDICIAL_DOMAINS = [
   "cendoj.ramajudicial.gov.co",
   "notificacionesrj.gov.co",
   "ramajudicial.gov.co",
+  "deaj.ramajudicial.gov.co",
+  "cortesuprema.gov.co",
   "ugpp.gov.co",
 ];
 
@@ -74,6 +76,49 @@ export const SGDE_SENDER = "notificacionessgde@cendoj.ramajudicial.gov.co";
 const SGDE_SUBJECT_RE = /se le ha compartido informaci[oó]n de proceso judicial/i;
 const SGDE_LINK_RE =
   /https:\/\/siugj-sgde\.ramajudicial\.gov\.co\/expedientes\/usuario-externo\/[A-Za-z0-9._~+/=-]+/;
+
+/**
+ * Correos de token de validación del SGDE: el radicado sigue sirviendo para
+ * matchear, pero no son evidencia sustantiva (mismo trato que un acuse).
+ */
+const SGDE_TOKEN_SUBJECT_RE = /^token validaci[oó]n de acceso/i;
+
+/**
+ * Enlaces de acceso al expediente electrónico aceptados: SGDE, Alfresco y TYBA
+ * siempre que estén alojados bajo la Rama Judicial.
+ */
+export const EXPEDIENTE_LINK_HOSTS = [
+  "siugj-sgde.ramajudicial.gov.co",
+  "alfresco.ramajudicial.gov.co",
+  "tyba.ramajudicial.gov.co",
+];
+const EXPEDIENTE_URL_RE = /https:\/\/([A-Za-z0-9.-]+)(\/[A-Za-z0-9._~+/=%?&#:-]*)?/g;
+
+function isAllowedExpedienteHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h.endsWith(".ramajudicial.gov.co") || EXPEDIENTE_LINK_HOSTS.includes(h)
+  );
+}
+
+/**
+ * Extrae el primer enlace de acceso al expediente (SGDE / Alfresco / TYBA)
+ * presente en un mensaje de un remitente judicial. `text` se lee en memoria y
+ * nunca se persiste.
+ */
+export function extractExpedienteAccessUrl(
+  msg: GraphMessage,
+  text: string,
+): string | null {
+  if (!isJudicialSender(senderAddress(msg))) return null;
+  const clean = `${msg.subject ?? ""}\n${text ?? ""}`.replace(/<[^>]+>/g, " ");
+  EXPEDIENTE_URL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EXPEDIENTE_URL_RE.exec(clean)) !== null) {
+    if (isAllowedExpedienteHost(m[1])) return m[0].replace(/[).,;"']+$/, "");
+  }
+  return null;
+}
 
 export function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -223,6 +268,7 @@ export function isExcludedMessage(msg: GraphMessage, selfAddress?: string | null
     Boolean(self) && from === self && recipients.length > 0 &&
     recipients.every((r) => r === self);
   if (selfSent) {
+    if (/^informe semanal/i.test((msg.subject ?? "").trim())) return true;
     const radicados = extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`);
     if (radicados.length > 3) return true;
   }
@@ -250,18 +296,34 @@ export function isSgdeMessage(msg: GraphMessage): boolean {
 export function parseSgdeEvidence(msg: GraphMessage, body: string): SgdeEvidence {
   const text = `${msg.subject ?? ""}\n${body ?? ""}`.replace(/<[^>]+>/g, " ");
   const radicado = extractRadicados(text)[0] ?? null;
-  const access_url = text.match(SGDE_LINK_RE)?.[0] ?? null;
+  const access_url =
+    text.match(SGDE_LINK_RE)?.[0] ?? extractExpedienteAccessUrl(msg, body);
 
-  let allowed_until: string | null = null;
-  const until = text.match(/consulta permitida hasta\s*:?\s*([^\n<]{0,40})/i)?.[1]?.trim();
-  if (until && !/indefinido/i.test(until)) {
-    const d = until.match(/(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
-    if (d) {
-      allowed_until = `${d[3]}-${d[2]}-${d[1]}T${d[4] ?? "23"}:${d[5] ?? "59"}:00-05:00`;
-    }
-  }
-  const expired = allowed_until !== null && Date.parse(allowed_until) < Date.now();
+  const allowed_until = parseAllowedUntil(text);
+  const expired =
+    allowed_until !== null && Date.parse(expiryInstant(allowed_until)) < Date.now();
   return { radicado, access_url, allowed_until, expired };
+}
+
+/**
+ * "Consulta permitida hasta" admite tres formas reales:
+ *   - "Indefinido"            → null (sin vencimiento)
+ *   - "31-07-2026"            → fecha ISO "2026-07-31"
+ *   - "31-07-2026 11:32"      → datetime ISO con offset de Bogotá
+ */
+export function parseAllowedUntil(text: string): string | null {
+  const until = text.match(/consulta permitida hasta\s*:?\s*([^\n<]{0,40})/i)?.[1]?.trim();
+  if (!until || /indefinido/i.test(until)) return null;
+  const d = until.match(/(\d{2})-(\d{2})-(\d{4})(?:[\sT]+(\d{1,2}):(\d{2}))?/);
+  if (!d) return null;
+  const date = `${d[3]}-${d[2]}-${d[1]}`;
+  if (d[4] === undefined) return date;
+  return `${date}T${d[4].padStart(2, "0")}:${d[5]}:00-05:00`;
+}
+
+/** Instante efectivo de vencimiento: las fechas sin hora vencen al final del día. */
+function expiryInstant(allowedUntil: string): string {
+  return /T/.test(allowedUntil) ? allowedUntil : `${allowedUntil}T23:59:59-05:00`;
 }
 
 /** Split a party field ("A, B y C") into normalized, meaningful names. */
@@ -397,6 +459,12 @@ const LOW_CONTENT_RE =
  */
 export function isLowContentMessage(msg: GraphMessage): boolean {
   const from = senderAddress(msg);
+  if (
+    from.startsWith("notificacionessgde@") &&
+    SGDE_TOKEN_SUBJECT_RE.test((msg.subject ?? "").trim())
+  ) {
+    return true;
+  }
   return LOW_CONTENT_RE.test(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""} ${from}`);
 }
 
