@@ -13,6 +13,8 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { extractHearingFromAct, isSuspensionAct } from "../_shared/hearingExtractor.ts";
+import { resolveCaller, isPrivileged, unauthorized } from "../_shared/callerIdentity.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,13 +29,15 @@ Deno.serve(async (req) => {
 
   const started = Date.now();
   const url = new URL(req.url);
-  const authHeader = req.headers.get("authorization") ?? "";
-  const expected = Deno.env.get("PLATFORM_ADMIN_TOKEN") ?? "";
-  if (!expected || !authHeader.includes(expected)) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+
+  // Standard hardened guard: platform admin (or service role) by JWT, or the
+  // dedicated cron secret for scheduled invocation. Replaces the retired
+  // static PLATFORM_ADMIN_TOKEN, which was extra secret surface for no gain.
+  if (!isCronCaller(req)) {
+    const caller = await resolveCaller(req);
+    if (!isPrivileged(caller)) {
+      return unauthorized(corsHeaders, "Solo administradores de plataforma o el cron pueden ejecutar el backfill");
+    }
   }
 
   const supabase = createClient(
