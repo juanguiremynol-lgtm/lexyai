@@ -180,9 +180,9 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
     const now = new Date();
     
     return dbDeadlines
-      .filter(d => d.status === "PENDING")
+      .filter(d => d.status === "PENDING" && !!d.deadline_date)
       .map(d => {
-        const deadlineDate = new Date(d.deadline_date);
+        const deadlineDate = new Date(d.deadline_date as string);
         const daysRemaining = differenceInDays(deadlineDate, now);
         
         return {

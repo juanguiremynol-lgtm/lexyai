@@ -14708,7 +14708,7 @@ export type Database = {
           business_days_count: number | null
           calculation_meta: Json | null
           created_at: string
-          deadline_date: string
+          deadline_date: string | null
           deadline_type: string
           description: string | null
           id: string
@@ -14727,7 +14727,7 @@ export type Database = {
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
-          deadline_date: string
+          deadline_date?: string | null
           deadline_type: string
           description?: string | null
           id?: string
@@ -14746,7 +14746,7 @@ export type Database = {
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
-          deadline_date?: string
+          deadline_date?: string | null
           deadline_type?: string
           description?: string | null
           id?: string

@@ -16,17 +16,25 @@ export interface WorkItemDeadline {
   description: string | null;
   trigger_event: string;
   trigger_date: string; // ISO date
-  deadline_date: string; // ISO date
+  deadline_date: string | null; // ISO date — NULL when the anchor is unknown
   business_days_count: number | null;
-  status: "PENDING" | "MET" | "MISSED" | "CANCELLED" | "REQUIERE_REVISION_MANUAL";
+  status:
+    | "PENDING"
+    | "PENDING_REVIEW"
+    | "HISTORICAL_BACKFILL"
+    | "MET"
+    | "MISSED"
+    | "CANCELLED"
+    | "REQUIERE_REVISION_MANUAL";
   calculation_meta: {
-    anchor_source?: "FECHA_FIJACION" | "DESPACHO";
+    anchor_source?: string;
     anchor_date?: string;
     providencia_type?: string;
     day_type?: "BUSINESS" | "CALENDAR" | "HOURS";
     days_amount?: number;
     norma?: string;
     requires_manual_review?: boolean;
+    manual_review_reason?: string;
     workflow_type?: string;
   } | null;
   created_at: string;

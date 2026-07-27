@@ -19,12 +19,21 @@ interface Props {
 
 function deadlineTone(d: WorkItemDeadline): "critical" | "warning" | "info" | "review" {
   if (d.status === "REQUIERE_REVISION_MANUAL") return "review";
+  if (!d.deadline_date) return "review";
   if (d.status !== "PENDING") return "info";
   const bd = businessDaysUntil(d.deadline_date);
   if (bd <= 0) return "critical";
   if (bd <= 3) return "warning";
   return "info";
 }
+
+const ANCHOR_LABELS: Record<string, string> = {
+  DESPACHO: "despacho",
+  DESPACHO_HIBRIDO: "despacho (fecha inicial)",
+  CPNU_FIJACION_ESTADO: "fijación estado (CPNU)",
+  PUBLICACION_FIJACION: "fijación estado (publicación)",
+  SIN_ANCLA_DISPONIBLE: "sin fijación confirmada",
+};
 
 export function WorkItemDeadlinesBanner({ workItemId }: Props) {
   const { data: deadlines = [], isLoading } = useWorkItemDeadlines(workItemId);
@@ -60,26 +69,29 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
       <AlertDescription>
         <ul className="mt-2 space-y-2">
           {active.slice(0, 5).map((d) => {
-            const bd = businessDaysUntil(d.deadline_date);
-            const isReview = d.status === "REQUIERE_REVISION_MANUAL";
+            const isReview = d.status === "REQUIERE_REVISION_MANUAL" || !d.deadline_date;
+            const bd = d.deadline_date ? businessDaysUntil(d.deadline_date) : 0;
             return (
               <li key={d.id} className="flex items-start justify-between gap-3 text-sm">
                 <div className="min-w-0">
                   <div className="font-medium truncate">{d.label}</div>
                   <div className="text-xs text-muted-foreground">
                     {d.calculation_meta?.norma ?? "—"} · ancla:{" "}
-                    {d.calculation_meta?.anchor_source === "DESPACHO" ? "despacho" : "fijación estado"}
+                    {ANCHOR_LABELS[d.calculation_meta?.anchor_source ?? ""] ?? "fijación estado"}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   {isReview ? (
-                    <Badge variant="outline" className="border-blue-500 text-blue-700 dark:text-blue-300">
-                      Requiere revisión manual
+                    <Badge
+                      variant="outline"
+                      className="max-w-[16rem] whitespace-normal border-amber-500 text-amber-700 dark:text-amber-300"
+                    >
+                      ⚠️ Requiere verificación manual — sin fecha de fijación confirmada
                     </Badge>
                   ) : (
                     <>
                       <div className="font-semibold">
-                        {format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}
+                        {format(new Date(d.deadline_date! + "T00:00:00"), "d MMM yyyy", { locale: es })}
                       </div>
                       <div
                         className={cn(
