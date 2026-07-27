@@ -24,6 +24,8 @@ import {
   isSgdeMessage,
   parseSgdeEvidence,
   extractRadicados,
+  isRepartoMessage,
+  extractRepartoRadicados,
   type GraphMessage,
   type PortfolioItem,
 } from "../_shared/emailMatcher.ts";
@@ -37,6 +39,8 @@ const json = (body: unknown, status = 200) =>
 const SELECT =
   "id,subject,bodyPreview,from,sender,toRecipients,receivedDateTime,sentDateTime,hasAttachments,webLink,conversationId,internetMessageId";
 const PAGE_LIMIT = 10; // delta pages per folder per run
+const FULL_SWEEP_PAGE_LIMIT = 40; // páginas por carpeta en barrido completo
+const DEFAULT_LOOKBACK_MONTHS = 12;
 
 type Admin = ReturnType<typeof createClient>;
 
@@ -144,9 +148,44 @@ async function readFolder(
   return { messages, deltaLink };
 }
 
-async function syncConnection(admin: Admin, conn: Connection) {
+/**
+ * Barrido completo: ignora el delta token y relee la carpeta hasta N meses
+ * atrás. Necesario porque el delta solo entrega novedades desde la conexión,
+ * dejando fuera el correo histórico (tutelas y repartos previos).
+ */
+async function readFolderFullSweep(
+  accessToken: string,
+  folder: "inbox" | "sentitems",
+  sinceIso: string,
+): Promise<{ messages: GraphMessage[]; deltaLink: null }> {
+  let url =
+    `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages` +
+    `?$select=${SELECT}&$top=50&$orderby=receivedDateTime desc` +
+    `&$filter=receivedDateTime ge ${sinceIso}`;
+  const messages: GraphMessage[] = [];
+
+  for (let page = 0; page < FULL_SWEEP_PAGE_LIMIT; page++) {
+    const res = await graphGet(url, accessToken);
+    for (const m of (res.value as GraphMessage[]) ?? []) {
+      if (m?.id) messages.push(m);
+    }
+    const next = res["@odata.nextLink"] as string | undefined;
+    if (!next) break;
+    url = next;
+  }
+  return { messages, deltaLink: null };
+}
+
+interface SyncOptions {
+  fullSweep: boolean;
+  lookbackMonths: number;
+}
+
+async function syncConnection(admin: Admin, conn: Connection, options: SyncOptions) {
   const summary = {
     connection_id: conn.id,
+    full_sweep: options.fullSweep,
+    lookback_months: options.fullSweep ? options.lookbackMonths : null,
     messages_scanned: 0,
     links_created: 0,
     suggestions_created: 0,
@@ -167,8 +206,14 @@ async function syncConnection(admin: Admin, conn: Connection) {
     { folder: "sentitems", direction: "sent", token: conn.delta_token_sent, column: "delta_token_sent" },
   ];
 
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - options.lookbackMonths);
+  const sinceIso = since.toISOString().replace(/\.\d{3}Z$/, "Z");
+
   for (const f of folders) {
-    const { messages, deltaLink } = await readFolder(accessToken, f.folder, f.token);
+    const { messages, deltaLink } = options.fullSweep
+      ? await readFolderFullSweep(accessToken, f.folder, sinceIso)
+      : await readFolder(accessToken, f.folder, f.token);
     summary.messages_scanned += messages.length;
 
     for (const msg of messages) {
@@ -195,9 +240,30 @@ async function syncConnection(admin: Admin, conn: Connection) {
 
       const matches = matchMessage(msg, portfolio);
 
+      // Repartos: el radicado del día cero vive en el cuerpo estructurado.
+      // Se lee en memoria y jamás se persiste.
+      let repartoRadicados: string[] = [];
+      if (isRepartoMessage(msg)) {
+        try {
+          const full = await graphGet(
+            `https://graph.microsoft.com/v1.0/me/messages/${msg.id}?$select=body`,
+            accessToken,
+          );
+          const bodyContent =
+            ((full as { body?: { content?: string } }).body?.content ?? "") as string;
+          repartoRadicados = extractRepartoRadicados(bodyContent);
+        } catch (e) {
+          console.error("[outlook-sync] reparto body", (e as Error).message);
+        }
+      }
+
       // FASE C — radicados válidos que NO están en la cartera del usuario.
       // Nunca se crea el expediente en silencio: solo se encola para triage.
-      for (const rad of extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)) {
+      const detectedCandidates = new Set([
+        ...extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`),
+        ...repartoRadicados,
+      ]);
+      for (const rad of detectedCandidates) {
         if (knownRadicados.has(rad)) continue;
         const seenAt = msg.receivedDateTime ?? msg.sentDateTime ?? new Date().toISOString();
         const { data: existing } = await admin
