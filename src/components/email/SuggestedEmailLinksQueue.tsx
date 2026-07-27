@@ -53,11 +53,10 @@ export function SuggestedEmailLinksQueue({
           <p className="text-sm text-muted-foreground">No hay vínculos pendientes de confirmar.</p>
         ) : (
           rows.map((link) => {
-            const sgdeUrl =
-              link.evidence_type === "SGDE_ACCESO_EXPEDIENTE" &&
-              link.evidence_meta?.offer_access_link
-                ? link.evidence_meta?.access_url ?? null
-                : null;
+            // SGDE, Alfresco y TYBA comparten el mismo flujo de confirmación.
+            const sgdeUrl = link.evidence_meta?.offer_access_link
+              ? link.evidence_meta?.access_url ?? null
+              : null;
             return (
             <div
               key={link.id}
