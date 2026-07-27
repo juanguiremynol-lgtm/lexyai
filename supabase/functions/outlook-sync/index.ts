@@ -93,7 +93,7 @@ async function reconcileManualLink(
 async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
   let query = admin
     .from("work_items")
-    .select("id, organization_id, radicado, authority_name, authority_email, demandantes, demandados, title, clients(name)")
+    .select("id, organization_id, radicado, authority_name, authority_email, demandantes, demandados, title, workflow_type, clients(name)")
     .limit(5000);
   query = conn.organization_id
     ? query.eq("organization_id", conn.organization_id)
@@ -110,6 +110,7 @@ async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioI
     demandantes: (w.demandantes as string) ?? null,
     demandados: (w.demandados as string) ?? null,
     title: (w.title as string) ?? null,
+    workflow_type: (w.workflow_type as string) ?? null,
     client_name: (w.clients as { name?: string } | null)?.name ?? null,
   }));
 }
