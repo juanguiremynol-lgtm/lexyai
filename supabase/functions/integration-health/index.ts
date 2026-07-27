@@ -7,7 +7,6 @@
  * Features:
  * - Reports boolean presence for each secret (never exposes values)
  * - Optional reachability checks for each provider
- * - Email gateway configuration status
  * - Access control: Only platform admins or org admins
  *
  * Output: { env: {...}, email_gateway: {...}, reachability?: {...}, timestamp }
@@ -32,8 +31,8 @@ const REQUIRED_SECRETS = [
 // Optional provider-specific API keys (take precedence over EXTERNAL_X_API_KEY)
 const OPTIONAL_API_KEYS = ["CPNU_X_API_KEY", "SAMAI_X_API_KEY", "TUTELAS_X_API_KEY", "PUBLICACIONES_X_API_KEY"];
 
-// Email gateway secrets (Cloud Run Option B)
-const EMAIL_GATEWAY_SECRETS = ["EMAIL_GATEWAY_BASE_URL", "EMAIL_GATEWAY_API_KEY", "EMAIL_FROM_ADDRESS"];
+// Cloud Run email gateway (Option B) is RETIRED — Resend is the ratified
+// provider. Kept only as a reported no-op so old dashboards degrade cleanly.
 
 // Safe fingerprint generation (first 8 chars of sha256)
 async function hashFingerprint(value: string): Promise<string> {
@@ -131,6 +130,7 @@ interface HealthResult {
   env: Record<string, boolean>;
   optional_keys: Record<string, boolean>;
   email_gateway: {
+    retired?: boolean;
     configured: boolean;
     base_url_set: boolean;
     api_key_set: boolean;
@@ -761,14 +761,13 @@ Deno.serve(async (req) => {
     }
 
     // Build email gateway health report
-    const emailGatewayBaseUrl = Deno.env.get("EMAIL_GATEWAY_BASE_URL");
-    const emailGatewayApiKey = Deno.env.get("EMAIL_GATEWAY_API_KEY");
+    // Cloud Run email gateway retired — never configured, never required.
     const emailFromAddress = Deno.env.get("EMAIL_FROM_ADDRESS");
-
     const emailGatewayReport = {
-      configured: !!(emailGatewayBaseUrl && emailGatewayApiKey),
-      base_url_set: !!emailGatewayBaseUrl && emailGatewayBaseUrl.length > 0,
-      api_key_set: !!emailGatewayApiKey && emailGatewayApiKey.length > 0,
+      retired: true,
+      configured: false,
+      base_url_set: false,
+      api_key_set: false,
       from_address_set: !!emailFromAddress && emailFromAddress.length > 0,
     };
 
@@ -777,7 +776,7 @@ Deno.serve(async (req) => {
     const samaiTestRadicado = Deno.env.get("SAMAI_TEST_RADICADO");
 
     const result: HealthResult = {
-      ok: Object.values(envReport).every(Boolean) && emailGatewayReport.configured,
+      ok: Object.values(envReport).every(Boolean),
       env: envReport,
       optional_keys: optionalKeysReport,
       email_gateway: emailGatewayReport,
@@ -804,14 +803,6 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Also check email gateway if configured
-      if (emailGatewayBaseUrl) {
-        result.reachability.email_gateway = await checkReachability(
-          "email_gateway",
-          emailGatewayBaseUrl,
-          emailGatewayApiKey,
-        );
-      }
     }
 
     // NEW: Combined provider health checks (connectivity + auth)
@@ -933,7 +924,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}, cpnu_connectivity=${result.provider_health?.cpnu?.connectivity?.ok}, cpnu_auth=${result.provider_health?.cpnu?.auth?.ok}`,
+      `[integration-health] Result: all_present=${result.ok}, email_gateway=retired, cpnu_connectivity=${result.provider_health?.cpnu?.connectivity?.ok}, cpnu_auth=${result.provider_health?.cpnu?.auth?.ok}`,
     );
 
     return jsonResponse(result);
