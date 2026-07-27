@@ -391,6 +391,17 @@ Deno.serve(async (req) => {
     const cronKey = req.headers.get("x-cron-key");
     const isCron = Boolean(cronKey) && cronKey === Deno.env.get("CRON_SERVICE_KEY");
 
+    let body: Record<string, unknown> = {};
+    try {
+      body = (await req.json()) as Record<string, unknown>;
+    } catch { /* body vacío */ }
+    const fullSweep = body.full_sweep === true;
+    const rawLookback = Number(body.lookback_months);
+    const lookbackMonths =
+      Number.isFinite(rawLookback) && rawLookback >= 1 && rawLookback <= 36
+        ? Math.floor(rawLookback)
+        : DEFAULT_LOOKBACK_MONTHS;
+
     let connections: Connection[] = [];
     const columns =
       "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
@@ -420,7 +431,7 @@ Deno.serve(async (req) => {
     const results: unknown[] = [];
     for (const conn of connections) {
       try {
-        results.push(await syncConnection(admin, conn));
+        results.push(await syncConnection(admin, conn, { fullSweep, lookbackMonths }));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Error inesperado";
         console.error("[outlook-sync] connection failed", conn.id, message);
