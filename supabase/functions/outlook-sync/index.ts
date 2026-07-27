@@ -325,6 +325,18 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           // usuario confirme; si venció, queda como evidencia histórica.
           linkStatus = sgde.expired ? "CONFIRMED" : "SUGGESTED";
         }
+        else {
+          // Alfresco / TYBA / SGDE citados por el juzgado: mismo flujo de
+          // confirmación, sin leer el cuerpo (basta asunto + preview).
+          const expedienteUrl = extractExpedienteAccessUrl(
+            msg,
+            msg.bodyPreview ?? "",
+          );
+          if (expedienteUrl) {
+            evidenceMeta = { access_url: expedienteUrl, offer_access_link: true };
+            linkStatus = "SUGGESTED";
+          }
+        }
 
         const row = {
           user_id: conn.user_id,
