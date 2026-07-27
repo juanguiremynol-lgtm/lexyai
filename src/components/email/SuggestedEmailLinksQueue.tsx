@@ -10,10 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ExternalLink, HelpCircle } from "lucide-react";
+import { Check, X, ExternalLink, HelpCircle, FolderSymlink } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { useSuggestedEmailLinks, useUpdateEmailLinkStatus } from "@/hooks/use-email-connection";
+import {
+  useSuggestedEmailLinks,
+  useUpdateEmailLinkStatus,
+  useApplySgdeAccessLink,
+} from "@/hooks/use-email-connection";
 
 export function SuggestedEmailLinksQueue({
   workItemId,
@@ -24,6 +28,7 @@ export function SuggestedEmailLinksQueue({
 }) {
   const { data, isLoading } = useSuggestedEmailLinks();
   const update = useUpdateEmailLinkStatus();
+  const applySgde = useApplySgdeAccessLink();
 
   if (isLoading) return <Skeleton className="h-24 w-full" />;
 
@@ -47,10 +52,18 @@ export function SuggestedEmailLinksQueue({
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay vínculos pendientes de confirmar.</p>
         ) : (
-          rows.map((link) => (
+          rows.map((link) => {
+            const sgdeUrl =
+              link.evidence_type === "SGDE_ACCESO_EXPEDIENTE" &&
+              link.evidence_meta?.offer_access_link
+                ? link.evidence_meta?.access_url ?? null
+                : null;
+            return (
             <div
               key={link.id}
-              className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3"
+              className={`flex flex-wrap items-start justify-between gap-3 rounded-md border p-3 ${
+                link.low_content ? "py-2 opacity-80" : ""
+              }`}
             >
               <div className="min-w-0">
                 <p className="truncate font-medium">{link.subject ?? "(sin asunto)"}</p>
@@ -61,6 +74,7 @@ export function SuggestedEmailLinksQueue({
                     ? ` · ${format(new Date(link.received_at), "d MMM yyyy", { locale: es })}`
                     : ""}
                 </p>
+                {!link.low_content && (
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <Badge variant="outline">
                     {link.work_items?.radicado ?? link.work_items?.title ?? "Expediente"}
@@ -69,7 +83,9 @@ export function SuggestedEmailLinksQueue({
                     {link.matched_by} · {Math.round(Number(link.confidence) * 100)}%
                   </Badge>
                   {link.matched_value && <Badge variant="outline">{link.matched_value}</Badge>}
+                  {sgdeUrl && <Badge variant="secondary">Expediente electrónico</Badge>}
                 </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {link.web_link && (
@@ -78,6 +94,23 @@ export function SuggestedEmailLinksQueue({
                       <ExternalLink className="mr-1 h-3.5 w-3.5" aria-hidden />
                       Ver
                     </a>
+                  </Button>
+                )}
+                {sgdeUrl && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      applySgde.mutate({
+                        linkId: link.id,
+                        workItemId: link.work_item_id,
+                        accessUrl: sgdeUrl,
+                      })
+                    }
+                    disabled={applySgde.isPending}
+                  >
+                    <FolderSymlink className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    Usar como enlace de acceso al expediente
                   </Button>
                 )}
                 <Button
@@ -99,7 +132,8 @@ export function SuggestedEmailLinksQueue({
                 </Button>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </CardContent>
     </Card>
