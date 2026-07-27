@@ -19,6 +19,10 @@ import { resolveCaller } from "../_shared/callerIdentity.ts";
 import {
   matchMessage,
   classifyEvidence,
+  isExcludedMessage,
+  isLowContentMessage,
+  isSgdeMessage,
+  parseSgdeEvidence,
   extractRadicados,
   type GraphMessage,
   type PortfolioItem,
