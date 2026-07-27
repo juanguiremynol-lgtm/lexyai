@@ -14854,11 +14854,13 @@ export type Database = {
           conversation_id: string | null
           created_at: string
           direction: string
+          evidence_meta: Json | null
           evidence_type: string | null
           has_attachments: boolean
           id: string
           internet_message_id: string | null
           link_status: string
+          low_content: boolean
           matched_by: string
           matched_value: string | null
           message_id: string
@@ -14879,11 +14881,13 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           direction: string
+          evidence_meta?: Json | null
           evidence_type?: string | null
           has_attachments?: boolean
           id?: string
           internet_message_id?: string | null
           link_status?: string
+          low_content?: boolean
           matched_by: string
           matched_value?: string | null
           message_id: string
@@ -14904,11 +14908,13 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           direction?: string
+          evidence_meta?: Json | null
           evidence_type?: string | null
           has_attachments?: boolean
           id?: string
           internet_message_id?: string | null
           link_status?: string
+          low_content?: boolean
           matched_by?: string
           matched_value?: string | null
           message_id?: string
