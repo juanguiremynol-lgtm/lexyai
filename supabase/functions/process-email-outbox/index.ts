@@ -4,7 +4,7 @@
  * Processes pending emails with retry/backoff logic and bounce suppression.
  * PROVIDER-AGNOSTIC: Resolves the active email provider from email_provider_config
  * and platform_settings at runtime. Supports Resend, SendGrid, Mailgun, AWS SES, SMTP.
- * Falls back to Cloud Run Gateway if configured.
+ * Resend is the ratified provider; the Cloud Run email gateway path was retired.
  * 
  * Designed to be called on a schedule (external scheduler) or manually.
  */
@@ -15,8 +15,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-// Legacy Gateway fallback
 
 // Retry backoff intervals in minutes
 const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
@@ -395,9 +393,9 @@ Deno.serve(async (req) => {
 
     // Resolve active provider from DB config (set via Email Provider Wizard)
     const provider = await resolveActiveProvider(supabase);
-    result.provider_used = provider?.type || (EMAIL_GATEWAY_BASE_URL ? "gateway_fallback" : "none");
+    result.provider_used = provider?.type || "none";
 
-    if (!provider && !EMAIL_GATEWAY_BASE_URL) {
+    if (!provider) {
       console.warn("[process-email-outbox] No email provider configured. Run the Email Provider Wizard to activate one.");
     }
 
