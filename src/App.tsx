@@ -52,7 +52,6 @@ import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
 import DocumentSearch from "./pages/DocumentSearch";
-import EmailInboxPage from "./pages/EmailInboxPage";
 import EmailPage from "./pages/EmailPage";
 import DetectedProcessesPage from "./pages/DetectedProcessesPage";
 import NewProcess from "./pages/NewProcess";
@@ -257,7 +256,6 @@ const App = () => (
             <Route path="documents" element={<ErrorBoundary><DocumentSearch /></ErrorBoundary>} />
             <Route path="peticiones/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="admin-processes/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
-            <Route path="email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
             <Route path="email" element={<ErrorBoundary><EmailPage /></ErrorBoundary>} />
             <Route path="procesos-detectados" element={<ErrorBoundary><DetectedProcessesPage /></ErrorBoundary>} />
             <Route path="cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
