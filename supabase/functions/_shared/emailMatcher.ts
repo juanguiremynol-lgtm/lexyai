@@ -417,20 +417,30 @@ function partyNames(raw: string | null | undefined): string[] {
  * enough to be CONFIRMED. CLIENTE/PARTE sit at 0.65 (SUGGESTED) because a
  * single message to a client with N matters fans out to all N.
  */
-export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): MatchResult[] {
+export interface MatchOptions {
+  selfAddress?: string | null;
+  owner?: OwnerIdentity;
+}
+
+export function matchMessage(
+  msg: GraphMessage,
+  portfolio: PortfolioItem[],
+  options: MatchOptions = {},
+): MatchResult[] {
   const subject = norm(msg.subject);
   const preview = norm(msg.bodyPreview).slice(0, 500);
   const haystack = `${subject} ${preview}`;
   const address = senderAddress(msg);
   const radicados = new Set(extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`));
   const results = new Map<string, MatchResult>();
+  const owner = options.owner ?? buildOwnerIdentity();
 
   const push = (r: MatchResult) => {
     const prev = results.get(r.work_item_id);
     if (!prev || r.confidence > prev.confidence) results.set(r.work_item_id, r);
   };
 
-  if (isExcludedMessage(msg)) return [];
+  if (isExcludedMessage(msg, options.selfAddress ?? null)) return [];
 
   for (const wi of portfolio) {
     const wiRad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
@@ -473,7 +483,7 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
       ...partyNames(wi.client_name),
     ];
     const hit = names.find((n) => haystack.includes(n));
-    if (hit) {
+    if (hit && !isOwnerIdentityValue(hit, owner)) {
       push({
         work_item_id: wi.id,
         organization_id: wi.organization_id,
@@ -511,7 +521,18 @@ export function matchMessage(msg: GraphMessage, portfolio: PortfolioItem[]): Mat
     }
   }
 
-  return [...results.values()];
+  const all = [...results.values()];
+  const nameBased = all.filter((r) => r.matched_by === "CLIENTE" || r.matched_by === "PARTE");
+  if (nameBased.length > NAME_FANOUT_CAP) {
+    // Ambigüedad: N sugerencias hermanas son ruido. Los matches por radicado
+    // (precisos) quedan exentos del cap.
+    console.warn(
+      `[emailMatcher] name fan-out cap: ${nameBased.length} WIs por nombre, mensaje descartado`,
+      msg.internetMessageId ?? msg.id,
+    );
+    return all.filter((r) => r.matched_by !== "CLIENTE" && r.matched_by !== "PARTE");
+  }
+  return all;
 }
 
 /**
