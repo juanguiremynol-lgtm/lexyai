@@ -332,6 +332,7 @@ function isJudicialSender(address: string): boolean {
 export function isExcludedMessage(msg: GraphMessage, selfAddress?: string | null): boolean {
   const from = senderAddress(msg);
   if (EXCLUDED_SENDERS.includes(from)) return true;
+  if (isBounceMessage(msg)) return true;
 
   const self = (selfAddress ?? "").toLowerCase();
   const recipients = (msg.toRecipients ?? [])
