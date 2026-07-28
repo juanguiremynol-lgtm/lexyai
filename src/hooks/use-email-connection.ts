@@ -237,12 +237,60 @@ export function useUpdateEmailLinkStatus() {
 export interface SuggestedEmailLink extends WorkItemEmailLink {
   work_item_id: string;
   matched_value: string | null;
+  internet_message_id: string | null;
+  message_id: string | null;
   work_items: {
     id: string;
     radicado: string | null;
     title: string | null;
     expediente_url?: string | null;
   } | null;
+}
+
+/**
+ * Decisión por MENSAJE, no por fila. Un mismo correo puede haber generado N
+ * filas hermanas (una por expediente candidato); descartarlo debe eliminarlas
+ * todas, y confirmar una debe descartar el resto.
+ */
+export function useResolveEmailMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      internetMessageId,
+      messageId,
+      confirmLinkId,
+    }: {
+      internetMessageId: string | null;
+      messageId: string | null;
+      confirmLinkId?: string;
+    }) => {
+      let siblings = supabase
+        .from("work_item_email_links")
+        .update({ link_status: "DISMISSED" })
+        .eq("link_status", "SUGGESTED");
+      siblings = internetMessageId
+        ? siblings.eq("internet_message_id", internetMessageId)
+        : siblings.eq("message_id", messageId ?? "");
+      if (confirmLinkId) siblings = siblings.neq("id", confirmLinkId);
+      const { error } = await siblings;
+      if (error) throw error;
+
+      if (confirmLinkId) {
+        const { error: confirmError } = await supabase
+          .from("work_item_email_links")
+          .update({ link_status: "CONFIRMED" })
+          .eq("id", confirmLinkId);
+        if (confirmError) throw confirmError;
+      }
+      return Boolean(confirmLinkId);
+    },
+    onSuccess: (confirmed) => {
+      toast.success(confirmed ? "Vínculo confirmado" : "Correo descartado");
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 }
 
 /**
@@ -290,7 +338,7 @@ export function useSuggestedEmailLinks() {
       const { data, error } = await supabase
         .from("work_item_email_links")
         .select(
-          "id, work_item_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, low_content, evidence_meta, link_status, work_items(id, radicado, title, expediente_url)",
+          "id, work_item_id, internet_message_id, message_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, low_content, evidence_meta, link_status, work_items(id, radicado, title, expediente_url)",
         )
         .eq("link_status", "SUGGESTED")
         .order("received_at", { ascending: false })

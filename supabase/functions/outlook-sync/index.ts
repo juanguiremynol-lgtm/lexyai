@@ -27,6 +27,8 @@ import {
   extractRadicados,
   isRepartoMessage,
   extractRepartoRadicados,
+  buildOwnerIdentity,
+  type OwnerIdentity,
   type GraphMessage,
   type PortfolioItem,
 } from "../_shared/emailMatcher.ts";
@@ -98,6 +100,28 @@ async function reconcileManualLink(
     })
     .eq("id", (candidate as { id: string }).id);
   return true;
+}
+
+/**
+ * Identidad del titular del buzón: su nombre y el de su firma nunca deben
+ * generar un match CLIENTE/PARTE (firma todos los correos salientes).
+ */
+async function loadOwnerIdentity(admin: Admin, conn: Connection): Promise<OwnerIdentity> {
+  const names: string[] = [];
+  const emails: string[] = [conn.ms_account_email ?? ""].filter(Boolean);
+  const { data } = await admin
+    .from("profiles")
+    .select("full_name, firm_name, custom_firm_name, email")
+    .eq("id", conn.user_id)
+    .maybeSingle();
+  if (data) {
+    const p = data as Record<string, string | null>;
+    for (const key of ["full_name", "firm_name", "custom_firm_name"]) {
+      if (p[key]) names.push(p[key] as string);
+    }
+    if (p.email) emails.push(p.email);
+  }
+  return buildOwnerIdentity({ names, emails });
 }
 
 async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
@@ -196,6 +220,7 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
 
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
+  const owner = await loadOwnerIdentity(admin, conn);
   const knownRadicados = new Set(
     portfolio
       .map((p) => (p.radicado ?? "").replace(/\D/g, ""))
@@ -239,7 +264,10 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
         }
       }
 
-      const matches = matchMessage(msg, portfolio);
+      const matches = matchMessage(msg, portfolio, {
+        selfAddress: conn.ms_account_email ?? null,
+        owner,
+      });
 
       // Repartos: el radicado del día cero vive en el cuerpo estructurado.
       // Se lee en memoria y jamás se persiste.
