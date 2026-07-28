@@ -71,6 +71,79 @@ export const JUDICIAL_DOMAINS = [
  */
 export const EXCLUDED_SENDERS = ["monitoreo@andromeda.legal"];
 
+/**
+ * Identidad del titular del buzón. El abogado firma TODOS sus correos: su
+ * propio nombre (o el de la firma) no aporta ninguna señal y produce fan-out
+ * masivo por el matcher de nombres. Se deriva del perfil/conexión; estos
+ * valores son solo el respaldo cuando el perfil viene vacío.
+ */
+export interface OwnerIdentity {
+  names: string[];
+  emails: string[];
+}
+
+export const FALLBACK_OWNER_IDENTITY: OwnerIdentity = {
+  names: ["JUAN GUILLERMO RESTREPO MAYA", "LEX ET LITTERAE", "LEX ET LIT"],
+  emails: ["gr@lexetlit.com"],
+};
+
+/** Une la identidad derivada del perfil con el respaldo codificado. */
+export function buildOwnerIdentity(partial?: Partial<OwnerIdentity>): OwnerIdentity {
+  return {
+    names: [
+      ...FALLBACK_OWNER_IDENTITY.names,
+      ...(partial?.names ?? []).filter(Boolean),
+    ].map((n) => norm(n)).filter((n) => n.length >= 4),
+    emails: [
+      ...FALLBACK_OWNER_IDENTITY.emails,
+      ...(partial?.emails ?? []).filter(Boolean),
+    ].map((e) => e.toLowerCase().trim()).filter(Boolean),
+  };
+}
+
+const OWNER_STOPWORDS = new Set(["DE", "DEL", "LA", "LAS", "LOS", "Y", "S", "SAS", "SA"]);
+
+/**
+ * ¿El valor matcheado corresponde al titular del buzón? Se compara por tokens
+ * para cubrir normalizaciones y subcadenas ("RESTREPO MAYA",
+ * "JUAN RESTREPO MAYA", "LEX ET LIT").
+ */
+export function isOwnerIdentityValue(value: string, owner: OwnerIdentity): boolean {
+  const v = norm(value);
+  if (!v) return false;
+  if (owner.emails.some((e) => v.includes(e.toUpperCase()))) return true;
+  const tokens = v.split(" ").filter((t) => t.length >= 2 && !OWNER_STOPWORDS.has(t));
+  if (tokens.length === 0) return false;
+  return owner.names.some((name) => {
+    const ownerTokens = new Set(
+      name.split(" ").filter((t) => t.length >= 2 && !OWNER_STOPWORDS.has(t)),
+    );
+    if (ownerTokens.size === 0) return false;
+    return tokens.every((t) => ownerTokens.has(t));
+  });
+}
+
+/**
+ * Cap de ambigüedad: si un mensaje matchea más de N expedientes SOLO por
+ * nombre, no se emite ninguna sugerencia (N sugerencias hermanas son ruido).
+ */
+export const NAME_FANOUT_CAP = 3;
+
+/** Notificaciones de no entrega (NDR): nunca son evidencia de nada. */
+const NDR_SENDER_RE =
+  /^(postmaster@|mailer-daemon@|microsoftexchange329e71ec88ae4615bbc36ab6ce41109e@)/i;
+const NDR_SUBJECT_RE =
+  /^(no se puede entregar|undeliverable|delivery (status notification|has failed))/i;
+
+export function isBounceMessage(msg: GraphMessage): boolean {
+  const from = senderAddress(msg);
+  if (NDR_SENDER_RE.test(from)) return true;
+  const subject = (msg.subject ?? "").trim();
+  if (NDR_SUBJECT_RE.test(subject)) return true;
+  const imid = (msg.internetMessageId ?? "").toLowerCase();
+  return imid.endsWith("@microsoft.com>") || imid.endsWith("@microsoft.com");
+}
+
 /** Remitente del Sistema de Gestión Documental Electrónica de la Rama. */
 export const SGDE_SENDER = "notificacionessgde@cendoj.ramajudicial.gov.co";
 const SGDE_SUBJECT_RE = /se le ha compartido informaci[oó]n de proceso judicial/i;
