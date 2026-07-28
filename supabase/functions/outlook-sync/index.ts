@@ -102,10 +102,6 @@ async function reconcileManualLink(
   return true;
 }
 
-async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
-  return await loadPortfolioRows(admin, conn);
-}
-
 /**
  * Identidad del titular del buzón: su nombre y el de su firma nunca deben
  * generar un match CLIENTE/PARTE (firma todos los correos salientes).
@@ -128,7 +124,7 @@ async function loadOwnerIdentity(admin: Admin, conn: Connection): Promise<OwnerI
   return buildOwnerIdentity({ names, emails });
 }
 
-async function loadPortfolioRows(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
+async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
   let query = admin
     .from("work_items")
     .select("id, organization_id, radicado, authority_name, authority_email, demandantes, demandados, title, workflow_type, clients(name)")
