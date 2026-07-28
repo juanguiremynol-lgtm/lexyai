@@ -237,6 +237,8 @@ export function useUpdateEmailLinkStatus() {
 export interface SuggestedEmailLink extends WorkItemEmailLink {
   work_item_id: string;
   matched_value: string | null;
+  internet_message_id: string | null;
+  message_id: string | null;
   work_items: {
     id: string;
     radicado: string | null;
