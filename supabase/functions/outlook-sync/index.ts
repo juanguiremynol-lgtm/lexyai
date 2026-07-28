@@ -220,6 +220,7 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
 
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
+  const owner = await loadOwnerIdentity(admin, conn);
   const knownRadicados = new Set(
     portfolio
       .map((p) => (p.radicado ?? "").replace(/\D/g, ""))
@@ -263,7 +264,10 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
         }
       }
 
-      const matches = matchMessage(msg, portfolio);
+      const matches = matchMessage(msg, portfolio, {
+        selfAddress: conn.ms_account_email ?? null,
+        owner,
+      });
 
       // Repartos: el radicado del día cero vive en el cuerpo estructurado.
       // Se lee en memoria y jamás se persiste.
