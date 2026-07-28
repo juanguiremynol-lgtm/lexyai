@@ -246,6 +246,52 @@ export interface SuggestedEmailLink extends WorkItemEmailLink {
 }
 
 /**
+ * Decisión por MENSAJE, no por fila. Un mismo correo puede haber generado N
+ * filas hermanas (una por expediente candidato); descartarlo debe eliminarlas
+ * todas, y confirmar una debe descartar el resto.
+ */
+export function useResolveEmailMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      internetMessageId,
+      messageId,
+      confirmLinkId,
+    }: {
+      internetMessageId: string | null;
+      messageId: string | null;
+      confirmLinkId?: string;
+    }) => {
+      let siblings = supabase
+        .from("work_item_email_links")
+        .update({ link_status: "DISMISSED" })
+        .eq("link_status", "SUGGESTED");
+      siblings = internetMessageId
+        ? siblings.eq("internet_message_id", internetMessageId)
+        : siblings.eq("message_id", messageId ?? "");
+      if (confirmLinkId) siblings = siblings.neq("id", confirmLinkId);
+      const { error } = await siblings;
+      if (error) throw error;
+
+      if (confirmLinkId) {
+        const { error: confirmError } = await supabase
+          .from("work_item_email_links")
+          .update({ link_status: "CONFIRMED" })
+          .eq("id", confirmLinkId);
+        if (confirmError) throw confirmError;
+      }
+      return Boolean(confirmLinkId);
+    },
+    onSuccess: (confirmed) => {
+      toast.success(confirmed ? "Vínculo confirmado" : "Correo descartado");
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/**
  * Confirma un correo SGDE y usa su enlace como acceso al expediente
  * electrónico del work item. Nunca se autopobla: siempre pasa por aquí.
  */
