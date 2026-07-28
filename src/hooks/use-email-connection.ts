@@ -338,7 +338,7 @@ export function useSuggestedEmailLinks() {
       const { data, error } = await supabase
         .from("work_item_email_links")
         .select(
-          "id, work_item_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, low_content, evidence_meta, link_status, work_items(id, radicado, title, expediente_url)",
+          "id, work_item_id, internet_message_id, message_id, subject, sender, direction, received_at, has_attachments, web_link, matched_by, matched_value, confidence, evidence_type, low_content, evidence_meta, link_status, work_items(id, radicado, title, expediente_url)",
         )
         .eq("link_status", "SUGGESTED")
         .order("received_at", { ascending: false })
