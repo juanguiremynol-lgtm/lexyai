@@ -88,11 +88,31 @@ export function SuggestedEmailLinksQueue({
                 </p>
                 {!link.low_content && (
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {group.map((row) => (
-                    <Badge key={row.id} variant="outline">
-                      {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
-                    </Badge>
-                  ))}
+                  {group.map((row) =>
+                    group.length > 1 ? (
+                      <Button
+                        key={row.id}
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        disabled={resolve.isPending}
+                        onClick={() =>
+                          resolve.mutate({
+                            internetMessageId: link.internet_message_id,
+                            messageId: link.message_id,
+                            confirmLinkId: row.id,
+                          })
+                        }
+                      >
+                        <Check className="mr-1 h-3 w-3" aria-hidden />
+                        {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
+                      </Button>
+                    ) : (
+                      <Badge key={row.id} variant="outline">
+                        {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
+                      </Badge>
+                    ),
+                  )}
                   <Badge variant="outline">
                     {link.matched_by} · {Math.round(Number(link.confidence) * 100)}%
                   </Badge>
@@ -127,20 +147,22 @@ export function SuggestedEmailLinksQueue({
                     Usar como enlace de acceso al expediente
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    resolve.mutate({
-                      internetMessageId: link.internet_message_id,
-                      messageId: link.message_id,
-                      confirmLinkId: link.id,
-                    })
-                  }
-                  disabled={resolve.isPending}
-                >
-                  <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
-                  Confirmar
-                </Button>
+                {group.length === 1 && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      resolve.mutate({
+                        internetMessageId: link.internet_message_id,
+                        messageId: link.message_id,
+                        confirmLinkId: link.id,
+                      })
+                    }
+                    disabled={resolve.isPending}
+                  >
+                    <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    Confirmar
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
