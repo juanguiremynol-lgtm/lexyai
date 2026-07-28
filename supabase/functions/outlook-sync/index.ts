@@ -27,6 +27,8 @@ import {
   extractRadicados,
   isRepartoMessage,
   extractRepartoRadicados,
+  buildOwnerIdentity,
+  type OwnerIdentity,
   type GraphMessage,
   type PortfolioItem,
 } from "../_shared/emailMatcher.ts";
@@ -101,6 +103,32 @@ async function reconcileManualLink(
 }
 
 async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
+  return await loadPortfolioRows(admin, conn);
+}
+
+/**
+ * Identidad del titular del buzón: su nombre y el de su firma nunca deben
+ * generar un match CLIENTE/PARTE (firma todos los correos salientes).
+ */
+async function loadOwnerIdentity(admin: Admin, conn: Connection): Promise<OwnerIdentity> {
+  const names: string[] = [];
+  const emails: string[] = [conn.ms_account_email ?? ""].filter(Boolean);
+  const { data } = await admin
+    .from("profiles")
+    .select("full_name, firm_name, custom_firm_name, email")
+    .eq("id", conn.user_id)
+    .maybeSingle();
+  if (data) {
+    const p = data as Record<string, string | null>;
+    for (const key of ["full_name", "firm_name", "custom_firm_name"]) {
+      if (p[key]) names.push(p[key] as string);
+    }
+    if (p.email) emails.push(p.email);
+  }
+  return buildOwnerIdentity({ names, emails });
+}
+
+async function loadPortfolioRows(admin: Admin, conn: Connection): Promise<PortfolioItem[]> {
   let query = admin
     .from("work_items")
     .select("id, organization_id, radicado, authority_name, authority_email, demandantes, demandados, title, workflow_type, clients(name)")
