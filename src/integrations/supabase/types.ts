@@ -14846,6 +14846,67 @@ export type Database = {
           },
         ]
       }
+      work_item_email_link_effects: {
+        Row: {
+          created_at: string
+          effect_type: string
+          id: string
+          label: string | null
+          link_id: string
+          organization_id: string | null
+          target_id: string | null
+          target_table: string | null
+          user_id: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          effect_type: string
+          id?: string
+          label?: string | null
+          link_id: string
+          organization_id?: string | null
+          target_id?: string | null
+          target_table?: string | null
+          user_id: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          effect_type?: string
+          id?: string
+          label?: string | null
+          link_id?: string
+          organization_id?: string | null
+          target_id?: string | null
+          target_table?: string | null
+          user_id?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_email_link_effects_link_id_fkey"
+            columns: ["link_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_email_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_email_links: {
         Row: {
           attachment_names: string[] | null
@@ -14855,6 +14916,7 @@ export type Database = {
           created_at: string
           direction: string
           evidence_meta: Json | null
+          evidence_subtype: string | null
           evidence_type: string | null
           has_attachments: boolean
           id: string
@@ -14863,6 +14925,7 @@ export type Database = {
           low_content: boolean
           matched_by: string
           matched_value: string | null
+          memorial_subtype: string | null
           message_id: string
           organization_id: string | null
           received_at: string | null
@@ -14882,6 +14945,7 @@ export type Database = {
           created_at?: string
           direction: string
           evidence_meta?: Json | null
+          evidence_subtype?: string | null
           evidence_type?: string | null
           has_attachments?: boolean
           id?: string
@@ -14890,6 +14954,7 @@ export type Database = {
           low_content?: boolean
           matched_by: string
           matched_value?: string | null
+          memorial_subtype?: string | null
           message_id: string
           organization_id?: string | null
           received_at?: string | null
@@ -14909,6 +14974,7 @@ export type Database = {
           created_at?: string
           direction?: string
           evidence_meta?: Json | null
+          evidence_subtype?: string | null
           evidence_type?: string | null
           has_attachments?: boolean
           id?: string
@@ -14917,6 +14983,7 @@ export type Database = {
           low_content?: boolean
           matched_by?: string
           matched_value?: string | null
+          memorial_subtype?: string | null
           message_id?: string
           organization_id?: string | null
           received_at?: string | null
@@ -16872,6 +16939,17 @@ export type Database = {
         }
         Relationships: []
       }
+      work_item_timeline_v: {
+        Row: {
+          kind: string | null
+          meta: Json | null
+          occurred_at: string | null
+          ref_id: string | null
+          title: string | null
+          work_item_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       acquire_daily_sync_lock: {
@@ -16887,6 +16965,10 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      apply_email_evidence_effects: {
+        Args: { p_link_id: string }
+        Returns: Json
+      }
       apply_email_evidence_to_deadlines: {
         Args: { p_link_id: string }
         Returns: number
@@ -17030,6 +17112,14 @@ export type Database = {
         Args: { p_deadline_date: string }
         Returns: string
       }
+      classify_email_evidence_subtype: {
+        Args: { p_sender: string; p_subject: string }
+        Returns: string
+      }
+      classify_memorial_subtype: {
+        Args: { p_subject: string }
+        Returns: string
+      }
       classify_providencia: {
         Args: { p_text: string; p_workflow?: string }
         Returns: {
@@ -17076,6 +17166,16 @@ export type Database = {
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
+      }
+      email_subtype_confidence: { Args: { p_subtype: string }; Returns: number }
+      email_subtype_deadline_type: {
+        Args: { p_subtype: string; p_workflow: string }
+        Returns: string
+      }
+      email_subtype_label: { Args: { p_subtype: string }; Returns: string }
+      email_subtype_stage: {
+        Args: { p_subject: string; p_subtype: string; p_workflow: string }
+        Returns: string
       }
       find_auto_rechazo_act: {
         Args: { p_from: string; p_work_item_id: string }
@@ -17269,6 +17369,7 @@ export type Database = {
         Args: { p_legal_date: string }
         Returns: boolean
       }
+      is_judicial_email_sender: { Args: { p_sender: string }; Returns: boolean }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }

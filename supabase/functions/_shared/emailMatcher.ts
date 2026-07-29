@@ -585,3 +585,98 @@ export function classifyEvidence(
   if (REQUERIMIENTO_RE.test(subject)) return "REQUERIMIENTO";
   return direction === "sent" ? "OTRO" : null;
 }
+
+/* ------------------------------------------------------------------
+ * Evidence subtypes (iteration 4 — email semantics engine)
+ *
+ * Mirrors public.classify_email_evidence_subtype / classify_memorial_subtype
+ * in Postgres. Order of the rules is legally significant: "inadmite"
+ * contains "admite", so INADMISION must be evaluated first.
+ * ------------------------------------------------------------------ */
+export type EvidenceSubtype =
+  | "ACUSE_AUTOMATICO"
+  | "ACCESO_EXPEDIENTE"
+  | "ACTA_REPARTO"
+  | "INADMISION"
+  | "AUTO_ADMISORIO"
+  | "FIJACION_ESTADO"
+  | "DESISTIMIENTO"
+  | "FALLO_SENTENCIA"
+  | "TRASLADO"
+  | "REQUERIMIENTO"
+  | "CITACION_AUDIENCIA"
+  | "NOTIFICACION_PERSONAL"
+  | "OTRO_JUDICIAL";
+
+const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
+  ["ACUSE_AUTOMATICO", /^(respuesta autom[aá]tica|automatic reply|acuse)/i],
+  [
+    "ACCESO_EXPEDIENTE",
+    /token validaci[oó]n|se le ha compartido informaci[oó]n de proceso|acceso a informaci[oó]n de proceso/i,
+  ],
+  ["ACTA_REPARTO", /acta *(de +)?reparto/i],
+  ["INADMISION", /inadmit|inadmisi[oó]n|rechaza/i],
+  ["AUTO_ADMISORIO", /admite|auto admisorio|admisi[oó]n/i],
+  ["FIJACION_ESTADO", /estado electr[oó]nico|fija[a-z]* +(el +)?estado/i],
+  ["DESISTIMIENTO", /desistimiento/i],
+  ["FALLO_SENTENCIA", /fallo|sentencia|niega|concede|resuelve|tutela +amparo/i],
+  ["TRASLADO", /traslado/i],
+  ["REQUERIMIENTO", /requerimiento|requiere/i],
+  ["CITACION_AUDIENCIA", /audiencia|diligencia/i],
+  ["NOTIFICACION_PERSONAL", /notifica[a-z]*.*(proceso|curador|personal|demanda)|curador ad litem/i],
+];
+
+/** Subclassify an inbound judicial notification. Requires a judicial sender. */
+export function classifyEvidenceSubtype(
+  subject: string | null | undefined,
+  sender: string | null | undefined,
+): EvidenceSubtype | null {
+  if (!isJudicialSender((sender ?? "").toLowerCase())) return null;
+  const s = subject ?? "";
+  for (const [subtype, re] of EVIDENCE_SUBTYPE_RULES) {
+    if (re.test(s)) return subtype;
+  }
+  return "OTRO_JUDICIAL";
+}
+
+export type MemorialSubtype =
+  | "APELACION"
+  | "IMPUGNACION"
+  | "SUBSANACION"
+  | "CONTESTACION"
+  | "ALEGATOS"
+  | "REPOSICION"
+  | "EXCEPCIONES"
+  | "DESACATO"
+  | "CUMPLIMIENTO"
+  | "PODER"
+  | "RECURSO"
+  | "TUTELA"
+  | "MEMORIAL_GENERAL";
+
+const MEMORIAL_SUBTYPE_RULES: Array<[MemorialSubtype, RegExp]> = [
+  ["APELACION", /apelaci[oó]n|apela/i],
+  ["IMPUGNACION", /impugnaci[oó]n|impugna/i],
+  ["SUBSANACION", /subsan/i],
+  ["CONTESTACION", /contestaci[oó]n|contesta/i],
+  ["ALEGATOS", /alegatos/i],
+  ["REPOSICION", /reposici[oó]n/i],
+  ["EXCEPCIONES", /excepcion/i],
+  ["DESACATO", /desacato/i],
+  ["CUMPLIMIENTO", /cumplimiento/i],
+  ["PODER", /poder|sustituci[oó]n/i],
+  ["RECURSO", /recurso|queja|s[uú]plica|nulidad/i],
+  ["TUTELA", /tutela|acci[oó]n de tutela/i],
+  ["MEMORIAL_GENERAL", /memorial|solicit|radica/i],
+];
+
+/** Subclassify an outbound memorial by subject vocabulary. */
+export function classifyMemorialSubtype(
+  subject: string | null | undefined,
+): MemorialSubtype | null {
+  const s = subject ?? "";
+  for (const [subtype, re] of MEMORIAL_SUBTYPE_RULES) {
+    if (re.test(s)) return subtype;
+  }
+  return null;
+}

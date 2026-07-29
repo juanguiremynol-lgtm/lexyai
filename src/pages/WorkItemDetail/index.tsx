@@ -56,10 +56,12 @@ import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonito
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
 import { RechazoPresuntoBanner } from "@/components/work-items/RechazoPresuntoBanner";
+import { LineaProcesal } from "@/components/work-items/linea-procesal";
 import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 import { DeletedWorkItemView } from "./DeletedWorkItemView";
 
 import type { WorkItem } from "@/types/work-item";
+import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
 export default function WorkItemDetail() {
   const { id, radicado: radicadoParam } = useParams<{ id?: string; radicado?: string }>();
@@ -398,6 +400,12 @@ export default function WorkItemDetail() {
           {(() => { return null; })()}
           <RechazoPresuntoBanner workItemId={workItem.id} />
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
+          <LineaProcesal
+            workItemId={workItem.id}
+            workflowType={workItem.workflow_type as WorkflowType}
+            currentStage={workItem.stage}
+            cgpPhase={(workItem.cgp_phase ?? null) as CGPPhase | null}
+          />
           {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
             {(() => null)()}

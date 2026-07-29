@@ -25,7 +25,12 @@ export interface WorkItemDeadline {
     | "MET"
     | "MISSED"
     | "CANCELLED"
-    | "REQUIERE_REVISION_MANUAL";
+    | "REQUIERE_REVISION_MANUAL"
+    | "SUGGESTED_BY_EMAIL"
+    | "FULFILLED"
+    | "FULFILLED_BY_EMAIL_EVIDENCE"
+    | "INVALID_NO_TERM"
+    | "VENCIDO_SIN_SUBSANAR";
   calculation_meta: {
     anchor_source?: string;
     anchor_date?: string;
@@ -36,6 +41,13 @@ export interface WorkItemDeadline {
     requires_manual_review?: boolean;
     manual_review_reason?: string;
     workflow_type?: string;
+    email_evidence?: {
+      internet_message_id?: string | null;
+      subject?: string | null;
+      web_link?: string | null;
+      link_id?: string | null;
+      evidence_subtype?: string | null;
+    };
   } | null;
   created_at: string;
   updated_at: string;

@@ -21,6 +21,8 @@ import {
   classifyEvidence,
   isExcludedMessage,
   isLowContentMessage,
+  classifyEvidenceSubtype,
+  classifyMemorialSubtype,
   isSgdeMessage,
   parseSgdeEvidence,
   extractExpedienteAccessUrl,
@@ -389,6 +391,15 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           matched_value: match.matched_value,
           confidence: match.confidence,
           evidence_type: evidence,
+          evidence_subtype:
+            f.direction === "received"
+              ? classifyEvidenceSubtype(
+                  msg.subject,
+                  msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
+                )
+              : null,
+          memorial_subtype:
+            f.direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
           evidence_meta: evidenceMeta,
           low_content: isLowContentMessage(msg),
           link_status: linkStatus,

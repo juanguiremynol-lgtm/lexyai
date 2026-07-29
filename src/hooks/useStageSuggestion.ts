@@ -22,7 +22,7 @@ export interface StageSuggestionRecord {
   work_item_id: string;
   organization_id: string;
   owner_id: string;
-  source_type: 'ESTADO' | 'ACTUACION' | 'PUBLICACION' | 'TUTELA_EXPEDIENTE';
+  source_type: 'ESTADO' | 'ACTUACION' | 'PUBLICACION' | 'TUTELA_EXPEDIENTE' | 'EMAIL';
   event_fingerprint: string | null;
   suggested_stage: string | null;
   suggested_cgp_phase: string | null;
