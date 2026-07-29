@@ -21,6 +21,8 @@ import {
   classifyEvidence,
   isExcludedMessage,
   isLowContentMessage,
+  classifyEvidenceSubtype,
+  classifyMemorialSubtype,
   isSgdeMessage,
   parseSgdeEvidence,
   extractExpedienteAccessUrl,
