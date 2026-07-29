@@ -56,6 +56,7 @@ import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonito
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
 import { RechazoPresuntoBanner } from "@/components/work-items/RechazoPresuntoBanner";
+import { LineaProcesal } from "@/components/work-items/linea-procesal";
 import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 import { DeletedWorkItemView } from "./DeletedWorkItemView";
 
