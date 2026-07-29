@@ -401,9 +401,9 @@ export default function WorkItemDetail() {
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
           <LineaProcesal
             workItemId={workItem.id}
-            workflowType={workItem.workflow_type}
+            workflowType={workItem.workflow_type as WorkflowType}
             currentStage={workItem.stage}
-            cgpPhase={workItem.cgp_phase ?? null}
+            cgpPhase={(workItem.cgp_phase ?? null) as CGPPhase | null}
           />
           {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
