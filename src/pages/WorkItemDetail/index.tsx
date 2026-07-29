@@ -61,6 +61,7 @@ import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 import { DeletedWorkItemView } from "./DeletedWorkItemView";
 
 import type { WorkItem } from "@/types/work-item";
+import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
 export default function WorkItemDetail() {
   const { id, radicado: radicadoParam } = useParams<{ id?: string; radicado?: string }>();
