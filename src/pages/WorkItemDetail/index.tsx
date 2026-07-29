@@ -399,6 +399,12 @@ export default function WorkItemDetail() {
           {(() => { return null; })()}
           <RechazoPresuntoBanner workItemId={workItem.id} />
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
+          <LineaProcesal
+            workItemId={workItem.id}
+            workflowType={workItem.workflow_type}
+            currentStage={workItem.stage}
+            cgpPhase={workItem.cgp_phase ?? null}
+          />
           {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
             {(() => null)()}
