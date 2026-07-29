@@ -13,6 +13,7 @@ import { Mail, ArrowUpRight, ArrowDownLeft, Paperclip, ExternalLink, ShieldCheck
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useWorkItemEmailLinks, useEmailConnection } from "@/hooks/use-email-connection";
+import { useEmailLinkEffects } from "@/hooks/use-email-link-effects";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
@@ -33,8 +34,38 @@ const MATCH_LABELS: Record<string, string> = {
   MANUAL: "Manual",
 };
 
+const SUBTYPE_LABELS: Record<string, string> = {
+  AUTO_ADMISORIO: "Auto admisorio",
+  INADMISION: "Inadmisión",
+  TRASLADO: "Traslado",
+  REQUERIMIENTO: "Requerimiento",
+  CITACION_AUDIENCIA: "Citación a audiencia",
+  FALLO_SENTENCIA: "Fallo / sentencia",
+  FIJACION_ESTADO: "Fijación en estado",
+  DESISTIMIENTO: "Desistimiento",
+  ACTA_REPARTO: "Acta de reparto",
+  NOTIFICACION_PERSONAL: "Notificación personal",
+  ACCESO_EXPEDIENTE: "Acceso a expediente",
+  ACUSE_AUTOMATICO: "Acuse automático",
+  OTRO_JUDICIAL: "Comunicación judicial",
+  APELACION: "Apelación",
+  IMPUGNACION: "Impugnación",
+  SUBSANACION: "Subsanación",
+  CONTESTACION: "Contestación",
+  ALEGATOS: "Alegatos",
+  REPOSICION: "Reposición",
+  EXCEPCIONES: "Excepciones",
+  DESACATO: "Desacato",
+  CUMPLIMIENTO: "Cumplimiento",
+  PODER: "Poder",
+  RECURSO: "Recurso",
+  TUTELA: "Tutela",
+  MEMORIAL_GENERAL: "Memorial",
+};
+
 export function EmailLinksTab({ workItemId }: { workItemId: string }) {
   const { data: links, isLoading } = useWorkItemEmailLinks(workItemId);
+  const { data: effectsByLink = {} } = useEmailLinkEffects(workItemId);
   const { connection, sync, canSend } = useEmailConnection();
   const [reply, setReply] = useState<{ to: string[]; subject: string } | null>(null);
 
@@ -148,6 +179,16 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
                       {EVIDENCE_LABELS[link.evidence_type] ?? link.evidence_type}
                     </Badge>
                   )}
+                  {(() => {
+                    const subtype =
+                      (link as { evidence_subtype?: string | null; memorial_subtype?: string | null })
+                        .evidence_subtype ??
+                      (link as { memorial_subtype?: string | null }).memorial_subtype ??
+                      null;
+                    return subtype ? (
+                      <Badge variant="secondary">{SUBTYPE_LABELS[subtype] ?? subtype}</Badge>
+                    ) : null;
+                  })()}
                   <Badge variant="outline">
                     Vinculado por {MATCH_LABELS[link.matched_by] ?? link.matched_by} ·{" "}
                     {Math.round(Number(link.confidence) * 100)}%
@@ -160,6 +201,15 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
                     </Badge>
                   )}
                 </div>
+                {(effectsByLink[link.id] ?? []).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-t pt-2">
+                    {(effectsByLink[link.id] ?? []).map((fx) => (
+                      <Badge key={fx.id} variant="default" className="font-normal">
+                        {fx.label}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
