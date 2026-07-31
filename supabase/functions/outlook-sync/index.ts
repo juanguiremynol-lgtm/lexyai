@@ -313,33 +313,48 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
 
       // FASE C — radicados válidos que NO están en la cartera del usuario.
       // Nunca se crea el expediente en silencio: solo se encola para triage.
-      const detectedCandidates = new Set([
-        ...extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`),
-        ...repartoRadicados,
-      ]);
-      for (const rad of detectedCandidates) {
-        if (knownRadicados.has(rad)) continue;
+      const detectedCandidates = new Map<string, { canonical: string; instance: string | null }>();
+      for (
+        const c of extractRadicadoCandidates(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)
+      ) {
+        if (!detectedCandidates.has(c.base)) {
+          detectedCandidates.set(c.base, { canonical: c.canonical, instance: c.instance });
+        }
+      }
+      for (const rad of repartoRadicados) {
+        const c = decomposeStoredRadicado(rad);
+        if (c && !detectedCandidates.has(c.base)) {
+          detectedCandidates.set(c.base, { canonical: c.canonical, instance: c.instance });
+        }
+      }
+      for (const [base, cand] of detectedCandidates) {
+        if (knownBases.has(base) || knownRadicados.has(cand.canonical)) continue;
         const seenAt = msg.receivedDateTime ?? msg.sentDateTime ?? new Date().toISOString();
-        const { data: existing } = await admin
-          .from("detected_processes")
-          .select("id, occurrences")
-          .eq("user_id", conn.user_id)
-          .eq("radicado", rad)
-          .maybeSingle();
+        const existing = detectionsByBase.get(base);
         if (existing) {
+          const seen = new Set<string>([
+            ...((existing.meta?.instances_seen as string[] | undefined) ?? []),
+            ...(cand.instance ? [cand.instance] : []),
+          ]);
           await admin
             .from("detected_processes")
             .update({
               last_seen_at: seenAt,
-              occurrences: ((existing as { occurrences?: number }).occurrences ?? 1) + 1,
+              occurrences: existing.occurrences + 1,
+              meta: {
+                ...(existing.meta ?? {}),
+                instances_seen: [...seen].sort(),
+              },
             })
-            .eq("id", (existing as { id: string }).id);
+            .eq("id", existing.id);
+          existing.occurrences += 1;
+          existing.meta = { ...(existing.meta ?? {}), instances_seen: [...seen].sort() };
           continue;
         }
-        const { error: detErr } = await admin.from("detected_processes").insert({
+        const { data: inserted, error: detErr } = await admin.from("detected_processes").insert({
           user_id: conn.user_id,
           organization_id: conn.organization_id,
-          radicado: rad,
+          radicado: cand.canonical,
           message_id: msg.id,
           internet_message_id: msg.internetMessageId ?? null,
           subject: msg.subject ?? null,
@@ -349,9 +364,19 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           first_seen_at: seenAt,
           last_seen_at: seenAt,
           status: "PENDING",
-        });
+          meta: cand.instance ? { instances_seen: [cand.instance] } : {},
+        }).select("id").maybeSingle();
         if (detErr) console.error("[outlook-sync] detected_processes", detErr.message);
-        else summary.detected_processes++;
+        else {
+          summary.detected_processes++;
+          if (inserted) {
+            detectionsByBase.set(base, {
+              id: (inserted as { id: string }).id,
+              occurrences: 1,
+              meta: cand.instance ? { instances_seen: [cand.instance] } : {},
+            });
+          }
+        }
       }
 
       for (const match of matches) {
