@@ -230,6 +230,27 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
       .map((p) => (p.radicado ?? "").replace(/\D/g, ""))
       .filter((r) => r.length === 23),
   );
+  // Identidad del proceso = BASE de 21 dígitos (la instancia es metadato).
+  const knownBases = new Set(
+    portfolio
+      .map((p) => decomposeStoredRadicado(p.radicado)?.base)
+      .filter((b): b is string => Boolean(b)),
+  );
+  // Detecciones previas del usuario, indexadas por BASE (evita una segunda
+  // fila para el mismo proceso en otra instancia).
+  const { data: priorDetections } = await admin
+    .from("detected_processes")
+    .select("id, radicado, occurrences, meta")
+    .eq("user_id", conn.user_id);
+  const detectionsByBase = new Map<string, { id: string; occurrences: number; meta: Record<string, unknown> | null }>();
+  for (const d of (priorDetections ?? []) as {
+    id: string; radicado: string; occurrences?: number; meta?: Record<string, unknown> | null;
+  }[]) {
+    const base = decomposeStoredRadicado(d.radicado)?.base;
+    if (base) {
+      detectionsByBase.set(base, { id: d.id, occurrences: d.occurrences ?? 1, meta: d.meta ?? null });
+    }
+  }
 
   const folders: { folder: "inbox" | "sentitems"; direction: "received" | "sent"; token: string | null; column: string }[] = [
     { folder: "inbox", direction: "received", token: conn.delta_token_inbox, column: "delta_token_inbox" },
