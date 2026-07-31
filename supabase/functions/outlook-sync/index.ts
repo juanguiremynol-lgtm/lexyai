@@ -27,6 +27,8 @@ import {
   parseSgdeEvidence,
   extractExpedienteAccessUrl,
   extractRadicados,
+  extractRadicadoCandidates,
+  decomposeStoredRadicado,
   isRepartoMessage,
   extractRepartoRadicados,
   buildOwnerIdentity,
