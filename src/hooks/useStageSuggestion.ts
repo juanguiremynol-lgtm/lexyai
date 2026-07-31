@@ -157,6 +157,7 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
     onSuccess: () => {
       toast.success("Etapa actualizada correctamente");
       queryClient.invalidateQueries({ queryKey: ["stage-suggestion", workItemId] });
+      queryClient.invalidateQueries({ queryKey: ["pending-stage-suggestions", workItemId] });
       queryClient.invalidateQueries({ queryKey: ["work-item", workItemId] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
     },
@@ -179,6 +180,7 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
     onSuccess: () => {
       toast.info("Sugerencia descartada");
       queryClient.invalidateQueries({ queryKey: ["stage-suggestion", workItemId] });
+      queryClient.invalidateQueries({ queryKey: ["pending-stage-suggestions", workItemId] });
     },
     onError: (error: Error) => {
       toast.error("Error al descartar: " + error.message);
