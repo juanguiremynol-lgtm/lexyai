@@ -55,6 +55,9 @@ export interface MatchResult {
   matched_by: MatchedBy;
   matched_value: string;
   confidence: number;
+  /** Instancia observada en el correo ('00','01',...) o null si vino el base
+   *  de 21 dígitos desnudo. Metadato, nunca identidad. */
+  instance_observed?: string | null;
 }
 
 export const JUDICIAL_DOMAINS = [
