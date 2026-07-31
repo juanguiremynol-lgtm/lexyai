@@ -55,6 +55,9 @@ export interface MatchResult {
   matched_by: MatchedBy;
   matched_value: string;
   confidence: number;
+  /** Instancia observada en el correo ('00','01',...) o null si vino el base
+   *  de 21 dígitos desnudo. Metadato, nunca identidad. */
+  instance_observed?: string | null;
 }
 
 export const JUDICIAL_DOMAINS = [
@@ -245,6 +248,99 @@ export function isStructurallyValidRadicado(digits: string): boolean {
   if (!Number.isFinite(year) || year < 1990 || year > maxYear) return false;
   if (consec === "00000") return false;
   return true;
+}
+
+/**
+ * MODELO CANÓNICO (iteración 4.2): radicado = BASE(21) + INSTANCIA(2).
+ * La identidad del proceso es la BASE; los 2 últimos dígitos son la instancia
+ * (00 primera, 01 segunda, ...) y son metadato, no identidad.
+ */
+export interface RadicadoCandidate {
+  /** 21 dígitos — identidad del proceso. */
+  base: string;
+  /** '00'..'09' cuando el correo la trae; null si vino la base desnuda. */
+  instance: string | null;
+  /** Cadena tal como apareció en el texto (para matched_value). */
+  observed: string;
+  /** 23 dígitos: base + (instancia ?? '00'). */
+  canonical: string;
+}
+
+/** Validación estructural de la BASE de 21 dígitos. */
+export function isStructurallyValidBase(base: string): boolean {
+  if (!/^\d{21}$/.test(base)) return false;
+  const dane5 = base.slice(0, 5);
+  const dept = base.slice(0, 2);
+  const year = Number(base.slice(12, 16));
+  const consec = base.slice(16, 21);
+  if (dane5 === "00000") return false;
+  if (!DEPT_NAMES[dept]) return false;
+  const maxYear = new Date().getUTCFullYear() + 1;
+  if (!Number.isFinite(year) || year < 1990 || year > maxYear) return false;
+  if (consec === "00000") return false;
+  return true;
+}
+
+/** Instancia plausible: 00–09. Descarta colas de teléfonos ('73'). */
+export function isValidInstance(instance: string): boolean {
+  return /^0\d$/.test(instance);
+}
+
+/** Descompone una corrida de dígitos en base + instancia. */
+export function decomposeRadicado(digits: string): RadicadoCandidate | null {
+  if (/^\d{23}$/.test(digits)) {
+    const base = digits.slice(0, 21);
+    const instance = digits.slice(21, 23);
+    if (!isStructurallyValidBase(base) || !isValidInstance(instance)) return null;
+    return { base, instance, observed: digits, canonical: base + instance };
+  }
+  if (/^\d{21}$/.test(digits)) {
+    if (!isStructurallyValidBase(digits)) return null;
+    return { base: digits, instance: null, observed: digits, canonical: `${digits}00` };
+  }
+  return null;
+}
+
+/** Igual que `decomposeRadicado` pero aceptando un radicado ya almacenado
+ *  (con o sin separadores). */
+export function decomposeStoredRadicado(raw: string | null | undefined): RadicadoCandidate | null {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  return decomposeRadicado(digits);
+}
+
+/**
+ * Extrae candidatos base+instancia de un texto. Orden de reconocimiento por
+ * corrida (anclada por límites de dígito): 23 → base+instancia; 21+sep+2 (que
+ * al normalizar es la misma corrida de 23); 21 desnudos → solo base.
+ * Corridas más largas se recorren con ventana de 23 (ruido concatenado).
+ */
+export function extractRadicadoCandidates(text: string): RadicadoCandidate[] {
+  if (!text) return [];
+  const byCanonical = new Map<string, RadicadoCandidate>();
+  const re = /(?<!\d)\d[\d\s._\-/]{18,45}\d(?!\d)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const raw = m[0];
+    const digits = raw.replace(/\D/g, "");
+    let cands: RadicadoCandidate[] = [];
+    if (digits.length === 23 || digits.length === 21) {
+      const c = decomposeRadicado(digits);
+      if (c) cands = [{ ...c, observed: raw.trim() }];
+    } else if (digits.length > 23) {
+      for (let i = 0; i + 23 <= digits.length; i++) {
+        const c = decomposeRadicado(digits.slice(i, i + 23));
+        if (c) cands.push(c);
+      }
+    }
+    for (const c of cands) {
+      const prev = byCanonical.get(c.canonical);
+      // Preferimos la variante con instancia explícita.
+      if (!prev || (prev.instance === null && c.instance !== null)) {
+        byCanonical.set(c.canonical, c);
+      }
+    }
+  }
+  return [...byCanonical.values()];
 }
 
 /**
@@ -456,6 +552,12 @@ export function matchMessage(
   const radicados22 = new Set(
     extractRadicados22(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`),
   );
+  // Identidad por BASE de 21 dígitos: la instancia (00/01/…) es metadato.
+  const candidatesByBase = new Map<string, RadicadoCandidate>();
+  for (const c of extractRadicadoCandidates(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)) {
+    const prev = candidatesByBase.get(c.base);
+    if (!prev || (prev.instance === null && c.instance !== null)) candidatesByBase.set(c.base, c);
+  }
   const results = new Map<string, MatchResult>();
   const owner = options.owner ?? buildOwnerIdentity();
 
@@ -468,6 +570,7 @@ export function matchMessage(
 
   for (const wi of portfolio) {
     const wiRad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
+    const wiDecomposed = decomposeStoredRadicado(wiRad);
 
     // 1. Radicado — deterministic, confidence 1.0
     if (wiRad.length === 23 && radicados.has(wiRad)) {
@@ -477,8 +580,25 @@ export function matchMessage(
         matched_by: "RADICADO",
         matched_value: wiRad,
         confidence: 1,
+        instance_observed: wiRad.slice(21, 23),
       });
       continue;
+    }
+
+    // 1.a-bis Igualdad por BASE con instancia distinta o desconocida — 1.0.
+    if (wiDecomposed) {
+      const hit = candidatesByBase.get(wiDecomposed.base);
+      if (hit) {
+        push({
+          work_item_id: wi.id,
+          organization_id: wi.organization_id,
+          matched_by: "RADICADO",
+          matched_value: hit.observed,
+          confidence: 1,
+          instance_observed: hit.instance,
+        });
+        continue;
+      }
     }
 
     // 1.b Radicado sin cero inicial (22 dígitos) — solo portafolio, 0.95

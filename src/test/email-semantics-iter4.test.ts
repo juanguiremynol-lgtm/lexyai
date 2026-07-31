@@ -9,6 +9,9 @@ import {
   EVIDENCE_SUBTYPE_RULES,
   extractRadicados,
   extractRadicados22,
+  extractRadicadoCandidates,
+  decomposeRadicado,
+  decomposeStoredRadicado,
 } from "../../supabase/functions/_shared/emailMatcher.ts";
 import { mapStageToCanonicalPhase, getWorkflowPhases } from "@/lib/workflow-phases";
 
@@ -133,5 +136,44 @@ describe("canonical phase mapping (Part E.1)", () => {
         if (phase) expect(keys.has(phase)).toBe(true);
       }
     }
+  });
+});
+
+describe("iteración 4.2 — tolerancia de sufijo de instancia", () => {
+  const BASE = "056074089001202600149";
+  const variants: Array<[string, string | null]> = [
+    ["05607408900120260014900", "00"],
+    ["056074089001202600149-00", "00"],
+    ["056074089001202600149", null],
+    ["05607408900120260014901", "01"],
+    ["056074089001202600149-01", "01"],
+  ];
+
+  it.each(variants)("%s resuelve a la misma base", (input, instance) => {
+    const c = extractRadicadoCandidates(`Notificación ${input} del despacho`);
+    expect(c).toHaveLength(1);
+    expect(c[0].base).toBe(BASE);
+    expect(c[0].instance).toBe(instance);
+  });
+
+  it("empareja un WI almacenado en instancia 00 con un correo en 01", () => {
+    const wi = decomposeStoredRadicado("05607408900120260014900");
+    const hit = extractRadicadoCandidates("RAD 05607408900120260014901")[0];
+    expect(hit.base).toBe(wi!.base);
+    expect(hit.instance).toBe("01");
+  });
+
+  it("descarta colas implausibles de instancia (teléfonos)", () => {
+    expect(decomposeRadicado("05607408900120260014973")).toBeNull();
+  });
+
+  it("no extrae nada si el año no es plausible", () => {
+    expect(extractRadicadoCandidates("056074089001195000149")).toEqual([]);
+  });
+
+  it("sigue tolerando 23 dígitos con espacios", () => {
+    const c = extractRadicadoCandidates("05001 31 05 009 2026 10161 00");
+    expect(c).toHaveLength(1);
+    expect(c[0].instance).toBe("00");
   });
 });
