@@ -552,6 +552,12 @@ export function matchMessage(
   const radicados22 = new Set(
     extractRadicados22(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`),
   );
+  // Identidad por BASE de 21 dígitos: la instancia (00/01/…) es metadato.
+  const candidatesByBase = new Map<string, RadicadoCandidate>();
+  for (const c of extractRadicadoCandidates(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`)) {
+    const prev = candidatesByBase.get(c.base);
+    if (!prev || (prev.instance === null && c.instance !== null)) candidatesByBase.set(c.base, c);
+  }
   const results = new Map<string, MatchResult>();
   const owner = options.owner ?? buildOwnerIdentity();
 
@@ -564,6 +570,7 @@ export function matchMessage(
 
   for (const wi of portfolio) {
     const wiRad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
+    const wiDecomposed = decomposeStoredRadicado(wiRad);
 
     // 1. Radicado — deterministic, confidence 1.0
     if (wiRad.length === 23 && radicados.has(wiRad)) {
@@ -573,8 +580,25 @@ export function matchMessage(
         matched_by: "RADICADO",
         matched_value: wiRad,
         confidence: 1,
+        instance_observed: wiRad.slice(21, 23),
       });
       continue;
+    }
+
+    // 1.a-bis Igualdad por BASE con instancia distinta o desconocida — 1.0.
+    if (wiDecomposed) {
+      const hit = candidatesByBase.get(wiDecomposed.base);
+      if (hit) {
+        push({
+          work_item_id: wi.id,
+          organization_id: wi.organization_id,
+          matched_by: "RADICADO",
+          matched_value: hit.observed,
+          confidence: 1,
+          instance_observed: hit.instance,
+        });
+        continue;
+      }
     }
 
     // 1.b Radicado sin cero inicial (22 dígitos) — solo portafolio, 0.95
