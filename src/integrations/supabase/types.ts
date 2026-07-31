@@ -17430,6 +17430,8 @@ export type Database = {
         Args: { p_work_item_id: string }
         Returns: undefined
       }
+      radicado_base: { Args: { p_radicado: string }; Returns: string }
+      radicado_instance: { Args: { p_radicado: string }; Returns: string }
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
