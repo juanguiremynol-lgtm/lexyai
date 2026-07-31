@@ -36,6 +36,7 @@ export interface GraphMessage {
 export type MatchedBy =
   | "RADICADO"
   | "RADICADO_PARCIAL"
+  | "RADICADO_SIN_CERO"
   | "PARTE"
   | "DESPACHO"
   | "CLIENTE"
@@ -273,6 +274,26 @@ export function extractRadicados(text: string): string[] {
 }
 
 /**
+ * Tolerancia 22 dígitos: algunos despachos omiten el cero inicial del código
+ * DANE ("5001-31-03-018-2026-00313-00"). Solo se usa para emparejar contra el
+ * portafolio del usuario (nunca para descubrir procesos nuevos), por lo que no
+ * debilita la regla de 23 dígitos de `extractRadicados`.
+ */
+export function extractRadicados22(text: string): string[] {
+  if (!text) return [];
+  const found = new Set<string>();
+  const re = /\d[\d\s._\-/]{19,44}\d/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const digits = m[0].replace(/\D/g, "");
+    if (digits.length !== 22) continue;
+    const candidate = `0${digits}`;
+    if (isStructurallyValidRadicado(candidate)) found.add(candidate);
+  }
+  return [...found];
+}
+
+/**
  * Mensajes de reparto / oficina judicial: el radicado del día cero suele venir
  * en el cuerpo estructurado ("NÚMERO RADICACIÓN: ..."), no en el asunto.
  */
@@ -432,6 +453,9 @@ export function matchMessage(
   const haystack = `${subject} ${preview}`;
   const address = senderAddress(msg);
   const radicados = new Set(extractRadicados(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`));
+  const radicados22 = new Set(
+    extractRadicados22(`${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`),
+  );
   const results = new Map<string, MatchResult>();
   const owner = options.owner ?? buildOwnerIdentity();
 
@@ -453,6 +477,18 @@ export function matchMessage(
         matched_by: "RADICADO",
         matched_value: wiRad,
         confidence: 1,
+      });
+      continue;
+    }
+
+    // 1.b Radicado sin cero inicial (22 dígitos) — solo portafolio, 0.95
+    if (wiRad.length === 23 && radicados22.has(wiRad)) {
+      push({
+        work_item_id: wi.id,
+        organization_id: wi.organization_id,
+        matched_by: "RADICADO_SIN_CERO",
+        matched_value: wiRad,
+        confidence: 0.95,
       });
       continue;
     }
@@ -601,6 +637,7 @@ export type EvidenceSubtype =
   | "AUTO_ADMISORIO"
   | "FIJACION_ESTADO"
   | "DESISTIMIENTO"
+  | "RECURSO_CONCEDIDO"
   | "FALLO_SENTENCIA"
   | "TRASLADO"
   | "REQUERIMIENTO"
@@ -608,7 +645,7 @@ export type EvidenceSubtype =
   | "NOTIFICACION_PERSONAL"
   | "OTRO_JUDICIAL";
 
-const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
+export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   ["ACUSE_AUTOMATICO", /^(respuesta autom[aá]tica|automatic reply|acuse)/i],
   [
     "ACCESO_EXPEDIENTE",
@@ -619,7 +656,16 @@ const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   ["AUTO_ADMISORIO", /admite|auto admisorio|admisi[oó]n/i],
   ["FIJACION_ESTADO", /estado electr[oó]nico|fija[a-z]* +(el +)?estado/i],
   ["DESISTIMIENTO", /desistimiento/i],
-  ["FALLO_SENTENCIA", /fallo|sentencia|niega|concede|resuelve|tutela +amparo/i],
+  // Un auto que CONCEDE una impugnación/recurso ya interpuesto no es un fallo:
+  // no abre término al recurrente, solo remite el expediente al superior.
+  [
+    "RECURSO_CONCEDIDO",
+    /concede\s+(la\s+|el\s+|los\s+|las\s+)?(impugnaci[óo]n|apelaci[óo]n|recurso|recursos|alzada)/i,
+  ],
+  [
+    "FALLO_SENTENCIA",
+    /fallo|sentencia|resuelve|tutela +amparo|(niega|concede)\s+(el\s+|la\s+|las\s+|los\s+)?(amparo|tutela|pretensi[óo]n|pretensiones)/i,
+  ],
   ["TRASLADO", /traslado/i],
   ["REQUERIMIENTO", /requerimiento|requiere/i],
   ["CITACION_AUDIENCIA", /audiencia|diligencia/i],
