@@ -418,7 +418,6 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
         }
 
         const row = {
-          ...{},
           user_id: conn.user_id,
           organization_id: match.organization_id ?? conn.organization_id,
           work_item_id: match.work_item_id,
@@ -449,7 +448,9 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
               : null,
           memorial_subtype:
             f.direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
-          evidence_meta: evidenceMeta,
+          evidence_meta: match.instance_observed
+            ? { ...(evidenceMeta ?? {}), instance_observed: match.instance_observed }
+            : evidenceMeta,
           low_content: isLowContentMessage(msg),
           link_status: linkStatus,
         };
