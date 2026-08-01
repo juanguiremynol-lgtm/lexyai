@@ -242,6 +242,16 @@ export function SuggestedEmailLinksQueue({
             const sgdeUrl = link.evidence_meta?.offer_access_link
               ? link.evidence_meta?.access_url ?? null
               : null;
+            const conflicted = group.some(hasRadicadoConflict);
+            const signals = matchSignals(link);
+            const detectedRadicados = messageRadicados(link);
+            const aiVerified = Boolean(
+              (link.evidence_meta as Record<string, unknown> | null)?.ai_verified,
+            );
+            const aiReasons =
+              ((link.evidence_meta as Record<string, unknown> | null)?.ai_reasons as
+                | string[]
+                | undefined) ?? [];
             return (
             <div
               key={cardKey}
@@ -276,6 +286,28 @@ export function SuggestedEmailLinksQueue({
                       "Remitente no judicial"
                     )}
                   </Badge>
+                  {signals.length > 0 && (
+                    <Badge variant="secondary">
+                      Coincide: {signals.map((s) => SIGNAL_LABELS_ES[s] ?? s.toLowerCase()).join(", ")}
+                    </Badge>
+                  )}
+                  {aiVerified && (
+                    <Badge variant="secondary" title={aiReasons.join(" · ")}>
+                      <Sparkles className="mr-1 h-3 w-3" aria-hidden />
+                      Verificado por Andro IA
+                    </Badge>
+                  )}
+                  {detectedRadicados.length > 0 && (
+                    <Badge variant="outline">
+                      Radicado en el correo: {detectedRadicados.slice(0, 2).join(", ")}
+                    </Badge>
+                  )}
+                  {conflicted && (
+                    <Badge variant="destructive">
+                      <AlertTriangle className="mr-1 h-3 w-3" aria-hidden />
+                      Radicado en conflicto
+                    </Badge>
+                  )}
                   {!link.low_content && (
                     <>
                       {group.map((row) =>
@@ -285,7 +317,7 @@ export function SuggestedEmailLinksQueue({
                             size="sm"
                             variant="outline"
                             className="h-6 px-2 text-xs"
-                            disabled={resolve.isPending}
+                            disabled={resolve.isPending || hasRadicadoConflict(row)}
                             onClick={() =>
                               resolve.mutate({
                                 internetMessageId: link.internet_message_id,
@@ -349,7 +381,7 @@ export function SuggestedEmailLinksQueue({
                         confirmLinkId: link.id,
                       })
                     }
-                    disabled={resolve.isPending}
+                    disabled={resolve.isPending || conflicted}
                   >
                     <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
                     Confirmar
