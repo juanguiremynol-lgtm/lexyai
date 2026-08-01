@@ -12,6 +12,7 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useWorkItemTimeline, type TimelineKind } from "@/hooks/use-work-item-timeline";
 import { useEmailLinkEffects } from "@/hooks/use-email-link-effects";
+import { useProviderHearingEffects } from "@/hooks/use-provider-hearing-effects";
 
 const FILTERS: Array<{ key: "TODO" | TimelineKind; label: string }> = [
   { key: "TODO", label: "Todo" },
@@ -34,6 +35,7 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
   const [filter, setFilter] = useState<"TODO" | TimelineKind>("TODO");
   const { data: entries = [], isLoading } = useWorkItemTimeline(workItemId);
   const { data: effectsByLink = {} } = useEmailLinkEffects(workItemId);
+  const { data: hearingsByRef = {} } = useProviderHearingEffects(workItemId);
 
   const visible = useMemo(
     () => (filter === "TODO" ? entries : entries.filter((e) => e.kind === filter)),
@@ -76,7 +78,12 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
               const Icon = KIND_ICON[e.kind];
               const meta = (e.meta ?? {}) as Record<string, unknown>;
               const webLink = typeof meta.web_link === "string" ? meta.web_link : null;
-              const effects = e.kind === "CORREO" ? effectsByLink[e.ref_id] ?? [] : [];
+              const effects =
+                e.kind === "CORREO"
+                  ? effectsByLink[e.ref_id] ?? []
+                  : e.kind === "ACTUACION" || e.kind === "ESTADO"
+                    ? hearingsByRef[e.ref_id] ?? []
+                    : [];
               return (
                 <li key={`${e.kind}-${e.ref_id}`} className="relative">
                   <span className="absolute -left-[1.4rem] top-1 flex h-4 w-4 items-center justify-center rounded-full bg-background">
