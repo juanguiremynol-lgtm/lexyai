@@ -58,7 +58,41 @@ export interface MatchResult {
   /** Instancia observada en el correo ('00','01',...) o null si vino el base
    *  de 21 dígitos desnudo. Metadato, nunca identidad. */
   instance_observed?: string | null;
+  /** ITERACIÓN 6 — conjunto de señales independientes que sustentan el
+   *  vínculo. Un vínculo sin radicado exige >= 2 señales. */
+  match_signals?: MatchSignal[];
+  /** Bases de 21 dígitos detectadas EN EL MENSAJE (asunto/cuerpo). Sirven a la
+   *  UI para mostrar el conflicto de radicado. */
+  message_bases?: string[];
 }
+
+/**
+ * ITERACIÓN 6 — señales de identidad. `DESPACHO` identifica el JUZGADO, no el
+ * proceso: un mismo despacho lleva varios asuntos del usuario, así que por sí
+ * sola JAMÁS confirma ni sugiere.
+ */
+export type MatchSignal =
+  | "RADICADO"
+  | "RADICADO_SIN_CERO"
+  | "RADICADO_PARCIAL"
+  | "PARTE_DEMANDANTE"
+  | "PARTE_DEMANDADA"
+  | "DESPACHO"
+  | "CLIENTE";
+
+/** Etiquetas en español para los chips de la UI. */
+export const MATCH_SIGNAL_LABELS_ES: Record<MatchSignal, string> = {
+  RADICADO: "radicado",
+  RADICADO_SIN_CERO: "radicado sin cero inicial",
+  RADICADO_PARCIAL: "radicado parcial",
+  PARTE_DEMANDANTE: "parte demandante",
+  PARTE_DEMANDADA: "parte demandada",
+  DESPACHO: "despacho",
+  CLIENTE: "cliente",
+};
+
+/** Mínimo de señales independientes para sugerir sin radicado. */
+export const MIN_SIGNALS_WITHOUT_RADICADO = 2;
 
 export const JUDICIAL_DOMAINS = [
   "cendoj.ramajudicial.gov.co",
