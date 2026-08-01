@@ -875,8 +875,16 @@ export function matchMessage(
  * contestación, las excepciones, los alegatos y los traslados son memoriales
  * igual que la subsanación.
  */
+/**
+ * ITERACIÓN 6 — única puerta de auto-confirmación. Solo la identidad por
+ * radicado (completo, sin cero inicial, o parcial inequívoco) confirma sin
+ * intervención humana. DESPACHO, PARTE y CLIENTE siempre quedan SUGGESTED.
+ */
+export function isAutoConfirmable(match: MatchResult): boolean {
+  return match.matched_by.startsWith("RADICADO") && match.confidence >= 0.9;
+}
+
 export const MEMORIAL_RE =
-  // deno-lint-ignore-next-line
   /subsana|subsanaci[oó]n|memorial|recurso de apelaci[oó]n|recurso de reposici[oó]n|recurso de queja|recurso de s[uú]plica|recurso|impugnaci[oó]n|contestaci[oó]n(?: de la demanda)?|excepciones|alegatos de conclusi[oó]n|alegatos|traslado(?: de excepciones)?|solicitud/i;
 const TRASLADO_RE = /traslado/i;
 const REQUERIMIENTO_RE = /requerimiento|requiere|requerido/i;
