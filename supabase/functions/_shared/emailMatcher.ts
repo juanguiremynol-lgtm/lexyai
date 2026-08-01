@@ -694,6 +694,17 @@ export function matchMessage(
 
   if (isExcludedMessage(msg, options.selfAddress ?? null)) return [];
 
+  // ── ITERACIÓN 6, regla dura de conflicto de radicado ──
+  // Si el mensaje NOMBRA un proceso (trae cualquier radicado estructuralmente
+  // válido), entonces solo pueden vincularse los expedientes cuya BASE esté
+  // entre esos radicados. Las señales de nombre/despacho quedan suprimidas por
+  // completo para ese mensaje: un correo que nombra un caso pertenece a ese caso.
+  const messageBases = new Set<string>(candidatesByBase.keys());
+  for (const r of radicados) messageBases.add(r.slice(0, 21));
+  for (const r of radicados22) messageBases.add(r.slice(0, 21));
+  const messageNamesACase = messageBases.size > 0;
+  const messageBasesList = [...messageBases];
+
   for (const wi of portfolio) {
     const wiRad = wi.radicado ? normalizeRadicado(wi.radicado) : "";
     const wiDecomposed = decomposeStoredRadicado(wiRad);
@@ -707,6 +718,8 @@ export function matchMessage(
         matched_value: wiRad,
         confidence: 1,
         instance_observed: wiRad.slice(21, 23),
+        match_signals: ["RADICADO"],
+        message_bases: messageBasesList,
       });
       continue;
     }
@@ -722,6 +735,8 @@ export function matchMessage(
           matched_value: hit.observed,
           confidence: 1,
           instance_observed: hit.instance,
+          match_signals: ["RADICADO"],
+          message_bases: messageBasesList,
         });
         continue;
       }
@@ -735,45 +750,80 @@ export function matchMessage(
         matched_by: "RADICADO_SIN_CERO",
         matched_value: wiRad,
         confidence: 0.95,
+        match_signals: ["RADICADO_SIN_CERO"],
+        message_bases: messageBasesList,
       });
       continue;
     }
 
-    // 2. Judicial sender + despacho match — 0.85
-    if (address && isJudicialSender(address)) {
-      const authEmail = (wi.authority_email ?? "").toLowerCase();
-      const authName = norm(wi.authority_name);
-      const despachoHit =
-        (authEmail && authEmail === address) ||
-        (authName.length >= 10 && haystack.includes(authName));
-      if (despachoHit) {
-        push({
-          work_item_id: wi.id,
-          organization_id: wi.organization_id,
-          matched_by: "DESPACHO",
-          matched_value: authEmail || authName,
-          confidence: 0.85,
-        });
-        continue;
-      }
+    // El mensaje nombra otro proceso: ninguna señal blanda puede vincularlo.
+    if (messageNamesACase) continue;
+
+    // ── Puntuación multi-señal (iteración 6) ──
+    const signals: MatchSignal[] = [];
+    const values: string[] = [];
+
+    // 2. DESPACHO — señal, nunca identidad. Cuenta el remitente y también
+    //    los destinatarios (memorial saliente hacia el juzgado).
+    const authEmail = (wi.authority_email ?? "").toLowerCase();
+    const authName = norm(wi.authority_name);
+    const counterparts = [
+      address,
+      ...(msg.toRecipients ?? []).map((r) => (r.emailAddress?.address ?? "").toLowerCase()),
+    ].filter(Boolean);
+    const despachoHit =
+      (authEmail && counterparts.includes(authEmail)) ||
+      (authName.length >= 10 && haystack.includes(authName));
+    if (despachoHit && counterparts.some((c) => isJudicialSender(c))) {
+      signals.push("DESPACHO");
+      values.push(authEmail || authName);
     }
 
-    // 3. Parties / client in subject or snippet — 0.65 (suggestion only)
-    const names = [
-      ...partyNames(wi.demandantes),
-      ...partyNames(wi.demandados),
-      ...partyNames(wi.client_name),
-    ];
-    const hit = names.find((n) => haystack.includes(n));
-    if (hit && !isOwnerIdentityValue(hit, owner)) {
-      push({
-        work_item_id: wi.id,
-        organization_id: wi.organization_id,
-        matched_by: wi.client_name && norm(wi.client_name).includes(hit) ? "CLIENTE" : "PARTE",
-        matched_value: hit,
-        confidence: 0.65,
-      });
+    // 3. Partes y cliente — fuzzy sobre asunto/preview, con la lista negra de
+    //    la identidad del titular intacta.
+    const demandanteHit = partyNames(wi.demandantes).find(
+      (n) => haystack.includes(n) && !isOwnerIdentityValue(n, owner),
+    );
+    if (demandanteHit) {
+      signals.push("PARTE_DEMANDANTE");
+      values.push(demandanteHit);
     }
+    const demandadoHit = partyNames(wi.demandados).find(
+      (n) => haystack.includes(n) && !isOwnerIdentityValue(n, owner),
+    );
+    if (demandadoHit) {
+      signals.push("PARTE_DEMANDADA");
+      values.push(demandadoHit);
+    }
+    const clienteHit = partyNames(wi.client_name).find(
+      (n) => haystack.includes(n) && !isOwnerIdentityValue(n, owner),
+    );
+    if (clienteHit) {
+      signals.push("CLIENTE");
+      values.push(clienteHit);
+    }
+
+    // Una sola señal NUNCA sugiere (así muere el envenenamiento por despacho).
+    if (signals.length < MIN_SIGNALS_WITHOUT_RADICADO) continue;
+
+    const matchedBy: MatchedBy = signals.includes("PARTE_DEMANDADA") ||
+        signals.includes("PARTE_DEMANDANTE")
+      ? "PARTE"
+      : signals.includes("CLIENTE")
+      ? "CLIENTE"
+      : "DESPACHO";
+
+    push({
+      work_item_id: wi.id,
+      organization_id: wi.organization_id,
+      matched_by: matchedBy,
+      matched_value: values.join(" + ").slice(0, 200),
+      // Techo por debajo del umbral de confirmación: sin radicado, nada se
+      // auto-confirma jamás.
+      confidence: signals.length >= 3 ? 0.8 : 0.7,
+      match_signals: signals,
+      message_bases: messageBasesList,
+    });
   }
 
   // 4. Radicado parcial ("TUTELA 2026-00752") — solo si no hubo radicado
@@ -798,6 +848,8 @@ export function matchMessage(
           matched_by: "RADICADO_PARCIAL",
           matched_value: `${partial.slice(0, 4)}-${partial.slice(4)}`,
           confidence,
+          match_signals: ["RADICADO_PARCIAL"],
+          message_bases: messageBasesList,
         });
       }
     }
