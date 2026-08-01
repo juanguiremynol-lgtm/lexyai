@@ -119,6 +119,10 @@ const STAGE_TO_PHASE: Record<string, string> = {
   CONTESTACION: "CONTESTACION",
   REFORMA_DEMANDA: "CONTESTACION",
   PRORROGA: "CONTESTACION",
+  SANEAMIENTO: "CONTESTACION",
+  CUADERNO: "CONTESTACION",
+  REQUERIMIENTOS_TRASLADOS: "CONTESTACION",
+  TRAMITE: "CONTESTACION",
   // Audiencias
   AUDIENCIA_INICIAL: "AUDIENCIAS",
   AUDIENCIA_PRUEBAS: "AUDIENCIAS",
@@ -132,11 +136,33 @@ const STAGE_TO_PHASE: Record<string, string> = {
   APELACION: "RECURSOS",
   RECURSOS: "RECURSOS",
   IMPUGNACION: "RECURSOS",
+  SEGUNDA_INSTANCIA: "RECURSOS",
   // Cumplimiento
   EJECUCION_CUMPLIMIENTO: "CUMPLIMIENTO",
   CUMPLIMIENTO: "CUMPLIMIENTO",
   ARCHIVADO: "CUMPLIMIENTO",
 };
+
+/**
+ * Stages that exist in production but precede admission: they must resolve to
+ * "Radicación", not to "Admisión" (the /ADMIS/ heuristic would misfire).
+ */
+const PRE_ADMISSION_STAGES: Record<string, string> = {
+  ADMISION_PENDIENTE: "RADICACION",
+  PENDING_ADMISION: "RADICACION",
+};
+
+const PHASE_HEURISTICS: Array<[RegExp, string]> = [
+  [/SANEAMIENTO|CUADERNO/, "CONTESTACION"],
+  [/RADICA/, "RADICACION"],
+  [/ADMIS|ADMIT|SUBSAN|INADMIT/, "ADMISION"],
+  [/NOTIFIC|EMPLAZ|CURADOR/, "NOTIFICACION"],
+  [/CONTEST|TRASLADO|EXCEPCION|REQUERIMIENTO/, "CONTESTACION"],
+  [/AUDIENCIA/, "AUDIENCIAS"],
+  [/SENTENCIA|FALLO|ALEGATOS/, "SENTENCIA"],
+  [/APEL|RECURSO|IMPUGNA|SEGUNDA\s*INSTANCIA|REPOSICI/, "RECURSOS"],
+  [/CUMPLIMIENTO|EJECUCION|EJECUTORIA|ARCHIV|TERMINACION/, "CUMPLIMIENTO"],
+];
 
 export function mapStageToCanonicalPhase(
   workflowType: WorkflowType,
@@ -147,22 +173,36 @@ export function mapStageToCanonicalPhase(
   const keys = new Set(phases.map((p) => p.key));
   const raw = stage.toUpperCase();
 
+  const preAdmission = PRE_ADMISSION_STAGES[raw];
+  if (preAdmission && keys.has(preAdmission)) return preAdmission;
+
   const direct = STAGE_TO_PHASE[raw];
   if (direct && keys.has(direct)) return direct;
   if (keys.has(raw)) return raw;
 
-  // Heuristic fallback by keyword
-  const heuristics: Array<[RegExp, string]> = [
-    [/RADICA/, "RADICACION"],
-    [/ADMIS|ADMIT|SUBSAN/, "ADMISION"],
-    [/NOTIFIC/, "NOTIFICACION"],
-    [/CONTEST|TRASLADO|EXCEPCION/, "CONTESTACION"],
-    [/AUDIENCIA/, "AUDIENCIAS"],
-    [/SENTENCIA|FALLO|ALEGATOS/, "SENTENCIA"],
-    [/APEL|RECURSO|IMPUGNA/, "RECURSOS"],
-    [/CUMPLIMIENTO|EJECUCION|ARCHIV/, "CUMPLIMIENTO"],
-  ];
-  for (const [re, key] of heuristics) {
+  for (const [re, key] of PHASE_HEURISTICS) {
+    if (re.test(raw) && keys.has(key)) return key;
+  }
+  return null;
+}
+
+/**
+ * Infer a display phase from free procedural text (latest actuación / estado)
+ * when the stored stage is null or unmappable. Purely presentational — callers
+ * must label the result as "(inferida)".
+ */
+export function inferPhaseFromText(
+  workflowType: WorkflowType,
+  text: string | null | undefined,
+): string | null {
+  if (!text) return null;
+  const phases = WORKFLOW_PHASES[workflowType] ?? WORKFLOW_PHASES.GENERIC;
+  const keys = new Set(phases.map((p) => p.key));
+  const raw = text
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  for (const [re, key] of PHASE_HEURISTICS) {
     if (re.test(raw) && keys.has(key)) return key;
   }
   return null;
