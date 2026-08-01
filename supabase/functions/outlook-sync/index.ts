@@ -957,6 +957,7 @@ Deno.serve(async (req) => {
       body = (await req.json()) as Record<string, unknown>;
     } catch { /* body vacío */ }
     const fullSweep = body.full_sweep === true;
+    const resumeRunId = typeof body.resume_run_id === "string" ? body.resume_run_id : null;
     const rawLookback = Number(body.lookback_months);
     const lookbackMonths =
       Number.isFinite(rawLookback) && rawLookback >= 1 && rawLookback <= 36
@@ -966,6 +967,57 @@ Deno.serve(async (req) => {
     let connections: Connection[] = [];
     const columns =
       "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
+
+    // ---- Reanudación de un tramo: solo la propia función (service role) puede
+    // encadenar. No hay usuario detrás de esta invocación.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const isSelfCall =
+      authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+    if (resumeRunId) {
+      if (!isSelfCall && !isCron) return json({ error: "No autorizado" }, 403);
+      const { data: run } = await admin
+        .from("sync_full_sweep_runs")
+        .select("id, connection_id, status, checkpoint, lookback_months")
+        .eq("id", resumeRunId)
+        .maybeSingle();
+      if (!run) return json({ error: "Barrido no encontrado" }, 404);
+      if (run.status !== "RUNNING") return json({ ok: true, skipped: run.status });
+      const { data: conn } = await admin
+        .from("user_email_connections")
+        .select(columns)
+        .eq("id", run.connection_id)
+        .maybeSingle();
+      if (!conn) return json({ error: "Conexión no encontrada" }, 404);
+      const sweep: SweepCtx = {
+        runId: run.id as string,
+        checkpoint: run.checkpoint as SweepCheckpoint,
+        invokedAt: Date.now(),
+      };
+      const aiStateResume = newAiGatewayState();
+      try {
+        const result = await syncConnection(
+          admin,
+          conn as unknown as Connection,
+          { fullSweep: true, lookbackMonths: Number(run.lookback_months ?? lookbackMonths) },
+          aiStateResume,
+          sweep,
+        );
+        return json({ ok: true, run_id: sweep.runId, chunk: sweep.checkpoint.chunk_index, result });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Error inesperado";
+        console.error("[outlook-sync] resume failed", resumeRunId, message);
+        await admin
+          .from("sync_full_sweep_runs")
+          .update({
+            status: "FAILED",
+            last_error: message.slice(0, 500),
+            finished_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", resumeRunId);
+        return json({ error: message }, 500);
+      }
+    }
 
     if (isCron) {
       const { data } = await admin
@@ -994,9 +1046,19 @@ Deno.serve(async (req) => {
     const aiState = newAiGatewayState();
     for (const conn of connections) {
       try {
-        results.push(
-          await syncConnection(admin, conn, { fullSweep, lookbackMonths }, aiState),
-        );
+        let sweep: SweepCtx | undefined;
+        if (fullSweep) {
+          const started = await startSweepRun(admin, conn, lookbackMonths);
+          if ("busy" in started) {
+            results.push({ connection_id: conn.id, running_run_id: started.busy });
+            continue;
+          }
+          sweep = started.sweep;
+        }
+        results.push({
+          run_id: sweep?.runId ?? null,
+          ...(await syncConnection(admin, conn, { fullSweep, lookbackMonths }, aiState, sweep)),
+        });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Error inesperado";
         console.error("[outlook-sync] connection failed", conn.id, message);
