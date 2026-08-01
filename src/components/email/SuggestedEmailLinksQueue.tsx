@@ -15,7 +15,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ExternalLink, HelpCircle, FolderSymlink, Scale } from "lucide-react";
+import {
+  Check,
+  X,
+  ExternalLink,
+  HelpCircle,
+  FolderSymlink,
+  Scale,
+  AlertTriangle,
+  Sparkles,
+} from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -33,6 +42,45 @@ const JUDICIAL_DOMAIN_RE =
 function isJudicialSender(sender: string | null | undefined): boolean {
   const domain = (sender ?? "").split("@")[1]?.trim().toLowerCase();
   return Boolean(domain && JUDICIAL_DOMAIN_RE.test(domain));
+}
+
+/** Etiquetas en español de las señales de identidad (iteración 6). */
+const SIGNAL_LABELS_ES: Record<string, string> = {
+  RADICADO: "radicado",
+  RADICADO_SIN_CERO: "radicado sin cero inicial",
+  RADICADO_PARCIAL: "radicado parcial",
+  PARTE_DEMANDANTE: "parte demandante",
+  PARTE_DEMANDADA: "parte demandada",
+  DESPACHO: "despacho",
+  CLIENTE: "cliente",
+};
+
+/** Base de 21 dígitos: identidad del proceso (los 2 finales son la instancia). */
+function radicadoBase(value: string | null | undefined): string {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 21);
+}
+
+function messageRadicados(link: SuggestedEmailLink): string[] {
+  const raw = (link.evidence_meta as Record<string, unknown> | null)?.body_radicados;
+  return Array.isArray(raw) ? raw.map((r) => String(r)).filter(Boolean) : [];
+}
+
+function matchSignals(link: SuggestedEmailLink): string[] {
+  const raw = (link.evidence_meta as Record<string, unknown> | null)?.match_signals;
+  return Array.isArray(raw) ? raw.map((r) => String(r)) : [];
+}
+
+/**
+ * Conflicto de radicado: el correo nombra procesos y NINGUNO coincide con la
+ * base del expediente candidato. Cinturón y tirantes — la regla dura del
+ * matcher debería hacer esto inalcanzable.
+ */
+function hasRadicadoConflict(link: SuggestedEmailLink): boolean {
+  const detected = messageRadicados(link);
+  if (detected.length === 0) return false;
+  const wiBase = radicadoBase(link.work_items?.radicado);
+  if (!wiBase) return false;
+  return !detected.some((d) => radicadoBase(d) === wiBase);
 }
 
 export function SuggestedEmailLinksQueue({
@@ -194,6 +242,16 @@ export function SuggestedEmailLinksQueue({
             const sgdeUrl = link.evidence_meta?.offer_access_link
               ? link.evidence_meta?.access_url ?? null
               : null;
+            const conflicted = group.some(hasRadicadoConflict);
+            const signals = matchSignals(link);
+            const detectedRadicados = messageRadicados(link);
+            const aiVerified = Boolean(
+              (link.evidence_meta as Record<string, unknown> | null)?.ai_verified,
+            );
+            const aiReasons =
+              ((link.evidence_meta as Record<string, unknown> | null)?.ai_reasons as
+                | string[]
+                | undefined) ?? [];
             return (
             <div
               key={cardKey}
@@ -228,6 +286,28 @@ export function SuggestedEmailLinksQueue({
                       "Remitente no judicial"
                     )}
                   </Badge>
+                  {signals.length > 0 && (
+                    <Badge variant="secondary">
+                      Coincide: {signals.map((s) => SIGNAL_LABELS_ES[s] ?? s.toLowerCase()).join(", ")}
+                    </Badge>
+                  )}
+                  {aiVerified && (
+                    <Badge variant="secondary" title={aiReasons.join(" · ")}>
+                      <Sparkles className="mr-1 h-3 w-3" aria-hidden />
+                      Verificado por Andro IA
+                    </Badge>
+                  )}
+                  {detectedRadicados.length > 0 && (
+                    <Badge variant="outline">
+                      Radicado en el correo: {detectedRadicados.slice(0, 2).join(", ")}
+                    </Badge>
+                  )}
+                  {conflicted && (
+                    <Badge variant="destructive">
+                      <AlertTriangle className="mr-1 h-3 w-3" aria-hidden />
+                      Radicado en conflicto
+                    </Badge>
+                  )}
                   {!link.low_content && (
                     <>
                       {group.map((row) =>
@@ -237,7 +317,7 @@ export function SuggestedEmailLinksQueue({
                             size="sm"
                             variant="outline"
                             className="h-6 px-2 text-xs"
-                            disabled={resolve.isPending}
+                            disabled={resolve.isPending || hasRadicadoConflict(row)}
                             onClick={() =>
                               resolve.mutate({
                                 internetMessageId: link.internet_message_id,
@@ -301,7 +381,7 @@ export function SuggestedEmailLinksQueue({
                         confirmLinkId: link.id,
                       })
                     }
-                    disabled={resolve.isPending}
+                    disabled={resolve.isPending || conflicted}
                   >
                     <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
                     Confirmar

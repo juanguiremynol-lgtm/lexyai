@@ -73,11 +73,21 @@ describe("FIX 2 — name fan-out cap", () => {
     expect(matchMessage(m, portfolio, { owner })).toEqual([]);
   });
 
-  it("keeps up to 3 name matches", () => {
+  // ITERACIÓN 6 (Parte B): una sola señal (nombre) ya no sugiere nada; se
+  // exigen ≥2 señales independientes cuando no hay radicado. El tope de 3
+  // sigue aplicando por encima de esa exigencia.
+  it("keeps up to 3 matches when a second independent signal corroborates", () => {
     const portfolio = Array.from({ length: 3 }, (_, i) =>
-      wi(`w${i}`, { client_name: "CONSTRUCTORA ANDINA SAS" }),
+      wi(`w${i}`, {
+        client_name: "CONSTRUCTORA ANDINA SAS",
+        demandados: "INVERSIONES MERIDIANO LTDA",
+      }),
     );
-    const m = msg({ subject: "Constructora Andina SAS - seguimiento", from: from("x@y.com") });
+    const m = msg({
+      subject: "Constructora Andina SAS - seguimiento",
+      bodyPreview: "Asunto relacionado con Inversiones Meridiano Ltda",
+      from: from("x@y.com"),
+    });
     expect(matchMessage(m, portfolio, { owner })).toHaveLength(3);
   });
 

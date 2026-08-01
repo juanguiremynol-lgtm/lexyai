@@ -1248,11 +1248,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (isServiceRole && _scheduled) {
       console.log(`[sync-pub] Scheduled job invocation for work_item_id=${work_item_id}`);
     } else {
-      // Regular user auth check — use getUser with the JWT token
-      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '', {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
-      const { data: { user: authUser }, error: authError } = await anonClient.auth.getUser();
+      // ITERACIÓN 6 (Parte E) — la validación se hacía con un cliente ANON
+      // construido con `SUPABASE_ANON_KEY`, que ya no se inyecta en el runtime:
+      // el cliente quedaba con apiKey vacía y TODA llamada interactiva moría en
+      // 401 (741 errores en 4 días). Se valida el JWT con el cliente de
+      // service-role, que no depende de esa variable.
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
       
       if (authError || !authUser?.id) {
         console.error(`[sync-pub] Auth error:`, authError?.message);

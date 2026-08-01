@@ -5895,6 +5895,33 @@ export type Database = {
           },
         ]
       }
+      email_link_remediation_report: {
+        Row: {
+          created_at: string
+          details: Json
+          id: string
+          metric: string
+          run_label: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          id?: string
+          metric: string
+          run_label: string
+          value?: number
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          id?: string
+          metric?: string
+          run_label?: string
+          value?: number
+        }
+        Relationships: []
+      }
       email_outbox: {
         Row: {
           alert_instance_id: string | null
