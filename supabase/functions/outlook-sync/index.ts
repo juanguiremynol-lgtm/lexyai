@@ -853,11 +853,57 @@ async function syncConnection(
         if (evidence === "MEMORIAL_ENVIADO") summary.memorial_evidence++;
       }
     }
+  };
 
-    if (deltaLink) {
-      await admin.from("user_email_connections").update({ [f.column]: deltaLink }).eq("id", conn.id);
+  let chained = false;
+  if (sweep) {
+    // ---- Barrido encadenado: se avanza por páginas de Graph hasta agotar el
+    // presupuesto de tiempo; entonces se persiste el cursor y se reinvoca.
+    const cp = sweep.checkpoint;
+    for (let fi = cp.folder_index; fi < folders.length && !chained; fi++) {
+      const f = folders[fi];
+      cp.folder_index = fi;
+      let url = cp.next_link ??
+        `https://graph.microsoft.com/v1.0/me/mailFolders/${f.folder}/messages` +
+          `?$select=${SELECT}&$top=50&$orderby=receivedDateTime desc` +
+          `&$filter=receivedDateTime ge ${cp.since_iso}`;
+      for (;;) {
+        const res = await graphGet(url, accessToken);
+        const page = ((res.value as GraphMessage[]) ?? []).filter((m) => m?.id);
+        summary.messages_scanned += page.length;
+        summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + page.length;
+        for (const msg of page) await processMessage(msg, f.direction);
+
+        const next = (res["@odata.nextLink"] as string | undefined) ?? null;
+        cp.next_link = next;
+        if (!next) {
+          cp.folder_index = fi + 1;
+          cp.next_link = null;
+        }
+        await persistSweepProgress(admin, sweep, summary, "RUNNING");
+        if (!next) break;
+        if (Date.now() - sweep.invokedAt > CHUNK_BUDGET_MS) {
+          await chainNextChunk(admin, sweep, summary);
+          chained = true;
+          break;
+        }
+        url = next;
+      }
+    }
+  } else {
+    for (const f of folders) {
+      const { messages, deltaLink } = await readFolder(accessToken, f.folder, f.token);
+      summary.messages_scanned += messages.length;
+      summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
+      for (const msg of messages) await processMessage(msg, f.direction);
+      if (deltaLink) {
+        await admin.from("user_email_connections").update({ [f.column]: deltaLink }).eq("id", conn.id);
+      }
     }
   }
+
+  // Tramo intermedio: la cadena sigue viva, no se cierra nada todavía.
+  if (chained) return summary;
 
   await admin
     .from("user_email_connections")
