@@ -627,7 +627,7 @@ async function syncConnection(
 
       // ---- PARTE B (iter 5): capa semántica IA sobre lo opaco ----
       let ai: AiClassification | null = null;
-      const regexSubtype = f.direction === "received"
+      const regexSubtype = direction === "received"
         ? classifyEvidenceSubtype(
           msg.subject,
           msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
@@ -637,7 +637,7 @@ async function syncConnection(
         msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
       );
       if (
-        f.direction === "received" && senderJudicial && matches.length > 0 &&
+        direction === "received" && senderJudicial && matches.length > 0 &&
         (regexSubtype === null || regexSubtype === "OTRO_JUDICIAL" ||
           // La citación necesita la FECHA de la audiencia, que el regex no da.
           regexSubtype === "CITACION_AUDIENCIA")
@@ -765,12 +765,12 @@ async function syncConnection(
 
       for (const match of matches) {
         if (match.confidence < 0.5) continue;
-        if (f.direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
+        if (direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
           continue;
         }
         const confirmed = match.confidence >= 0.7;
         let evidence = confirmed
-          ? classifyEvidence(msg, f.direction, match.matched_by)
+          ? classifyEvidence(msg, direction, match.matched_by)
           : null;
         let linkStatus = confirmed ? "CONFIRMED" : "SUGGESTED";
         let evidenceMeta: Record<string, unknown> | null = null;
@@ -809,7 +809,7 @@ async function syncConnection(
           message_id: msg.id,
           internet_message_id: msg.internetMessageId ?? null,
           conversation_id: msg.conversationId ?? null,
-          direction: f.direction,
+          direction: direction,
           subject: msg.subject ?? null,
           sender: msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
           recipients: (msg.toRecipients ?? [])
@@ -824,9 +824,9 @@ async function syncConnection(
           confidence: match.confidence,
           evidence_type: evidence,
           // El AI solo desempata lo opaco: nunca pisa una certeza del regex.
-          evidence_subtype: f.direction === "received" ? (ai?.subtype ?? regexSubtype) : null,
+          evidence_subtype: direction === "received" ? (ai?.subtype ?? regexSubtype) : null,
           memorial_subtype:
-            f.direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
+            direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
           evidence_meta: buildEvidenceMeta(evidenceMeta, {
             instanceObserved: match.instance_observed ?? ai?.instancia ?? null,
             matchedInBody: bodyMatched,
