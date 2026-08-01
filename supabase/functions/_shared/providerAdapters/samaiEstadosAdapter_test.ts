@@ -41,13 +41,41 @@ Deno.test("normalizeSamaiEstadosResponse: extracts estados", () => {
     },
   };
 
-  const result = normalizeSamaiEstadosResponse(data, { workItemId: 'wi-test' });
+  const outcomes: Array<{ bucket: 'READY' | 'REJECTED_PARTIES' | 'ERROR'; title: string; reason: string }> = [];
+  const result = normalizeSamaiEstadosResponse(data, { workItemId: 'wi-test' }, [], outcomes);
   assertEquals(result.length, 2);
   assertEquals(result[0].tipo_publicacion, "Auto que admite demanda");
   assertEquals(result[0].fecha_fijacion, "2025-01-15");
   assertEquals(result[0].source_platform, "samai_estados");
   assertEquals(result[0].sources, ["samai_estados"]);
   assertExists(result[0].hash_fingerprint);
+  assertEquals(outcomes.map((outcome) => outcome.bucket), ['READY', 'READY']);
+});
+
+Deno.test("normalizeSamaiEstadosResponse: accounts party rejections", () => {
+  const outcomes: Array<{ bucket: 'READY' | 'REJECTED_PARTIES' | 'ERROR'; title: string; reason: string }> = [];
+  const mismatches: Array<{
+    provider: string;
+    fecha: string | null;
+    actuacion: string;
+    payload_demandante: string | null;
+    payload_demandado: string | null;
+  }> = [];
+  const result = normalizeSamaiEstadosResponse({
+    actuaciones: [{
+      'Fecha Providencia': '2026-08-01',
+      'Actuación': 'Auto admite demanda',
+      Demandante: 'PERSONA DIFERENTE',
+      Demandado: 'OTRA ENTIDAD',
+    }],
+  }, {
+    workItemId: 'wi-test',
+    expectedParties: { demandantes: 'MARIA CORROBORADA', demandados: 'MUNICIPIO CORROBORADO' },
+  }, mismatches, outcomes);
+
+  assertEquals(result.length, 0);
+  assertEquals(mismatches.length, 1);
+  assertEquals(outcomes[0].bucket, 'REJECTED_PARTIES');
 });
 
 Deno.test("normalizeSamaiEstadosResponse: handles empty response", () => {

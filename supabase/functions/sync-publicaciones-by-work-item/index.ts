@@ -283,7 +283,7 @@ async function writePublicacionesAttemptRow(
     const invokedBy = (scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
     const status =
       outcome === 'error' ? 'FAILED'
-      : outcome === 'empty' ? 'PARTIAL'
+      : outcome === 'empty' ? 'SUCCESS'
       : 'SUCCESS';
     await supabase.from('external_sync_runs').insert({
       work_item_id: workItemId,
@@ -2114,6 +2114,15 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-pub] RPC client error: ${JSON.stringify(insertError)}`);
         result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
+        if (isSamai && result.samai_estados_summary) {
+          recordSamaiOutcome(
+            result.samai_estados_summary,
+            normalizedRadicado,
+            'ERROR',
+            pub.titulo || 'Sin título',
+            insertError.message,
+          );
+        }
       } else {
         const counts = rpcResult as {
           inserted_count: number;
