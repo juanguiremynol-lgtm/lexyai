@@ -27,6 +27,7 @@ export interface WorkItemDeadline {
     | "CANCELLED"
     | "REQUIERE_REVISION_MANUAL"
     | "SUGGESTED_BY_EMAIL"
+    | "SUGGESTED_BY_PROVIDER"
     | "FULFILLED"
     | "FULFILLED_BY_EMAIL_EVIDENCE"
     | "INVALID_NO_TERM"
@@ -41,6 +42,13 @@ export interface WorkItemDeadline {
     requires_manual_review?: boolean;
     manual_review_reason?: string;
     workflow_type?: string;
+    /** Provider hearing route (iter 7) */
+    origin?: string;
+    source?: string;
+    source_kind?: string;
+    source_ref_id?: string;
+    hora?: string;
+    fuente_texto?: string;
     email_evidence?: {
       internet_message_id?: string | null;
       subject?: string | null;

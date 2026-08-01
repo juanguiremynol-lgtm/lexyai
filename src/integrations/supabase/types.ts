@@ -17172,6 +17172,19 @@ export type Database = {
           run_id: string
         }[]
       }
+      backfill_provider_hearings: {
+        Args: { p_limit?: number }
+        Returns: {
+          deadline_id: string
+          fuente_texto: string
+          hearing_date: string
+          hora: string
+          radicado: string
+          source: string
+          source_kind: string
+          work_item_id: string
+        }[]
+      }
       backfill_work_item_ids: {
         Args: never
         Returns: {
@@ -17303,6 +17316,14 @@ export type Database = {
       email_subtype_stage: {
         Args: { p_subject: string; p_subtype: string; p_workflow: string }
         Returns: string
+      }
+      extract_provider_hearing: {
+        Args: { p_annotation: string; p_title: string; p_today?: string }
+        Returns: {
+          fuente_texto: string
+          hearing_date: string
+          hora: string
+        }[]
       }
       find_auto_rechazo_act: {
         Args: { p_from: string; p_work_item_id: string }
@@ -17599,6 +17620,18 @@ export type Database = {
           p_work_item_id: string
         }
         Returns: Json
+      }
+      suggest_provider_hearing: {
+        Args: {
+          p_annotation: string
+          p_source: string
+          p_source_kind: string
+          p_source_ref_id: string
+          p_title: string
+          p_trigger_date: string
+          p_work_item_id: string
+        }
+        Returns: string
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
