@@ -395,7 +395,7 @@ Deno.serve(async (req) => {
             terminos_inician: p.fecha_desfijacion || null,
             work_item_title: p.work_items?.title || "",
           })),
-          unresolvedAlerts: (alerts || []).map((a: any) => ({
+          unresolvedAlerts: liveAlerts.map((a: any) => ({
             id: a.id,
             severity: a.severity,
             title: a.title,
