@@ -134,7 +134,7 @@ export function useEmailConnection() {
     mutationFn: async (options) => {
       const isSweep = Boolean(options && options.fullSweep);
       const { data, error } = await supabase.functions.invoke("outlook-sync", {
-        body: isSweep
+        body: isSweep && options
           ? { full_sweep: true, lookback_months: options.lookbackMonths ?? 12 }
           : {},
       });
