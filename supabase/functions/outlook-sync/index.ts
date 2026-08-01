@@ -18,6 +18,7 @@ import {
 import { resolveCaller } from "../_shared/callerIdentity.ts";
 import {
   matchMessage,
+  isAutoConfirmable,
   classifyEvidence,
   isExcludedMessage,
   isLowContentMessage,
