@@ -11,6 +11,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { classifyRecency } from "../_shared/recencyClassifier.ts";
+import {
+  buildGroundingBlock,
+  isWindowEmpty,
+  sanitizeDigest,
+  EMPTY_WINDOW_STATEMENT,
+  FORWARD_DEADLINE_DAYS,
+  type GroundedFact,
+  type GroundedFacts,
+} from "../_shared/lexyGrounding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +69,8 @@ interface UserDailyData {
     radicado: string;
     diagnostic_message_es: string;
   }>;
+  /** Grounding contract — every claim must trace back to one of these rows. */
+  facts: GroundedFacts;
 }
 
 // ─── COT date helpers ────────────────────────────────────────────────
@@ -72,6 +83,10 @@ function todayCOT(): string {
 
 function todayCOTStart(): string {
   return `${todayCOT()}T05:00:00.000Z`; // 00:00 COT = 05:00 UTC
+}
+
+function windowStart(): string {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
 // ─── "All Quiet" message (no Gemini needed) ──────────────────────────
