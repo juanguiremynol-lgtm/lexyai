@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      _alert_hygiene_report: {
+        Row: {
+          affected: number
+          created_at: string
+          id: string
+          kind: string
+        }
+        Insert: {
+          affected: number
+          created_at?: string
+          id?: string
+          kind: string
+        }
+        Update: {
+          affected?: number
+          created_at?: string
+          id?: string
+          kind?: string
+        }
+        Relationships: []
+      }
       _canon_backfill_report: {
         Row: {
           id: number
@@ -320,6 +341,7 @@ export type Database = {
           sent_at: string | null
           severity: string
           snoozed_until: string | null
+          source_event_key: string | null
           status: string
           title: string
         }
@@ -351,6 +373,7 @@ export type Database = {
           sent_at?: string | null
           severity?: string
           snoozed_until?: string | null
+          source_event_key?: string | null
           status?: string
           title: string
         }
@@ -382,6 +405,7 @@ export type Database = {
           sent_at?: string | null
           severity?: string
           snoozed_until?: string | null
+          source_event_key?: string | null
           status?: string
           title?: string
         }
@@ -17091,6 +17115,22 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      alert_family: {
+        Args: { p_alert_type: string; p_title: string }
+        Returns: string
+      }
+      alert_source_event_key: {
+        Args: {
+          p_alert_type: string
+          p_entity_id: string
+          p_fired_at: string
+          p_message: string
+          p_payload: Json
+          p_title: string
+        }
+        Returns: string
+      }
+      alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
       apply_email_evidence_effects: {
         Args: { p_link_id: string }
         Returns: Json

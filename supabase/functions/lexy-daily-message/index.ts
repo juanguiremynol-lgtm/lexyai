@@ -11,6 +11,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { classifyRecency } from "../_shared/recencyClassifier.ts";
+import {
+  buildGroundingBlock,
+  isWindowEmpty,
+  sanitizeDigest,
+  EMPTY_WINDOW_STATEMENT,
+  FORWARD_DEADLINE_DAYS,
+  type GroundedFact,
+  type GroundedFacts,
+} from "../_shared/lexyGrounding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +69,8 @@ interface UserDailyData {
     radicado: string;
     diagnostic_message_es: string;
   }>;
+  /** Grounding contract — every claim must trace back to one of these rows. */
+  facts: GroundedFacts;
 }
 
 // ─── COT date helpers ────────────────────────────────────────────────
@@ -72,6 +83,10 @@ function todayCOT(): string {
 
 function todayCOTStart(): string {
   return `${todayCOT()}T05:00:00.000Z`; // 00:00 COT = 05:00 UTC
+}
+
+function windowStart(): string {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
 // ─── "All Quiet" message (no Gemini needed) ──────────────────────────
@@ -118,14 +133,9 @@ Vas a escribir el mensaje diario para un abogado. El mensaje debe ser:
 Nombre: ${userData.userName}
 Hora actual: ${timeStr}
 
-### Nuevas actuaciones (${userData.newActuaciones.length}):
-${userData.newActuaciones.map((a) => `- Rad: ${a.radicado} | ${a.description} | ${a.act_date} | Asunto: ${a.work_item_title}`).join("\n") || "Ninguna"}
+## FUENTES ÚNICAS AUTORIZADAS (grounding)
 
-### Nuevos estados (${userData.newPublicaciones.length}):
-${userData.newPublicaciones.map((p) => `- Rad: ${p.radicado} | ${p.tipo_publicacion} | Fijación: ${p.fecha_fijacion} | Términos inician: ${p.terminos_inician || "N/A"} | Asunto: ${p.work_item_title}`).join("\n") || "Ninguno"}
-
-### Alertas pendientes (${userData.unresolvedAlerts.length}):
-${userData.unresolvedAlerts.map((a) => `- [${a.severity}] ${a.title}: ${a.message}`).join("\n") || "Ninguna"}
+${buildGroundingBlock(userData.facts)}
 
 ### Fallos de sincronización:
 ${userData.syncFailures.map((f) => `- Rad: ${f.radicado} — ${f.diagnostic_message_es}`).join("\n") || "Todos los asuntos se sincronizaron correctamente"}
@@ -142,7 +152,12 @@ Genera un JSON con esta estructura exacta (sin markdown, solo JSON puro):
   "closing": "Frase de cierre breve"
 }
 
-Si no hay novedades, genera un mensaje breve y positivo.
+REGLAS DE VERACIDAD (obligatorias):
+- SOLO puedes mencionar hechos listados arriba. Nada más existe.
+- Está PROHIBIDO mencionar procesos, autos, embargos o providencias que no aparezcan en la lista.
+- Si la sección de las últimas 24 horas dice NINGUNO, debes decir exactamente: "${EMPTY_WINDOW_STATEMENT}" y limitarte a los términos próximos (${FORWARD_DEADLINE_DAYS} días).
+- Nunca reutilices información de resúmenes anteriores.
+- No incluyas los identificadores internos (source_table#id) en el texto.
 Si hay eventos CRITICAL (sentencias, fallos), empieza con esos.
 Si hay términos que inician hoy o mañana, resáltalos con ⏰.
 NUNCA inventes datos. Solo usa la información proporcionada.
@@ -180,13 +195,17 @@ Máximo 5 highlights.`;
 
     const parsed = JSON.parse(jsonStr);
 
-    return {
-      greeting: parsed.greeting || `Buenos días, ${userData.userName}`,
-      summary_body: parsed.body || parsed.summary_body || "Sin novedades hoy.",
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 5) : [],
-      closing: parsed.closing || "Que tengas un excelente día.",
-      alerts_included: userData.unresolvedAlerts.map((a) => a.id),
-    };
+    const sanitized = sanitizeDigest(
+      {
+        greeting: parsed.greeting || `Buenos días, ${userData.userName}`,
+        summary_body: parsed.body || parsed.summary_body || EMPTY_WINDOW_STATEMENT,
+        highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 5) : [],
+        closing: parsed.closing || "Que tengas un excelente día.",
+      },
+      userData.facts,
+    );
+
+    return { ...sanitized, alerts_included: userData.unresolvedAlerts.map((a) => a.id) };
   } catch (err) {
     console.error("[lexy] Gemini error:", err);
     return generateQuietMessage(userData.userName);
@@ -311,15 +330,37 @@ Deno.serve(async (req) => {
           `[lexy] user=${user_id} novedad_acts=${novedadActs?.length ?? 0} novedad_pubs=${novedadPubs?.length ?? 0}`,
         );
 
-        // Unresolved alerts
+        // Alerts: last 24h ONLY, digest-type alerts excluded (no self-reference)
         const { data: alerts } = await supabase
           .from("alert_instances")
-          .select("id, severity, title, message")
+          .select("id, severity, title, message, entity_id, fired_at, alert_type, payload")
           .eq("owner_id", user_id)
           .eq("organization_id", organization_id)
           .in("status", ["PENDING", "SENT"])
           .is("seen_at", null)
+          .gte("fired_at", windowStart())
           .limit(10);
+        const liveAlerts = (alerts || []).filter(
+          (a: any) =>
+            a.alert_type !== "LEXY_DAILY" && !/resumen diario/i.test(String(a.title || "")),
+        );
+
+        // Forward-looking: currently-open deadlines within 15 days
+        const forwardLimit = new Date(Date.now() + FORWARD_DEADLINE_DAYS * 86400000)
+          .toISOString()
+          .slice(0, 10);
+        const TERMINAL_DEADLINE_STATUSES = [
+          "DISMISSED", "FULFILLED", "FULFILLED_BY_EMAIL_EVIDENCE",
+          "HISTORICAL_BACKFILL", "INVALID_NO_TERM", "VENCIDO_SIN_SUBSANAR",
+        ];
+        const { data: openDeadlines } = await supabase
+          .from("work_item_deadlines")
+          .select("id, work_item_id, deadline_type, label, deadline_date, status, work_items!inner(radicado, title)")
+          .eq("organization_id", organization_id)
+          .not("status", "in", `(${TERMINAL_DEADLINE_STATUSES.join(",")})`)
+          .gte("deadline_date", todayCOT())
+          .lte("deadline_date", forwardLimit)
+          .limit(20);
 
         // Sync failures from today's Atenia AI report
         let syncFailures: Array<{ radicado: string; diagnostic_message_es: string }> = [];
@@ -358,20 +399,55 @@ Deno.serve(async (req) => {
             terminos_inician: p.fecha_desfijacion || null,
             work_item_title: p.work_items?.title || "",
           })),
-          unresolvedAlerts: (alerts || []).map((a: any) => ({
+          unresolvedAlerts: liveAlerts.map((a: any) => ({
             id: a.id,
             severity: a.severity,
             title: a.title,
             message: a.message,
           })),
           syncFailures,
+          facts: {
+            window: [
+              ...(novedadActs ?? []).map((a: any): GroundedFact => ({
+                source_id: a.id,
+                source_table: "work_item_acts",
+                radicado: a.work_items?.radicado ?? null,
+                work_item_title: a.work_items?.title ?? null,
+                text: a.description || "Actuación",
+                date: a.act_date || a.detected_at || null,
+              })),
+              ...(novedadPubs ?? []).map((p: any): GroundedFact => ({
+                source_id: p.id,
+                source_table: "work_item_publicaciones",
+                radicado: p.work_items?.radicado ?? null,
+                work_item_title: p.work_items?.title ?? null,
+                text: `Estado: ${p.tipo_publicacion || "Publicación"}${p.fecha_fijacion ? ` (fijación ${p.fecha_fijacion})` : " (pendiente de fijación)"}`,
+                date: p.fecha_fijacion || p.detected_at || null,
+              })),
+              ...liveAlerts.map((a: any): GroundedFact => ({
+                source_id: a.id,
+                source_table: "alert_instances",
+                radicado: (a.payload?.radicado as string) ?? null,
+                work_item_title: null,
+                text: `[${a.severity}] ${a.title}: ${a.message ?? ""}`,
+                date: a.fired_at ?? null,
+              })),
+            ],
+            forward: (openDeadlines ?? []).map((d: any): GroundedFact => ({
+              source_id: d.id,
+              source_table: "work_item_deadlines",
+              radicado: d.work_items?.radicado ?? null,
+              work_item_title: d.work_items?.title ?? null,
+              text: `Término abierto (${d.label || d.deadline_type || "término"}) vence el ${d.deadline_date}`,
+              date: d.deadline_date ?? null,
+            })),
+          },
         };
 
         // Step 4: Generate message
         const hasData =
-          userData.newActuaciones.length > 0 ||
-          userData.newPublicaciones.length > 0 ||
-          userData.unresolvedAlerts.length > 0 ||
+          !isWindowEmpty(userData.facts) ||
+          userData.facts.forward.length > 0 ||
           userData.syncFailures.length > 0;
 
         let lexyMessage: LexyMessage;
