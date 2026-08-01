@@ -312,22 +312,28 @@ Deno.serve(async (req) => {
         // Canonical novedad definition: discovery_type='NOVEDAD' at DB level.
         // Historical backfills (HISTORICO_DETECTADO) NEVER count toward Lexy.
         // Uses detected_at (immutable) rather than created_at.
+        // Retroactive registrations (old legal date, first detected today in a
+        // normal daily run) are NEWS and MUST count toward the headline.
+        const NEWS_DISCOVERY = ["NOVEDAD", "ACTUACION_RETROACTIVA"];
         const { data: novedadActs } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, description, act_date, detected_at, work_items!inner(radicado, title)")
+          .select("id, work_item_id, description, act_date, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
-          .eq("discovery_type", "NOVEDAD")
+          .in("discovery_type", NEWS_DISCOVERY)
           .gte("detected_at", dayStart);
         const { data: novedadPubs } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, detected_at, work_items!inner(radicado, title)")
+          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
-          .eq("discovery_type", "NOVEDAD")
+          .in("discovery_type", NEWS_DISCOVERY)
           .gte("detected_at", dayStart);
+        const retroCount =
+          (novedadActs ?? []).filter((a: any) => a.discovery_type === "ACTUACION_RETROACTIVA").length +
+          (novedadPubs ?? []).filter((p: any) => p.discovery_type === "ACTUACION_RETROACTIVA").length;
         console.log(
-          `[lexy] user=${user_id} novedad_acts=${novedadActs?.length ?? 0} novedad_pubs=${novedadPubs?.length ?? 0}`,
+          `[lexy] user=${user_id} novedad_acts=${novedadActs?.length ?? 0} novedad_pubs=${novedadPubs?.length ?? 0} retroactivas=${retroCount}`,
         );
 
         // Alerts: last 24h ONLY, digest-type alerts excluded (no self-reference)
@@ -387,7 +393,10 @@ Deno.serve(async (req) => {
           orgId: organization_id,
           newActuaciones: (novedadActs ?? []).map((a: any) => ({
             radicado: a.work_items?.radicado || "N/A",
-            description: a.description || "Actuación",
+            description:
+              (a.discovery_type === "ACTUACION_RETROACTIVA"
+                ? `[Registro retroactivo · ${a.retro_gap_days ?? "?"} días] `
+                : "") + (a.description || "Actuación"),
             act_date: a.act_date || "",
             authority_name: "",
             work_item_title: a.work_items?.title || "",
@@ -413,7 +422,10 @@ Deno.serve(async (req) => {
                 source_table: "work_item_acts",
                 radicado: a.work_items?.radicado ?? null,
                 work_item_title: a.work_items?.title ?? null,
-                text: a.description || "Actuación",
+                text:
+                  (a.discovery_type === "ACTUACION_RETROACTIVA"
+                    ? `Actuación con fecha retroactiva (${a.retro_gap_days ?? "?"} días de desfase): `
+                    : "") + (a.description || "Actuación"),
                 date: a.act_date || a.detected_at || null,
               })),
               ...(novedadPubs ?? []).map((p: any): GroundedFact => ({
@@ -421,7 +433,7 @@ Deno.serve(async (req) => {
                 source_table: "work_item_publicaciones",
                 radicado: p.work_items?.radicado ?? null,
                 work_item_title: p.work_items?.title ?? null,
-                text: `Estado: ${p.tipo_publicacion || "Publicación"}${p.fecha_fijacion ? ` (fijación ${p.fecha_fijacion})` : " (pendiente de fijación)"}`,
+                text: `${p.discovery_type === "ACTUACION_RETROACTIVA" ? "Estado retroactivo" : "Estado"}: ${p.tipo_publicacion || "Publicación"}${p.fecha_fijacion ? ` (fijación ${p.fecha_fijacion})` : " (pendiente de fijación)"}`,
                 date: p.fecha_fijacion || p.detected_at || null,
               })),
               ...liveAlerts.map((a: any): GroundedFact => ({
