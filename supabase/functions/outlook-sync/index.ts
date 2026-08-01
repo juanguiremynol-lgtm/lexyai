@@ -492,12 +492,33 @@ export function buildEvidenceMeta(
     matchedInBody?: boolean;
     nij?: string | null;
     ai?: AiClassification | null;
+    /** Señales de identidad que sustentan el vínculo (iteración 6). */
+    matchSignals?: string[] | null;
+    /** Bases de 21 dígitos detectadas en el mensaje (para la UI de conflicto). */
+    messageBases?: string[] | null;
+    /** Veredicto de la verificación de identidad por IA (nunca confirma). */
+    aiVerdict?: {
+      verdict: string;
+      reasons: string[];
+      conflicting_radicado: string | null;
+    } | null;
   },
 ): Record<string, unknown> | null {
   const meta: Record<string, unknown> = { ...(base ?? {}) };
   if (extra.instanceObserved) meta.instance_observed = extra.instanceObserved;
   if (extra.matchedInBody) meta.matched_in = "body";
   if (extra.nij) meta.nij = extra.nij;
+  if (extra.matchSignals && extra.matchSignals.length > 0) {
+    meta.match_signals = extra.matchSignals;
+  }
+  if (extra.messageBases && extra.messageBases.length > 0) {
+    meta.body_radicados = extra.messageBases;
+  }
+  if (extra.aiVerdict) {
+    meta.ai_verified = extra.aiVerdict.verdict === "MATCH";
+    meta.ai_verdict = extra.aiVerdict.verdict;
+    if (extra.aiVerdict.reasons.length > 0) meta.ai_reasons = extra.aiVerdict.reasons;
+  }
   if (extra.ai) {
     meta.ai_classified = true;
     meta.ai_confidence = AI_CONFIDENCE_CAP;
