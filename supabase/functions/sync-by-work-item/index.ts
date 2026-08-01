@@ -1301,12 +1301,14 @@ Deno.serve(withSyncTimeline(async (req) => {
         return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, traceId);
       }
 
-      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
-      
+      // ITERACIÓN 6 (Parte E) — se validaba con un cliente ANON construido con
+      // `SUPABASE_ANON_KEY`, ausente en el runtime actual: la apiKey vacía hacía
+      // fallar toda validación (176 UNAUTHORIZED en 4 días). El cliente de
+      // service-role valida el JWT sin depender de esa variable.
       const token = authHeader.replace('Bearer ', '');
-      const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
-      
-      if (authError || !claims?.claims?.sub) {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+
+      if (authError || !authUser?.id) {
         await logTrace(supabase, {
           trace_id: traceId,
           step: 'AUTHZ_FAILED',
@@ -1317,7 +1319,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, traceId);
       }
 
-      userId = claims.claims.sub as string;
+      userId = authUser.id;
     }
 
     // ── Guardrail: release_gate is platform-admin-only ──
