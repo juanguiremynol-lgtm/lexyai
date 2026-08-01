@@ -62,6 +62,33 @@ export type Database = {
         }
         Relationships: []
       }
+      _deadline_anchor_report: {
+        Row: {
+          id: string
+          notes: Json | null
+          ran_at: string
+          resolved: number
+          reviewed: number
+          still_manual: number
+        }
+        Insert: {
+          id?: string
+          notes?: Json | null
+          ran_at?: string
+          resolved?: number
+          reviewed?: number
+          still_manual?: number
+        }
+        Update: {
+          id?: string
+          notes?: Json | null
+          ran_at?: string
+          resolved?: number
+          reviewed?: number
+          still_manual?: number
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
@@ -17350,6 +17377,10 @@ export type Database = {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
       }
+      derive_desfijacion: {
+        Args: { p_desfijacion?: string; p_fijacion: string }
+        Returns: string
+      }
       email_subtype_confidence: { Args: { p_subtype: string }; Returns: number }
       email_subtype_deadline_type: {
         Args: { p_subtype: string; p_workflow: string }
@@ -17623,6 +17654,13 @@ export type Database = {
       }
       radicado_base: { Args: { p_radicado: string }; Returns: string }
       radicado_instance: { Args: { p_radicado: string }; Returns: string }
+      recompute_manual_review_deadlines: {
+        Args: never
+        Returns: {
+          resolved: number
+          reviewed: number
+        }[]
+      }
       reconcile_detected_processes: {
         Args: { p_user_id?: string }
         Returns: number
