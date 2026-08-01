@@ -415,7 +415,7 @@ async function syncConnection(
       // un match por nombre de parte no acredita identidad procesal, y el
       // radicado real suele vivir en la línea "REF.:" del cuerpo.
       const radicadoMatched = matches.some((m) => m.matched_by.startsWith("RADICADO"));
-      if (judicial && !radicadoMatched) {
+      if (judicial && !radicadoMatched && summary.bodies_read < BODY_READS_PER_RUN) {
         try {
           bodyText = await fetchBodyText(accessToken, msg.id);
           summary.bodies_read++;
