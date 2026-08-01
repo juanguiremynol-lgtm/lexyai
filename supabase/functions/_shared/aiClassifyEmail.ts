@@ -15,6 +15,13 @@ export const AI_MODEL = "google/gemini-2.5-flash-lite";
 /** Endpoint del gateway de IA de Lovable (chat completions). */
 export const AI_ENDPOINT = "https://ai.gateway.lovable.dev/v1/chat/completions";
 /** Tope de llamadas al gateway por corrida de sincronización. */
+/**
+ * Tope de llamadas a la IA POR CADENA de barrido (no por tramo): el estado
+ * `AiGatewayState.calls` se rehidrata desde el checkpoint en cada reanudación,
+ * de modo que un barrido encadenado de 40 tramos sigue gastando como máximo
+ * este número de llamadas. (Contrasta con el tope de lectura de cuerpos, que
+ * es por tramo porque solo cuesta llamadas a Graph.)
+ */
 export const AI_CALLS_PER_RUN = 50;
 /** El AI nunca supera la certeza del regex/radicado. */
 export const AI_CONFIDENCE_CAP = 0.75;

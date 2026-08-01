@@ -671,6 +671,20 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Un lote de clasificación semántica de correo al terminar la sync diaria:
+  // fire-and-forget, nunca bloquea ni altera el resultado de la sync.
+  try {
+    const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/email-semantics-backfill`;
+    const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const kick = fetch(fnUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${svcKey}` },
+      body: JSON.stringify({ batch_size: 50, source: "scheduled-daily-sync" }),
+    }).catch((e) => console.warn("[daily-sync] backfill kick failed", (e as Error).message));
+    const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    rt?.waitUntil?.(kick);
+  } catch (_e) { /* non-blocking */ }
+
   return new Response(
     JSON.stringify(responsePayload),
     { status: httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } },
