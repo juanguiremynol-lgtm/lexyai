@@ -237,6 +237,13 @@ export type Database = {
             foreignKeyName: "actuaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "actuaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -788,6 +795,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1193,6 +1207,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1378,6 +1399,13 @@ export type Database = {
             foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1423,6 +1451,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: true
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1504,6 +1539,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1598,6 +1640,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1786,6 +1835,13 @@ export type Database = {
             foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1854,6 +1910,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1947,6 +2010,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -3034,6 +3104,13 @@ export type Database = {
             foreignKeyName: "cgp_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3109,6 +3186,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -3444,6 +3528,13 @@ export type Database = {
             foreignKeyName: "cgp_milestones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3566,6 +3657,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -5112,6 +5210,13 @@ export type Database = {
             foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
             columns: ["linked_work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
+            columns: ["linked_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -6107,6 +6212,13 @@ export type Database = {
             foreignKeyName: "email_outbox_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "email_outbox_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -6823,6 +6935,13 @@ export type Database = {
             foreignKeyName: "external_sync_runs_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "external_sync_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -7084,6 +7203,13 @@ export type Database = {
             foreignKeyName: "generated_documents_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "generated_documents_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -7243,6 +7369,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -7829,6 +7962,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -8811,6 +8951,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "memorial_history_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -10902,6 +11049,13 @@ export type Database = {
             foreignKeyName: "process_events_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "process_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12627,6 +12781,13 @@ export type Database = {
             foreignKeyName: "support_bundles_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "support_bundles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12714,6 +12875,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_audit_log_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -12878,6 +13046,13 @@ export type Database = {
             foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: true
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -12961,6 +13136,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -13070,6 +13252,13 @@ export type Database = {
             foreignKeyName: "sync_traces_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13138,6 +13327,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_watches_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -13817,6 +14013,13 @@ export type Database = {
             foreignKeyName: "user_data_alerts_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "user_data_alerts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -14313,6 +14516,13 @@ export type Database = {
             foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
             columns: ["selected_work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
+            columns: ["selected_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -14625,6 +14835,7 @@ export type Database = {
           fecha_registro_source: string | null
           hash_fingerprint: string
           id: string
+          ingest_run_mode: string
           inicia_termino: string | null
           instancia: string | null
           is_archived: boolean | null
@@ -14642,6 +14853,7 @@ export type Database = {
           provider_instance_id: string | null
           raw_data: Json | null
           raw_schema_version: string | null
+          retro_gap_days: number | null
           scrape_date: string | null
           source: string | null
           source_platform: string | null
@@ -14679,6 +14891,7 @@ export type Database = {
           fecha_registro_source?: string | null
           hash_fingerprint: string
           id?: string
+          ingest_run_mode?: string
           inicia_termino?: string | null
           instancia?: string | null
           is_archived?: boolean | null
@@ -14696,6 +14909,7 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
@@ -14733,6 +14947,7 @@ export type Database = {
           fecha_registro_source?: string | null
           hash_fingerprint?: string
           id?: string
+          ingest_run_mode?: string
           inicia_termino?: string | null
           instancia?: string | null
           is_archived?: boolean | null
@@ -14750,6 +14965,7 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
@@ -14794,6 +15010,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -14863,6 +15086,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -14958,6 +15188,13 @@ export type Database = {
             foreignKeyName: "work_item_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15006,6 +15243,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15067,6 +15311,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15191,6 +15442,13 @@ export type Database = {
             foreignKeyName: "work_item_email_links_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15247,6 +15505,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15392,6 +15657,13 @@ export type Database = {
             foreignKeyName: "work_item_hearings_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15505,6 +15777,13 @@ export type Database = {
             foreignKeyName: "work_item_parties_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_parties_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15562,9 +15841,11 @@ export type Database = {
           fecha_providencia: string | null
           hash_fingerprint: string
           id: string
+          ingest_run_mode: string
           is_archived: boolean | null
           is_canonical: boolean | null
           is_notifiable: boolean | null
+          is_retroactive: boolean
           last_seen_at: string
           organization_id: string
           pdf_available: boolean | null
@@ -15576,6 +15857,7 @@ export type Database = {
           raw_data: Json | null
           raw_json: Json | null
           raw_schema_version: string | null
+          retro_gap_days: number | null
           source: string
           sources: string[] | null
           tipo_publicacion: string | null
@@ -15605,9 +15887,11 @@ export type Database = {
           fecha_providencia?: string | null
           hash_fingerprint: string
           id?: string
+          ingest_run_mode?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null
+          is_retroactive?: boolean
           last_seen_at?: string
           organization_id: string
           pdf_available?: boolean | null
@@ -15619,6 +15903,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          retro_gap_days?: number | null
           source?: string
           sources?: string[] | null
           tipo_publicacion?: string | null
@@ -15648,9 +15933,11 @@ export type Database = {
           fecha_providencia?: string | null
           hash_fingerprint?: string
           id?: string
+          ingest_run_mode?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null
+          is_retroactive?: boolean
           last_seen_at?: string
           organization_id?: string
           pdf_available?: boolean | null
@@ -15662,6 +15949,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          retro_gap_days?: number | null
           source?: string
           sources?: string[] | null
           tipo_publicacion?: string | null
@@ -15689,6 +15977,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15767,6 +16062,13 @@ export type Database = {
             foreignKeyName: "work_item_reminders_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15824,6 +16126,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15913,6 +16222,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -16033,6 +16349,13 @@ export type Database = {
             foreignKeyName: "work_item_sources_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16120,6 +16443,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -16229,6 +16559,13 @@ export type Database = {
             foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16307,6 +16644,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -16441,6 +16785,13 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -17116,6 +17467,71 @@ export type Database = {
         }
         Relationships: []
       }
+      monitoring_coverage_v: {
+        Row: {
+          coverage_status: string | null
+          days_since_ingest: number | null
+          enrolled_providers: string[] | null
+          expected_providers: string[] | null
+          last_ingest: string | null
+          last_ok_run: string | null
+          last_run: string | null
+          missing_providers: string[] | null
+          monitoring_enabled: boolean | null
+          organization_id: string | null
+          owner_id: string | null
+          radicado: string | null
+          work_item_id: string | null
+          workflow_type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      retroactive_actuaciones_v: {
+        Row: {
+          detected_on: string | null
+          gap_days: number | null
+          id: string | null
+          kind: string | null
+          legal_date: string | null
+          opens_term: boolean | null
+          organization_id: string | null
+          radicado: string | null
+          source: string | null
+          title: string | null
+          work_item_id: string | null
+          work_item_title: string | null
+        }
+        Relationships: []
+      }
       work_item_timeline_v: {
         Row: {
           kind: string | null
@@ -17322,6 +17738,14 @@ export type Database = {
         Args: { p_deadline_date: string }
         Returns: string
       }
+      classify_discovery: {
+        Args: {
+          p_detected_at: string
+          p_legal_date: string
+          p_run_mode: string
+        }
+        Returns: string
+      }
       classify_email_evidence_subtype: {
         Args: { p_sender: string; p_subject: string }
         Returns: string
@@ -17380,6 +17804,15 @@ export type Database = {
       derive_desfijacion: {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
+      }
+      detect_stale_monitoring: {
+        Args: { p_threshold_days?: number }
+        Returns: {
+          days_since_ingest: number
+          radicado: string
+          reason: string
+          work_item_id: string
+        }[]
       }
       email_subtype_confidence: { Args: { p_subtype: string }; Returns: number }
       email_subtype_deadline_type: {
@@ -17597,6 +18030,7 @@ export type Database = {
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_check: { Args: { p_user_id: string }; Returns: boolean }
       is_profile_complete: { Args: { p_user_id: string }; Returns: boolean }
+      is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]
@@ -17715,6 +18149,7 @@ export type Database = {
         Returns: string
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
+      unaccent_lower_safe: { Args: { p_text: string }; Returns: string }
       update_daily_sync_ledger: {
         Args: {
           p_error?: string
