@@ -446,7 +446,7 @@ export function computeSamaiEstadosFingerprint(
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes same estado reported by
   // Publicaciones and SAMAI Estados on TUTELA union routing.
   return canonicalPubFingerprint({
-    work_item_id: workItemId,
+    work_item_id: workItemId ?? null,
     pub_date: fecha,
     tipo_publicacion: actuacion,
     title: actuacion,
