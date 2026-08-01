@@ -446,7 +446,7 @@ export function computeTutelasFingerprint(
   // drifts between providers (one supplies title only, another concatenates
   // the anotación tail).
   return canonicalActFingerprint({
-    work_item_id: workItemId,
+    work_item_id: workItemId ?? null,
     act_date: fecha,
     actuacion: tipo,
     party_hint: null,
