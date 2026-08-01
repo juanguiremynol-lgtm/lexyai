@@ -436,6 +436,7 @@ async function syncConnection(
   conn: Connection,
   options: SyncOptions,
   aiState: AiGatewayState,
+  sweep?: SweepCtx,
 ) {
   const startedAt = new Date().toISOString();
   const summary = {
@@ -461,6 +462,26 @@ async function syncConnection(
     started_at: startedAt,
     finished_at: null as string | null,
   };
+
+  // Reanudación: los contadores de la CADENA son acumulativos y los topes
+  // (300 cuerpos, 50 llamadas de IA) se aplican al total, no al tramo.
+  if (sweep) {
+    const cp = sweep.checkpoint;
+    summary.started_at = cp.started_at;
+    summary.messages_scanned = cp.messages_scanned;
+    summary.folders = { ...cp.folders };
+    summary.earliest_message_at = cp.earliest_message_at;
+    summary.bodies_read = cp.bodies_read;
+    summary.ai_calls = cp.ai_calls;
+    summary.detected_new = cp.detected_new;
+    summary.detected_updated = cp.detected_updated;
+    summary.detected_skipped = cp.detected_skipped;
+    summary.links_created = cp.links_created;
+    summary.suggestions_created = cp.suggestions_created;
+    summary.errors = cp.errors;
+    summary.last_error = cp.last_error;
+    aiState.calls = cp.ai_calls;
+  }
 
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
