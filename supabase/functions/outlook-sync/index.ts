@@ -369,7 +369,6 @@ async function persistSweepProgress(
     folders: summary.folders,
     earliest_message_at: summary.earliest_message_at,
     bodies_read: summary.bodies_read,
-    body_reads_chunk: summary.body_reads_chunk,
     ai_calls: summary.ai_calls,
     detected_new: summary.detected_new,
     detected_updated: summary.detected_updated,
