@@ -495,6 +495,26 @@ export function isJudicialCounterpart(msg: GraphMessage): boolean {
 /** Tope duro de lectura en memoria: 20KB de texto. El cuerpo NUNCA se persiste. */
 export const BODY_TEXT_CAP = 20_000;
 
+/**
+ * ITERACIÓN 7.2 — Unión de BASES de 21 dígitos detectadas en el ASUNTO y en el
+ * CUERPO. Es la fuente única para (a) la regla de conflicto del matcher y
+ * (b) el chip de conflicto de la UI: ambas deben ver los mismos radicados.
+ */
+export function messageRadicadoBases(
+  subject: string | null | undefined,
+  bodyText?: string | null,
+): string[] {
+  const bases = new Set<string>();
+  const text = `${subject ?? ""}\n${bodyText ?? ""}`;
+  for (const c of extractRadicadoCandidates(text)) bases.add(c.base);
+  for (const r of extractRadicados(text)) bases.add(r.slice(0, 21));
+  for (const r of extractRadicados22(text)) bases.add(r.slice(0, 21));
+  if (bodyText) {
+    for (const c of extractBodyRadicadoCandidates(bodyText)) bases.add(c.base);
+  }
+  return [...bases];
+}
+
 const HTML_ENTITIES: Record<string, string> = {
   nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
   aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú",

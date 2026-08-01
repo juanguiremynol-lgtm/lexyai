@@ -62,7 +62,27 @@ function radicadoBase(value: string | null | undefined): string {
 
 function messageRadicados(link: SuggestedEmailLink): string[] {
   const raw = (link.evidence_meta as Record<string, unknown> | null)?.body_radicados;
-  return Array.isArray(raw) ? raw.map((r) => String(r)).filter(Boolean) : [];
+  const stored = Array.isArray(raw) ? raw.map((r) => String(r)).filter(Boolean) : [];
+  // ITERACIÓN 7.2 — paridad con el matcher: la evaluación de conflicto usa la
+  // UNIÓN de los radicados del ASUNTO y los del cuerpo (persistidos en meta).
+  return [...new Set([...stored, ...subjectRadicados(link.subject)])];
+}
+
+/**
+ * Radicados del asunto: secuencias de 21/23 dígitos tolerando espacios,
+ * puntos, guiones y barras ("110013110013 2024 00752 00").
+ */
+function subjectRadicados(subject: string | null | undefined): string[] {
+  const out: string[] = [];
+  const re = /(?<!\d)\d[\d\s._\-/]{18,45}\d(?!\d)/g;
+  for (const m of String(subject ?? "").matchAll(re)) {
+    const digits = m[0].replace(/\D/g, "");
+    if (digits.length === 21 || digits.length === 23) out.push(digits);
+    else if (digits.length > 23) {
+      for (let i = 0; i + 23 <= digits.length; i++) out.push(digits.slice(i, i + 23));
+    }
+  }
+  return out;
 }
 
 function matchSignals(link: SuggestedEmailLink): string[] {
