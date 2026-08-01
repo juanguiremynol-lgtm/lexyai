@@ -49,6 +49,7 @@ import {
   type AiClassification,
   type AiGatewayState,
 } from "../_shared/aiClassifyEmail.ts";
+import { aiVerifyLink } from "../_shared/aiVerifyLink.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -742,6 +743,8 @@ async function syncConnection(
         }
       }
       // El cuerpo muere aquí: solo sobreviven identificadores y metadatos.
+      // (`verifyBody` vive solo en memoria durante este mensaje; ver Parte C.)
+      const verifyBody = bodyText || (msg.bodyPreview ?? "");
       bodyText = "";
 
       // FASE C — radicados válidos que NO están en la cartera del usuario.
@@ -851,7 +854,47 @@ async function syncConnection(
         if (direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
           continue;
         }
-        const confirmed = match.confidence >= 0.7;
+        // ITERACIÓN 6 — solo la identidad por radicado auto-confirma.
+        const confirmed = isAutoConfirmable(match);
+
+        // ── PARTE C: verificación de identidad por IA (solo multi-señal) ──
+        let aiVerdict: Awaited<ReturnType<typeof aiVerifyLink>> = null;
+        if (!confirmed && (match.match_signals ?? []).length > 0) {
+          const wiFacts = portfolio.find((p) => p.id === match.work_item_id);
+          if (wiFacts && verifyBody) {
+            const before = aiState.calls;
+            aiVerdict = await aiVerifyLink({
+              wi: {
+                radicado: wiFacts.radicado,
+                demandantes: wiFacts.demandantes,
+                demandados: wiFacts.demandados,
+                authority_name: wiFacts.authority_name,
+                authority_city: null,
+                workflow_type: wiFacts.workflow_type ?? null,
+              },
+              subject: msg.subject,
+              sender: msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
+              bodyText: verifyBody,
+              signals: match.match_signals ?? [],
+            }, aiState, LOVABLE_API_KEY);
+            summary.ai_calls += aiState.calls - before;
+          }
+          if (aiVerdict) {
+            if (aiVerdict.verdict === "NO_MATCH" || aiVerdict.conflicting_radicado) {
+              console.warn(
+                `[outlook-sync] IA descarta vínculo wi=${match.work_item_id} ` +
+                  `motivo=${aiVerdict.reasons[0] ?? aiVerdict.conflicting_radicado}`,
+              );
+              continue;
+            }
+            if (
+              aiVerdict.verdict === "UNSURE" && (match.match_signals ?? []).length < 2
+            ) {
+              continue;
+            }
+          }
+        }
+
         let evidence = confirmed
           ? classifyEvidence(msg, direction, match.matched_by)
           : null;
@@ -915,6 +958,9 @@ async function syncConnection(
             matchedInBody: bodyMatched,
             nij,
             ai,
+            matchSignals: match.match_signals ?? null,
+            messageBases: match.message_bases ?? null,
+            aiVerdict,
           }),
           ai_classified: Boolean(ai),
           ai_classified_at: ai ? new Date().toISOString() : null,
