@@ -12644,6 +12644,78 @@ export type Database = {
           },
         ]
       }
+      sync_full_sweep_runs: {
+        Row: {
+          connection_id: string | null
+          created_at: string
+          detected_new: number
+          detected_skipped: number
+          detected_updated: number
+          earliest_message_at: string | null
+          errors: number
+          finished_at: string | null
+          folders: Json
+          full_sweep: boolean
+          id: string
+          last_error: string | null
+          links_created: number
+          lookback_months: number | null
+          messages_scanned: number
+          organization_id: string | null
+          reconciled: number
+          started_at: string
+          status: string
+          suggestions_created: number
+          user_id: string
+        }
+        Insert: {
+          connection_id?: string | null
+          created_at?: string
+          detected_new?: number
+          detected_skipped?: number
+          detected_updated?: number
+          earliest_message_at?: string | null
+          errors?: number
+          finished_at?: string | null
+          folders?: Json
+          full_sweep?: boolean
+          id?: string
+          last_error?: string | null
+          links_created?: number
+          lookback_months?: number | null
+          messages_scanned?: number
+          organization_id?: string | null
+          reconciled?: number
+          started_at?: string
+          status?: string
+          suggestions_created?: number
+          user_id: string
+        }
+        Update: {
+          connection_id?: string | null
+          created_at?: string
+          detected_new?: number
+          detected_skipped?: number
+          detected_updated?: number
+          earliest_message_at?: string | null
+          errors?: number
+          finished_at?: string | null
+          folders?: Json
+          full_sweep?: boolean
+          id?: string
+          last_error?: string | null
+          links_created?: number
+          lookback_months?: number | null
+          messages_scanned?: number
+          organization_id?: string | null
+          reconciled?: number
+          started_at?: string
+          status?: string
+          suggestions_created?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       sync_item_failure_tracker: {
         Row: {
           consecutive_failures: number
@@ -17435,6 +17507,10 @@ export type Database = {
       }
       radicado_base: { Args: { p_radicado: string }; Returns: string }
       radicado_instance: { Args: { p_radicado: string }; Returns: string }
+      reconcile_detected_processes: {
+        Args: { p_user_id?: string }
+        Returns: number
+      }
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
