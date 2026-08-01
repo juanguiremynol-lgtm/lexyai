@@ -211,6 +211,7 @@ interface SyncOptions {
 }
 
 async function syncConnection(admin: Admin, conn: Connection, options: SyncOptions) {
+  const startedAt = new Date().toISOString();
   const summary = {
     connection_id: conn.id,
     full_sweep: options.fullSweep,
@@ -220,8 +221,16 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     suggestions_created: 0,
     memorial_evidence: 0,
     detected_processes: 0,
+    detected_new: 0,
+    detected_updated: 0,
+    detected_skipped: 0,
+    reconciled: 0,
+    errors: 0,
+    last_error: null as string | null,
     folders: {} as Record<string, number>,
     earliest_message_at: null as string | null,
+    started_at: startedAt,
+    finished_at: null as string | null,
   };
 
   const accessToken = await ensureAccessToken(admin, conn);
@@ -348,7 +357,10 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
         }
       }
       for (const [base, cand] of detectedCandidates) {
-        if (knownBases.has(base) || knownRadicados.has(cand.canonical)) continue;
+        if (knownBases.has(base) || knownRadicados.has(cand.canonical)) {
+          summary.detected_skipped++;
+          continue;
+        }
         const seenAt = msg.receivedDateTime ?? msg.sentDateTime ?? new Date().toISOString();
         const existing = detectionsByBase.get(base);
         if (existing) {
@@ -380,6 +392,7 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           existing.first_seen_at = nextFirst;
           existing.last_seen_at = nextLast;
           existing.meta = { ...(existing.meta ?? {}), instances_seen: [...seen].sort() };
+          summary.detected_updated++;
           continue;
         }
         const { data: inserted, error: detErr } = await admin.from("detected_processes").insert({
@@ -397,9 +410,14 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           status: "PENDING",
           meta: cand.instance ? { instances_seen: [cand.instance] } : {},
         }).select("id").maybeSingle();
-        if (detErr) console.error("[outlook-sync] detected_processes", detErr.message);
+        if (detErr) {
+          console.error("[outlook-sync] detected_processes", detErr.message);
+          summary.errors++;
+          summary.last_error = detErr.message.slice(0, 500);
+        }
         else {
           summary.detected_processes++;
+          summary.detected_new++;
           if (inserted) {
             detectionsByBase.set(base, {
               id: (inserted as { id: string }).id,
@@ -493,6 +511,8 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           .upsert(row, { onConflict: "message_id,work_item_id", ignoreDuplicates: true });
         if (error) {
           console.error("[outlook-sync] link upsert", error.message);
+          summary.errors++;
+          summary.last_error = error.message.slice(0, 500);
           continue;
         }
         if (linkStatus === "CONFIRMED") summary.links_created++;
@@ -510,6 +530,47 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     .from("user_email_connections")
     .update({ last_sync_at: new Date().toISOString(), status: "CONNECTED", last_error: null })
     .eq("id", conn.id);
+
+  // Reconciliación: detecciones cuya BASE ya está en la cartera salen de la
+  // cola pendiente (estado terminal MATCHED_EXISTING), nunca se borran.
+  try {
+    const { data: reconciled, error: recErr } = await admin.rpc(
+      "reconcile_detected_processes",
+      { p_user_id: conn.user_id },
+    );
+    if (recErr) throw new Error(recErr.message);
+    summary.reconciled = Number(reconciled ?? 0);
+  } catch (e) {
+    console.error("[outlook-sync] reconcile", (e as Error).message);
+    summary.errors++;
+  }
+
+  summary.finished_at = new Date().toISOString();
+
+  // El gateway HTTP corta a ~150 s: el resumen se persiste server-side para
+  // que la UI pueda leerlo aunque el invocador nunca reciba la respuesta.
+  const { error: runErr } = await admin.from("sync_full_sweep_runs").insert({
+    user_id: conn.user_id,
+    organization_id: conn.organization_id,
+    connection_id: conn.id,
+    full_sweep: options.fullSweep,
+    lookback_months: summary.lookback_months,
+    status: summary.errors > 0 ? "PARTIAL" : "SUCCESS",
+    started_at: summary.started_at,
+    finished_at: summary.finished_at,
+    messages_scanned: summary.messages_scanned,
+    folders: summary.folders,
+    earliest_message_at: summary.earliest_message_at,
+    detected_new: summary.detected_new,
+    detected_updated: summary.detected_updated,
+    detected_skipped: summary.detected_skipped,
+    reconciled: summary.reconciled,
+    links_created: summary.links_created,
+    suggestions_created: summary.suggestions_created,
+    errors: summary.errors,
+    last_error: summary.last_error,
+  });
+  if (runErr) console.error("[outlook-sync] sweep run insert", runErr.message);
 
   return summary;
 }
