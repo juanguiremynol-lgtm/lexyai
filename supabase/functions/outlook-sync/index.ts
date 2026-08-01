@@ -237,11 +237,19 @@ async function fetchBodyText(accessToken: string, messageId: string): Promise<st
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 /**
- * Válvula de seguridad: la lectura universal del cuerpo cuesta una llamada a
- * Graph por mensaje. Sin tope, un barrido de 12 meses no termina nunca.
- * En barridos encadenados el tope es POR CADENA, no por tramo.
+ * SEMÁNTICA DE TOPES (decisión iteración 5.2, deliberada):
+ *
+ * - Lectura de cuerpos: tope POR TRAMO (`BODY_READS_PER_CHUNK`). Una cadena de
+ *   varios tramos puede acumular múltiplos de este tope (p. ej. 720 en 3
+ *   tramos) y eso es aceptable: el coste es únicamente de llamadas a Graph, el
+ *   cuerpo vive en memoria y nunca se persiste. El tope solo existe para que
+ *   un tramo no agote su presupuesto de ~105 s leyendo cuerpos.
+ * - Llamadas a IA: tope POR CADENA (`AI_CALLS_PER_CHAIN`, aplicado a través de
+ *   `aiState.calls`, que se rehidrata desde el checkpoint en cada reanudación).
+ *   Ese coste sí es monetario y acumulativo, así que el barrido completo nunca
+ *   supera el tope aunque use 40 tramos.
  */
-const BODY_READS_PER_RUN = 300;
+const BODY_READS_PER_CHUNK = 300;
 
 /**
  * El gateway HTTP corta a ~150 s. Un barrido de 12 meses no cabe en una sola
@@ -262,7 +270,11 @@ export interface SweepCheckpoint {
   messages_scanned: number;
   folders: Record<string, number>;
   earliest_message_at: string | null;
+  /** Acumulado de la CADENA (informativo). */
   bodies_read: number;
+  /** Leídos en el ÚLTIMO tramo: el tope de cuerpos es por tramo. */
+  body_reads_chunk: number;
+  /** Acumulado de la CADENA: el tope de IA es por cadena. */
   ai_calls: number;
   detected_new: number;
   detected_updated: number;
@@ -284,6 +296,7 @@ export function newCheckpoint(sinceIso: string, startedAt: string): SweepCheckpo
     folders: {},
     earliest_message_at: null,
     bodies_read: 0,
+    body_reads_chunk: 0,
     ai_calls: 0,
     detected_new: 0,
     detected_updated: 0,
@@ -307,6 +320,7 @@ type SweepSummary = {
   folders: Record<string, number>;
   earliest_message_at: string | null;
   bodies_read: number;
+  body_reads_chunk: number;
   ai_calls: number;
   detected_new: number;
   detected_updated: number;
@@ -324,6 +338,7 @@ function syncCheckpointCounters(cp: SweepCheckpoint, s: SweepSummary) {
   cp.folders = { ...s.folders };
   cp.earliest_message_at = s.earliest_message_at;
   cp.bodies_read = s.bodies_read;
+  cp.body_reads_chunk = s.body_reads_chunk;
   cp.ai_calls = s.ai_calls;
   cp.detected_new = s.detected_new;
   cp.detected_updated = s.detected_updated;
@@ -354,6 +369,7 @@ async function persistSweepProgress(
     folders: summary.folders,
     earliest_message_at: summary.earliest_message_at,
     bodies_read: summary.bodies_read,
+    body_reads_chunk: summary.body_reads_chunk,
     ai_calls: summary.ai_calls,
     detected_new: summary.detected_new,
     detected_updated: summary.detected_updated,
@@ -513,6 +529,8 @@ async function syncConnection(
     detected_skipped: 0,
     reconciled: 0,
     bodies_read: 0,
+    // Se reinicia en cada tramo: el tope de cuerpos es POR TRAMO.
+    body_reads_chunk: 0,
     ai_calls: 0,
     ai_classified: 0,
     errors: 0,
@@ -523,8 +541,10 @@ async function syncConnection(
     finished_at: null as string | null,
   };
 
-  // Reanudación: los contadores de la CADENA son acumulativos y los topes
-  // (300 cuerpos, 50 llamadas de IA) se aplican al total, no al tramo.
+  // Reanudación: los contadores de la CADENA son acumulativos. El tope de IA
+  // se aplica al total de la cadena (se rehidrata `aiState.calls`); el tope de
+  // lectura de cuerpos se reinicia en cada tramo por diseño (ver comentario
+  // en BODY_READS_PER_CHUNK).
   if (sweep) {
     const cp = sweep.checkpoint;
     summary.started_at = cp.started_at;
@@ -638,6 +658,7 @@ async function syncConnection(
         try {
           repartoRadicados = extractRepartoRadicados(await fetchBodyText(accessToken, msg.id));
           summary.bodies_read++;
+          summary.body_reads_chunk++;
         } catch (e) {
           console.error("[outlook-sync] reparto body", (e as Error).message);
         }
@@ -656,10 +677,11 @@ async function syncConnection(
       // un match por nombre de parte no acredita identidad procesal, y el
       // radicado real suele vivir en la línea "REF.:" del cuerpo.
       const radicadoMatched = matches.some((m) => m.matched_by.startsWith("RADICADO"));
-      if (judicial && !radicadoMatched && summary.bodies_read < BODY_READS_PER_RUN) {
+      if (judicial && !radicadoMatched && summary.body_reads_chunk < BODY_READS_PER_CHUNK) {
         try {
           bodyText = await fetchBodyText(accessToken, msg.id);
           summary.bodies_read++;
+          summary.body_reads_chunk++;
         } catch (e) {
           console.error("[outlook-sync] body read", (e as Error).message);
         }
@@ -706,6 +728,7 @@ async function syncConnection(
           try {
             bodyText = await fetchBodyText(accessToken, msg.id);
             summary.bodies_read++;
+          summary.body_reads_chunk++;
             nij = nij ?? extractNij(`${msg.subject ?? ""}\n${bodyText}`);
           } catch (e) {
             console.error("[outlook-sync] ai body read", (e as Error).message);
