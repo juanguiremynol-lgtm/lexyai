@@ -41,6 +41,10 @@ import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
 const PROVIDER_KEY = 'samai_estados';
 const LOG_TAG = '[samaiEstadosAdapter]';
 
+// Ambient Deno typing: este módulo también entra al programa TS de la app por
+// los tests de Vitest, donde los tipos globales de Deno no están cargados.
+declare const Deno: { env: { get(key: string): string | undefined } };
+
 // ═══════════════════════════════════════════
 // MAIN ENTRY POINT
 // ═══════════════════════════════════════════
@@ -104,7 +108,8 @@ async function fetchMonitoring(
   });
 
   if (result.ok && result.data) {
-    const publicaciones = normalizeSamaiEstadosResponse(result.data, options);
+    const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
+    const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches);
     return {
       provider: PROVIDER_KEY,
       status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
@@ -114,6 +119,7 @@ async function fetchMonitoring(
       parties: null,
       durationMs: Date.now() - startTime,
       httpStatus: result.httpStatus,
+      identityMismatches,
     };
   }
 
@@ -155,7 +161,8 @@ async function fetchDiscovery(
     );
   }
 
-  const publicaciones = normalizeSamaiEstadosResponse(result.data, options);
+  const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
+  const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches);
 
   return {
     provider: PROVIDER_KEY,
@@ -166,6 +173,7 @@ async function fetchDiscovery(
     parties: null,
     durationMs: Date.now() - startTime,
     httpStatus: 200,
+    identityMismatches,
   };
 }
 
@@ -255,7 +263,8 @@ async function fetchEndpoint(
  */
 export function normalizeSamaiEstadosResponse(
   data: any,
-  options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
+  options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII' | 'expectedParties'>,
+  identityMismatches?: NonNullable<ProviderAdapterResult['identityMismatches']>,
 ): NormalizedPublicacion[] {
   const resultado = data?.result || data;
   // samai-estados-api POST /snapshot returns rows under `actuaciones`; older read-api
@@ -265,8 +274,80 @@ export function normalizeSamaiEstadosResponse(
     : (Array.isArray(resultado?.actuaciones) ? resultado.actuaciones : []);
 
   return rawEstados
-    .map((e: any) => normalizeOneEstado(e, options))
+    .map((e: any) => {
+      if (!corroborateParties(e, options?.expectedParties)) {
+        identityMismatches?.push({
+          provider: PROVIDER_KEY,
+          fecha: normalizeDate(
+            e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
+          ) || null,
+          actuacion: String(e['Actuación'] ?? e.actuacion ?? ''),
+          payload_demandante: partyText(e, 'demandante'),
+          payload_demandado: partyText(e, 'demandado'),
+        });
+        return null;
+      }
+      return normalizeOneEstado(e, options);
+    })
     .filter((p: NormalizedPublicacion | null): p is NormalizedPublicacion => p !== null);
+}
+
+// ═══════════════════════════════════════════
+// PARTY CORROBORATION (Iteración 6.2)
+// ═══════════════════════════════════════════
+
+const PARTY_STOPWORDS = new Set([
+  'de', 'del', 'la', 'las', 'el', 'los', 'y', 'sas', 'sa', 'ltda', 'eu', 'spa',
+  'municipio', 'nacion', 'nación', 'departamento', 'distrito', 'empresa',
+  'sociedad', 'entidad', 'sucursal', 'colombia', 'en', 'liquidacion', 'liquidación',
+]);
+
+function partyText(e: any, kind: 'demandante' | 'demandado'): string | null {
+  const keys = kind === 'demandante'
+    ? ['Demandante', 'demandante', 'Demandantes', 'demandantes', 'Accionante', 'accionante']
+    : ['Demandado', 'demandado', 'Demandados', 'demandados', 'Accionado', 'accionado'];
+  for (const k of keys) {
+    const v = e?.[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+export function partyTokens(value: string | null | undefined): Set<string> {
+  if (!value) return new Set();
+  return new Set(
+    String(value)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 4 && !PARTY_STOPWORDS.has(t)),
+  );
+}
+
+function hasOverlap(a: string | null, b: string | null): boolean {
+  const ta = partyTokens(a);
+  const tb = partyTokens(b);
+  if (ta.size === 0 || tb.size === 0) return true; // sin datos comparables → no bloquear
+  for (const t of ta) if (tb.has(t)) return true;
+  return false;
+}
+
+/**
+ * Corrobora que la fila pertenece al expediente resuelto. Solo bloquea cuando
+ * el payload trae partes comparables y NO hay solapamiento de tokens ni en
+ * demandantes ni en demandados (guarda de identidad, iteración 6).
+ */
+export function corroborateParties(
+  e: any,
+  expected?: AdapterOptions['expectedParties'],
+): boolean {
+  if (!expected) return true;
+  const payloadDte = partyText(e, 'demandante');
+  const payloadDdo = partyText(e, 'demandado');
+  if (!payloadDte && !payloadDdo) return true;
+  const dteOk = hasOverlap(payloadDte, expected.demandantes ?? null);
+  const ddoOk = hasOverlap(payloadDdo, expected.demandados ?? null);
+  return dteOk || ddoOk;
 }
 
 function normalizeOneEstado(

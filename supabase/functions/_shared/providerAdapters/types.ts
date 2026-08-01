@@ -195,6 +195,16 @@ export interface AdapterOptions {
   dbMaxActDate?: string | null;
   /** Historical record count for freshness heuristic */
   historicalRecordCount?: number;
+  /**
+   * Iteración 6.2 — corroboración de identidad por partes.
+   * Cuando se suministra, los adaptadores que reciben Demandante/Demandado en
+   * el payload descartan las filas sin ningún solapamiento de tokens contra
+   * las partes del expediente resuelto (guarda de identidad de la iteración 6).
+   */
+  expectedParties?: {
+    demandantes?: string | null;
+    demandados?: string | null;
+  } | null;
 }
 
 /**
@@ -227,6 +237,14 @@ export interface ProviderAdapterResult {
   httpStatus?: number;
   /** Raw provider response for debugging (only if requested) */
   rawResponse?: unknown;
+  /** Filas descartadas por no corroborar la identidad de las partes */
+  identityMismatches?: Array<{
+    provider: string;
+    fecha: string | null;
+    actuacion: string;
+    payload_demandante: string | null;
+    payload_demandado: string | null;
+  }>;
   // Scraping job fields (for async providers)
   scrapingJobId?: string;
   scrapingPollUrl?: string;

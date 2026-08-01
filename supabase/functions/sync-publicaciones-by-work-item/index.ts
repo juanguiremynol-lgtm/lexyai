@@ -1162,33 +1162,6 @@ function generatePublicacionFingerprint(
   });
 }
 
-async function inferSamaiFijacionFromActs(
-  supabase: any,
-  workItemId: string,
-  providenciaDate: string | null,
-): Promise<string | null> {
-  if (!providenciaDate) return null;
-  const start = new Date(`${providenciaDate}T00:00:00Z`);
-  if (Number.isNaN(start.getTime())) return null;
-  const end = new Date(start.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
-
-  try {
-    const { data } = await supabase
-      .from('work_item_acts' as any)
-      .select('act_date, description, event_summary')
-      .eq('work_item_id', workItemId)
-      .gte('act_date', providenciaDate)
-      .lte('act_date', end)
-      .or('description.ilike.%Fijacion estado%,description.ilike.%Fijación estado%,event_summary.ilike.%Fijacion estado%,event_summary.ilike.%Fijación estado%')
-      .order('act_date', { ascending: true })
-      .limit(1);
-    return data?.[0]?.act_date ?? null;
-  } catch (err: any) {
-    console.warn(`[sync-pub][samai_estados] fijacion inference failed: ${err?.message}`);
-    return null;
-  }
-}
-
 // ============= MAIN HANDLER =============
 
 Deno.serve(withSyncTimeline(async (req) => {
@@ -1267,7 +1240,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at')
+      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at, demandantes, demandados')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -1573,7 +1546,27 @@ Deno.serve(withSyncTimeline(async (req) => {
             mode: 'monitoring',
             workItemId: work_item_id,
             timeoutMs: 90_000,
+            // Iteración 6.2: corroboración de identidad por partes. Las filas
+            // sin ningún solapamiento con las partes del expediente NO se
+            // escriben; se reportan como identity mismatch.
+            expectedParties: {
+              demandantes: (workItem as any).demandantes ?? null,
+              demandados: (workItem as any).demandados ?? null,
+            },
           });
+
+          const mismatches = samaiRes.identityMismatches ?? [];
+          if (mismatches.length > 0) {
+            const msg =
+              `[IDENTITY_MISMATCH] SAMAI Estados descartó ${mismatches.length} fila(s) sin corroboración de partes ` +
+              `para wi=${work_item_id}: ` +
+              mismatches
+                .slice(0, 5)
+                .map((m) => `${m.fecha ?? 's/f'} "${m.actuacion}" (${m.payload_demandante ?? '—'} vs ${m.payload_demandado ?? '—'})`)
+                .join('; ');
+            console.warn(msg);
+            result.warnings.push(msg);
+          }
 
           samaiSummary.status = samaiRes.status;
           samaiSummary.http_status = samaiRes.httpStatus;
@@ -1978,11 +1971,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
 
       // ── Upsert via RPC with explicit sources[] array merge ──
-      // Date semantics (2026-07-06 fix):
-      //  * SAMAI (samai_estados) reports the fecha del auto, NOT the fijacion date.
-      //    Route it to fecha_providencia and leave fecha_fijacion NULL so terms
-      //    computation does not treat it as a fijación.
-      //  * Publicaciones reports the real fijacion date → fecha_fijacion.
+      // Date semantics — RATIFICADO iteración 6.2:
+      //  * SAMAI (samai_estados) reporta fecha de PROVIDENCIA, nunca fecha de
+      //    fijación de estado. fecha_fijacion y fecha_desfijacion quedan SIEMPRE
+      //    en NULL (sin inferencias): escribirlas plantaría una mina para
+      //    cualquier lector que ancle términos en esa columna.
+      //    published_at = fecha de providencia a las 00:00 America/Bogota.
+      //  * Publicaciones reporta la fijación real → fecha_fijacion.
       const sourceProvider = (pub as any)._source_provider || 'publicaciones';
       const isSamai = sourceProvider === 'samai_estados';
       const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
@@ -1992,15 +1987,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       // `parsedFecha` above so behavior stays identical for legacy responses.
       const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
       const parsedAutoDate = parseDate(pub.fecha_auto_raw);
-      const inferredSamaiFijacionDate = isSamai && !parsedEstadoDate
-        ? await inferSamaiFijacionFromActs(supabase, work_item_id, parsedAutoDate || parsedFecha)
-        : null;
-      const effectiveEstadoDate = parsedEstadoDate || inferredSamaiFijacionDate;
+      const effectiveEstadoDate = isSamai ? null : parsedEstadoDate;
       const fijacionIso = effectiveEstadoDate
         ? new Date(effectiveEstadoDate + 'T12:00:00Z').toISOString()
         : isoDate;
       const providenciaIso = parsedAutoDate
         ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
+        : null;
+      // 00:00 America/Bogota (UTC-5) para las filas de SAMAI.
+      const samaiProvidenciaDate = parsedAutoDate || parsedFecha;
+      const samaiPublishedAt = samaiProvidenciaDate
+        ? new Date(samaiProvidenciaDate + 'T05:00:00Z').toISOString()
         : null;
 
       const refreshedLegacyIds = await refreshLegacyPdfRowsForProxy(
@@ -2027,16 +2024,18 @@ Deno.serve(withSyncTimeline(async (req) => {
           pdf_url: pub.pdf_url || null,
           entry_url: pub.url || null,
           pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: isSamai ? (fijacionIso || isoDate) : isoDate,
-          fecha_fijacion: isSamai ? (effectiveEstadoDate ? fijacionIso : null) : fijacionIso,
+          published_at: isSamai ? samaiPublishedAt : isoDate,
+          // RATIFICADO 6.2: NUNCA fijación desde samai_estados.
+          fecha_fijacion: isSamai ? null : fijacionIso,
+          fecha_desfijacion: isSamai ? null : undefined,
           fecha_providencia: isSamai
-            ? (providenciaIso || isoDate)
+            ? (providenciaIso || samaiPublishedAt)
             : providenciaIso,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
-          date_source: dateSource,
-          date_confidence: dateConfidence,
+          date_source: isSamai ? 'api_explicit' : dateSource,
+          date_confidence: isSamai ? 'medium' : dateConfidence,
           raw_schema_version: 'publicaciones_v3',
           sources: [sourceProvider],
         }]),
