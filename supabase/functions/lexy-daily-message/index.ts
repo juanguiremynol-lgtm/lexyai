@@ -349,13 +349,17 @@ Deno.serve(async (req) => {
         const forwardLimit = new Date(Date.now() + FORWARD_DEADLINE_DAYS * 86400000)
           .toISOString()
           .slice(0, 10);
+        const TERMINAL_DEADLINE_STATUSES = [
+          "DISMISSED", "FULFILLED", "FULFILLED_BY_EMAIL_EVIDENCE",
+          "HISTORICAL_BACKFILL", "INVALID_NO_TERM", "VENCIDO_SIN_SUBSANAR",
+        ];
         const { data: openDeadlines } = await supabase
           .from("work_item_deadlines")
-          .select("id, work_item_id, deadline_type, due_date, status, work_items!inner(radicado, title, organization_id)")
-          .eq("work_items.organization_id", organization_id)
-          .in("status", ["PENDING", "RUNNING", "ACTIVE", "OPEN"])
-          .gte("due_date", todayCOT())
-          .lte("due_date", forwardLimit)
+          .select("id, work_item_id, deadline_type, label, deadline_date, status, work_items!inner(radicado, title)")
+          .eq("organization_id", organization_id)
+          .not("status", "in", `(${TERMINAL_DEADLINE_STATUSES.join(",")})`)
+          .gte("deadline_date", todayCOT())
+          .lte("deadline_date", forwardLimit)
           .limit(20);
 
         // Sync failures from today's Atenia AI report
@@ -434,8 +438,8 @@ Deno.serve(async (req) => {
               source_table: "work_item_deadlines",
               radicado: d.work_items?.radicado ?? null,
               work_item_title: d.work_items?.title ?? null,
-              text: `Término abierto (${d.deadline_type || "término"}) vence el ${d.due_date}`,
-              date: d.due_date ?? null,
+              text: `Término abierto (${d.label || d.deadline_type || "término"}) vence el ${d.deadline_date}`,
+              date: d.deadline_date ?? null,
             })),
           },
         };
