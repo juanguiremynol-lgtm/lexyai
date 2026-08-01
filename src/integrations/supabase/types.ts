@@ -14984,6 +14984,8 @@ export type Database = {
       }
       work_item_email_links: {
         Row: {
+          ai_classified: boolean
+          ai_classified_at: string | null
           attachment_names: string[] | null
           confidence: number
           connection_id: string | null
@@ -15013,6 +15015,8 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          ai_classified?: boolean
+          ai_classified_at?: string | null
           attachment_names?: string[] | null
           confidence: number
           connection_id?: string | null
@@ -15042,6 +15046,8 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          ai_classified?: boolean
+          ai_classified_at?: string | null
           attachment_names?: string[] | null
           confidence?: number
           connection_id?: string | null
