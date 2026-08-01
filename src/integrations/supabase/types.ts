@@ -17187,6 +17187,10 @@ export type Database = {
         Args: { p_bucket?: string; p_entity_id: string; p_kind: string }
         Returns: string
       }
+      business_days_between_sql: {
+        Args: { p_a: string; p_b: string }
+        Returns: number
+      }
       canon_act_fingerprint: {
         Args: {
           p_act_date: string
