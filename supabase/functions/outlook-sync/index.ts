@@ -239,8 +239,170 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 /**
  * Válvula de seguridad: la lectura universal del cuerpo cuesta una llamada a
  * Graph por mensaje. Sin tope, un barrido de 12 meses no termina nunca.
+ * En barridos encadenados el tope es POR CADENA, no por tramo.
  */
 const BODY_READS_PER_RUN = 300;
+
+/**
+ * El gateway HTTP corta a ~150 s. Un barrido de 12 meses no cabe en una sola
+ * invocación: se ejecuta por tramos de ~105 s que se auto-reinvocan.
+ */
+const CHUNK_BUDGET_MS = 105_000;
+/** Tope de tramos encadenados por barrido (freno de bucle infinito). */
+const CHAIN_CAP = 40;
+/** Una corrida RUNNING sin latido durante este tiempo se considera muerta. */
+const STALE_RUN_MS = 15 * 60_000;
+
+export interface SweepCheckpoint {
+  folder_index: number;
+  next_link: string | null;
+  since_iso: string;
+  chunk_index: number;
+  started_at: string;
+  messages_scanned: number;
+  folders: Record<string, number>;
+  earliest_message_at: string | null;
+  bodies_read: number;
+  ai_calls: number;
+  detected_new: number;
+  detected_updated: number;
+  detected_skipped: number;
+  links_created: number;
+  suggestions_created: number;
+  errors: number;
+  last_error: string | null;
+}
+
+export function newCheckpoint(sinceIso: string, startedAt: string): SweepCheckpoint {
+  return {
+    folder_index: 0,
+    next_link: null,
+    since_iso: sinceIso,
+    chunk_index: 0,
+    started_at: startedAt,
+    messages_scanned: 0,
+    folders: {},
+    earliest_message_at: null,
+    bodies_read: 0,
+    ai_calls: 0,
+    detected_new: 0,
+    detected_updated: 0,
+    detected_skipped: 0,
+    links_created: 0,
+    suggestions_created: 0,
+    errors: 0,
+    last_error: null,
+  };
+}
+
+interface SweepCtx {
+  runId: string;
+  checkpoint: SweepCheckpoint;
+  /** Instante de entrada a ESTA invocación: el presupuesto se mide desde aquí. */
+  invokedAt: number;
+}
+
+type SweepSummary = {
+  messages_scanned: number;
+  folders: Record<string, number>;
+  earliest_message_at: string | null;
+  bodies_read: number;
+  ai_calls: number;
+  detected_new: number;
+  detected_updated: number;
+  detected_skipped: number;
+  links_created: number;
+  suggestions_created: number;
+  reconciled: number;
+  errors: number;
+  last_error: string | null;
+};
+
+/** Vuelca los contadores acumulados de la cadena al checkpoint. */
+function syncCheckpointCounters(cp: SweepCheckpoint, s: SweepSummary) {
+  cp.messages_scanned = s.messages_scanned;
+  cp.folders = { ...s.folders };
+  cp.earliest_message_at = s.earliest_message_at;
+  cp.bodies_read = s.bodies_read;
+  cp.ai_calls = s.ai_calls;
+  cp.detected_new = s.detected_new;
+  cp.detected_updated = s.detected_updated;
+  cp.detected_skipped = s.detected_skipped;
+  cp.links_created = s.links_created;
+  cp.suggestions_created = s.suggestions_created;
+  cp.errors = s.errors;
+  cp.last_error = s.last_error;
+}
+
+/**
+ * Latido del barrido: cada tramo escribe contadores ACUMULADOS y el punto de
+ * reanudación, para que la UI muestre progreso real y la cadena pueda seguir.
+ */
+async function persistSweepProgress(
+  admin: Admin,
+  sweep: SweepCtx,
+  summary: SweepSummary,
+  status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED",
+  errorReason?: string,
+) {
+  syncCheckpointCounters(sweep.checkpoint, summary);
+  const patch: Record<string, unknown> = {
+    status,
+    checkpoint: sweep.checkpoint as unknown as Record<string, unknown>,
+    chunk_index: sweep.checkpoint.chunk_index,
+    messages_scanned: summary.messages_scanned,
+    folders: summary.folders,
+    earliest_message_at: summary.earliest_message_at,
+    bodies_read: summary.bodies_read,
+    ai_calls: summary.ai_calls,
+    detected_new: summary.detected_new,
+    detected_updated: summary.detected_updated,
+    detected_skipped: summary.detected_skipped,
+    reconciled: summary.reconciled,
+    links_created: summary.links_created,
+    suggestions_created: summary.suggestions_created,
+    errors: summary.errors,
+    last_error: errorReason ?? summary.last_error,
+    updated_at: new Date().toISOString(),
+  };
+  if (status !== "RUNNING") patch.finished_at = new Date().toISOString();
+  const { error } = await admin.from("sync_full_sweep_runs").update(patch).eq("id", sweep.runId);
+  if (error) console.error("[outlook-sync] sweep progress", error.message);
+}
+
+/**
+ * Auto-reinvocación: se dispara la siguiente invocación con la clave de
+ * servicio y se responde 200 de inmediato (fire-and-forget acotado).
+ */
+async function chainNextChunk(
+  admin: Admin,
+  sweep: SweepCtx,
+  summary: SweepSummary,
+): Promise<void> {
+  if (sweep.checkpoint.chunk_index + 1 >= CHAIN_CAP) {
+    await persistSweepProgress(admin, sweep, summary, "FAILED", "chain_cap");
+    return;
+  }
+  sweep.checkpoint.chunk_index += 1;
+  await persistSweepProgress(admin, sweep, summary, "RUNNING");
+
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/outlook-sync`;
+  const call = fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ full_sweep: true, resume_run_id: sweep.runId }),
+  }).catch((e) => console.error("[outlook-sync] chain", (e as Error).message));
+
+  const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } })
+    .EdgeRuntime;
+  // Se espera solo a que la petición salga: el hijo no bloquea al padre.
+  const dispatched = Promise.race([call, new Promise((r) => setTimeout(r, 3_000))]);
+  if (rt?.waitUntil) rt.waitUntil(dispatched);
+  else await dispatched;
+}
 
 /**
  * Único punto donde se arma `evidence_meta`. Solo persiste identificadores,
