@@ -7,6 +7,11 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  aiVerifyLinkProbe,
+  makeAiVerifyHealthSink,
+  AI_VERIFY_HEALTH_SERVICE,
+} from "../_shared/aiVerifyLink.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -275,6 +280,43 @@ Deno.serve(async (req) => {
         name: "ESTADOS_FRESHNESS",
         ok: false,
         detail: `Freshness check error: ${(freshErr as Error).message}`,
+      });
+    }
+
+    // Check: sonda viva de la verificación por IA (máx. 1 vez por hora).
+    try {
+      const { data: hb } = await supabase
+        .from("system_health_heartbeat")
+        .select("last_status, last_ok_at, updated_at")
+        .eq("service", AI_VERIFY_HEALTH_SERVICE)
+        .maybeSingle();
+      const lastAge = hb?.updated_at
+        ? Date.now() - new Date(hb.updated_at).getTime()
+        : Infinity;
+      if (lastAge > 55 * 60 * 1000) {
+        const verdict = await aiVerifyLinkProbe(
+          Deno.env.get("LOVABLE_API_KEY"),
+          makeAiVerifyHealthSink(supabase),
+        );
+        checks.push({
+          name: "AI_VERIFY_LINK",
+          ok: !!verdict,
+          detail: verdict
+            ? `Verificación IA activa (veredicto de sonda: ${verdict.verdict})`
+            : "⚠️ Verificación IA degradada: el gateway no devolvió veredicto",
+        });
+      } else {
+        checks.push({
+          name: "AI_VERIFY_LINK",
+          ok: hb?.last_status !== "ERROR",
+          detail: `Último latido de verificación IA: hace ${Math.round(lastAge / 60000)} min (${hb?.last_status ?? "SIN DATO"})`,
+        });
+      }
+    } catch (aiErr) {
+      checks.push({
+        name: "AI_VERIFY_LINK",
+        ok: false,
+        detail: `Error en sonda de verificación IA: ${(aiErr as Error).message}`,
       });
     }
 

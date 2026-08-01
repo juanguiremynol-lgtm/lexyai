@@ -212,3 +212,43 @@ export async function aiVerifyLink(
     return null;
   }
 }
+
+/**
+ * Sonda viva (smoke) de la capa de verificación por IA.
+ *
+ * Ejecuta una verificación sintética real contra el gateway y SIEMPRE escribe
+ * a través del sink de salud, de modo que `system_health_heartbeat` tenga
+ * datos desde el primer día aunque ningún correo multi-señal haya llegado.
+ * No persiste nada más que el latido.
+ */
+export async function aiVerifyLinkProbe(
+  apiKey: string | undefined,
+  health: AiVerifyHealthSink,
+): Promise<AiLinkVerdict | null> {
+  if (!apiKey) {
+    await health({ ok: false, message: "LOVABLE_API_KEY ausente" });
+    return null;
+  }
+  return await aiVerifyLink(
+    {
+      wi: {
+        radicado: "05001333301520260011300",
+        demandantes: "SANDRA MILENA HERNANDEZ",
+        demandados: "NACION - MINISTERIO DE DEFENSA",
+        authority_name: "Juzgado 15 Administrativo Oral de Medellín",
+        authority_city: "Medellín",
+        workflow_type: "CPACA",
+      },
+      subject: "Notificación auto admisorio - Rad. 05001333301520260011300",
+      sender: "j15admmed@cendoj.ramajudicial.gov.co",
+      bodyText:
+        "Se notifica el auto admisorio de la demanda dentro del proceso de nulidad y " +
+        "restablecimiento del derecho promovido por SANDRA MILENA HERNANDEZ contra la " +
+        "NACION - MINISTERIO DE DEFENSA, radicado 05001333301520260011300.",
+      signals: ["RADICADO", "PARTE", "DESPACHO"],
+    },
+    { calls: 0, disabled: false } as AiGatewayState,
+    apiKey,
+    health,
+  );
+}
