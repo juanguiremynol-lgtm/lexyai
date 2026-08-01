@@ -439,6 +439,98 @@ function isJudicialSender(address: string): boolean {
   return JUDICIAL_DOMAINS.some((d) => address.endsWith(`@${d}`) || address.endsWith(`.${d}`));
 }
 
+/** Público: ¿la dirección pertenece a un dominio judicial reconocido? */
+export function isJudicialAddress(address: string | null | undefined): boolean {
+  return isJudicialSender(String(address ?? "").toLowerCase());
+}
+
+/**
+ * ITERACIÓN 5 — lectura universal del cuerpo.
+ *
+ * Un mensaje es "contraparte judicial" cuando el remitente O alguno de los
+ * destinatarios pertenece a un dominio judicial. Cubre las dos direcciones:
+ * la notificación que entra del despacho y el memorial que sale hacia él.
+ */
+export function isJudicialCounterpart(msg: GraphMessage): boolean {
+  if (isJudicialSender(senderAddress(msg))) return true;
+  return (msg.toRecipients ?? []).some((r) =>
+    isJudicialSender((r.emailAddress?.address ?? "").toLowerCase())
+  );
+}
+
+/** Tope duro de lectura en memoria: 20KB de texto. El cuerpo NUNCA se persiste. */
+export const BODY_TEXT_CAP = 20_000;
+
+const HTML_ENTITIES: Record<string, string> = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú",
+  Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú",
+  ntilde: "ñ", Ntilde: "Ñ", uuml: "ü", Uuml: "Ü",
+  ordf: "ª", ordm: "º", deg: "°", mdash: "—", ndash: "–", hellip: "…",
+};
+
+/**
+ * Convierte el cuerpo (HTML o texto) a texto plano acotado. Se usa solo en
+ * memoria: el resultado se descarta apenas se extraen los identificadores.
+ */
+export function bodyToText(body: string | null | undefined, cap = BODY_TEXT_CAP): string {
+  let text = String(body ?? "")
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h\d)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  text = text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&([a-zA-Z]+);/g, (whole, name) => HTML_ENTITIES[name] ?? whole);
+  return text.replace(/[ \t\u00a0]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, cap);
+}
+
+/**
+ * Anclas etiquetadas que los despachos usan en el CUERPO cuando el asunto no
+ * trae el radicado ("REF.: 08001600125720253122600-").
+ */
+export const BODY_RADICADO_ANCHORS: RegExp[] = [
+  /REF\.?:?\s*([\d\s.\-/]{21,45})/gi,
+  /EXPEDIENTE:?\s*([\d\s.\-/]{21,45})/gi,
+  /(?:n[uú]mero\s+(?:de\s+)?radicaci[oó]n|radicaci[oó]n|radicado|proceso)\s*(?:n[oº°.]*)?\s*:?\s*([\d\s.\-/]{21,45})/gi,
+  /TUTELA\s*(?:n[oº°.]*)?\s*:?\s*([\d\s.\-/]{21,45})/gi,
+];
+
+/**
+ * Extrae radicados de un cuerpo leído en memoria: primero por ancla
+ * etiquetada, y siempre complementado con el extractor genérico anclado por
+ * límites de dígito. Devuelve candidatos base+instancia (modelo 4.2).
+ */
+export function extractBodyRadicadoCandidates(body: string): RadicadoCandidate[] {
+  const text = bodyToText(body);
+  const byBase = new Map<string, RadicadoCandidate>();
+  const push = (c: RadicadoCandidate | null) => {
+    if (!c) return;
+    const prev = byBase.get(c.base);
+    if (!prev || (prev.instance === null && c.instance !== null)) byBase.set(c.base, c);
+  };
+  for (const re of BODY_RADICADO_ANCHORS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const digits = (m[1] ?? "").replace(/\D/g, "");
+      if (digits.length === 23 || digits.length === 21) push(decomposeRadicado(digits));
+      else if (digits.length > 23) {
+        for (let i = 0; i + 23 <= digits.length; i++) push(decomposeRadicado(digits.slice(i, i + 23)));
+      }
+    }
+  }
+  for (const c of extractRadicadoCandidates(text)) push(c);
+  return [...byBase.values()];
+}
+
+/** Identificador secundario NIJ: metadato, JAMÁS clave de identidad. */
+export function extractNij(text: string | null | undefined): string | null {
+  const m = String(text ?? "").match(/NIJ:?\s*([\d][\d-]{3,11})/i);
+  return m ? m[1].replace(/-$/, "") : null;
+}
+
 /**
  * Exclusiones duras del matcher (punto 5 de la política ratificada):
  *   - correos de monitoreo de la propia Andromeda (evidencia circular);

@@ -32,10 +32,22 @@ import {
   isRepartoMessage,
   extractRepartoRadicados,
   buildOwnerIdentity,
+  isJudicialCounterpart,
+  isJudicialAddress,
+  bodyToText,
+  extractBodyRadicadoCandidates,
+  extractNij,
   type OwnerIdentity,
   type GraphMessage,
   type PortfolioItem,
 } from "../_shared/emailMatcher.ts";
+import {
+  aiClassifyEmail,
+  newAiGatewayState,
+  AI_CONFIDENCE_CAP,
+  type AiClassification,
+  type AiGatewayState,
+} from "../_shared/aiClassifyEmail.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -210,7 +222,59 @@ interface SyncOptions {
   lookbackMonths: number;
 }
 
-async function syncConnection(admin: Admin, conn: Connection, options: SyncOptions) {
+/**
+ * Lectura universal del cuerpo (iteración 5). Se pide a Graph solo el campo
+ * `body`, se convierte a texto acotado a 20KB y se descarta apenas se extraen
+ * los identificadores: nunca se persiste.
+ */
+async function fetchBodyText(accessToken: string, messageId: string): Promise<string> {
+  const full = await graphGet(
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=body`,
+    accessToken,
+  );
+  return bodyToText(((full as { body?: { content?: string } }).body?.content ?? "") as string);
+}
+
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+/**
+ * Válvula de seguridad: la lectura universal del cuerpo cuesta una llamada a
+ * Graph por mensaje. Sin tope, un barrido de 12 meses no termina nunca.
+ */
+const BODY_READS_PER_RUN = 300;
+
+/**
+ * Único punto donde se arma `evidence_meta`. Solo persiste identificadores,
+ * subtipo, resumen (<=200) y marcas de tiempo: JAMÁS el cuerpo del correo.
+ */
+export function buildEvidenceMeta(
+  base: Record<string, unknown> | null,
+  extra: {
+    instanceObserved?: string | null;
+    matchedInBody?: boolean;
+    nij?: string | null;
+    ai?: AiClassification | null;
+  },
+): Record<string, unknown> | null {
+  const meta: Record<string, unknown> = { ...(base ?? {}) };
+  if (extra.instanceObserved) meta.instance_observed = extra.instanceObserved;
+  if (extra.matchedInBody) meta.matched_in = "body";
+  if (extra.nij) meta.nij = extra.nij;
+  if (extra.ai) {
+    meta.ai_classified = true;
+    meta.ai_confidence = AI_CONFIDENCE_CAP;
+    if (extra.ai.resumen) meta.ai_summary = extra.ai.resumen.slice(0, 200);
+    if (extra.ai.audiencia_fecha) meta.audiencia_fecha = extra.ai.audiencia_fecha;
+    if (extra.ai.termino_dias) meta.termino_dias = extra.ai.termino_dias;
+  }
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
+async function syncConnection(
+  admin: Admin,
+  conn: Connection,
+  options: SyncOptions,
+  aiState: AiGatewayState,
+) {
   const startedAt = new Date().toISOString();
   const summary = {
     connection_id: conn.id,
@@ -225,6 +289,9 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     detected_updated: 0,
     detected_skipped: 0,
     reconciled: 0,
+    bodies_read: 0,
+    ai_calls: 0,
+    ai_classified: 0,
     errors: 0,
     last_error: null as string | null,
     folders: {} as Record<string, number>,
@@ -328,17 +395,90 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
       let repartoRadicados: string[] = [];
       if (isRepartoMessage(msg)) {
         try {
-          const full = await graphGet(
-            `https://graph.microsoft.com/v1.0/me/messages/${msg.id}?$select=body`,
-            accessToken,
-          );
-          const bodyContent =
-            ((full as { body?: { content?: string } }).body?.content ?? "") as string;
-          repartoRadicados = extractRepartoRadicados(bodyContent);
+          repartoRadicados = extractRepartoRadicados(await fetchBodyText(accessToken, msg.id));
+          summary.bodies_read++;
         } catch (e) {
           console.error("[outlook-sync] reparto body", (e as Error).message);
         }
       }
+
+      // ---- PARTE A (iter 5): lectura universal del cuerpo judicial ----
+      // Todo mensaje con contraparte judicial cuyo ASUNTO no produjo match se
+      // relee en memoria: el radicado suele vivir solo en la línea "REF.:".
+      const judicial = isJudicialCounterpart(msg);
+      let bodyText = "";
+      let bodyMatched = false;
+      let nij: string | null = null;
+      const bodyCandidates: { canonical: string; instance: string | null }[] = [];
+
+      // Se relee el cuerpo cuando el ASUNTO no produjo un match POR RADICADO:
+      // un match por nombre de parte no acredita identidad procesal, y el
+      // radicado real suele vivir en la línea "REF.:" del cuerpo.
+      const radicadoMatched = matches.some((m) => m.matched_by.startsWith("RADICADO"));
+      if (judicial && !radicadoMatched && summary.bodies_read < BODY_READS_PER_RUN) {
+        try {
+          bodyText = await fetchBodyText(accessToken, msg.id);
+          summary.bodies_read++;
+        } catch (e) {
+          console.error("[outlook-sync] body read", (e as Error).message);
+        }
+      }
+
+      if (bodyText) {
+        nij = extractNij(`${msg.subject ?? ""}\n${bodyText}`);
+        for (const c of extractBodyRadicadoCandidates(bodyText)) {
+          bodyCandidates.push({ canonical: c.canonical, instance: c.instance });
+        }
+        // Los radicados del cuerpo entran al pipeline normal: se rematchea el
+        // mensaje sustituyendo el preview por el texto leído en memoria.
+        const bodyMatches = matchMessage(
+          { ...msg, bodyPreview: bodyText },
+          portfolio,
+          { selfAddress: conn.ms_account_email ?? null, owner },
+        );
+        for (const bm of bodyMatches) {
+          if (!matches.some((m) => m.work_item_id === bm.work_item_id)) {
+            matches.push(bm);
+            bodyMatched = true;
+          }
+        }
+      }
+
+      // ---- PARTE B (iter 5): capa semántica IA sobre lo opaco ----
+      let ai: AiClassification | null = null;
+      const regexSubtype = f.direction === "received"
+        ? classifyEvidenceSubtype(
+          msg.subject,
+          msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
+        )
+        : null;
+      const senderJudicial = isJudicialAddress(
+        msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
+      );
+      if (
+        f.direction === "received" && senderJudicial && matches.length > 0 &&
+        (regexSubtype === null || regexSubtype === "OTRO_JUDICIAL" ||
+          // La citación necesita la FECHA de la audiencia, que el regex no da.
+          regexSubtype === "CITACION_AUDIENCIA")
+      ) {
+        if (!bodyText) {
+          try {
+            bodyText = await fetchBodyText(accessToken, msg.id);
+            summary.bodies_read++;
+            nij = nij ?? extractNij(`${msg.subject ?? ""}\n${bodyText}`);
+          } catch (e) {
+            console.error("[outlook-sync] ai body read", (e as Error).message);
+          }
+        }
+        if (bodyText) {
+          const before = aiState.calls;
+          ai = await aiClassifyEmail({ subject: msg.subject, bodyText }, aiState, LOVABLE_API_KEY);
+          summary.ai_calls += aiState.calls - before;
+          if (ai) summary.ai_classified++;
+        }
+      }
+      // El cuerpo muere aquí: solo sobreviven identificadores y metadatos.
+      bodyText = "";
 
       // FASE C — radicados válidos que NO están en la cartera del usuario.
       // Nunca se crea el expediente en silencio: solo se encola para triage.
@@ -348,6 +488,18 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
       ) {
         if (!detectedCandidates.has(c.base)) {
           detectedCandidates.set(c.base, { canonical: c.canonical, instance: c.instance });
+        }
+      }
+      for (const c of bodyCandidates) {
+        const d = decomposeStoredRadicado(c.canonical);
+        if (d && !detectedCandidates.has(d.base)) {
+          detectedCandidates.set(d.base, { canonical: c.canonical, instance: c.instance });
+        }
+      }
+      for (const rad of ai?.radicados ?? []) {
+        const d = decomposeStoredRadicado(rad);
+        if (d && !detectedCandidates.has(d.base)) {
+          detectedCandidates.set(d.base, { canonical: d.canonical, instance: d.instance });
         }
       }
       for (const rad of repartoRadicados) {
@@ -490,18 +642,18 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
           matched_value: match.matched_value,
           confidence: match.confidence,
           evidence_type: evidence,
-          evidence_subtype:
-            f.direction === "received"
-              ? classifyEvidenceSubtype(
-                  msg.subject,
-                  msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
-                )
-              : null,
+          // El AI solo desempata lo opaco: nunca pisa una certeza del regex.
+          evidence_subtype: f.direction === "received" ? (ai?.subtype ?? regexSubtype) : null,
           memorial_subtype:
             f.direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
-          evidence_meta: match.instance_observed
-            ? { ...(evidenceMeta ?? {}), instance_observed: match.instance_observed }
-            : evidenceMeta,
+          evidence_meta: buildEvidenceMeta(evidenceMeta, {
+            instanceObserved: match.instance_observed ?? ai?.instancia ?? null,
+            matchedInBody: bodyMatched,
+            nij,
+            ai,
+          }),
+          ai_classified: Boolean(ai),
+          ai_classified_at: ai ? new Date().toISOString() : null,
           low_content: isLowContentMessage(msg),
           link_status: linkStatus,
         };
@@ -549,7 +701,10 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
 
   // El gateway HTTP corta a ~150 s: el resumen se persiste server-side para
   // que la UI pueda leerlo aunque el invocador nunca reciba la respuesta.
-  const { error: runErr } = await admin.from("sync_full_sweep_runs").insert({
+  // Solo los barridos completos dejan fila: un delta sin novedades escribiría
+  // un resumen con scanned=0 que confunde la lectura de cobertura.
+  if (options.fullSweep) {
+    const { error: runErr } = await admin.from("sync_full_sweep_runs").insert({
     user_id: conn.user_id,
     organization_id: conn.organization_id,
     connection_id: conn.id,
@@ -569,8 +724,9 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     suggestions_created: summary.suggestions_created,
     errors: summary.errors,
     last_error: summary.last_error,
-  });
-  if (runErr) console.error("[outlook-sync] sweep run insert", runErr.message);
+    });
+    if (runErr) console.error("[outlook-sync] sweep run insert", runErr.message);
+  }
 
   return summary;
 }
@@ -625,9 +781,13 @@ Deno.serve(async (req) => {
     }
 
     const results: unknown[] = [];
+    // Tope de 50 llamadas de IA por corrida, compartido entre conexiones.
+    const aiState = newAiGatewayState();
     for (const conn of connections) {
       try {
-        results.push(await syncConnection(admin, conn, { fullSweep, lookbackMonths }));
+        results.push(
+          await syncConnection(admin, conn, { fullSweep, lookbackMonths }, aiState),
+        );
       } catch (e) {
         const message = e instanceof Error ? e.message : "Error inesperado";
         console.error("[outlook-sync] connection failed", conn.id, message);
