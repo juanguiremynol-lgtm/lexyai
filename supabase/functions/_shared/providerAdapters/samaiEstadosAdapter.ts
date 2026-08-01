@@ -109,7 +109,8 @@ async function fetchMonitoring(
 
   if (result.ok && result.data) {
     const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
-    const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches);
+    const rowOutcomes: NonNullable<ProviderAdapterResult['rowOutcomes']> = [];
+    const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches, rowOutcomes);
     return {
       provider: PROVIDER_KEY,
       status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
@@ -120,6 +121,7 @@ async function fetchMonitoring(
       durationMs: Date.now() - startTime,
       httpStatus: result.httpStatus,
       identityMismatches,
+      rowOutcomes,
     };
   }
 
@@ -162,7 +164,8 @@ async function fetchDiscovery(
   }
 
   const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
-  const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches);
+  const rowOutcomes: NonNullable<ProviderAdapterResult['rowOutcomes']> = [];
+  const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches, rowOutcomes);
 
   return {
     provider: PROVIDER_KEY,
@@ -174,6 +177,7 @@ async function fetchDiscovery(
     durationMs: Date.now() - startTime,
     httpStatus: 200,
     identityMismatches,
+    rowOutcomes,
   };
 }
 
@@ -265,6 +269,7 @@ export function normalizeSamaiEstadosResponse(
   data: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII' | 'expectedParties'>,
   identityMismatches?: NonNullable<ProviderAdapterResult['identityMismatches']>,
+  rowOutcomes?: NonNullable<ProviderAdapterResult['rowOutcomes']>,
 ): NormalizedPublicacion[] {
   const resultado = data?.result || data;
   // samai-estados-api POST /snapshot returns rows under `actuaciones`; older read-api
@@ -276,6 +281,11 @@ export function normalizeSamaiEstadosResponse(
   return rawEstados
     .map((e: any) => {
       if (!corroborateParties(e, options?.expectedParties)) {
+        rowOutcomes?.push({
+          bucket: 'REJECTED_PARTIES',
+          title: String(e['Actuación'] ?? e.actuacion ?? 'Sin título'),
+          reason: 'No party token overlap with the resolved work item',
+        });
         identityMismatches?.push({
           provider: PROVIDER_KEY,
           fecha: normalizeDate(
@@ -287,7 +297,15 @@ export function normalizeSamaiEstadosResponse(
         });
         return null;
       }
-      return normalizeOneEstado(e, options);
+      const normalized = normalizeOneEstado(e, options);
+      rowOutcomes?.push(normalized
+        ? { bucket: 'READY', title: normalized.title, reason: 'Normalized for persistence' }
+        : {
+            bucket: 'ERROR',
+            title: String(e['Actuación'] ?? e.actuacion ?? 'Sin título'),
+            reason: 'Provider row has neither a usable date nor title',
+          });
+      return normalized;
     })
     .filter((p: NormalizedPublicacion | null): p is NormalizedPublicacion => p !== null);
 }
