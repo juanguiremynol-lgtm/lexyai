@@ -245,6 +245,12 @@ export interface ProviderAdapterResult {
     payload_demandante: string | null;
     payload_demandado: string | null;
   }>;
+  /** Terminal normalization outcome for every provider row received. */
+  rowOutcomes?: Array<{
+    bucket: 'READY' | 'REJECTED_PARTIES' | 'ERROR';
+    title: string;
+    reason: string;
+  }>;
   // Scraping job fields (for async providers)
   scrapingJobId?: string;
   scrapingPollUrl?: string;

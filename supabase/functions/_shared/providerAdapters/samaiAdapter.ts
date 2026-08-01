@@ -463,7 +463,7 @@ export function computeSamaiFingerprint(
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix): same act reported by SAMAI and CPNU
   // must produce the same fingerprint so the RPC upsert dedupes.
   return canonicalActFingerprint({
-    work_item_id: options.workItemId,
+    work_item_id: options.workItemId ?? null,
     act_date: fecha,
     actuacion,
     party_hint: null,

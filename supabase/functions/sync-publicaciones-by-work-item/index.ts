@@ -89,8 +89,51 @@ type SyncResult = {
     merged_new?: number;
     contract_mismatch?: boolean;
     error?: string;
+    parsed_count?: number;
+    accounted_count?: number;
+    buckets?: Record<SamaiPersistBucket, number>;
+    examples?: Partial<Record<SamaiPersistBucket, SamaiBucketExample[]>>;
   };
 };
+
+type SamaiPersistBucket =
+  | 'INSERTED'
+  | 'SKIPPED_DUPLICATE'
+  | 'SKIPPED_CROSS_SOURCE'
+  | 'REJECTED_PARTIES'
+  | 'REJECTED_TRIGGER'
+  | 'ERROR';
+
+type SamaiBucketExample = { radicado: string; title: string; reason: string };
+
+function emptySamaiBuckets(): Record<SamaiPersistBucket, number> {
+  return {
+    INSERTED: 0,
+    SKIPPED_DUPLICATE: 0,
+    SKIPPED_CROSS_SOURCE: 0,
+    REJECTED_PARTIES: 0,
+    REJECTED_TRIGGER: 0,
+    ERROR: 0,
+  };
+}
+
+function recordSamaiOutcome(
+  summary: NonNullable<SyncResult['samai_estados_summary']>,
+  radicado: string,
+  bucket: SamaiPersistBucket,
+  title: string,
+  reason: string,
+): void {
+  summary.buckets ??= emptySamaiBuckets();
+  summary.examples ??= {};
+  summary.buckets[bucket] += 1;
+  if (bucket !== 'INSERTED') {
+    const examples = summary.examples[bucket] ?? [];
+    if (examples.length < 3) examples.push({ radicado, title, reason });
+    summary.examples[bucket] = examples;
+    console.log(`[sync-pub][samai_estados][${bucket}] radicado=${radicado} title="${title.slice(0, 120)}" reason="${reason.slice(0, 300)}"`);
+  }
+}
 
 type PublicacionV3 = {
   key: string;
@@ -240,7 +283,7 @@ async function writePublicacionesAttemptRow(
     const invokedBy = (scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
     const status =
       outcome === 'error' ? 'FAILED'
-      : outcome === 'empty' ? 'PARTIAL'
+      : outcome === 'empty' ? 'SUCCESS'
       : 'SUCCESS';
     await supabase.from('external_sync_runs').insert({
       work_item_id: workItemId,
@@ -281,6 +324,9 @@ async function writePublicacionesAttemptRow(
       total_inserted_pubs: result?.inserted_count || 0,
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
+      details: result?.samai_estados_summary
+        ? { samai_estados: result.samai_estados_summary }
+        : {},
     });
   } catch (_e) { /* best-effort */ }
 }
@@ -1522,6 +1568,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       const samaiStart = Date.now();
       const samaiSummary: NonNullable<SyncResult['samai_estados_summary']> = {
         called: false,
+        buckets: emptySamaiBuckets(),
+        examples: {},
       };
 
       if (!samaiEstadosBaseUrl) {
@@ -1556,6 +1604,15 @@ Deno.serve(withSyncTimeline(async (req) => {
           });
 
           const mismatches = samaiRes.identityMismatches ?? [];
+          const normalizationOutcomes = samaiRes.rowOutcomes ?? [];
+          samaiSummary.parsed_count = normalizationOutcomes.length;
+          for (const outcome of normalizationOutcomes) {
+            if (outcome.bucket === 'REJECTED_PARTIES') {
+              recordSamaiOutcome(samaiSummary, normalizedRadicado, 'REJECTED_PARTIES', outcome.title, outcome.reason);
+            } else if (outcome.bucket === 'ERROR') {
+              recordSamaiOutcome(samaiSummary, normalizedRadicado, 'ERROR', outcome.title, outcome.reason);
+            }
+          }
           if (mismatches.length > 0) {
             const msg =
               `[IDENTITY_MISMATCH] SAMAI Estados descartó ${mismatches.length} fila(s) sin corroboración de partes ` +
@@ -1630,7 +1687,16 @@ Deno.serve(withSyncTimeline(async (req) => {
               const pubFecha = np.fecha_fijacion || '';
               const pubTitle = (np.title || '').slice(0, 30).toLowerCase();
               const key = `${pubFecha}|${pubTitle}`;
-              if (existingKeys.has(key)) continue;
+              if (existingKeys.has(key)) {
+                recordSamaiOutcome(
+                  samaiSummary,
+                  normalizedRadicado,
+                  'SKIPPED_CROSS_SOURCE',
+                  np.title,
+                  'Matched a Publicaciones row in the same provider response by date and normalized title',
+                );
+                continue;
+              }
 
               const hashDoc = np.hash_fingerprint;
               const v3: PublicacionV3 = {
@@ -1659,6 +1725,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 },
                 raw_data: (np as any).raw_data,
                 _source_provider: 'samai_estados',
+                _samai_row: true,
               } as PublicacionV3;
               fetchResult.publicaciones.push(v3);
               existingKeys.add(key);
@@ -2011,6 +2078,9 @@ Deno.serve(withSyncTimeline(async (req) => {
 
       if (refreshedLegacyIds.length > 0) {
         result.skipped_count += refreshedLegacyIds.length;
+        if (isSamai && result.samai_estados_summary) {
+          recordSamaiOutcome(result.samai_estados_summary, normalizedRadicado, 'SKIPPED_CROSS_SOURCE', pub.titulo || 'Sin título', 'Refreshed an existing legacy publication row');
+        }
         continue;
       }
 
@@ -2044,8 +2114,35 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-pub] RPC client error: ${JSON.stringify(insertError)}`);
         result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
+        if (isSamai && result.samai_estados_summary) {
+          recordSamaiOutcome(
+            result.samai_estados_summary,
+            normalizedRadicado,
+            'ERROR',
+            pub.titulo || 'Sin título',
+            insertError.message,
+          );
+        }
       } else {
-        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors?: string[] };
+        const counts = rpcResult as {
+          inserted_count: number;
+          updated_count: number;
+          skipped_count: number;
+          errors?: string[];
+          outcomes?: Array<{ bucket: SamaiPersistBucket; title?: string; reason?: string }>;
+        };
+        if (isSamai && result.samai_estados_summary) {
+          const terminal = counts.outcomes?.[0];
+          if (terminal) {
+            recordSamaiOutcome(
+              result.samai_estados_summary,
+              normalizedRadicado,
+              terminal.bucket,
+              terminal.title || pub.titulo || 'Sin título',
+              terminal.reason || terminal.bucket,
+            );
+          }
+        }
         
         // ── Check for RPC-internal errors (caught by EXCEPTION handler inside RPC) ──
         if (counts.errors && counts.errors.length > 0 && counts.errors.some((e: string) => e.length > 0)) {
@@ -2309,6 +2406,20 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // BUG FIX 2.3: If errors[] is non-empty, classify as PARTIAL, not SUCCESS
+    if (result.samai_estados_summary?.called) {
+      const summary = result.samai_estados_summary;
+      summary.accounted_count = Object.values(summary.buckets ?? {}).reduce((sum, count) => sum + count, 0);
+      const parsed = summary.parsed_count ?? summary.raw_count ?? 0;
+      if (parsed > summary.accounted_count) {
+        const missing = parsed - summary.accounted_count;
+        for (let i = 0; i < missing; i++) {
+          recordSamaiOutcome(summary, normalizedRadicado, 'ERROR', 'Fila SAMAI no identificada', 'Parsed row reached no terminal persistence bucket');
+        }
+        summary.accounted_count = parsed;
+        result.errors.push(`PERSIST_MISMATCH: ${missing} SAMAI row(s) were not accounted`);
+      }
+    }
+
     if (result.errors.length > 0) {
       if (result.inserted_count > 0) {
         result.ok = true;
@@ -2500,6 +2611,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           : (result.samai_estados_summary?.contract_mismatch
               ? `CONTRACT_MISMATCH: SAMAI Estados EMPTY with recent Fijación actuaciones (${result.samai_estados_summary.raw_count ?? 0} raw)`
               : null),
+        details: result.samai_estados_summary
+          ? { samai_estados: result.samai_estados_summary }
+          : {},
       });
     } catch (_traceErr) { /* best-effort */ }
 
