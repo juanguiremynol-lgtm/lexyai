@@ -45,6 +45,7 @@ export const KNOWN_SERVICES: Record<string, string> = {
   'ICARUS_IMPORT': 'Importación ICARUS',
   'UI_ERROR': 'Error de Interfaz',
   'API_SYNC': 'Sincronización API',
+  'AI_VERIFY_LINK': 'Verificación IA de vínculos',
 };
 
 /**

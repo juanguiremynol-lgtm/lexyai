@@ -49,7 +49,7 @@ import {
   type AiClassification,
   type AiGatewayState,
 } from "../_shared/aiClassifyEmail.ts";
-import { aiVerifyLink } from "../_shared/aiVerifyLink.ts";
+import { aiVerifyLink, makeAiVerifyHealthSink } from "../_shared/aiVerifyLink.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -897,7 +897,7 @@ async function syncConnection(
               sender: msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
               bodyText: verifyBody,
               signals: match.match_signals ?? [],
-            }, aiState, LOVABLE_API_KEY);
+            }, aiState, LOVABLE_API_KEY, makeAiVerifyHealthSink(admin));
             summary.ai_calls += aiState.calls - before;
           }
           if (aiVerdict) {
