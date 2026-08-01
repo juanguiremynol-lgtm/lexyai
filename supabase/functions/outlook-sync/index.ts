@@ -405,6 +405,66 @@ async function chainNextChunk(
 }
 
 /**
+ * Abre un barrido completo. Guarda de concurrencia: si ya hay uno RUNNING con
+ * latido fresco se devuelve su id; los RUNNING muertos (>15 min) se marcan
+ * SUPERSEDED y no bloquean.
+ */
+async function startSweepRun(
+  admin: Admin,
+  conn: Connection,
+  lookbackMonths: number,
+): Promise<{ sweep: SweepCtx } | { busy: string }> {
+  const staleBefore = new Date(Date.now() - STALE_RUN_MS).toISOString();
+
+  const { data: running } = await admin
+    .from("sync_full_sweep_runs")
+    .select("id, updated_at")
+    .eq("connection_id", conn.id)
+    .eq("status", "RUNNING")
+    .order("updated_at", { ascending: false });
+
+  for (const r of (running ?? []) as { id: string; updated_at: string }[]) {
+    if (r.updated_at > staleBefore) return { busy: r.id };
+  }
+  if ((running ?? []).length > 0) {
+    await admin
+      .from("sync_full_sweep_runs")
+      .update({ status: "SUPERSEDED", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("connection_id", conn.id)
+      .eq("status", "RUNNING");
+  }
+
+  const startedAt = new Date().toISOString();
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - lookbackMonths);
+  const sinceIso = since.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+  const { data: run, error } = await admin
+    .from("sync_full_sweep_runs")
+    .insert({
+      user_id: conn.user_id,
+      organization_id: conn.organization_id,
+      connection_id: conn.id,
+      full_sweep: true,
+      lookback_months: lookbackMonths,
+      status: "RUNNING",
+      started_at: startedAt,
+      checkpoint: newCheckpoint(sinceIso, startedAt) as unknown as Record<string, unknown>,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`No se pudo abrir el barrido: ${error.message}`);
+
+  return {
+    sweep: {
+      runId: run.id as string,
+      checkpoint: newCheckpoint(sinceIso, startedAt),
+      invokedAt: Date.now(),
+    },
+  };
+}
+
+/**
  * Único punto donde se arma `evidence_meta`. Solo persiste identificadores,
  * subtipo, resumen (<=200) y marcas de tiempo: JAMÁS el cuerpo del correo.
  */
