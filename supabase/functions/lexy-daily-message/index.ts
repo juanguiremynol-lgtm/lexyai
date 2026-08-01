@@ -133,14 +133,9 @@ Vas a escribir el mensaje diario para un abogado. El mensaje debe ser:
 Nombre: ${userData.userName}
 Hora actual: ${timeStr}
 
-### Nuevas actuaciones (${userData.newActuaciones.length}):
-${userData.newActuaciones.map((a) => `- Rad: ${a.radicado} | ${a.description} | ${a.act_date} | Asunto: ${a.work_item_title}`).join("\n") || "Ninguna"}
+## FUENTES ÚNICAS AUTORIZADAS (grounding)
 
-### Nuevos estados (${userData.newPublicaciones.length}):
-${userData.newPublicaciones.map((p) => `- Rad: ${p.radicado} | ${p.tipo_publicacion} | Fijación: ${p.fecha_fijacion} | Términos inician: ${p.terminos_inician || "N/A"} | Asunto: ${p.work_item_title}`).join("\n") || "Ninguno"}
-
-### Alertas pendientes (${userData.unresolvedAlerts.length}):
-${userData.unresolvedAlerts.map((a) => `- [${a.severity}] ${a.title}: ${a.message}`).join("\n") || "Ninguna"}
+${buildGroundingBlock(userData.facts)}
 
 ### Fallos de sincronización:
 ${userData.syncFailures.map((f) => `- Rad: ${f.radicado} — ${f.diagnostic_message_es}`).join("\n") || "Todos los asuntos se sincronizaron correctamente"}
@@ -157,7 +152,12 @@ Genera un JSON con esta estructura exacta (sin markdown, solo JSON puro):
   "closing": "Frase de cierre breve"
 }
 
-Si no hay novedades, genera un mensaje breve y positivo.
+REGLAS DE VERACIDAD (obligatorias):
+- SOLO puedes mencionar hechos listados arriba. Nada más existe.
+- Está PROHIBIDO mencionar procesos, autos, embargos o providencias que no aparezcan en la lista.
+- Si la sección de las últimas 24 horas dice NINGUNO, debes decir exactamente: "${EMPTY_WINDOW_STATEMENT}" y limitarte a los términos próximos (${FORWARD_DEADLINE_DAYS} días).
+- Nunca reutilices información de resúmenes anteriores.
+- No incluyas los identificadores internos (source_table#id) en el texto.
 Si hay eventos CRITICAL (sentencias, fallos), empieza con esos.
 Si hay términos que inician hoy o mañana, resáltalos con ⏰.
 NUNCA inventes datos. Solo usa la información proporcionada.
@@ -195,13 +195,17 @@ Máximo 5 highlights.`;
 
     const parsed = JSON.parse(jsonStr);
 
-    return {
-      greeting: parsed.greeting || `Buenos días, ${userData.userName}`,
-      summary_body: parsed.body || parsed.summary_body || "Sin novedades hoy.",
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 5) : [],
-      closing: parsed.closing || "Que tengas un excelente día.",
-      alerts_included: userData.unresolvedAlerts.map((a) => a.id),
-    };
+    const sanitized = sanitizeDigest(
+      {
+        greeting: parsed.greeting || `Buenos días, ${userData.userName}`,
+        summary_body: parsed.body || parsed.summary_body || EMPTY_WINDOW_STATEMENT,
+        highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 5) : [],
+        closing: parsed.closing || "Que tengas un excelente día.",
+      },
+      userData.facts,
+    );
+
+    return { ...sanitized, alerts_included: userData.unresolvedAlerts.map((a) => a.id) };
   } catch (err) {
     console.error("[lexy] Gemini error:", err);
     return generateQuietMessage(userData.userName);
