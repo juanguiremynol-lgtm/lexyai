@@ -394,10 +394,51 @@ export function useSuggestedEmailLinks() {
         )
         .eq("link_status", "SUGGESTED")
         .order("received_at", { ascending: false })
-        .limit(100);
+        .limit(400);
       if (error) throw error;
       return (data ?? []) as unknown as SuggestedEmailLink[];
     },
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Descarte en bloque por MENSAJE: se descartan todas las filas hermanas de
+ * cada internet_message_id (misma semántica que el descarte por tarjeta).
+ */
+export function useBulkDismissEmailMessages() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (keys: { internetMessageId: string | null; messageId: string | null }[]) => {
+      const internetIds = keys.map((k) => k.internetMessageId).filter((v): v is string => Boolean(v));
+      const messageIds = keys
+        .filter((k) => !k.internetMessageId)
+        .map((k) => k.messageId)
+        .filter((v): v is string => Boolean(v));
+
+      if (internetIds.length > 0) {
+        const { error } = await supabase
+          .from("work_item_email_links")
+          .update({ link_status: "DISMISSED" })
+          .eq("link_status", "SUGGESTED")
+          .in("internet_message_id", internetIds);
+        if (error) throw error;
+      }
+      if (messageIds.length > 0) {
+        const { error } = await supabase
+          .from("work_item_email_links")
+          .update({ link_status: "DISMISSED" })
+          .eq("link_status", "SUGGESTED")
+          .in("message_id", messageIds);
+        if (error) throw error;
+      }
+      return keys.length;
+    },
+    onSuccess: (n) => {
+      toast.success(`${n} correo(s) descartado(s)`);
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 }
