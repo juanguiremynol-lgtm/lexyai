@@ -876,6 +876,7 @@ export function matchMessage(
  * igual que la subsanación.
  */
 export const MEMORIAL_RE =
+  // deno-lint-ignore-next-line
   /subsana|subsanaci[oó]n|memorial|recurso de apelaci[oó]n|recurso de reposici[oó]n|recurso de queja|recurso de s[uú]plica|recurso|impugnaci[oó]n|contestaci[oó]n(?: de la demanda)?|excepciones|alegatos de conclusi[oó]n|alegatos|traslado(?: de excepciones)?|solicitud/i;
 const TRASLADO_RE = /traslado/i;
 const REQUERIMIENTO_RE = /requerimiento|requiere|requerido/i;
