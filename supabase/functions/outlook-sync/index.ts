@@ -926,33 +926,15 @@ async function syncConnection(
 
   summary.finished_at = new Date().toISOString();
 
-  // El gateway HTTP corta a ~150 s: el resumen se persiste server-side para
-  // que la UI pueda leerlo aunque el invocador nunca reciba la respuesta.
-  // Solo los barridos completos dejan fila: un delta sin novedades escribiría
-  // un resumen con scanned=0 que confunde la lectura de cobertura.
-  if (options.fullSweep) {
-    const { error: runErr } = await admin.from("sync_full_sweep_runs").insert({
-    user_id: conn.user_id,
-    organization_id: conn.organization_id,
-    connection_id: conn.id,
-    full_sweep: options.fullSweep,
-    lookback_months: summary.lookback_months,
-    status: summary.errors > 0 ? "PARTIAL" : "SUCCESS",
-    started_at: summary.started_at,
-    finished_at: summary.finished_at,
-    messages_scanned: summary.messages_scanned,
-    folders: summary.folders,
-    earliest_message_at: summary.earliest_message_at,
-    detected_new: summary.detected_new,
-    detected_updated: summary.detected_updated,
-    detected_skipped: summary.detected_skipped,
-    reconciled: summary.reconciled,
-    links_created: summary.links_created,
-    suggestions_created: summary.suggestions_created,
-    errors: summary.errors,
-    last_error: summary.last_error,
-    });
-    if (runErr) console.error("[outlook-sync] sweep run insert", runErr.message);
+  // El gateway HTTP corta a ~150 s: el resumen vive en la fila del barrido,
+  // que la cadena ha ido actualizando tramo a tramo.
+  if (sweep) {
+    await persistSweepProgress(
+      admin,
+      sweep,
+      summary,
+      summary.errors > 0 ? "PARTIAL" : "SUCCESS",
+    );
   }
 
   return summary;
