@@ -95,8 +95,13 @@ export function retroGapDays(
   detectedAt: string | Date,
 ): number | null {
   if (!legalDate) return null;
-  const legal = new Date(legalDate as string | Date);
+  // Date-only strings are legal calendar dates (Bogotá), not UTC instants.
+  const isDateOnly = typeof legalDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(legalDate);
+  const legal = isDateOnly
+    ? new Date(`${legalDate}T00:00:00.000Z`)
+    : new Date(legalDate as string | Date);
   const detected = new Date(detectedAt as string | Date);
   if (isNaN(legal.getTime()) || isNaN(detected.getTime())) return null;
-  return Math.max(0, Math.round((toBogotaDate(detected).getTime() - toBogotaDate(legal).getTime()) / 86400000));
+  const legalDay = isDateOnly ? legal : toBogotaDate(legal);
+  return Math.max(0, Math.round((toBogotaDate(detected).getTime() - legalDay.getTime()) / 86400000));
 }
