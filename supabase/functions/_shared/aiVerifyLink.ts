@@ -13,7 +13,7 @@
  *   - Ante 402 (créditos), 429 persistente o cualquier fallo de parseo, se
  *     degrada a las reglas multi-señal de la Parte B.
  */
-import type { AiGatewayState } from "./aiClassifyEmail.ts";
+import { AI_CALLS_PER_RUN, type AiGatewayState } from "./aiClassifyEmail.ts";
 
 /** Endpoint Responses de Lovable AI Gateway (modelo OpenAI de razonamiento). */
 export const AI_VERIFY_ENDPOINT = "https://ai.gateway.lovable.dev/v1/responses";
@@ -112,7 +112,7 @@ export async function aiVerifyLink(
   state: AiGatewayState,
   apiKey: string | undefined,
 ): Promise<AiLinkVerdict | null> {
-  if (!apiKey || state.disabled) return null;
+  if (!apiKey || state.disabled || state.calls >= AI_CALLS_PER_RUN) return null;
   state.calls++;
 
   const prompt = [
