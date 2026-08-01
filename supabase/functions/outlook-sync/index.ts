@@ -242,7 +242,7 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
   // fila para el mismo proceso en otra instancia).
   const { data: priorDetections } = await admin
     .from("detected_processes")
-    .select("id, radicado, occurrences, meta")
+    .select("id, radicado, occurrences, meta, first_seen_at, last_seen_at")
     .eq("user_id", conn.user_id);
   const detectionsByBase = new Map<string, {
     id: string;
@@ -281,8 +281,13 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
       ? await readFolderFullSweep(accessToken, f.folder, sinceIso)
       : await readFolder(accessToken, f.folder, f.token);
     summary.messages_scanned += messages.length;
+    summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
 
     for (const msg of messages) {
+      const msgAt = msg.receivedDateTime ?? msg.sentDateTime ?? null;
+      if (msgAt && (!summary.earliest_message_at || msgAt < summary.earliest_message_at)) {
+        summary.earliest_message_at = msgAt;
+      }
       // Exclusiones duras: monitoreo propio y auto-informes multi-radicado.
       if (isExcludedMessage(msg, conn.ms_account_email ?? null)) continue;
 
@@ -351,10 +356,19 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
             ...((existing.meta?.instances_seen as string[] | undefined) ?? []),
             ...(cand.instance ? [cand.instance] : []),
           ]);
+          // El barrido procesa de más nuevo a más viejo: los timestamps son
+          // monótonos (first = LEAST, last = GREATEST), nunca sobrescritura ciega.
+          const nextFirst = existing.first_seen_at && existing.first_seen_at < seenAt
+            ? existing.first_seen_at
+            : seenAt;
+          const nextLast = existing.last_seen_at && existing.last_seen_at > seenAt
+            ? existing.last_seen_at
+            : seenAt;
           await admin
             .from("detected_processes")
             .update({
-              last_seen_at: seenAt,
+              first_seen_at: nextFirst,
+              last_seen_at: nextLast,
               occurrences: existing.occurrences + 1,
               meta: {
                 ...(existing.meta ?? {}),
@@ -363,6 +377,8 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
             })
             .eq("id", existing.id);
           existing.occurrences += 1;
+          existing.first_seen_at = nextFirst;
+          existing.last_seen_at = nextLast;
           existing.meta = { ...(existing.meta ?? {}), instances_seen: [...seen].sort() };
           continue;
         }
@@ -389,6 +405,8 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
               id: (inserted as { id: string }).id,
               occurrences: 1,
               meta: cand.instance ? { instances_seen: [cand.instance] } : {},
+              first_seen_at: seenAt,
+              last_seen_at: seenAt,
             });
           }
         }
