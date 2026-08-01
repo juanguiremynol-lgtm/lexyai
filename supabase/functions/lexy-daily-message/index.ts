@@ -330,15 +330,33 @@ Deno.serve(async (req) => {
           `[lexy] user=${user_id} novedad_acts=${novedadActs?.length ?? 0} novedad_pubs=${novedadPubs?.length ?? 0}`,
         );
 
-        // Unresolved alerts
+        // Alerts: last 24h ONLY, digest-type alerts excluded (no self-reference)
         const { data: alerts } = await supabase
           .from("alert_instances")
-          .select("id, severity, title, message")
+          .select("id, severity, title, message, entity_id, fired_at, alert_type, payload")
           .eq("owner_id", user_id)
           .eq("organization_id", organization_id)
           .in("status", ["PENDING", "SENT"])
           .is("seen_at", null)
+          .gte("fired_at", windowStart())
           .limit(10);
+        const liveAlerts = (alerts || []).filter(
+          (a: any) =>
+            a.alert_type !== "LEXY_DAILY" && !/resumen diario/i.test(String(a.title || "")),
+        );
+
+        // Forward-looking: currently-open deadlines within 15 days
+        const forwardLimit = new Date(Date.now() + FORWARD_DEADLINE_DAYS * 86400000)
+          .toISOString()
+          .slice(0, 10);
+        const { data: openDeadlines } = await supabase
+          .from("work_item_deadlines")
+          .select("id, work_item_id, deadline_type, due_date, status, work_items!inner(radicado, title, organization_id)")
+          .eq("work_items.organization_id", organization_id)
+          .in("status", ["PENDING", "RUNNING", "ACTIVE", "OPEN"])
+          .gte("due_date", todayCOT())
+          .lte("due_date", forwardLimit)
+          .limit(20);
 
         // Sync failures from today's Atenia AI report
         let syncFailures: Array<{ radicado: string; diagnostic_message_es: string }> = [];
@@ -384,13 +402,48 @@ Deno.serve(async (req) => {
             message: a.message,
           })),
           syncFailures,
+          facts: {
+            window: [
+              ...(novedadActs ?? []).map((a: any): GroundedFact => ({
+                source_id: a.id,
+                source_table: "work_item_acts",
+                radicado: a.work_items?.radicado ?? null,
+                work_item_title: a.work_items?.title ?? null,
+                text: a.description || "Actuación",
+                date: a.act_date || a.detected_at || null,
+              })),
+              ...(novedadPubs ?? []).map((p: any): GroundedFact => ({
+                source_id: p.id,
+                source_table: "work_item_publicaciones",
+                radicado: p.work_items?.radicado ?? null,
+                work_item_title: p.work_items?.title ?? null,
+                text: `Estado: ${p.tipo_publicacion || "Publicación"}${p.fecha_fijacion ? ` (fijación ${p.fecha_fijacion})` : " (pendiente de fijación)"}`,
+                date: p.fecha_fijacion || p.detected_at || null,
+              })),
+              ...liveAlerts.map((a: any): GroundedFact => ({
+                source_id: a.id,
+                source_table: "alert_instances",
+                radicado: (a.payload?.radicado as string) ?? null,
+                work_item_title: null,
+                text: `[${a.severity}] ${a.title}: ${a.message ?? ""}`,
+                date: a.fired_at ?? null,
+              })),
+            ],
+            forward: (openDeadlines ?? []).map((d: any): GroundedFact => ({
+              source_id: d.id,
+              source_table: "work_item_deadlines",
+              radicado: d.work_items?.radicado ?? null,
+              work_item_title: d.work_items?.title ?? null,
+              text: `Término abierto (${d.deadline_type || "término"}) vence el ${d.due_date}`,
+              date: d.due_date ?? null,
+            })),
+          },
         };
 
         // Step 4: Generate message
         const hasData =
-          userData.newActuaciones.length > 0 ||
-          userData.newPublicaciones.length > 0 ||
-          userData.unresolvedAlerts.length > 0 ||
+          !isWindowEmpty(userData.facts) ||
+          userData.facts.forward.length > 0 ||
           userData.syncFailures.length > 0;
 
         let lexyMessage: LexyMessage;
