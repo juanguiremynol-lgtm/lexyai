@@ -21,7 +21,6 @@ export interface EmailConnection {
   can_send: boolean;
 }
 
-export function useEmailConnection() {
 /**
  * Último barrido completo persistido server-side: el gateway HTTP corta la
  * respuesta a ~150 s, así que el resumen se lee de la tabla, no del invocador.
@@ -60,6 +59,7 @@ export function useLastFullSweepRun() {
   });
 }
 
+export function useEmailConnection() {
   const queryClient = useQueryClient();
 
   const query = useQuery({
