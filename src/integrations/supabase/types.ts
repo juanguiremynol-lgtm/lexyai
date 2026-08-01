@@ -18017,6 +18017,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      is_backfill_source: {
+        Args: { p_run_mode: string; p_source: string }
+        Returns: boolean
+      }
       is_beta_enrollment_open: { Args: never; Returns: boolean }
       is_business_day_sql: { Args: { p_date: string }; Returns: boolean }
       is_business_org_admin: { Args: { _org_id: string }; Returns: boolean }
