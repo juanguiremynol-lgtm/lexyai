@@ -85,7 +85,7 @@ export function extractProviderHearing(
 
   // Pattern 1 — "PARA EL 24 DE AGOSTO DE 2026 A LAS 8:30 AM"
   const p1 = text.match(
-    /PARA EL (?:DIA )?(\d{1,2})\s+DE\s+([A-Z]+)\s+DE\s+(\d{4})(?:.{0,40}?(\d{1,2}[:.]\d{2})\s*(A\.?\s?M\.?|P\.?\s?M\.?)?)?/,
+    /PARA EL (?:DIA )?(\d{1,2})\s+DE\s+([A-Z]+)\s+DEL?\s+(\d{4})(?:.{0,40}?(\d{1,2}[:.]\d{2})\s*(A\.?\s?M\.?|P\.?\s?M\.?)?)?/,
   );
   if (p1) {
     const date = iso(parseInt(p1[3], 10), MONTHS[p1[2]], parseInt(p1[1], 10));
@@ -96,12 +96,13 @@ export function extractProviderHearing(
 
   // Pattern 2 — "AUDIENCIA ... EL DIA 24 DE AGOSTO [DE 2026]" (year optional)
   const p2 = text.match(
-    /AUDIENCIA[^.]{0,80}?EL\s+(?:DIA\s+)?(\d{1,2})\s+DE\s+([A-Z]+)(?:\s+DE\s+(\d{4}))?/,
+    /AUDIENCIA[^.]{0,80}?EL\s+(?:DIA\s+)?(\d{1,2})\s+DE\s+([A-Z]+)(?:\s+DEL?\s+(\d{4}))?/,
   );
   if (p2) {
     const m = MONTHS[p2[2]];
     const d = parseInt(p2[1], 10);
     if (m) {
+      // A year written in the text is authoritative: never roll it forward.
       const years = p2[3] ? [parseInt(p2[3], 10)] : [currentYear, currentYear + 1];
       for (const y of years) {
         const date = iso(y, m, d);
