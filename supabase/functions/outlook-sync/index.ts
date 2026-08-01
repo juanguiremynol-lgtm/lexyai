@@ -535,20 +535,18 @@ async function syncConnection(
   since.setUTCMonth(since.getUTCMonth() - options.lookbackMonths);
   const sinceIso = since.toISOString().replace(/\.\d{3}Z$/, "Z");
 
-  for (const f of folders) {
-    const { messages, deltaLink } = options.fullSweep
-      ? await readFolderFullSweep(accessToken, f.folder, sinceIso)
-      : await readFolder(accessToken, f.folder, f.token);
-    summary.messages_scanned += messages.length;
-    summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
-
-    for (const msg of messages) {
+  /**
+   * Procesamiento de UN mensaje. Extraído del bucle de carpetas para que el
+   * barrido encadenado pueda invocarlo página a página sin duplicar lógica.
+   */
+  const processMessage = async (msg: GraphMessage, direction: "received" | "sent") => {
+    {
       const msgAt = msg.receivedDateTime ?? msg.sentDateTime ?? null;
       if (msgAt && (!summary.earliest_message_at || msgAt < summary.earliest_message_at)) {
         summary.earliest_message_at = msgAt;
       }
       // Exclusiones duras: monitoreo propio y auto-informes multi-radicado.
-      if (isExcludedMessage(msg, conn.ms_account_email ?? null)) continue;
+      if (isExcludedMessage(msg, conn.ms_account_email ?? null)) return;
 
       // SGDE: único caso donde se lee el cuerpo (en memoria, nunca se guarda)
       // para extraer el enlace de acceso al expediente electrónico.
