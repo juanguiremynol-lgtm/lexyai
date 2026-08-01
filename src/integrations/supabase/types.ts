@@ -5093,6 +5093,7 @@ export type Database = {
           internet_message_id: string | null
           last_seen_at: string
           message_id: string | null
+          meta: Json
           occurrences: number
           organization_id: string | null
           partes_inferidas: string | null
@@ -5117,6 +5118,7 @@ export type Database = {
           internet_message_id?: string | null
           last_seen_at?: string
           message_id?: string | null
+          meta?: Json
           occurrences?: number
           organization_id?: string | null
           partes_inferidas?: string | null
@@ -5141,6 +5143,7 @@ export type Database = {
           internet_message_id?: string | null
           last_seen_at?: string
           message_id?: string | null
+          meta?: Json
           occurrences?: number
           organization_id?: string | null
           partes_inferidas?: string | null
