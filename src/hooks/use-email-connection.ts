@@ -37,6 +37,9 @@ export interface FullSweepRun {
   detected_updated: number;
   reconciled: number;
   errors: number;
+  /** Tramo actual de la cadena de auto-reinvocaciones. */
+  chunk_index: number;
+  updated_at: string | null;
 }
 
 export function useLastFullSweepRun() {
@@ -46,7 +49,7 @@ export function useLastFullSweepRun() {
       const { data, error } = await supabase
         .from("sync_full_sweep_runs")
         .select(
-          "id, started_at, finished_at, status, messages_scanned, folders, earliest_message_at, detected_new, detected_updated, reconciled, errors",
+          "id, started_at, finished_at, status, messages_scanned, folders, earliest_message_at, detected_new, detected_updated, reconciled, errors, chunk_index, updated_at",
         )
         .eq("full_sweep", true)
         .order("started_at", { ascending: false })
@@ -55,7 +58,10 @@ export function useLastFullSweepRun() {
       if (error) throw error;
       return (data as unknown as FullSweepRun | null) ?? null;
     },
-    staleTime: 30_000,
+    staleTime: 5_000,
+    // Mientras la cadena corre, la fila es la única fuente de progreso.
+    refetchInterval: (q) =>
+      (q.state.data as FullSweepRun | null)?.status === "RUNNING" ? 5_000 : false,
   });
 }
 
