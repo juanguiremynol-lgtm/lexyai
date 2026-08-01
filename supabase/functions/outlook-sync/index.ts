@@ -1045,8 +1045,8 @@ Deno.serve(async (req) => {
     // Tope de 50 llamadas de IA por corrida, compartido entre conexiones.
     const aiState = newAiGatewayState();
     for (const conn of connections) {
+      let sweep: SweepCtx | undefined;
       try {
-        let sweep: SweepCtx | undefined;
         if (fullSweep) {
           const started = await startSweepRun(admin, conn, lookbackMonths);
           if ("busy" in started) {
@@ -1062,6 +1062,17 @@ Deno.serve(async (req) => {
       } catch (e) {
         const message = e instanceof Error ? e.message : "Error inesperado";
         console.error("[outlook-sync] connection failed", conn.id, message);
+        if (sweep) {
+          await admin
+            .from("sync_full_sweep_runs")
+            .update({
+              status: "FAILED",
+              last_error: message.slice(0, 500),
+              finished_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", sweep.runId);
+        }
         await admin
           .from("user_email_connections")
           .update({ status: "ERROR", last_error: message.slice(0, 500) })
