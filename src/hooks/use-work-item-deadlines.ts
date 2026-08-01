@@ -27,6 +27,7 @@ export interface WorkItemDeadline {
     | "CANCELLED"
     | "REQUIERE_REVISION_MANUAL"
     | "SUGGESTED_BY_EMAIL"
+    | "SUGGESTED_BY_PROVIDER"
     | "FULFILLED"
     | "FULFILLED_BY_EMAIL_EVIDENCE"
     | "INVALID_NO_TERM"
