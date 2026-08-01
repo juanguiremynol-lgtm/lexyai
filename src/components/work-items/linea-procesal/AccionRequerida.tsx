@@ -11,7 +11,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, CalendarClock, CheckCircle2, Mail, Sparkles, Check, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Gavel, Mail, Sparkles, Check, X } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -45,11 +45,16 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
     .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date)
     .sort((a, b) => (a.deadline_date! < b.deadline_date! ? -1 : 1));
   const suggestedByEmail = deadlines.filter((d) => d.status === "SUGGESTED_BY_EMAIL");
+  const suggestedByProvider = deadlines.filter((d) => d.status === "SUGGESTED_BY_PROVIDER");
   const manualReview = deadlines.filter((d) => d.status === "REQUIERE_REVISION_MANUAL");
 
   const nearest: WorkItemDeadline | undefined = active[0];
   const hasAnything =
-    !!nearest || suggestedByEmail.length > 0 || suggestions.length > 0 || manualReview.length > 0;
+    !!nearest ||
+    suggestedByEmail.length > 0 ||
+    suggestedByProvider.length > 0 ||
+    suggestions.length > 0 ||
+    manualReview.length > 0;
 
   return (
     <Card>
