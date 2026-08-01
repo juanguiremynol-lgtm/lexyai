@@ -20,14 +20,27 @@ export interface DetectedProcess {
   first_seen_at: string;
   last_seen_at: string;
   occurrences: number;
-  status: "PENDING" | "DISMISSED" | "CREATED";
+  status: "PENDING" | "DISMISSED" | "CREATED" | "MATCHED_EXISTING";
   created_work_item_id: string | null;
+}
+
+/**
+ * Modelo 4.2: la identidad del proceso es la BASE de 21 dígitos y los dos
+ * últimos dígitos son la INSTANCIA (00 = primera, 01+ = segunda).
+ */
+export function detectedInstance(radicado: string): string | null {
+  const digits = (radicado ?? "").replace(/\D/g, "");
+  if (digits.length < 23) return null;
+  const instance = digits.slice(21, 23);
+  return instance === "00" ? null : instance;
 }
 
 const COLUMNS =
   "id, radicado, subject, sender, web_link, partes_inferidas, despacho_inferido, first_seen_at, last_seen_at, occurrences, status, created_work_item_id";
 
-export function useDetectedProcesses(status: "PENDING" | "DISMISSED" | "CREATED" | "ALL" = "PENDING") {
+export function useDetectedProcesses(
+  status: DetectedProcess["status"] | "ALL" = "PENDING",
+) {
   return useQuery({
     queryKey: ["detected-processes", status],
     queryFn: async (): Promise<DetectedProcess[]> => {
@@ -57,6 +70,27 @@ export function useDismissDetectedProcess() {
     },
     onSuccess: () => {
       toast.success("Detección descartada");
+      void queryClient.invalidateQueries({ queryKey: ["detected-processes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+/** Descarte masivo — reversible: solo cambia el estado, nunca borra filas. */
+export function useBulkDismissDetectedProcesses() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return 0;
+      const { error } = await supabase
+        .from("detected_processes")
+        .update({ status: "DISMISSED", dismissed_at: new Date().toISOString() })
+        .in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      toast.success(`${count} detección(es) descartada(s)`);
       void queryClient.invalidateQueries({ queryKey: ["detected-processes"] });
     },
     onError: (e: Error) => toast.error(e.message),
