@@ -112,6 +112,41 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
           </div>
         ))}
 
+        {suggestedByProvider.map((d) => (
+          <div key={d.id} className="rounded-md border border-primary/30 bg-primary/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <Gavel className="h-3.5 w-3.5 text-primary" aria-hidden />
+              Confirmar audiencia detectada en el expediente
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {d.label}
+              {d.deadline_date
+                ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
+                : ""}
+              {typeof d.calculation_meta?.hora === "string" ? `, ${d.calculation_meta.hora}` : ""}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => deadlineActions.confirm.mutate(d.id)}
+                disabled={deadlineActions.confirm.isPending}
+              >
+                <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
+                Confirmar
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => deadlineActions.dismiss.mutate(d.id)}
+                disabled={deadlineActions.dismiss.isPending}
+              >
+                <X className="mr-1 h-3.5 w-3.5" aria-hidden />
+                Descartar
+              </Button>
+            </div>
+          </div>
+        ))}
+
         {suggestions.map((s) => (
           <div key={s.id} className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium">
