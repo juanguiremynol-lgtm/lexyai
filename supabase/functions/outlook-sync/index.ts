@@ -220,6 +220,8 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     suggestions_created: 0,
     memorial_evidence: 0,
     detected_processes: 0,
+    folders: {} as Record<string, number>,
+    earliest_message_at: null as string | null,
   };
 
   const accessToken = await ensureAccessToken(admin, conn);
@@ -242,13 +244,26 @@ async function syncConnection(admin: Admin, conn: Connection, options: SyncOptio
     .from("detected_processes")
     .select("id, radicado, occurrences, meta")
     .eq("user_id", conn.user_id);
-  const detectionsByBase = new Map<string, { id: string; occurrences: number; meta: Record<string, unknown> | null }>();
+  const detectionsByBase = new Map<string, {
+    id: string;
+    occurrences: number;
+    meta: Record<string, unknown> | null;
+    first_seen_at: string | null;
+    last_seen_at: string | null;
+  }>();
   for (const d of (priorDetections ?? []) as {
     id: string; radicado: string; occurrences?: number; meta?: Record<string, unknown> | null;
+    first_seen_at?: string | null; last_seen_at?: string | null;
   }[]) {
     const base = decomposeStoredRadicado(d.radicado)?.base;
     if (base) {
-      detectionsByBase.set(base, { id: d.id, occurrences: d.occurrences ?? 1, meta: d.meta ?? null });
+      detectionsByBase.set(base, {
+        id: d.id,
+        occurrences: d.occurrences ?? 1,
+        meta: d.meta ?? null,
+        first_seen_at: d.first_seen_at ?? null,
+        last_seen_at: d.last_seen_at ?? null,
+      });
     }
   }
 
