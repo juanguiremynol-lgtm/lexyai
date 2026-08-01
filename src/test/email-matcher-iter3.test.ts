@@ -80,12 +80,12 @@ describe("FIX 2 — name fan-out cap", () => {
     const portfolio = Array.from({ length: 3 }, (_, i) =>
       wi(`w${i}`, {
         client_name: "CONSTRUCTORA ANDINA SAS",
-        authority_name: "JUZGADO 15 CIVIL DEL CIRCUITO DE MEDELLIN",
+        demandados: "INVERSIONES MERIDIANO LTDA",
       }),
     );
     const m = msg({
       subject: "Constructora Andina SAS - seguimiento",
-      bodyPreview: "Juzgado 15 Civil del Circuito de Medellin",
+      bodyPreview: "Asunto relacionado con Inversiones Meridiano Ltda",
       from: from("x@y.com"),
     });
     expect(matchMessage(m, portfolio, { owner })).toHaveLength(3);
