@@ -15,7 +15,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ExternalLink, HelpCircle, FolderSymlink, Scale } from "lucide-react";
+import {
+  Check,
+  X,
+  ExternalLink,
+  HelpCircle,
+  FolderSymlink,
+  Scale,
+  AlertTriangle,
+  Sparkles,
+} from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -33,6 +42,45 @@ const JUDICIAL_DOMAIN_RE =
 function isJudicialSender(sender: string | null | undefined): boolean {
   const domain = (sender ?? "").split("@")[1]?.trim().toLowerCase();
   return Boolean(domain && JUDICIAL_DOMAIN_RE.test(domain));
+}
+
+/** Etiquetas en español de las señales de identidad (iteración 6). */
+const SIGNAL_LABELS_ES: Record<string, string> = {
+  RADICADO: "radicado",
+  RADICADO_SIN_CERO: "radicado sin cero inicial",
+  RADICADO_PARCIAL: "radicado parcial",
+  PARTE_DEMANDANTE: "parte demandante",
+  PARTE_DEMANDADA: "parte demandada",
+  DESPACHO: "despacho",
+  CLIENTE: "cliente",
+};
+
+/** Base de 21 dígitos: identidad del proceso (los 2 finales son la instancia). */
+function radicadoBase(value: string | null | undefined): string {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 21);
+}
+
+function messageRadicados(link: SuggestedEmailLink): string[] {
+  const raw = (link.evidence_meta as Record<string, unknown> | null)?.body_radicados;
+  return Array.isArray(raw) ? raw.map((r) => String(r)).filter(Boolean) : [];
+}
+
+function matchSignals(link: SuggestedEmailLink): string[] {
+  const raw = (link.evidence_meta as Record<string, unknown> | null)?.match_signals;
+  return Array.isArray(raw) ? raw.map((r) => String(r)) : [];
+}
+
+/**
+ * Conflicto de radicado: el correo nombra procesos y NINGUNO coincide con la
+ * base del expediente candidato. Cinturón y tirantes — la regla dura del
+ * matcher debería hacer esto inalcanzable.
+ */
+function hasRadicadoConflict(link: SuggestedEmailLink): boolean {
+  const detected = messageRadicados(link);
+  if (detected.length === 0) return false;
+  const wiBase = radicadoBase(link.work_items?.radicado);
+  if (!wiBase) return false;
+  return !detected.some((d) => radicadoBase(d) === wiBase);
 }
 
 export function SuggestedEmailLinksQueue({
