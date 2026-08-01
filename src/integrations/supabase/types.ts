@@ -12646,6 +12646,10 @@ export type Database = {
       }
       sync_full_sweep_runs: {
         Row: {
+          ai_calls: number
+          bodies_read: number
+          checkpoint: Json
+          chunk_index: number
           connection_id: string | null
           created_at: string
           detected_new: number
@@ -12666,9 +12670,14 @@ export type Database = {
           started_at: string
           status: string
           suggestions_created: number
+          updated_at: string
           user_id: string
         }
         Insert: {
+          ai_calls?: number
+          bodies_read?: number
+          checkpoint?: Json
+          chunk_index?: number
           connection_id?: string | null
           created_at?: string
           detected_new?: number
@@ -12689,9 +12698,14 @@ export type Database = {
           started_at?: string
           status?: string
           suggestions_created?: number
+          updated_at?: string
           user_id: string
         }
         Update: {
+          ai_calls?: number
+          bodies_read?: number
+          checkpoint?: Json
+          chunk_index?: number
           connection_id?: string | null
           created_at?: string
           detected_new?: number
@@ -12712,6 +12726,7 @@ export type Database = {
           started_at?: string
           status?: string
           suggestions_created?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
