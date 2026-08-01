@@ -3,22 +3,37 @@
  * (0.5-0.7, típicamente matcher por PARTE). Sin esta cola los vínculos
  * sugeridos quedan invisibles y el matcher por parte no sirve de nada.
  *
- * Se puede usar global (sin `workItemId`) o dentro de la pestaña Correos de
- * un expediente.
+ * Triage (iteración 5.2): orden por fecha DESC, distintivo de remitente
+ * judicial, filtros rápidos y descarte en bloque por MENSAJE. Confirmar sigue
+ * siendo estrictamente por tarjeta y nada se aplica automáticamente.
  */
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ExternalLink, HelpCircle, FolderSymlink } from "lucide-react";
+import { Check, X, ExternalLink, HelpCircle, FolderSymlink, Scale } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   useSuggestedEmailLinks,
   useApplySgdeAccessLink,
   useResolveEmailMessage,
+  useBulkDismissEmailMessages,
   type SuggestedEmailLink,
 } from "@/hooks/use-email-connection";
+
+/** Dominios de la Rama Judicial y entidades con función jurisdiccional. */
+const JUDICIAL_DOMAIN_RE =
+  /(ramajudicial\.gov\.co|cendoj\.ramajudicial\.gov\.co|deaj\.ramajudicial\.gov\.co|consejodeestado\.gov\.co|corteconstitucional\.gov\.co|cortesuprema\.gov\.co|fiscalia\.gov\.co|procuraduria\.gov\.co|defensoria\.gov\.co)$/i;
+
+function isJudicialSender(sender: string | null | undefined): boolean {
+  const domain = (sender ?? "").split("@")[1]?.trim().toLowerCase();
+  return Boolean(domain && JUDICIAL_DOMAIN_RE.test(domain));
+}
 
 export function SuggestedEmailLinksQueue({
   workItemId,
@@ -30,22 +45,75 @@ export function SuggestedEmailLinksQueue({
   const { data, isLoading } = useSuggestedEmailLinks();
   const resolve = useResolveEmailMessage();
   const applySgde = useApplySgdeAccessLink();
+  const bulkDismiss = useBulkDismissEmailMessages();
 
-  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  const [onlyJudicial, setOnlyJudicial] = useState(false);
+  const [inactiveSince, setInactiveSince] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const rows = (data ?? []).filter((r) => !workItemId || r.work_item_id === workItemId);
+  const rows = useMemo(
+    () => (data ?? []).filter((r) => !workItemId || r.work_item_id === workItemId),
+    [data, workItemId],
+  );
 
   // Una tarjeta por MENSAJE: un correo que matcheó varios expedientes es una
   // sola decisión del usuario, no N decisiones hermanas.
-  const groups = new Map<string, SuggestedEmailLink[]>();
-  for (const r of rows) {
-    const key = r.internet_message_id ?? r.message_id ?? r.id;
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(r);
-    else groups.set(key, [r]);
-  }
-  const messages = [...groups.values()];
+  const messages = useMemo(() => {
+    const groups = new Map<string, SuggestedEmailLink[]>();
+    for (const r of rows) {
+      const key = r.internet_message_id ?? r.message_id ?? r.id;
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(r);
+      else groups.set(key, [r]);
+    }
+    return [...groups.values()].sort((a, b) => {
+      const da = a[0].received_at ? new Date(a[0].received_at).getTime() : 0;
+      const db = b[0].received_at ? new Date(b[0].received_at).getTime() : 0;
+      return db - da;
+    });
+  }, [rows]);
+
+  const visible = useMemo(
+    () =>
+      messages.filter((group) => {
+        const link = group[0];
+        if (onlyJudicial && !isJudicialSender(link.sender)) return false;
+        if (inactiveSince) {
+          const cutoff = new Date(`${inactiveSince}T23:59:59`).getTime();
+          const received = link.received_at ? new Date(link.received_at).getTime() : 0;
+          if (received > cutoff) return false;
+        }
+        return true;
+      }),
+    [messages, onlyJudicial, inactiveSince],
+  );
+
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
   if (messages.length === 0 && hideWhenEmpty) return null;
+
+  const keyOf = (link: SuggestedEmailLink) =>
+    link.internet_message_id ?? link.message_id ?? link.id;
+
+  const toggle = (key: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const allVisibleSelected = visible.length > 0 && visible.every((g) => selected.has(keyOf(g[0])));
+
+  const dismissSelected = () => {
+    const keys = visible
+      .filter((g) => selected.has(keyOf(g[0])))
+      .map((g) => ({
+        internetMessageId: g[0].internet_message_id,
+        messageId: g[0].message_id,
+      }));
+    if (keys.length === 0) return;
+    bulkDismiss.mutate(keys, { onSuccess: () => setSelected(new Set()) });
+  };
 
   return (
     <Card>
@@ -53,7 +121,7 @@ export function SuggestedEmailLinksQueue({
         <CardTitle className="flex items-center gap-2 text-base">
           <HelpCircle className="h-4 w-4" aria-hidden />
           Vínculos por confirmar
-          <Badge variant="secondary">{messages.length}</Badge>
+          <Badge variant="secondary">{visible.length}</Badge>
         </CardTitle>
         <CardDescription>
           Correos que Andromeda cree relacionados con un expediente, pero sin certeza suficiente.
@@ -61,23 +129,86 @@ export function SuggestedEmailLinksQueue({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {messages.length === 0 ? (
+        {messages.length > 0 && (
+          <div className="flex flex-wrap items-end gap-3 rounded-md border bg-muted/30 p-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="suggested-select-all"
+                checked={allVisibleSelected}
+                onCheckedChange={(v) =>
+                  setSelected(v === true ? new Set(visible.map((g) => keyOf(g[0]))) : new Set())
+                }
+              />
+              <Label htmlFor="suggested-select-all" className="text-xs">
+                Seleccionar todo
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="suggested-only-judicial"
+                checked={onlyJudicial}
+                onCheckedChange={(v) => setOnlyJudicial(v === true)}
+              />
+              <Label htmlFor="suggested-only-judicial" className="text-xs">
+                Solo remitente judicial
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="suggested-inactive-since" className="text-xs">
+                Sin actividad desde
+              </Label>
+              <Input
+                id="suggested-inactive-since"
+                type="date"
+                className="h-8 w-40"
+                value={inactiveSince}
+                onChange={(e) => setInactiveSince(e.target.value)}
+              />
+              {inactiveSince && (
+                <Button size="sm" variant="ghost" onClick={() => setInactiveSince("")}>
+                  Limpiar
+                </Button>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="ml-auto"
+              disabled={selected.size === 0 || bulkDismiss.isPending}
+              onClick={dismissSelected}
+            >
+              <X className="mr-1 h-3.5 w-3.5" aria-hidden />
+              Descartar seleccionados ({selected.size})
+            </Button>
+          </div>
+        )}
+
+        {visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay vínculos pendientes de confirmar.</p>
         ) : (
-          messages.map((group) => {
+          visible.map((group) => {
             const link = group[0];
+            const cardKey = keyOf(link);
+            const judicial = isJudicialSender(link.sender);
             // SGDE, Alfresco y TYBA comparten el mismo flujo de confirmación.
             const sgdeUrl = link.evidence_meta?.offer_access_link
               ? link.evidence_meta?.access_url ?? null
               : null;
             return (
             <div
-              key={link.internet_message_id ?? link.message_id ?? link.id}
+              key={cardKey}
               className={`flex flex-wrap items-start justify-between gap-3 rounded-md border p-3 ${
                 link.low_content ? "py-2 opacity-80" : ""
               }`}
             >
-              <div className="min-w-0">
+              <div className="flex min-w-0 gap-3">
+                <Checkbox
+                  className="mt-1"
+                  checked={selected.has(cardKey)}
+                  onCheckedChange={() => toggle(cardKey)}
+                  aria-label="Seleccionar correo"
+                />
+                <div className="min-w-0">
                 <p className="truncate font-medium">{link.subject ?? "(sin asunto)"}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {link.direction === "sent" ? "Enviado" : "Recibido"}
@@ -86,40 +217,53 @@ export function SuggestedEmailLinksQueue({
                     ? ` · ${format(new Date(link.received_at), "d MMM yyyy", { locale: es })}`
                     : ""}
                 </p>
-                {!link.low_content && (
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {group.map((row) =>
-                    group.length > 1 ? (
-                      <Button
-                        key={row.id}
-                        size="sm"
-                        variant="outline"
-                        className="h-6 px-2 text-xs"
-                        disabled={resolve.isPending}
-                        onClick={() =>
-                          resolve.mutate({
-                            internetMessageId: link.internet_message_id,
-                            messageId: link.message_id,
-                            confirmLinkId: row.id,
-                          })
-                        }
-                      >
-                        <Check className="mr-1 h-3 w-3" aria-hidden />
-                        {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
-                      </Button>
+                  <Badge variant={judicial ? "default" : "outline"}>
+                    {judicial ? (
+                      <>
+                        <Scale className="mr-1 h-3 w-3" aria-hidden />
+                        Remitente judicial
+                      </>
                     ) : (
-                      <Badge key={row.id} variant="outline">
-                        {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
-                      </Badge>
-                    ),
-                  )}
-                  <Badge variant="outline">
-                    {link.matched_by} · {Math.round(Number(link.confidence) * 100)}%
+                      "Remitente no judicial"
+                    )}
                   </Badge>
-                  {link.matched_value && <Badge variant="outline">{link.matched_value}</Badge>}
-                  {sgdeUrl && <Badge variant="secondary">Expediente electrónico</Badge>}
+                  {!link.low_content && (
+                    <>
+                      {group.map((row) =>
+                        group.length > 1 ? (
+                          <Button
+                            key={row.id}
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            disabled={resolve.isPending}
+                            onClick={() =>
+                              resolve.mutate({
+                                internetMessageId: link.internet_message_id,
+                                messageId: link.message_id,
+                                confirmLinkId: row.id,
+                              })
+                            }
+                          >
+                            <Check className="mr-1 h-3 w-3" aria-hidden />
+                            {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
+                          </Button>
+                        ) : (
+                          <Badge key={row.id} variant="outline">
+                            {row.work_items?.radicado ?? row.work_items?.title ?? "Expediente"}
+                          </Badge>
+                        ),
+                      )}
+                      <Badge variant="outline">
+                        {link.matched_by} · {Math.round(Number(link.confidence) * 100)}%
+                      </Badge>
+                      {link.matched_value && <Badge variant="outline">{link.matched_value}</Badge>}
+                      {sgdeUrl && <Badge variant="secondary">Expediente electrónico</Badge>}
+                    </>
+                  )}
                 </div>
-                )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {link.web_link && (
