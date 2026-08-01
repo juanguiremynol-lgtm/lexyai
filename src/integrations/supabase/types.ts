@@ -6051,6 +6051,63 @@ export type Database = {
           },
         ]
       }
+      email_link_manual_overrides: {
+        Row: {
+          chosen_radicado: string | null
+          chosen_work_item_id: string
+          created_at: string
+          id: string
+          internet_message_id: string | null
+          message_id: string | null
+          message_radicados: string[]
+          organization_id: string | null
+          override_despite_conflict: boolean
+          previous_suggested_work_item_id: string | null
+          received_at: string | null
+          sender: string | null
+          signals: Json
+          subject: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chosen_radicado?: string | null
+          chosen_work_item_id: string
+          created_at?: string
+          id?: string
+          internet_message_id?: string | null
+          message_id?: string | null
+          message_radicados?: string[]
+          organization_id?: string | null
+          override_despite_conflict?: boolean
+          previous_suggested_work_item_id?: string | null
+          received_at?: string | null
+          sender?: string | null
+          signals?: Json
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          chosen_radicado?: string | null
+          chosen_work_item_id?: string
+          created_at?: string
+          id?: string
+          internet_message_id?: string | null
+          message_id?: string | null
+          message_radicados?: string[]
+          organization_id?: string | null
+          override_despite_conflict?: boolean
+          previous_suggested_work_item_id?: string | null
+          received_at?: string | null
+          sender?: string | null
+          signals?: Json
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_link_remediation_report: {
         Row: {
           created_at: string
@@ -16939,6 +16996,7 @@ export type Database = {
           purge_after: string | null
           radicado: string | null
           radicado_blocks: Json | null
+          radicado_digits: string | null
           radicado_raw: string | null
           radicado_valid: boolean | null
           radicado_verified: boolean | null
@@ -17117,6 +17175,7 @@ export type Database = {
           purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null
+          radicado_digits?: string | null
           radicado_raw?: string | null
           radicado_valid?: boolean | null
           radicado_verified?: boolean | null
@@ -17295,6 +17354,7 @@ export type Database = {
           purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null
+          radicado_digits?: string | null
           radicado_raw?: string | null
           radicado_valid?: boolean | null
           radicado_verified?: boolean | null
@@ -17832,6 +17892,7 @@ export type Database = {
           hora: string
         }[]
       }
+      f_unaccent: { Args: { "": string }; Returns: string }
       find_auto_rechazo_act: {
         Args: { p_from: string; p_work_item_id: string }
         Returns: string
@@ -18045,6 +18106,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      manual_link_email_to_work_item: {
+        Args: { p_link_id: string; p_work_item_id: string }
+        Returns: string
+      }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
       notify_work_item_recipients: {
         Args: {
@@ -18129,6 +18194,24 @@ export type Database = {
         Returns: Json
       }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
+      search_work_items_normalized: {
+        Args: { p_limit?: number; p_query: string }
+        Returns: {
+          authority_city: string
+          authority_name: string
+          client_name: string
+          demandados: string
+          demandantes: string
+          id: string
+          match_rank: number
+          matched_fields: string[]
+          radicado: string
+          stage: string
+          title: string
+          updated_at: string
+          workflow_type: string
+        }[]
+      }
       set_work_item_lifecycle: {
         Args: {
           p_actor?: string

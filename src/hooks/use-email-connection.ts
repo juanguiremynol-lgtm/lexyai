@@ -442,3 +442,33 @@ export function useBulkDismissEmailMessages() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+/**
+ * Vinculación manual (iteración 9-B): el usuario elige el expediente.
+ *
+ * Delega en el RPC `manual_link_email_to_work_item`, que crea el vínculo
+ * CONFIRMED con matched_by='MANUAL' y confianza 1.0, descarta las sugerencias
+ * hermanas del mismo mensaje, registra el override (incluido el conflicto de
+ * radicado) y deja que los triggers corran el pipeline de efectos normal.
+ */
+export function useManualLinkEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ linkId, workItemId }: { linkId: string; workItemId: string }) => {
+      const { data, error } = await supabase.rpc("manual_link_email_to_work_item", {
+        p_link_id: linkId,
+        p_work_item_id: workItemId,
+      });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => {
+      toast.success("Correo vinculado al expediente elegido");
+      void queryClient.invalidateQueries({ queryKey: ["work-item-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["suggested-email-links"] });
+      void queryClient.invalidateQueries({ queryKey: ["email-link-effects"] });
+      void queryClient.invalidateQueries({ queryKey: ["work-item-timeline"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}

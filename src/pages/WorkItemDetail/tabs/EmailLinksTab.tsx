@@ -9,13 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Mail, ArrowUpRight, ArrowDownLeft, Paperclip, ExternalLink, ShieldCheck, Reply } from "lucide-react";
+import { Mail, ArrowUpRight, ArrowDownLeft, Paperclip, ExternalLink, ShieldCheck, Reply, FolderSymlink } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { useWorkItemEmailLinks, useEmailConnection } from "@/hooks/use-email-connection";
+import { useWorkItemEmailLinks, useEmailConnection, useManualLinkEmail } from "@/hooks/use-email-connection";
 import { useEmailLinkEffects } from "@/hooks/use-email-link-effects";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
+import { WorkItemPickerDialog } from "@/components/email/WorkItemPickerDialog";
 import { OUTLOOK_SEND_ENABLED } from "@/lib/feature-flags";
 
 const EVIDENCE_LABELS: Record<string, string> = {
@@ -68,6 +69,8 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
   const { data: effectsByLink = {} } = useEmailLinkEffects(workItemId);
   const { connection, sync, canSend } = useEmailConnection();
   const [reply, setReply] = useState<{ to: string[]; subject: string } | null>(null);
+  const manualLink = useManualLinkEmail();
+  const [repointId, setRepointId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -171,6 +174,10 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
                       Responder
                     </Button>
                   )}
+                  <Button size="sm" variant="ghost" onClick={() => setRepointId(link.id)}>
+                    <FolderSymlink className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    Vincular a otro expediente
+                  </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {link.evidence_type && (
@@ -223,6 +230,20 @@ export function EmailLinksTab({ workItemId }: { workItemId: string }) {
         defaultSubject={reply?.subject ?? ""}
         workItemId={workItemId}
         title="Responder desde mi Outlook"
+      />
+
+      <WorkItemPickerDialog
+        open={repointId !== null}
+        onOpenChange={(open) => !open && setRepointId(null)}
+        isPending={manualLink.isPending}
+        currentWorkItemId={workItemId}
+        onSelect={(item) => {
+          if (!repointId) return;
+          manualLink.mutate(
+            { linkId: repointId, workItemId: item.id },
+            { onSuccess: () => setRepointId(null) },
+          );
+        }}
       />
     </div>
   );
