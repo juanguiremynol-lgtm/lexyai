@@ -80,7 +80,7 @@ describe("FIX 2 — name fan-out cap", () => {
     const portfolio = Array.from({ length: 3 }, (_, i) =>
       wi(`w${i}`, {
         client_name: "CONSTRUCTORA ANDINA SAS",
-        despacho: "JUZGADO 15 CIVIL DEL CIRCUITO DE MEDELLIN",
+        authority_name: "JUZGADO 15 CIVIL DEL CIRCUITO DE MEDELLIN",
       }),
     );
     const m = msg({
