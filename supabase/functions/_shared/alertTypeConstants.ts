@@ -10,6 +10,7 @@
 
 // ── Canonical alert type strings (match DB triggers exactly) ──
 export const ALERT_TYPE_ACTUACION_NUEVA = "ACTUACION_NUEVA" as const;
+export const ALERT_TYPE_ACTUACION_RETROACTIVA = "ACTUACION_RETROACTIVA" as const;
 export const ALERT_TYPE_ACTUACION_MODIFIED = "ACTUACION_MODIFIED" as const;
 export const ALERT_TYPE_ESTADO_NUEVO = "ESTADO_NUEVO" as const;
 export const ALERT_TYPE_ESTADO_MODIFIED = "ESTADO_MODIFIED" as const;
@@ -17,6 +18,7 @@ export const ALERT_TYPE_ESTADO_MODIFIED = "ESTADO_MODIFIED" as const;
 /** All judicial movement alert types used for email dispatch */
 export const JUDICIAL_ALERT_TYPES = [
   ALERT_TYPE_ACTUACION_NUEVA,
+  ALERT_TYPE_ACTUACION_RETROACTIVA,
   ALERT_TYPE_ACTUACION_MODIFIED,
   ALERT_TYPE_ESTADO_NUEVO,
   ALERT_TYPE_ESTADO_MODIFIED,
@@ -27,6 +29,7 @@ export type JudicialAlertType = typeof JUDICIAL_ALERT_TYPES[number];
 /** Human-readable labels (Spanish UI) */
 export const JUDICIAL_TYPE_LABELS: Record<JudicialAlertType, string> = {
   [ALERT_TYPE_ACTUACION_NUEVA]: "Nueva actuación",
+  [ALERT_TYPE_ACTUACION_RETROACTIVA]: "Actuación retroactiva",
   [ALERT_TYPE_ACTUACION_MODIFIED]: "Actuación modificada",
   [ALERT_TYPE_ESTADO_NUEVO]: "Nuevo estado",
   [ALERT_TYPE_ESTADO_MODIFIED]: "Estado modificado",
@@ -35,6 +38,7 @@ export const JUDICIAL_TYPE_LABELS: Record<JudicialAlertType, string> = {
 /** Emoji icons per type */
 export const JUDICIAL_TYPE_ICONS: Record<JudicialAlertType, string> = {
   [ALERT_TYPE_ACTUACION_NUEVA]: "🆕",
+  [ALERT_TYPE_ACTUACION_RETROACTIVA]: "⏳",
   [ALERT_TYPE_ACTUACION_MODIFIED]: "✏️",
   [ALERT_TYPE_ESTADO_NUEVO]: "📋",
   [ALERT_TYPE_ESTADO_MODIFIED]: "✏️",
