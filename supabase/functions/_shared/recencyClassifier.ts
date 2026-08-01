@@ -3,9 +3,12 @@
  *
  * Used by Lexy, alerts, badges and any summary generated on this side.
  *
- *   NOVEDAD              — first detection AND legal date within the recency window.
- *   HISTORICO_DETECTADO  — first detection but legal date OUTSIDE the window
- *                          (i.e. surfaced by a backfill / deep re-scan).
+ *   NOVEDAD               — first detection AND legal date within the recency window.
+ *   ACTUACION_RETROACTIVA — first detection in a NORMAL daily run but the legal
+ *                           date is OUTSIDE the window: the court registered the
+ *                           act late. This is NEWS, not backfill.
+ *   HISTORICO_DETECTADO   — first detection during an explicit sweep / import /
+ *                           deep re-scan: genuine historical backfill.
  *
  * Legal dates:
  *   - actuación → act_date
@@ -16,12 +19,25 @@
  * MUST NOT be shown to users as a legal date.
  */
 
-export type DiscoveryType = "NOVEDAD" | "HISTORICO_DETECTADO";
+export type DiscoveryType = "NOVEDAD" | "ACTUACION_RETROACTIVA" | "HISTORICO_DETECTADO";
+
+/** Discovery types that must be counted as news in reports, alerts and badges. */
+export const NEWS_DISCOVERY_TYPES: DiscoveryType[] = ["NOVEDAD", "ACTUACION_RETROACTIVA"];
+
+/** Run modes that mean "explicit historical backfill" (never news). */
+export const SWEEP_RUN_MODES = ["SWEEP", "FULL_SWEEP", "HISTORICAL", "BACKFILL", "IMPORT"];
+
+export function isSweepRunMode(runMode: string | null | undefined): boolean {
+  return SWEEP_RUN_MODES.includes(String(runMode ?? "DAILY").toUpperCase());
+}
 
 export interface RecencyInput {
   legal_date: string | Date | null | undefined; // fecha jurídica
   detected_at: string | Date; // ingestion timestamp (created_at)
   window_business_days?: number; // default 3
+  /** Explicit sweep/backfill run. Defaults to false (normal daily sync). */
+  is_sweep?: boolean;
+  run_mode?: string | null;
   now?: Date;
 }
 
@@ -57,13 +73,30 @@ export function businessDaysBetween(from: Date, to: Date): number {
  *
  * A row without a legal_date defaults to HISTORICO_DETECTADO (safer — never
  * inflates "nuevos" counts).
+ *
+ * An old legal date is only historical when it arrived through an explicit
+ * sweep. In a normal daily run it is a retroactive registration = news.
  */
 export function classifyRecency(input: RecencyInput): DiscoveryType {
   const windowDays = input.window_business_days ?? 3;
   const now = input.now ?? new Date();
+  const sweep = input.is_sweep ?? isSweepRunMode(input.run_mode);
   if (!input.legal_date) return "HISTORICO_DETECTADO";
   const legal = new Date(input.legal_date as string | Date);
   if (isNaN(legal.getTime())) return "HISTORICO_DETECTADO";
   const diff = businessDaysBetween(legal, now);
-  return diff <= windowDays ? "NOVEDAD" : "HISTORICO_DETECTADO";
+  if (diff <= windowDays) return "NOVEDAD";
+  return sweep ? "HISTORICO_DETECTADO" : "ACTUACION_RETROACTIVA";
+}
+
+/** Business-day gap between the legal date and its detection. */
+export function retroGapDays(
+  legalDate: string | Date | null | undefined,
+  detectedAt: string | Date,
+): number | null {
+  if (!legalDate) return null;
+  const legal = new Date(legalDate as string | Date);
+  const detected = new Date(detectedAt as string | Date);
+  if (isNaN(legal.getTime()) || isNaN(detected.getTime())) return null;
+  return Math.max(0, Math.round((toBogotaDate(detected).getTime() - toBogotaDate(legal).getTime()) / 86400000));
 }
