@@ -127,21 +127,29 @@ export function useEmailConnection() {
   });
 
   const sync = useMutation<
-    { results?: { links_created?: number; messages_scanned?: number }[] },
+    { results?: { links_created?: number; messages_scanned?: number; run_id?: string }[] },
     Error,
     { fullSweep?: boolean; lookbackMonths?: number } | void
   >({
     mutationFn: async (options) => {
+      const isSweep = Boolean(options && options.fullSweep);
       const { data, error } = await supabase.functions.invoke("outlook-sync", {
-        body: options && options.fullSweep
+        body: isSweep
           ? { full_sweep: true, lookback_months: options.lookbackMonths ?? 12 }
           : {},
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { results?: { links_created?: number; messages_scanned?: number }[] };
+      return { ...(data as object), isSweep } as {
+        results?: { links_created?: number; messages_scanned?: number; run_id?: string }[];
+      };
     },
     onSuccess: (data) => {
+      if ((data as { isSweep?: boolean }).isSweep) {
+        toast.success("Barrido completo iniciado — el progreso se actualiza aquí");
+        void queryClient.invalidateQueries({ queryKey: ["full-sweep-run", "last"] });
+        return;
+      }
       const created = (data?.results ?? []).reduce((acc, r) => acc + (r.links_created ?? 0), 0);
       toast.success(created > 0 ? `${created} correo(s) vinculado(s)` : "Buzón revisado, sin correos nuevos por vincular");
       void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
