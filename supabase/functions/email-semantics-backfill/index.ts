@@ -76,8 +76,15 @@ Deno.serve(async (req) => {
     let userFilter: string | null = null;
     if (!isCron) {
       const caller = await resolveCaller(req);
-      if (caller.kind !== "user") return json({ error: "No autenticado" }, 401);
-      userFilter = caller.userId;
+      // pg_cron invoca con la service-role key: es una corrida global sin
+      // filtro de usuario, igual que la cabecera x-cron-key.
+      if (caller.kind === "service") {
+        // corrida programada
+      } else if (caller.kind === "user") {
+        userFilter = caller.userId;
+      } else {
+        return json({ error: "No autenticado" }, 401);
+      }
     }
 
     let query = admin
@@ -98,6 +105,11 @@ Deno.serve(async (req) => {
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
+    // No-op barato: sin backlog la corrida programada termina de inmediato
+    // (una sola consulta), así el cron puede quedarse fijo sin coste.
+    if ((data ?? []).length === 0) {
+      return json({ ok: true, ai_calls: 0, degraded: false, summary: { candidates: 0, remaining: 0, noop: true } });
+    }
     const all = (data ?? []) as unknown as LinkRow[];
     const links = all.filter((l) => isJudicialAddress(l.sender));
     const nonJudicial = all.filter((l) => !isJudicialAddress(l.sender));
