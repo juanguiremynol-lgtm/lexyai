@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { useWorkItemTimeline, type TimelineKind } from "@/hooks/use-work-item-timeline";
 import { useEmailLinkEffects } from "@/hooks/use-email-link-effects";
 import { useProviderHearingEffects } from "@/hooks/use-provider-hearing-effects";
+import { DERIVED_DATE_LABEL, formatDeadlineLabel } from "@/lib/deadline-labels";
 
 const FILTERS: Array<{ key: "TODO" | TimelineKind; label: string }> = [
   { key: "TODO", label: "Todo" },
@@ -38,7 +39,10 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
   const { data: hearingsByRef = {} } = useProviderHearingEffects(workItemId);
 
   const visible = useMemo(
-    () => (filter === "TODO" ? entries : entries.filter((e) => e.kind === filter)),
+    () =>
+      (filter === "TODO" ? entries : entries.filter((e) => e.kind === filter))
+        .slice()
+        .sort((a, b) => (a.occurred_at ?? "") < (b.occurred_at ?? "") ? 1 : -1),
     [entries, filter],
   );
 
@@ -78,6 +82,16 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
               const Icon = KIND_ICON[e.kind];
               const meta = (e.meta ?? {}) as Record<string, unknown>;
               const webLink = typeof meta.web_link === "string" ? meta.web_link : null;
+              const attachmentCount =
+                e.kind === "ESTADO" && typeof meta.attachment_count === "number" ? meta.attachment_count : 1;
+              const isDerived = meta.desfijacion_source === "DERIVED_NEXT_BUSINESS_DAY";
+              const title =
+                e.kind === "TERMINO"
+                  ? formatDeadlineLabel(
+                      typeof meta.deadline_type === "string" ? meta.deadline_type : null,
+                      e.title,
+                    )
+                  : e.title;
               const effects =
                 e.kind === "CORREO"
                   ? effectsByLink[e.ref_id] ?? []
@@ -99,7 +113,26 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
                         : "sin fecha"}
                     </span>
                   </div>
-                  <p className={cn("mt-0.5 text-sm", e.kind === "CORREO" && "font-medium")}>{e.title}</p>
+                  <p
+                    className={cn("mt-0.5 text-sm", e.kind === "CORREO" && "font-medium")}
+                    title={e.kind === "TERMINO" ? String(meta.deadline_type ?? e.title) : undefined}
+                  >
+                    {title}
+                  </p>
+                  {(attachmentCount > 1 || isDerived) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {attachmentCount > 1 && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {attachmentCount} documentos
+                        </Badge>
+                      )}
+                      {isDerived && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {DERIVED_DATE_LABEL}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                   {effects.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
                       {effects.map((fx) => (

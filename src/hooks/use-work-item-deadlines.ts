@@ -31,10 +31,15 @@ export interface WorkItemDeadline {
     | "FULFILLED"
     | "FULFILLED_BY_EMAIL_EVIDENCE"
     | "INVALID_NO_TERM"
-    | "VENCIDO_SIN_SUBSANAR";
+    | "VENCIDO_SIN_SUBSANAR"
+    | "DISMISSED"
+    | "CANCELLED";
   calculation_meta: {
     anchor_source?: string;
     anchor_date?: string;
+    desfijacion_date?: string;
+    desfijacion_source?: "DERIVED_NEXT_BUSINESS_DAY" | "PROVIDER";
+    date_confidence?: "high" | "medium" | "low";
     providencia_type?: string;
     day_type?: "BUSINESS" | "CALENDAR" | "HOURS";
     days_amount?: number;
@@ -61,6 +66,9 @@ export interface WorkItemDeadline {
   updated_at: string;
 }
 
+/** Statuses that must never render in any deadlines surface. */
+export const HIDDEN_DEADLINE_STATUSES = new Set(["DISMISSED", "CANCELLED"]);
+
 export function useWorkItemDeadlines(workItemId: string | undefined | null) {
   return useQuery({
     queryKey: ["work-item-deadlines", workItemId],
@@ -70,12 +78,15 @@ export function useWorkItemDeadlines(workItemId: string | undefined | null) {
         .from("work_item_deadlines")
         .select("*")
         .eq("work_item_id", workItemId)
+        .not("status", "in", "(DISMISSED,CANCELLED)")
         .order("deadline_date", { ascending: true });
       if (error) {
         console.error("[use-work-item-deadlines]", error);
         throw error;
       }
-      return (data ?? []) as unknown as WorkItemDeadline[];
+      return ((data ?? []) as unknown as WorkItemDeadline[]).filter(
+        (d) => !HIDDEN_DEADLINE_STATUSES.has(d.status),
+      );
     },
     enabled: !!workItemId,
     staleTime: 60_000,

@@ -9,7 +9,7 @@ import { Route } from "lucide-react";
 import { PhaseStepper, type PhaseReach } from "./PhaseStepper";
 import { AccionRequerida } from "./AccionRequerida";
 import { TimelineFeed } from "./TimelineFeed";
-import { mapStageToCanonicalPhase } from "@/lib/workflow-phases";
+import { inferPhaseFromText, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
 interface LineaProcesalProps {
@@ -26,7 +26,7 @@ function sourceOf(changeSource: string | null): PhaseReach["source"] {
 }
 
 export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase }: LineaProcesalProps) {
-  const { data: reaches = [] } = useQuery({
+  const { data: auditReaches = [] } = useQuery({
     queryKey: ["work-item-phase-reaches", workItemId, workflowType],
     queryFn: async (): Promise<PhaseReach[]> => {
       const { data, error } = await supabase
@@ -56,13 +56,82 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
     staleTime: 60_000,
   });
 
+  /** Event-derived reaches: every completed phase must show the date it was reached. */
+  const { data: events } = useQuery({
+    queryKey: ["work-item-phase-events", workItemId, workflowType],
+    queryFn: async (): Promise<{ reaches: PhaseReach[]; inferred: string | null }> => {
+      const [acts, pubs] = await Promise.all([
+        supabase
+          .from("work_item_acts")
+          .select("id, description, act_type, act_date, created_at, is_archived")
+          .eq("work_item_id", workItemId)
+          .order("act_date", { ascending: true })
+          .limit(300),
+        supabase
+          .from("work_item_publicaciones")
+          .select("id, title, annotation, fecha_fijacion, published_at, created_at, is_archived")
+          .eq("work_item_id", workItemId)
+          .order("fecha_fijacion", { ascending: true })
+          .limit(300),
+      ]);
+      if (acts.error) console.error("[linea-procesal] acts", acts.error);
+      if (pubs.error) console.error("[linea-procesal] pubs", pubs.error);
+
+      type Ev = { at: string; text: string; source: PhaseReach["source"] };
+      const evs: Ev[] = [];
+      for (const a of acts.data ?? []) {
+        if (a.is_archived) continue;
+        const at = a.act_date ?? a.created_at;
+        if (!at) continue;
+        evs.push({ at, text: `${a.description ?? ""} ${a.act_type ?? ""}`, source: "ACTUACION" });
+      }
+      for (const p of pubs.data ?? []) {
+        if (p.is_archived) continue;
+        const at = p.fecha_fijacion ?? p.published_at ?? p.created_at;
+        if (!at) continue;
+        evs.push({ at, text: `${p.title ?? ""} ${p.annotation ?? ""}`, source: "ESTADO" });
+      }
+      evs.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+
+      const first = new Map<string, PhaseReach>();
+      let latestPhase: string | null = null;
+      for (const ev of evs) {
+        const phaseKey = inferPhaseFromText(workflowType, ev.text);
+        if (!phaseKey) continue;
+        latestPhase = phaseKey;
+        if (!first.has(phaseKey)) {
+          first.set(phaseKey, { phaseKey, reachedAt: ev.at, source: ev.source });
+        }
+      }
+      return { reaches: [...first.values()], inferred: latestPhase };
+    },
+    enabled: !!workItemId,
+    staleTime: 60_000,
+  });
+
+  // Stage-audit reaches win (explicit), event-derived reaches fill the gaps.
+  const reaches: PhaseReach[] = (() => {
+    const merged = new Map<string, PhaseReach>();
+    for (const r of events?.reaches ?? []) merged.set(r.phaseKey, r);
+    for (const r of auditReaches) {
+      const prev = merged.get(r.phaseKey);
+      merged.set(r.phaseKey, prev && prev.reachedAt < r.reachedAt ? prev : r);
+    }
+    return [...merged.values()];
+  })();
+
   return (
     <section className="space-y-4" aria-labelledby="linea-procesal-heading">
       <h2 id="linea-procesal-heading" className="flex items-center gap-2 text-lg font-semibold">
         <Route className="h-5 w-5 text-primary" aria-hidden />
         Línea procesal
       </h2>
-      <PhaseStepper workflowType={workflowType} currentStage={currentStage} reaches={reaches} />
+      <PhaseStepper
+        workflowType={workflowType}
+        currentStage={currentStage}
+        reaches={reaches}
+        inferredPhase={events?.inferred ?? null}
+      />
       <AccionRequerida workItemId={workItemId} workflowType={workflowType} cgpPhase={cgpPhase} />
       <TimelineFeed workItemId={workItemId} />
     </section>
