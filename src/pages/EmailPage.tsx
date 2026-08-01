@@ -15,6 +15,7 @@ import { Mail, PenSquare, RefreshCw, ShieldCheck, Settings2, Loader2, History } 
 import { DetectedProcessesQueue } from "@/components/email/DetectedProcessesQueue";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
+import { AiVerifyHealthBadge } from "@/components/email/AiVerifyHealthBadge";
 import { useEmailConnection, useLastFullSweepRun } from "@/hooks/use-email-connection";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -53,6 +54,7 @@ export default function EmailPage() {
               ? `Buzón ${connection.ms_account_email}`
               : "Conecta tu buzón de Outlook desde Configuración › Conexiones."}
           </CardDescription>
+          <AiVerifyHealthBadge />
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>

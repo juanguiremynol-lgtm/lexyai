@@ -35,6 +35,38 @@ export interface AiLinkVerdict {
   conflicting_radicado: string | null;
 }
 
+/**
+ * Marcador de salud: la degradación de la Parte C es silenciosa por diseño,
+ * así que cada llamada al gateway deja huella en `system_health_heartbeat`
+ * (servicio AI_VERIFY_LINK) para que la UI de administración pueda mostrar
+ * "Verificación IA: activa / degradada".
+ */
+export const AI_VERIFY_HEALTH_SERVICE = "AI_VERIFY_LINK";
+
+export type AiVerifyHealthSink = (
+  health: { ok: boolean; message?: string },
+) => void | Promise<void>;
+
+/** Construye un sink que persiste el latido usando un cliente service-role. */
+export function makeAiVerifyHealthSink(
+  admin: { from: (t: string) => any },
+): AiVerifyHealthSink {
+  return async ({ ok, message }) => {
+    const now = new Date().toISOString();
+    try {
+      await admin.from("system_health_heartbeat").upsert({
+        service: AI_VERIFY_HEALTH_SERVICE,
+        last_status: ok ? "OK" : "ERROR",
+        last_message: message ? String(message).slice(0, 300) : (ok ? AI_VERIFY_MODEL : null),
+        ...(ok ? { last_ok_at: now } : { last_error_at: now }),
+        updated_at: now,
+      }, { onConflict: "service" });
+    } catch (e) {
+      console.error("[aiVerifyLink] no se pudo persistir el latido:", (e as Error).message);
+    }
+  };
+}
+
 const SYSTEM_PROMPT =
   "Eres un verificador de identidad procesal colombiano. Recibes los datos de " +
   "un expediente y un correo. Decides si el correo pertenece A ESE expediente. " +
@@ -111,6 +143,7 @@ export async function aiVerifyLink(
   },
   state: AiGatewayState,
   apiKey: string | undefined,
+  health?: AiVerifyHealthSink,
 ): Promise<AiLinkVerdict | null> {
   if (!apiKey || state.disabled || state.calls >= AI_CALLS_PER_RUN) return null;
   state.calls++;
@@ -153,6 +186,7 @@ export async function aiVerifyLink(
     if (res.status === 402) {
       await res.body?.cancel();
       state.disabled = true;
+      await health?.({ ok: false, message: "402 créditos agotados" });
       if (!state.loggedDegradation) {
         state.loggedDegradation = true;
         console.error("[aiVerifyLink] créditos agotados — degradando a reglas multi-señal");
@@ -161,11 +195,19 @@ export async function aiVerifyLink(
     }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      await health?.({ ok: false, message: `HTTP ${res.status}: ${body.slice(0, 200)}` });
       console.error(`[aiVerifyLink] gateway [${res.status}]: ${body.slice(0, 300)}`);
       return null;
     }
-    return parseAiVerdict(await readResponsesStream(res));
+    const verdict = parseAiVerdict(await readResponsesStream(res));
+    await health?.(
+      verdict
+        ? { ok: true, message: `${AI_VERIFY_MODEL} · ${verdict.verdict}` }
+        : { ok: false, message: "respuesta no interpretable del modelo" },
+    );
+    return verdict;
   } catch (e) {
+    await health?.({ ok: false, message: (e as Error).message });
     console.error("[aiVerifyLink]", (e as Error).message);
     return null;
   }
