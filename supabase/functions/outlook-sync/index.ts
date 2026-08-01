@@ -239,8 +239,230 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 /**
  * Válvula de seguridad: la lectura universal del cuerpo cuesta una llamada a
  * Graph por mensaje. Sin tope, un barrido de 12 meses no termina nunca.
+ * En barridos encadenados el tope es POR CADENA, no por tramo.
  */
 const BODY_READS_PER_RUN = 300;
+
+/**
+ * El gateway HTTP corta a ~150 s. Un barrido de 12 meses no cabe en una sola
+ * invocación: se ejecuta por tramos de ~105 s que se auto-reinvocan.
+ */
+const CHUNK_BUDGET_MS = 105_000;
+/** Tope de tramos encadenados por barrido (freno de bucle infinito). */
+const CHAIN_CAP = 40;
+/** Una corrida RUNNING sin latido durante este tiempo se considera muerta. */
+const STALE_RUN_MS = 15 * 60_000;
+
+export interface SweepCheckpoint {
+  folder_index: number;
+  next_link: string | null;
+  since_iso: string;
+  chunk_index: number;
+  started_at: string;
+  messages_scanned: number;
+  folders: Record<string, number>;
+  earliest_message_at: string | null;
+  bodies_read: number;
+  ai_calls: number;
+  detected_new: number;
+  detected_updated: number;
+  detected_skipped: number;
+  links_created: number;
+  suggestions_created: number;
+  errors: number;
+  last_error: string | null;
+}
+
+export function newCheckpoint(sinceIso: string, startedAt: string): SweepCheckpoint {
+  return {
+    folder_index: 0,
+    next_link: null,
+    since_iso: sinceIso,
+    chunk_index: 0,
+    started_at: startedAt,
+    messages_scanned: 0,
+    folders: {},
+    earliest_message_at: null,
+    bodies_read: 0,
+    ai_calls: 0,
+    detected_new: 0,
+    detected_updated: 0,
+    detected_skipped: 0,
+    links_created: 0,
+    suggestions_created: 0,
+    errors: 0,
+    last_error: null,
+  };
+}
+
+interface SweepCtx {
+  runId: string;
+  checkpoint: SweepCheckpoint;
+  /** Instante de entrada a ESTA invocación: el presupuesto se mide desde aquí. */
+  invokedAt: number;
+}
+
+type SweepSummary = {
+  messages_scanned: number;
+  folders: Record<string, number>;
+  earliest_message_at: string | null;
+  bodies_read: number;
+  ai_calls: number;
+  detected_new: number;
+  detected_updated: number;
+  detected_skipped: number;
+  links_created: number;
+  suggestions_created: number;
+  reconciled: number;
+  errors: number;
+  last_error: string | null;
+};
+
+/** Vuelca los contadores acumulados de la cadena al checkpoint. */
+function syncCheckpointCounters(cp: SweepCheckpoint, s: SweepSummary) {
+  cp.messages_scanned = s.messages_scanned;
+  cp.folders = { ...s.folders };
+  cp.earliest_message_at = s.earliest_message_at;
+  cp.bodies_read = s.bodies_read;
+  cp.ai_calls = s.ai_calls;
+  cp.detected_new = s.detected_new;
+  cp.detected_updated = s.detected_updated;
+  cp.detected_skipped = s.detected_skipped;
+  cp.links_created = s.links_created;
+  cp.suggestions_created = s.suggestions_created;
+  cp.errors = s.errors;
+  cp.last_error = s.last_error;
+}
+
+/**
+ * Latido del barrido: cada tramo escribe contadores ACUMULADOS y el punto de
+ * reanudación, para que la UI muestre progreso real y la cadena pueda seguir.
+ */
+async function persistSweepProgress(
+  admin: Admin,
+  sweep: SweepCtx,
+  summary: SweepSummary,
+  status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED",
+  errorReason?: string,
+) {
+  syncCheckpointCounters(sweep.checkpoint, summary);
+  const patch: Record<string, unknown> = {
+    status,
+    checkpoint: sweep.checkpoint as unknown as Record<string, unknown>,
+    chunk_index: sweep.checkpoint.chunk_index,
+    messages_scanned: summary.messages_scanned,
+    folders: summary.folders,
+    earliest_message_at: summary.earliest_message_at,
+    bodies_read: summary.bodies_read,
+    ai_calls: summary.ai_calls,
+    detected_new: summary.detected_new,
+    detected_updated: summary.detected_updated,
+    detected_skipped: summary.detected_skipped,
+    reconciled: summary.reconciled,
+    links_created: summary.links_created,
+    suggestions_created: summary.suggestions_created,
+    errors: summary.errors,
+    last_error: errorReason ?? summary.last_error,
+    updated_at: new Date().toISOString(),
+  };
+  if (status !== "RUNNING") patch.finished_at = new Date().toISOString();
+  const { error } = await admin.from("sync_full_sweep_runs").update(patch).eq("id", sweep.runId);
+  if (error) console.error("[outlook-sync] sweep progress", error.message);
+}
+
+/**
+ * Auto-reinvocación: se dispara la siguiente invocación con la clave de
+ * servicio y se responde 200 de inmediato (fire-and-forget acotado).
+ */
+async function chainNextChunk(
+  admin: Admin,
+  sweep: SweepCtx,
+  summary: SweepSummary,
+): Promise<void> {
+  if (sweep.checkpoint.chunk_index + 1 >= CHAIN_CAP) {
+    await persistSweepProgress(admin, sweep, summary, "FAILED", "chain_cap");
+    return;
+  }
+  sweep.checkpoint.chunk_index += 1;
+  await persistSweepProgress(admin, sweep, summary, "RUNNING");
+
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/outlook-sync`;
+  const call = fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ full_sweep: true, resume_run_id: sweep.runId }),
+  }).catch((e) => console.error("[outlook-sync] chain", (e as Error).message));
+
+  const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } })
+    .EdgeRuntime;
+  // Se espera solo a que la petición salga: el hijo no bloquea al padre.
+  const dispatched = Promise.race([call, new Promise((r) => setTimeout(r, 3_000))]);
+  if (rt?.waitUntil) rt.waitUntil(dispatched);
+  else await dispatched;
+}
+
+/**
+ * Abre un barrido completo. Guarda de concurrencia: si ya hay uno RUNNING con
+ * latido fresco se devuelve su id; los RUNNING muertos (>15 min) se marcan
+ * SUPERSEDED y no bloquean.
+ */
+async function startSweepRun(
+  admin: Admin,
+  conn: Connection,
+  lookbackMonths: number,
+): Promise<{ sweep: SweepCtx } | { busy: string }> {
+  const staleBefore = new Date(Date.now() - STALE_RUN_MS).toISOString();
+
+  const { data: running } = await admin
+    .from("sync_full_sweep_runs")
+    .select("id, updated_at")
+    .eq("connection_id", conn.id)
+    .eq("status", "RUNNING")
+    .order("updated_at", { ascending: false });
+
+  for (const r of (running ?? []) as { id: string; updated_at: string }[]) {
+    if (r.updated_at > staleBefore) return { busy: r.id };
+  }
+  if ((running ?? []).length > 0) {
+    await admin
+      .from("sync_full_sweep_runs")
+      .update({ status: "SUPERSEDED", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("connection_id", conn.id)
+      .eq("status", "RUNNING");
+  }
+
+  const startedAt = new Date().toISOString();
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - lookbackMonths);
+  const sinceIso = since.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+  const { data: run, error } = await admin
+    .from("sync_full_sweep_runs")
+    .insert({
+      user_id: conn.user_id,
+      organization_id: conn.organization_id,
+      connection_id: conn.id,
+      full_sweep: true,
+      lookback_months: lookbackMonths,
+      status: "RUNNING",
+      started_at: startedAt,
+      checkpoint: newCheckpoint(sinceIso, startedAt) as unknown as Record<string, unknown>,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`No se pudo abrir el barrido: ${error.message}`);
+
+  return {
+    sweep: {
+      runId: run.id as string,
+      checkpoint: newCheckpoint(sinceIso, startedAt),
+      invokedAt: Date.now(),
+    },
+  };
+}
 
 /**
  * Único punto donde se arma `evidence_meta`. Solo persiste identificadores,
@@ -274,6 +496,7 @@ async function syncConnection(
   conn: Connection,
   options: SyncOptions,
   aiState: AiGatewayState,
+  sweep?: SweepCtx,
 ) {
   const startedAt = new Date().toISOString();
   const summary = {
@@ -299,6 +522,26 @@ async function syncConnection(
     started_at: startedAt,
     finished_at: null as string | null,
   };
+
+  // Reanudación: los contadores de la CADENA son acumulativos y los topes
+  // (300 cuerpos, 50 llamadas de IA) se aplican al total, no al tramo.
+  if (sweep) {
+    const cp = sweep.checkpoint;
+    summary.started_at = cp.started_at;
+    summary.messages_scanned = cp.messages_scanned;
+    summary.folders = { ...cp.folders };
+    summary.earliest_message_at = cp.earliest_message_at;
+    summary.bodies_read = cp.bodies_read;
+    summary.ai_calls = cp.ai_calls;
+    summary.detected_new = cp.detected_new;
+    summary.detected_updated = cp.detected_updated;
+    summary.detected_skipped = cp.detected_skipped;
+    summary.links_created = cp.links_created;
+    summary.suggestions_created = cp.suggestions_created;
+    summary.errors = cp.errors;
+    summary.last_error = cp.last_error;
+    aiState.calls = cp.ai_calls;
+  }
 
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
@@ -352,20 +595,18 @@ async function syncConnection(
   since.setUTCMonth(since.getUTCMonth() - options.lookbackMonths);
   const sinceIso = since.toISOString().replace(/\.\d{3}Z$/, "Z");
 
-  for (const f of folders) {
-    const { messages, deltaLink } = options.fullSweep
-      ? await readFolderFullSweep(accessToken, f.folder, sinceIso)
-      : await readFolder(accessToken, f.folder, f.token);
-    summary.messages_scanned += messages.length;
-    summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
-
-    for (const msg of messages) {
+  /**
+   * Procesamiento de UN mensaje. Extraído del bucle de carpetas para que el
+   * barrido encadenado pueda invocarlo página a página sin duplicar lógica.
+   */
+  const processMessage = async (msg: GraphMessage, direction: "received" | "sent") => {
+    {
       const msgAt = msg.receivedDateTime ?? msg.sentDateTime ?? null;
       if (msgAt && (!summary.earliest_message_at || msgAt < summary.earliest_message_at)) {
         summary.earliest_message_at = msgAt;
       }
       // Exclusiones duras: monitoreo propio y auto-informes multi-radicado.
-      if (isExcludedMessage(msg, conn.ms_account_email ?? null)) continue;
+      if (isExcludedMessage(msg, conn.ms_account_email ?? null)) return;
 
       // SGDE: único caso donde se lee el cuerpo (en memoria, nunca se guarda)
       // para extraer el enlace de acceso al expediente electrónico.
@@ -446,7 +687,7 @@ async function syncConnection(
 
       // ---- PARTE B (iter 5): capa semántica IA sobre lo opaco ----
       let ai: AiClassification | null = null;
-      const regexSubtype = f.direction === "received"
+      const regexSubtype = direction === "received"
         ? classifyEvidenceSubtype(
           msg.subject,
           msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
@@ -456,7 +697,7 @@ async function syncConnection(
         msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
       );
       if (
-        f.direction === "received" && senderJudicial && matches.length > 0 &&
+        direction === "received" && senderJudicial && matches.length > 0 &&
         (regexSubtype === null || regexSubtype === "OTRO_JUDICIAL" ||
           // La citación necesita la FECHA de la audiencia, que el regex no da.
           regexSubtype === "CITACION_AUDIENCIA")
@@ -584,12 +825,12 @@ async function syncConnection(
 
       for (const match of matches) {
         if (match.confidence < 0.5) continue;
-        if (f.direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
+        if (direction === "sent" && await reconcileManualLink(admin, match.work_item_id, msg)) {
           continue;
         }
         const confirmed = match.confidence >= 0.7;
         let evidence = confirmed
-          ? classifyEvidence(msg, f.direction, match.matched_by)
+          ? classifyEvidence(msg, direction, match.matched_by)
           : null;
         let linkStatus = confirmed ? "CONFIRMED" : "SUGGESTED";
         let evidenceMeta: Record<string, unknown> | null = null;
@@ -628,7 +869,7 @@ async function syncConnection(
           message_id: msg.id,
           internet_message_id: msg.internetMessageId ?? null,
           conversation_id: msg.conversationId ?? null,
-          direction: f.direction,
+          direction: direction,
           subject: msg.subject ?? null,
           sender: msg.from?.emailAddress?.address ?? msg.sender?.emailAddress?.address ?? null,
           recipients: (msg.toRecipients ?? [])
@@ -643,9 +884,9 @@ async function syncConnection(
           confidence: match.confidence,
           evidence_type: evidence,
           // El AI solo desempata lo opaco: nunca pisa una certeza del regex.
-          evidence_subtype: f.direction === "received" ? (ai?.subtype ?? regexSubtype) : null,
+          evidence_subtype: direction === "received" ? (ai?.subtype ?? regexSubtype) : null,
           memorial_subtype:
-            f.direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
+            direction === "sent" ? classifyMemorialSubtype(msg.subject) : null,
           evidence_meta: buildEvidenceMeta(evidenceMeta, {
             instanceObserved: match.instance_observed ?? ai?.instancia ?? null,
             matchedInBody: bodyMatched,
@@ -672,11 +913,57 @@ async function syncConnection(
         if (evidence === "MEMORIAL_ENVIADO") summary.memorial_evidence++;
       }
     }
+  };
 
-    if (deltaLink) {
-      await admin.from("user_email_connections").update({ [f.column]: deltaLink }).eq("id", conn.id);
+  let chained = false;
+  if (sweep) {
+    // ---- Barrido encadenado: se avanza por páginas de Graph hasta agotar el
+    // presupuesto de tiempo; entonces se persiste el cursor y se reinvoca.
+    const cp = sweep.checkpoint;
+    for (let fi = cp.folder_index; fi < folders.length && !chained; fi++) {
+      const f = folders[fi];
+      cp.folder_index = fi;
+      let url = cp.next_link ??
+        `https://graph.microsoft.com/v1.0/me/mailFolders/${f.folder}/messages` +
+          `?$select=${SELECT}&$top=50&$orderby=receivedDateTime desc` +
+          `&$filter=receivedDateTime ge ${cp.since_iso}`;
+      for (;;) {
+        const res = await graphGet(url, accessToken);
+        const page = ((res.value as GraphMessage[]) ?? []).filter((m) => m?.id);
+        summary.messages_scanned += page.length;
+        summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + page.length;
+        for (const msg of page) await processMessage(msg, f.direction);
+
+        const next = (res["@odata.nextLink"] as string | undefined) ?? null;
+        cp.next_link = next;
+        if (!next) {
+          cp.folder_index = fi + 1;
+          cp.next_link = null;
+        }
+        await persistSweepProgress(admin, sweep, summary, "RUNNING");
+        if (!next) break;
+        if (Date.now() - sweep.invokedAt > CHUNK_BUDGET_MS) {
+          await chainNextChunk(admin, sweep, summary);
+          chained = true;
+          break;
+        }
+        url = next;
+      }
+    }
+  } else {
+    for (const f of folders) {
+      const { messages, deltaLink } = await readFolder(accessToken, f.folder, f.token);
+      summary.messages_scanned += messages.length;
+      summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
+      for (const msg of messages) await processMessage(msg, f.direction);
+      if (deltaLink) {
+        await admin.from("user_email_connections").update({ [f.column]: deltaLink }).eq("id", conn.id);
+      }
     }
   }
+
+  // Tramo intermedio: la cadena sigue viva, no se cierra nada todavía.
+  if (chained) return summary;
 
   await admin
     .from("user_email_connections")
@@ -699,33 +986,15 @@ async function syncConnection(
 
   summary.finished_at = new Date().toISOString();
 
-  // El gateway HTTP corta a ~150 s: el resumen se persiste server-side para
-  // que la UI pueda leerlo aunque el invocador nunca reciba la respuesta.
-  // Solo los barridos completos dejan fila: un delta sin novedades escribiría
-  // un resumen con scanned=0 que confunde la lectura de cobertura.
-  if (options.fullSweep) {
-    const { error: runErr } = await admin.from("sync_full_sweep_runs").insert({
-    user_id: conn.user_id,
-    organization_id: conn.organization_id,
-    connection_id: conn.id,
-    full_sweep: options.fullSweep,
-    lookback_months: summary.lookback_months,
-    status: summary.errors > 0 ? "PARTIAL" : "SUCCESS",
-    started_at: summary.started_at,
-    finished_at: summary.finished_at,
-    messages_scanned: summary.messages_scanned,
-    folders: summary.folders,
-    earliest_message_at: summary.earliest_message_at,
-    detected_new: summary.detected_new,
-    detected_updated: summary.detected_updated,
-    detected_skipped: summary.detected_skipped,
-    reconciled: summary.reconciled,
-    links_created: summary.links_created,
-    suggestions_created: summary.suggestions_created,
-    errors: summary.errors,
-    last_error: summary.last_error,
-    });
-    if (runErr) console.error("[outlook-sync] sweep run insert", runErr.message);
+  // El gateway HTTP corta a ~150 s: el resumen vive en la fila del barrido,
+  // que la cadena ha ido actualizando tramo a tramo.
+  if (sweep) {
+    await persistSweepProgress(
+      admin,
+      sweep,
+      summary,
+      summary.errors > 0 ? "PARTIAL" : "SUCCESS",
+    );
   }
 
   return summary;
@@ -748,6 +1017,7 @@ Deno.serve(async (req) => {
       body = (await req.json()) as Record<string, unknown>;
     } catch { /* body vacío */ }
     const fullSweep = body.full_sweep === true;
+    const resumeRunId = typeof body.resume_run_id === "string" ? body.resume_run_id : null;
     const rawLookback = Number(body.lookback_months);
     const lookbackMonths =
       Number.isFinite(rawLookback) && rawLookback >= 1 && rawLookback <= 36
@@ -757,6 +1027,57 @@ Deno.serve(async (req) => {
     let connections: Connection[] = [];
     const columns =
       "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
+
+    // ---- Reanudación de un tramo: solo la propia función (service role) puede
+    // encadenar. No hay usuario detrás de esta invocación.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const isSelfCall =
+      authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+    if (resumeRunId) {
+      if (!isSelfCall && !isCron) return json({ error: "No autorizado" }, 403);
+      const { data: run } = await admin
+        .from("sync_full_sweep_runs")
+        .select("id, connection_id, status, checkpoint, lookback_months")
+        .eq("id", resumeRunId)
+        .maybeSingle();
+      if (!run) return json({ error: "Barrido no encontrado" }, 404);
+      if (run.status !== "RUNNING") return json({ ok: true, skipped: run.status });
+      const { data: conn } = await admin
+        .from("user_email_connections")
+        .select(columns)
+        .eq("id", run.connection_id)
+        .maybeSingle();
+      if (!conn) return json({ error: "Conexión no encontrada" }, 404);
+      const sweep: SweepCtx = {
+        runId: run.id as string,
+        checkpoint: run.checkpoint as SweepCheckpoint,
+        invokedAt: Date.now(),
+      };
+      const aiStateResume = newAiGatewayState();
+      try {
+        const result = await syncConnection(
+          admin,
+          conn as unknown as Connection,
+          { fullSweep: true, lookbackMonths: Number(run.lookback_months ?? lookbackMonths) },
+          aiStateResume,
+          sweep,
+        );
+        return json({ ok: true, run_id: sweep.runId, chunk: sweep.checkpoint.chunk_index, result });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Error inesperado";
+        console.error("[outlook-sync] resume failed", resumeRunId, message);
+        await admin
+          .from("sync_full_sweep_runs")
+          .update({
+            status: "FAILED",
+            last_error: message.slice(0, 500),
+            finished_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", resumeRunId);
+        return json({ error: message }, 500);
+      }
+    }
 
     if (isCron) {
       const { data } = await admin
@@ -784,13 +1105,34 @@ Deno.serve(async (req) => {
     // Tope de 50 llamadas de IA por corrida, compartido entre conexiones.
     const aiState = newAiGatewayState();
     for (const conn of connections) {
+      let sweep: SweepCtx | undefined;
       try {
-        results.push(
-          await syncConnection(admin, conn, { fullSweep, lookbackMonths }, aiState),
-        );
+        if (fullSweep) {
+          const started = await startSweepRun(admin, conn, lookbackMonths);
+          if ("busy" in started) {
+            results.push({ connection_id: conn.id, running_run_id: started.busy });
+            continue;
+          }
+          sweep = started.sweep;
+        }
+        results.push({
+          run_id: sweep?.runId ?? null,
+          ...(await syncConnection(admin, conn, { fullSweep, lookbackMonths }, aiState, sweep)),
+        });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Error inesperado";
         console.error("[outlook-sync] connection failed", conn.id, message);
+        if (sweep) {
+          await admin
+            .from("sync_full_sweep_runs")
+            .update({
+              status: "FAILED",
+              last_error: message.slice(0, 500),
+              finished_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", sweep.runId);
+        }
         await admin
           .from("user_email_connections")
           .update({ status: "ERROR", last_error: message.slice(0, 500) })

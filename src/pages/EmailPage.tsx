@@ -23,7 +23,8 @@ export default function EmailPage() {
   const { connection, isConnected, canSend, sync } = useEmailConnection();
   const { data: lastSweep } = useLastFullSweepRun();
   const [composeOpen, setComposeOpen] = useState(false);
-  const [fullSweepRunning, setFullSweepRunning] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const sweepRunning = lastSweep?.status === "RUNNING";
 
   return (
     <div className="container mx-auto space-y-6 px-4 py-6">
@@ -74,23 +75,37 @@ export default function EmailPage() {
           </Button>
           <Button
             variant="outline"
-            disabled={!isConnected || sync.isPending}
+            disabled={!isConnected || sync.isPending || sweepRunning}
             onClick={() => {
-              setFullSweepRunning(true);
+              setLaunching(true);
               sync.mutate(
                 { fullSweep: true, lookbackMonths: 12 },
-                { onSettled: () => setFullSweepRunning(false) },
+                { onSettled: () => setLaunching(false) },
               );
             }}
           >
-            {fullSweepRunning ? (
+            {launching || sweepRunning ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
             ) : (
               <History className="mr-1.5 h-4 w-4" aria-hidden />
             )}
             Revisar buzón completo (12 meses)
           </Button>
-          {lastSweep && (
+          {lastSweep && sweepRunning && (
+            <p className="w-full text-xs text-muted-foreground" role="status">
+              Barrido en curso… {lastSweep.messages_scanned} mensajes
+              {lastSweep.earliest_message_at
+                ? ` · buzón cubierto hasta ${format(new Date(lastSweep.earliest_message_at), "d MMM yyyy", { locale: es })}`
+                : ""}{" "}
+              · tramo {lastSweep.chunk_index + 1}
+            </p>
+          )}
+          {lastSweep && lastSweep.status === "FAILED" && (
+            <p className="w-full text-xs text-destructive" role="status">
+              Barrido interrumpido — reintentar
+            </p>
+          )}
+          {lastSweep && !sweepRunning && lastSweep.status !== "FAILED" && (
             <p className="w-full text-xs text-muted-foreground">
               Último barrido completo:{" "}
               {format(new Date(lastSweep.started_at), "d MMM yyyy, HH:mm", { locale: es })} —{" "}
@@ -109,11 +124,6 @@ export default function EmailPage() {
             <PenSquare className="mr-1.5 h-4 w-4" aria-hidden />
             Redactar correo
           </Button>
-          {fullSweepRunning && (
-            <p className="w-full text-xs text-muted-foreground" role="status">
-              Revisando buzón completo… puede tardar varios minutos.
-            </p>
-          )}
         </CardContent>
       </Card>
 

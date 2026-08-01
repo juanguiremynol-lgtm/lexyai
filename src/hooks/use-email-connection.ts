@@ -37,6 +37,9 @@ export interface FullSweepRun {
   detected_updated: number;
   reconciled: number;
   errors: number;
+  /** Tramo actual de la cadena de auto-reinvocaciones. */
+  chunk_index: number;
+  updated_at: string | null;
 }
 
 export function useLastFullSweepRun() {
@@ -46,7 +49,7 @@ export function useLastFullSweepRun() {
       const { data, error } = await supabase
         .from("sync_full_sweep_runs")
         .select(
-          "id, started_at, finished_at, status, messages_scanned, folders, earliest_message_at, detected_new, detected_updated, reconciled, errors",
+          "id, started_at, finished_at, status, messages_scanned, folders, earliest_message_at, detected_new, detected_updated, reconciled, errors, chunk_index, updated_at",
         )
         .eq("full_sweep", true)
         .order("started_at", { ascending: false })
@@ -55,7 +58,10 @@ export function useLastFullSweepRun() {
       if (error) throw error;
       return (data as unknown as FullSweepRun | null) ?? null;
     },
-    staleTime: 30_000,
+    staleTime: 5_000,
+    // Mientras la cadena corre, la fila es la única fuente de progreso.
+    refetchInterval: (q) =>
+      (q.state.data as FullSweepRun | null)?.status === "RUNNING" ? 5_000 : false,
   });
 }
 
@@ -121,21 +127,29 @@ export function useEmailConnection() {
   });
 
   const sync = useMutation<
-    { results?: { links_created?: number; messages_scanned?: number }[] },
+    { results?: { links_created?: number; messages_scanned?: number; run_id?: string }[] },
     Error,
     { fullSweep?: boolean; lookbackMonths?: number } | void
   >({
     mutationFn: async (options) => {
+      const isSweep = Boolean(options && options.fullSweep);
       const { data, error } = await supabase.functions.invoke("outlook-sync", {
-        body: options && options.fullSweep
+        body: isSweep && options
           ? { full_sweep: true, lookback_months: options.lookbackMonths ?? 12 }
           : {},
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { results?: { links_created?: number; messages_scanned?: number }[] };
+      return { ...(data as object), isSweep } as {
+        results?: { links_created?: number; messages_scanned?: number; run_id?: string }[];
+      };
     },
     onSuccess: (data) => {
+      if ((data as { isSweep?: boolean }).isSweep) {
+        toast.success("Barrido completo iniciado — el progreso se actualiza aquí");
+        void queryClient.invalidateQueries({ queryKey: ["full-sweep-run", "last"] });
+        return;
+      }
       const created = (data?.results ?? []).reduce((acc, r) => acc + (r.links_created ?? 0), 0);
       toast.success(created > 0 ? `${created} correo(s) vinculado(s)` : "Buzón revisado, sin correos nuevos por vincular");
       void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
