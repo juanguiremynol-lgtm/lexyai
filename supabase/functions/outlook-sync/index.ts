@@ -236,6 +236,11 @@ async function fetchBodyText(accessToken: string, messageId: string): Promise<st
 }
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+/**
+ * Válvula de seguridad: la lectura universal del cuerpo cuesta una llamada a
+ * Graph por mensaje. Sin tope, un barrido de 12 meses no termina nunca.
+ */
+const BODY_READS_PER_RUN = 300;
 
 /**
  * Único punto donde se arma `evidence_meta`. Solo persiste identificadores,
