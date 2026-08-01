@@ -2,7 +2,7 @@
  * Horizontal canonical phase stepper.
  * Legacy stage values are mapped onto canonical phases at render time.
  */
-import { Check, FileText, Mail, User } from "lucide-react";
+import { Check, FileText, Mail, Newspaper, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -12,17 +12,19 @@ import type { WorkflowType } from "@/lib/workflow-constants";
 export interface PhaseReach {
   phaseKey: string;
   reachedAt: string;
-  source: "ACTUACION" | "CORREO" | "MANUAL";
+  source: "ACTUACION" | "ESTADO" | "CORREO" | "MANUAL";
 }
 
 const SOURCE_ICON = {
   ACTUACION: FileText,
+  ESTADO: Newspaper,
   CORREO: Mail,
   MANUAL: User,
 } as const;
 
 const SOURCE_LABEL = {
   ACTUACION: "Actualizado por actuación",
+  ESTADO: "Actualizado por estado electrónico",
   CORREO: "Actualizado por correo",
   MANUAL: "Actualizado manualmente",
 } as const;
@@ -31,15 +33,20 @@ interface PhaseStepperProps {
   workflowType: WorkflowType;
   currentStage: string | null;
   reaches: PhaseReach[];
+  /** Phase inferred from the latest event when the stored stage is unmappable. */
+  inferredPhase?: string | null;
 }
 
-export function PhaseStepper({ workflowType, currentStage, reaches }: PhaseStepperProps) {
+export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhase }: PhaseStepperProps) {
   const phases = getWorkflowPhases(workflowType);
-  const currentPhase = mapStageToCanonicalPhase(workflowType, currentStage);
+  const mapped = mapStageToCanonicalPhase(workflowType, currentStage);
+  const currentPhase = mapped ?? inferredPhase ?? null;
+  const isInferred = !mapped && !!inferredPhase;
   const currentIndex = phases.findIndex((p) => p.key === currentPhase);
   const reachByPhase = new Map(reaches.map((r) => [r.phaseKey, r]));
 
   return (
+    <>
     <ol className="flex w-full snap-x gap-2 overflow-x-auto pb-2" aria-label="Fases del proceso">
       {phases.map((phase, i) => {
         const isDone = currentIndex >= 0 && i < currentIndex;
@@ -77,6 +84,7 @@ export function PhaseStepper({ workflowType, currentStage, reaches }: PhaseStepp
                 )}
               >
                 {phase.label}
+                {isCurrent && isInferred ? " (inferida)" : ""}
               </span>
             </div>
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -93,5 +101,11 @@ export function PhaseStepper({ workflowType, currentStage, reaches }: PhaseStepp
         );
       })}
     </ol>
+    {isInferred && (
+      <p className="text-[11px] text-muted-foreground">
+        Fase inferida a partir de la última actuación o estado; la etapa registrada no es concluyente.
+      </p>
+    )}
+    </>
   );
 }

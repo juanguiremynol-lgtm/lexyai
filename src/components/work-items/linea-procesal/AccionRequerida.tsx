@@ -20,8 +20,13 @@ import { usePendingStageSuggestions } from "@/hooks/use-pending-stage-suggestion
 import { useStageSuggestion } from "@/hooks/useStageSuggestion";
 import { useSuggestedDeadlineActions } from "@/hooks/use-suggested-deadlines";
 import { getStageLabel, type WorkflowType, type CGPPhase } from "@/lib/workflow-constants";
+import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
 
 const ACTIVE_STATUSES = new Set(["PENDING", "PENDING_REVIEW"]);
+
+function isHearing(d: WorkItemDeadline): boolean {
+  return d.deadline_type === "AUDIENCIA" || d.deadline_type === "PREPARACION_AUDIENCIA";
+}
 
 function urgencyClass(days: number): string {
   if (days < 3) return "border-destructive/40 bg-destructive/5";
@@ -74,10 +79,13 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
 
         {nearest && (
           <div className={cn("rounded-md border p-3", urgencyClass(businessDaysUntil(nearest.deadline_date!)))}>
-            <p className="text-sm font-medium">{nearest.label}</p>
+            <p className="text-sm font-medium" title={nearest.deadline_type}>
+              {formatDeadlineLabel(nearest.deadline_type, nearest.label)}
+            </p>
             <p className="text-xs text-muted-foreground">
               Vence el {format(new Date(nearest.deadline_date + "T00:00:00"), "d 'de' MMMM yyyy", { locale: es })} ·{" "}
               {businessDaysUntil(nearest.deadline_date!)} días hábiles restantes
+              {isDerivedDate(nearest.calculation_meta) ? ` · ${DERIVED_DATE_LABEL}` : ""}
             </p>
           </div>
         )}
@@ -89,7 +97,7 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
               Confirmar término sugerido por correo
             </p>
             <p className="text-xs text-muted-foreground">
-              {d.label}
+              {formatDeadlineLabel(d.deadline_type, d.label)}
               {d.deadline_date
                 ? ` · vencería el ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
                 : " · sin fecha calculable, requiere revisión"}
@@ -116,14 +124,17 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
           <div key={d.id} className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium">
               <Gavel className="h-3.5 w-3.5 text-primary" aria-hidden />
-              Confirmar audiencia detectada en el expediente
+              {isHearing(d)
+                ? "Confirmar audiencia detectada en el expediente"
+                : "Confirmar término calculado con fecha derivada"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {d.label}
+              {formatDeadlineLabel(d.deadline_type, d.label)}
               {d.deadline_date
                 ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
                 : ""}
               {typeof d.calculation_meta?.hora === "string" ? `, ${d.calculation_meta.hora}` : ""}
+              {isDerivedDate(d.calculation_meta) ? ` · ${DERIVED_DATE_LABEL} (desfijación estimada)` : ""}
             </p>
             <div className="mt-2 flex gap-2">
               <Button
@@ -190,7 +201,9 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
               <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
               Término requiere revisión manual
             </p>
-            <p className="text-xs text-muted-foreground">{d.label}</p>
+            <p className="text-xs text-muted-foreground" title={d.deadline_type}>
+              {formatDeadlineLabel(d.deadline_type, d.label)}
+            </p>
           </div>
         ))}
       </CardContent>

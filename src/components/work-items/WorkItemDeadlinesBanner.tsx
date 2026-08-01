@@ -12,6 +12,7 @@ import { AlarmClock, AlertTriangle, Info } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
 
 interface Props {
   workItemId: string;
@@ -32,6 +33,7 @@ const ANCHOR_LABELS: Record<string, string> = {
   DESPACHO_HIBRIDO: "despacho (fecha inicial)",
   CPNU_FIJACION_ESTADO: "fijación estado (CPNU)",
   PUBLICACION_FIJACION: "fijación estado (publicación)",
+  FECHA_FIJACION: "fijación estado (publicación)",
   SIN_ANCLA_DISPONIBLE: "sin fijación confirmada",
 };
 
@@ -39,7 +41,12 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
   const { data: deadlines = [], isLoading } = useWorkItemDeadlines(workItemId);
   if (isLoading || deadlines.length === 0) return null;
 
-  const active = deadlines.filter((d) => d.status === "PENDING" || d.status === "REQUIERE_REVISION_MANUAL");
+  const active = deadlines.filter(
+    (d) =>
+      d.status === "PENDING" ||
+      d.status === "REQUIERE_REVISION_MANUAL" ||
+      d.status === "SUGGESTED_BY_PROVIDER",
+  );
   if (active.length === 0) return null;
 
   const worst = active.reduce<WorkItemDeadline>((acc, d) => {
@@ -74,10 +81,13 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
             return (
               <li key={d.id} className="flex items-start justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <div className="font-medium truncate">{d.label}</div>
+                  <div className="font-medium truncate" title={d.deadline_type}>
+                    {formatDeadlineLabel(d.deadline_type, d.label)}
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     {d.calculation_meta?.norma ?? "—"} · ancla:{" "}
                     {ANCHOR_LABELS[d.calculation_meta?.anchor_source ?? ""] ?? "fijación estado"}
+                    {isDerivedDate(d.calculation_meta) ? ` · ${DERIVED_DATE_LABEL}` : ""}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
