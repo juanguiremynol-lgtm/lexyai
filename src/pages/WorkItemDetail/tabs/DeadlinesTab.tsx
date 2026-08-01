@@ -29,6 +29,7 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useCpacaDeadlines } from "@/hooks/use-cpaca-deadlines";
 import { supabase } from "@/integrations/supabase/client";
+import { formatDeadlineLabel } from "@/lib/deadline-labels";
 
 import type { WorkItem } from "@/types/work-item";
 import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
@@ -76,6 +77,7 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
         .from("work_item_deadlines")
         .select("*")
         .eq("work_item_id", workItem.id)
+        .not("status", "in", "(DISMISSED,CANCELLED)")
         .order("deadline_date", { ascending: true });
       
       if (error) throw error;
@@ -187,7 +189,7 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
         
         return {
           id: d.id,
-          label: d.label,
+          label: formatDeadlineLabel(d.deadline_type, d.label),
           date: deadlineDate,
           description: d.description || "",
           isOverdue: isPast(deadlineDate),
