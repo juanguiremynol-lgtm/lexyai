@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { MATCHED_FIELD_LABELS, formatRadicadoPretty } from "@/lib/search/normalized-search";
 
 // ── Types ──
 interface SearchResult {
@@ -36,6 +37,8 @@ interface SearchResult {
   route: string;
   relevance: number;
   isOrgItem?: boolean; // true if admin is viewing another user's item
+  /** Why this row matched (normalized search only). */
+  matchedFields?: string[];
 }
 
 interface GroupedResults {
@@ -116,47 +119,6 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
       )}
     </>
   );
-}
-
-// ── Radicado normalization (strip non-digits) ──
-function normalizeRadicado(input: string): string {
-  return input.replace(/[^0-9]/g, "");
-}
-
-// ── Enhanced relevance scoring ──
-function scoreWorkItemResult(
-  item: { radicado: string | null; title: string | null; demandantes: string | null; demandados: string | null; authority_name: string | null },
-  query: string
-): number {
-  const q = query.toLowerCase().trim();
-  const qDigits = normalizeRadicado(q);
-
-  // 1. Exact radicado match (highest priority)
-  if (item.radicado) {
-    const normalizedRad = normalizeRadicado(item.radicado);
-    if (normalizedRad === qDigits && qDigits.length > 0) return 1;
-    if (normalizedRad.startsWith(qDigits) && qDigits.length > 0) return 2;
-    if (item.radicado.toLowerCase().includes(q)) return 3;
-  }
-
-  // 2. Title match
-  const title = (item.title || "").toLowerCase();
-  if (title === q) return 4;
-  if (title.startsWith(q)) return 5;
-  if (title.includes(q)) return 6;
-
-  // 3. Party name match
-  const demandantes = (item.demandantes || "").toLowerCase();
-  const demandados = (item.demandados || "").toLowerCase();
-  if (demandantes.startsWith(q) || demandados.startsWith(q)) return 7;
-  if (demandantes.includes(q) || demandados.includes(q)) return 8;
-
-  // 4. Authority/courthouse match
-  const authority = (item.authority_name || "").toLowerCase();
-  if (authority.startsWith(q)) return 9;
-  if (authority.includes(q)) return 10;
-
-  return 11;
 }
 
 function scoreResult(result: { title: string; subtitle: string }, query: string): number {
@@ -248,29 +210,11 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const searchPattern = `%${query}%`;
   const limitPerType = 10;
 
-  // Build work items query with permission scoping
-  const buildWorkItemsQuery = () => {
-    let q = supabase
-      .from("work_items")
-      .select("id, workflow_type, stage, radicado, title, demandantes, demandados, authority_name, authority_city, owner_id, updated_at")
-      .is("deleted_at", null)
-      .or(`radicado.ilike.${searchPattern},title.ilike.${searchPattern},demandantes.ilike.${searchPattern},demandados.ilike.${searchPattern},authority_name.ilike.${searchPattern}`)
-      .limit(limitPerType)
-      .order("updated_at", { ascending: false });
-
-    if (ctx.isAdmin && ctx.organizationId) {
-      // Admin: see all org items
-      q = q.eq("organization_id", ctx.organizationId);
-    } else if (ctx.organizationId) {
-      // Normal member: only own items
-      q = q.eq("organization_id", ctx.organizationId).eq("owner_id", ctx.userId);
-    } else {
-      // No org: fallback to owner
-      q = q.eq("owner_id", ctx.userId);
-    }
-
-    return q;
-  };
+  // Work items go through the normalized search RPC (radicado in any form,
+  // partial radicado, courthouse e-mail, parties, client id). It is
+  // SECURITY INVOKER, so RLS keeps results scoped to the caller.
+  const buildWorkItemsQuery = () =>
+    supabase.rpc("search_work_items_normalized", { p_query: query, p_limit: limitPerType });
 
   const buildClientsQuery = () => {
     let q = supabase
@@ -319,19 +263,19 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
 
   const workItems: SearchResult[] = (workItemsResult.data || []).map((item) => {
     const parties = [item.demandantes, item.demandados].filter(Boolean).join(" vs ");
-    const subtitleParts = [parties, item.authority_name, item.authority_city].filter(Boolean);
-    const isOrgItem = ctx.isAdmin && item.owner_id !== ctx.userId;
+    const subtitleParts = [parties, item.authority_name, item.authority_city, item.stage]
+      .filter(Boolean);
 
     return {
       id: item.id,
       type: "work_item" as const,
-      title: item.radicado || item.title || "Sin radicado",
+      title: item.radicado ? formatRadicadoPretty(item.radicado) : item.title || "Sin radicado",
       subtitle: subtitleParts.join(" · ") || "Sin información",
-      badge: item.workflow_type,
+      badge: item.workflow_type ?? undefined,
       badgeVariant: "secondary" as const,
       route: `/app/work-items/${item.id}`,
-      relevance: scoreWorkItemResult(item, query),
-      isOrgItem,
+      relevance: Number(item.match_rank ?? 9),
+      matchedFields: item.matched_fields ?? [],
     };
   }).sort((a, b) => a.relevance - b.relevance);
 
@@ -573,6 +517,15 @@ export function GlobalSearch() {
                   <p className="text-xs text-muted-foreground truncate">
                     <HighlightMatch text={result.subtitle} query={query} />
                   </p>
+                  {(result.matchedFields?.length ?? 0) > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {result.matchedFields!.slice(0, 3).map((f) => (
+                        <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+                          {MATCHED_FIELD_LABELS[f] ?? `coincide: ${f}`}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {isSelected && (
                   <div className="text-muted-foreground flex items-center gap-1 text-xs">

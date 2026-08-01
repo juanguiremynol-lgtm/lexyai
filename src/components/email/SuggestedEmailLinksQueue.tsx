@@ -32,8 +32,10 @@ import {
   useApplySgdeAccessLink,
   useResolveEmailMessage,
   useBulkDismissEmailMessages,
+  useManualLinkEmail,
   type SuggestedEmailLink,
 } from "@/hooks/use-email-connection";
+import { WorkItemPickerDialog } from "@/components/email/WorkItemPickerDialog";
 
 /** Dominios de la Rama Judicial y entidades con función jurisdiccional. */
 const JUDICIAL_DOMAIN_RE =
@@ -114,6 +116,8 @@ export function SuggestedEmailLinksQueue({
   const resolve = useResolveEmailMessage();
   const applySgde = useApplySgdeAccessLink();
   const bulkDismiss = useBulkDismissEmailMessages();
+  const manualLink = useManualLinkEmail();
+  const [pickerFor, setPickerFor] = useState<SuggestedEmailLink | null>(null);
 
   const [onlyJudicial, setOnlyJudicial] = useState(false);
   const [inactiveSince, setInactiveSince] = useState("");
@@ -421,12 +425,35 @@ export function SuggestedEmailLinksQueue({
                   <X className="mr-1 h-3.5 w-3.5" aria-hidden />
                   Descartar
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPickerFor(link)}
+                  disabled={manualLink.isPending}
+                >
+                  <FolderSymlink className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  Vincular a otro expediente
+                </Button>
               </div>
             </div>
             );
           })
         )}
       </CardContent>
+      <WorkItemPickerDialog
+        open={pickerFor !== null}
+        onOpenChange={(open) => !open && setPickerFor(null)}
+        isPending={manualLink.isPending}
+        messageRadicados={pickerFor ? messageRadicados(pickerFor) : []}
+        currentWorkItemId={pickerFor?.work_item_id ?? null}
+        onSelect={(item) => {
+          if (!pickerFor) return;
+          manualLink.mutate(
+            { linkId: pickerFor.id, workItemId: item.id },
+            { onSuccess: () => setPickerFor(null) },
+          );
+        }}
+      />
     </Card>
   );
 }
