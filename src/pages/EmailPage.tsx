@@ -15,10 +15,13 @@ import { Mail, PenSquare, RefreshCw, ShieldCheck, Settings2, Loader2, History } 
 import { DetectedProcessesQueue } from "@/components/email/DetectedProcessesQueue";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
-import { useEmailConnection } from "@/hooks/use-email-connection";
+import { useEmailConnection, useLastFullSweepRun } from "@/hooks/use-email-connection";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 export default function EmailPage() {
   const { connection, isConnected, canSend, sync } = useEmailConnection();
+  const { data: lastSweep } = useLastFullSweepRun();
   const [composeOpen, setComposeOpen] = useState(false);
   const [fullSweepRunning, setFullSweepRunning] = useState(false);
 
@@ -87,6 +90,21 @@ export default function EmailPage() {
             )}
             Revisar buzón completo (12 meses)
           </Button>
+          {lastSweep && (
+            <p className="w-full text-xs text-muted-foreground">
+              Último barrido completo:{" "}
+              {format(new Date(lastSweep.started_at), "d MMM yyyy, HH:mm", { locale: es })} —{" "}
+              {lastSweep.messages_scanned} mensajes
+              {lastSweep.earliest_message_at
+                ? `, buzón cubierto hasta ${format(new Date(lastSweep.earliest_message_at), "d MMM yyyy", { locale: es })}`
+                : ""}
+              {lastSweep.folders
+                ? ` · ${Object.entries(lastSweep.folders)
+                    .map(([folder, n]) => `${folder}: ${n}`)
+                    .join(" · ")}`
+                : ""}
+            </p>
+          )}
           <Button disabled={!canSend} onClick={() => setComposeOpen(true)}>
             <PenSquare className="mr-1.5 h-4 w-4" aria-hidden />
             Redactar correo

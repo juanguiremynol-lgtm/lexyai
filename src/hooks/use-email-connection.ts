@@ -21,6 +21,44 @@ export interface EmailConnection {
   can_send: boolean;
 }
 
+/**
+ * Último barrido completo persistido server-side: el gateway HTTP corta la
+ * respuesta a ~150 s, así que el resumen se lee de la tabla, no del invocador.
+ */
+export interface FullSweepRun {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  messages_scanned: number;
+  folders: Record<string, number> | null;
+  earliest_message_at: string | null;
+  detected_new: number;
+  detected_updated: number;
+  reconciled: number;
+  errors: number;
+}
+
+export function useLastFullSweepRun() {
+  return useQuery({
+    queryKey: ["full-sweep-run", "last"],
+    queryFn: async (): Promise<FullSweepRun | null> => {
+      const { data, error } = await supabase
+        .from("sync_full_sweep_runs")
+        .select(
+          "id, started_at, finished_at, status, messages_scanned, folders, earliest_message_at, detected_new, detected_updated, reconciled, errors",
+        )
+        .eq("full_sweep", true)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as unknown as FullSweepRun | null) ?? null;
+    },
+    staleTime: 30_000,
+  });
+}
+
 export function useEmailConnection() {
   const queryClient = useQueryClient();
 
