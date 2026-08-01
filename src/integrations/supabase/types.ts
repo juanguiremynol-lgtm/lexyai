@@ -6671,6 +6671,7 @@ export type Database = {
           cpnu_source_mode: string | null
           created_at: string
           debug_mode: boolean
+          details: Json
           duration_ms: number | null
           error_code: string | null
           error_message: string | null
@@ -6697,6 +6698,7 @@ export type Database = {
           cpnu_source_mode?: string | null
           created_at?: string
           debug_mode?: boolean
+          details?: Json
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
@@ -6723,6 +6725,7 @@ export type Database = {
           cpnu_source_mode?: string | null
           created_at?: string
           debug_mode?: boolean
+          details?: Json
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
