@@ -17942,6 +17942,7 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       email_subtype_confidence: { Args: { p_subtype: string }; Returns: number }
       email_subtype_deadline_type: {
         Args: { p_subtype: string; p_workflow: string }
@@ -17966,6 +17967,10 @@ export type Database = {
         Returns: string
       }
       find_email_memorial_evidence: {
+        Args: { p_from: string; p_to: string; p_work_item_id: string }
+        Returns: string
+      }
+      find_subsanacion_email_evidence_any_status: {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
       }
@@ -18294,6 +18299,11 @@ export type Database = {
           p_reason?: string
           p_work_item_id: string
         }
+        Returns: Json
+      }
+      stage_rank: { Args: { p_stage: string }; Returns: number }
+      subsanacion_forward_progress: {
+        Args: { p_trigger: string; p_work_item_id: string }
         Returns: Json
       }
       suggest_provider_hearing: {
