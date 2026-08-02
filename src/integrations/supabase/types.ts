@@ -89,6 +89,33 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter10_alert_purge_report: {
+        Row: {
+          alert_type: string | null
+          count: number
+          created_at: string
+          id: string
+          phase: string
+          severity: string | null
+        }
+        Insert: {
+          alert_type?: string | null
+          count: number
+          created_at?: string
+          id?: string
+          phase: string
+          severity?: string | null
+        }
+        Update: {
+          alert_type?: string | null
+          count?: number
+          created_at?: string
+          id?: string
+          phase?: string
+          severity?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
