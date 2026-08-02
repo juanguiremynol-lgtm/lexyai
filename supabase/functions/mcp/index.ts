@@ -241,7 +241,9 @@ var get_work_item_default = defineTool2({
   description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
   inputSchema: {
     id: z2.string().uuid().optional().describe("work_item UUID."),
-    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato)."),
+    radicado: z2.string().trim().optional().describe(
+      "Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia."
+    ),
     verbose: z2.boolean().optional().describe("Si es true devuelve el objeto work_item crudo completo (~150 campos internos). Default false.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -250,13 +252,11 @@ var get_work_item_default = defineTool2({
     if (unauth) return errorResult(unauth);
     if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
     const sb = sbForUser(ctx);
-    let q = sb.from("work_items").select("*").is("deleted_at", null).limit(1);
-    if (id) q = q.eq("id", id);
-    else if (radicado) q = q.eq("radicado", radicado);
-    const { data: itemRows, error } = await q;
-    if (error) return errorResult(error.message);
-    const item = itemRows?.[0];
-    if (!item) return errorResult("Asunto no encontrado (o no pertenece a tu cuenta).");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "*");
+    if (resolved.error || !resolved.item) {
+      return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
+    }
+    const item = resolved.item;
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
       sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
@@ -314,8 +314,10 @@ var get_work_item_default = defineTool2({
       if (source[key] !== void 0 && source[key] !== null) slimItem[key] = source[key];
     }
     return textResult(
-      `Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
+      `${resolved.note ? `${resolved.note}
+` : ""}Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
       {
+        resolucion: resolved.note ?? null,
         resumen,
         item: verbose ? item : slimItem,
         recent_acts: acts ?? [],

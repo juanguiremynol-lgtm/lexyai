@@ -132,7 +132,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado exacto (23-dígitos u otro formato)."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin el cero inicial o base+instancia."
             },
             "verbose": {
               "type": "boolean",

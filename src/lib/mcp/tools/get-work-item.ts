@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "get_work_item",
@@ -9,7 +9,13 @@ export default defineTool({
     "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
-    radicado: z.string().trim().optional().describe("Radicado exacto (23-dígitos u otro formato)."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe(
+        "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin el cero inicial o base+instancia.",
+      ),
     verbose: z
       .boolean()
       .optional()
@@ -21,13 +27,11 @@ export default defineTool({
     if (unauth) return errorResult(unauth);
     if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
     const sb = sbForUser(ctx);
-    let q = sb.from("work_items").select("*").is("deleted_at", null).limit(1);
-    if (id) q = q.eq("id", id);
-    else if (radicado) q = q.eq("radicado", radicado);
-    const { data: itemRows, error } = await q;
-    if (error) return errorResult(error.message);
-    const item = itemRows?.[0];
-    if (!item) return errorResult("Asunto no encontrado (o no pertenece a tu cuenta).");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "*");
+    if (resolved.error || !resolved.item) {
+      return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
+    }
+    const item = resolved.item as Record<string, any>;
 
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts")
@@ -89,8 +93,9 @@ export default defineTool({
     }
 
     return textResult(
-      `Asunto ${item.radicado ?? item.id} — ${item.workflow_type} — ${item.authority_name ?? "despacho sin registrar"} — ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} términos activos.`,
+      `${resolved.note ? `${resolved.note}\n` : ""}Asunto ${item.radicado ?? item.id} — ${item.workflow_type} — ${item.authority_name ?? "despacho sin registrar"} — ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} términos activos.`,
       {
+        resolucion: resolved.note ?? null,
         resumen,
         item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
