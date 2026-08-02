@@ -38,6 +38,7 @@ const MATCH_LABELS: Record<string, string> = {
 const SUBTYPE_LABELS: Record<string, string> = {
   AUTO_ADMISORIO: "Auto admisorio",
   INADMISION: "Inadmisión",
+  RECHAZO_COMPETENCIA: "Rechazo por competencia",
   TRASLADO: "Traslado",
   REQUERIMIENTO: "Requerimiento",
   CITACION_AUDIENCIA: "Citación a audiencia",
