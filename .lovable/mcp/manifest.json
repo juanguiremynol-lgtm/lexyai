@@ -492,7 +492,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "document_id": {
               "type": "string",
