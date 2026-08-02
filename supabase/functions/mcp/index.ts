@@ -774,7 +774,7 @@ var list_alerts_default = defineTool14({
   description: "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
   inputSchema: {
     work_item_id: z13.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
     status: z13.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
     limit: z13.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
@@ -784,10 +784,12 @@ var list_alerts_default = defineTool14({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let entityId = work_item_id ?? null;
+    let resolucion = null;
     if (!entityId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       entityId = resolved.item.id;
+      resolucion = resolved.note ?? null;
     }
     let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at").order("fired_at", { ascending: false }).limit(limit ?? 30);
     const normalized = status?.toUpperCase();
@@ -820,7 +822,9 @@ var list_alerts_default = defineTool14({
       };
     });
     const unread = alerts.filter((a) => !a.leida).length;
-    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+    return textResult(`${resolucion ? `${resolucion}
+` : ""}${alerts.length} alertas (${unread} sin leer).`, {
+      resolucion,
       status: status ?? "PENDING+ACKNOWLEDGED",
       work_item_id: entityId,
       unread,

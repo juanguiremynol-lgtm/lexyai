@@ -9,7 +9,11 @@ export default defineTool({
     "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe("Limitar a un asunto por radicado (23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia)."),
     status: z.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
     limit: z.number().int().min(1).max(100).optional().describe("Máximo de filas (default 30)."),
   },
@@ -20,10 +24,12 @@ export default defineTool({
     const sb = sbForUser(ctx);
 
     let entityId = work_item_id ?? null;
+    let resolucion: string | null = null;
     if (!entityId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       entityId = resolved.item.id as string;
+      resolucion = resolved.note ?? null;
     }
 
     let q = sb
@@ -71,7 +77,8 @@ export default defineTool({
     });
 
     const unread = alerts.filter((a) => !a.leida).length;
-    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+    return textResult(`${resolucion ? `${resolucion}\n` : ""}${alerts.length} alertas (${unread} sin leer).`, {
+      resolucion,
       status: status ?? "PENDING+ACKNOWLEDGED",
       work_item_id: entityId,
       unread,
