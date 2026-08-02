@@ -352,7 +352,7 @@ export type Database = {
           actions: Json | null
           alert_rule_id: string | null
           alert_source: string | null
-          alert_type: string | null
+          alert_type: string
           created_at: string
           dismissal_reason: string | null
           dismissed_at: string | null
@@ -384,7 +384,7 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           alert_source?: string | null
-          alert_type?: string | null
+          alert_type?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -416,7 +416,7 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           alert_source?: string | null
-          alert_type?: string | null
+          alert_type?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -605,6 +605,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      alert_suppression_log: {
+        Row: {
+          alert_type: string | null
+          created_at: string
+          entity_id: string | null
+          id: string
+          organization_id: string | null
+          owner_id: string | null
+          payload: Json | null
+          reason: string
+          severity: string | null
+          title: string | null
+        }
+        Insert: {
+          alert_type?: string | null
+          created_at?: string
+          entity_id?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          payload?: Json | null
+          reason: string
+          severity?: string | null
+          title?: string | null
+        }
+        Update: {
+          alert_type?: string | null
+          created_at?: string
+          entity_id?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          payload?: Json | null
+          reason?: string
+          severity?: string | null
+          title?: string | null
+        }
+        Relationships: []
       }
       alerts: {
         Row: {
@@ -18077,6 +18116,10 @@ export type Database = {
           p_work_item_id?: string
         }
         Returns: undefined
+      }
+      is_adverse_or_term_opening_text: {
+        Args: { p_text: string }
+        Returns: boolean
       }
       is_backfill_source: {
         Args: { p_run_mode: string; p_source: string }
