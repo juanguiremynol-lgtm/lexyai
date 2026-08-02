@@ -960,6 +960,7 @@ export type EvidenceSubtype =
   | "ACUSE_AUTOMATICO"
   | "ACCESO_EXPEDIENTE"
   | "ACTA_REPARTO"
+  | "RECHAZO_COMPETENCIA"
   | "INADMISION"
   | "AUTO_ADMISORIO"
   | "FIJACION_ESTADO"
@@ -979,7 +980,15 @@ export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
     /token validaci[oó]n|se le ha compartido informaci[oó]n de proceso|acceso a informaci[oó]n de proceso/i,
   ],
   ["ACTA_REPARTO", /acta *(de +)?reparto/i],
-  ["INADMISION", /inadmit|inadmisi[oó]n|rechaza/i],
+  // Iteración 11 — un rechazo/remisión por (falta de) competencia NO es una
+  // inadmisión: no concede término de subsanación. Debe evaluarse ANTES que
+  // INADMISION y que AUTO_ADMISORIO.
+  [
+    "RECHAZO_COMPETENCIA",
+    /(rechaz[a-zóo]*|remi[st][a-zóo]*|remisi[oó]n|env[ií]a|conflicto)[^.]{0,60}(de +)?competencia|competencia[^.]{0,40}(rechaz|remi)/i,
+  ],
+  // Solo la inadmisión genuina abre SUBSANACION.
+  ["INADMISION", /inadmit|inadmisi[oó]n|so pena de rechazo|t[eé]rmino para subsanar|para subsanar/i],
   ["AUTO_ADMISORIO", /admite|auto admisorio|admisi[oó]n/i],
   ["FIJACION_ESTADO", /estado electr[oó]nico|fija[a-z]* +(el +)?estado/i],
   ["DESISTIMIENTO", /desistimiento/i],
