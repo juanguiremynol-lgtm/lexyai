@@ -9,7 +9,11 @@ export default defineTool({
     "Returns a short-lived download URL for the PDF attached to a publicación (estado electrónico) of one of the caller's matters. It never generates new documents; it only exposes an existing attachment under the established access policy.",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe("Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."),
     document_id: z.string().uuid().describe("UUID de la publicación (estado) cuyo PDF se solicita."),
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
@@ -38,7 +42,7 @@ export default defineTool({
     const publicUrl = (pub as { pdf_url?: string | null }).pdf_url ?? null;
     if (publicUrl && /^https?:\/\//i.test(publicUrl) && /storage\.googleapis\.com/i.test(publicUrl)) {
       return textResult(`Enlace público del documento de ${(pub as { title?: string }).title ?? "la publicación"}.`, {
-        document_id, work_item_id: itemId, url: publicUrl, source: "public",
+        resolucion: resolved.note ?? null, document_id, work_item_id: itemId, url: publicUrl, source: "public",
       });
     }
 
@@ -64,7 +68,7 @@ export default defineTool({
     }
 
     return textResult("Enlace temporal generado (válido ~10 minutos).", {
-      document_id, work_item_id: itemId, url: payload.url, source: "signed", expires_in_seconds: 600,
+      resolucion: resolved.note ?? null, document_id, work_item_id: itemId, url: payload.url, source: "signed", expires_in_seconds: 600,
     });
   },
 });

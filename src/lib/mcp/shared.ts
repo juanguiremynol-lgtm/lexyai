@@ -10,6 +10,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ToolContext } from "@lovable.dev/mcp-js";
+import { digitsOf, radicadoQueryVariants } from "../search/normalized-search";
 
 export function sbForUser(ctx: ToolContext): SupabaseClient {
   return createClient(
@@ -178,19 +179,113 @@ export async function requirePlatformAdmin(
   return { error: null, sb };
 }
 
-/** Resolve a work item by UUID or radicado, scoped by RLS to the caller. */
+/** Lifecycle states that make an instance a poor resolution target. */
+const INACTIVE_LIFECYCLE = new Set(["DELETED", "ARCHIVED", "CLOSED", "TERMINATED"]);
+
+function instanceSuffix(radicado: unknown): number {
+  const d = digitsOf(String(radicado ?? ""));
+  return d.length >= 23 ? Number(d.slice(21, 23)) : 0;
+}
+
+/**
+ * Resolve a work item by UUID or radicado, scoped by RLS to the caller.
+ *
+ * The `radicado` argument accepts every normalized form of iteration 4.2:
+ * canonical 23 digits, hyphenated, space-separated, 21-digit BASE, 22-digit
+ * missing-leading-zero and BASE+instance. When a BASE matches several
+ * instances (00, 01, …) the active one wins and the choice is reported back
+ * through `note` so the agent can state it.
+ */
 export async function resolveWorkItem(
   sb: SupabaseClient,
   args: { id?: string; radicado?: string },
   columns = "id, radicado, title, workflow_type, stage, authority_name, client_id",
-) {
-  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
-  if (args.id) q = q.eq("id", args.id);
-  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
-  else return { item: null, error: "Indica el id o el radicado del asunto." };
-  const { data, error } = await q;
-  if (error) return { item: null, error: error.message };
-  const item = (data as unknown as Record<string, unknown>[])?.[0];
-  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
-  return { item, error: null as string | null };
+): Promise<{
+  item: Record<string, unknown> | null;
+  error: string | null;
+  note?: string | null;
+  candidates?: { id: string; radicado: string | null }[];
+}> {
+  const select = columns.includes("radicado_digits")
+    ? columns
+    : `${columns}, radicado_digits, lifecycle_state, updated_at`;
+
+  if (args.id) {
+    const { data, error } = await sb
+      .from("work_items")
+      .select(select)
+      .is("deleted_at", null)
+      .eq("id", args.id)
+      .limit(1);
+    if (error) return { item: null, error: error.message };
+    const item = (data as unknown as Record<string, unknown>[])?.[0];
+    return item
+      ? { item, error: null, note: null }
+      : { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+
+  const raw = (args.radicado ?? "").trim();
+  if (!raw) return { item: null, error: "Indica el id o el radicado del asunto." };
+
+  const v = radicadoQueryVariants(raw);
+  let rows: Record<string, unknown>[] = [];
+
+  if (v.base21) {
+    const { data, error } = await sb
+      .from("work_items")
+      .select(select)
+      .is("deleted_at", null)
+      .like("radicado_digits", `${v.base21}%`)
+      .limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = (data as unknown as Record<string, unknown>[]) ?? [];
+  } else if (v.partial) {
+    const { data, error } = await sb
+      .from("work_items")
+      .select(select)
+      .is("deleted_at", null)
+      .like("radicado_digits", `%${v.digits}%`)
+      .limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = (data as unknown as Record<string, unknown>[]) ?? [];
+  } else {
+    const { data, error } = await sb
+      .from("work_items")
+      .select(select)
+      .is("deleted_at", null)
+      .eq("radicado", raw)
+      .limit(1);
+    if (error) return { item: null, error: error.message };
+    rows = (data as unknown as Record<string, unknown>[]) ?? [];
+  }
+
+  if (rows.length === 0) {
+    return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+  if (rows.length === 1) return { item: rows[0], error: null, note: null };
+
+  // Several instances share the BASE (or the fragment). Prefer an exact hit on
+  // the 23-digit form the caller typed; otherwise the active instance.
+  const exact = v.canonical23
+    ? rows.find((r) => digitsOf(String(r.radicado ?? "")) === v.canonical23)
+    : undefined;
+  const ranked = [...rows].sort((a, b) => {
+    const aInactive = INACTIVE_LIFECYCLE.has(String(a.lifecycle_state ?? "ACTIVE").toUpperCase());
+    const bInactive = INACTIVE_LIFECYCLE.has(String(b.lifecycle_state ?? "ACTIVE").toUpperCase());
+    if (aInactive !== bInactive) return aInactive ? 1 : -1;
+    const bySuffix = instanceSuffix(b.radicado) - instanceSuffix(a.radicado);
+    if (bySuffix !== 0) return bySuffix;
+    return String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
+  });
+  const chosen = exact ?? ranked[0];
+  const candidates = rows.map((r) => ({
+    id: String(r.id),
+    radicado: (r.radicado as string | null) ?? null,
+  }));
+  const note = exact
+    ? `El radicado "${raw}" coincide con ${rows.length} instancias; se usó la coincidencia exacta ${chosen.radicado}.`
+    : `El radicado "${raw}" coincide con ${rows.length} instancias (${candidates
+        .map((c) => c.radicado ?? c.id)
+        .join(", ")}); se resolvió a la instancia activa ${chosen.radicado}.`;
+  return { item: chosen, error: null, note, candidates };
 }

@@ -11,6 +11,34 @@ import { z } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/shared.ts
 import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
+
+// src/lib/search/normalized-search.ts
+var MIN_PARTIAL_DIGITS = 4;
+function digitsOf(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+function radicadoQueryVariants(query) {
+  const digits = digitsOf(query);
+  if (digits.length >= 23) {
+    const d23 = digits.slice(0, 23);
+    return { digits, canonical23: d23, base21: d23.slice(0, 21), partial: false };
+  }
+  if (digits.length === 22) {
+    const padded = `0${digits}`;
+    return { digits, canonical23: padded, base21: padded.slice(0, 21), partial: false };
+  }
+  if (digits.length === 21) {
+    return { digits, canonical23: `${digits}00`, base21: digits, partial: false };
+  }
+  return {
+    digits,
+    canonical23: null,
+    base21: null,
+    partial: digits.length >= MIN_PARTIAL_DIGITS
+  };
+}
+
+// src/lib/mcp/shared.ts
 function sbForUser(ctx) {
   return createClient(
     process.env.SUPABASE_URL,
@@ -125,16 +153,56 @@ async function requirePlatformAdmin(ctx) {
   if (error || !data) return { error: NOT_PLATFORM_ADMIN, sb };
   return { error: null, sb };
 }
+var INACTIVE_LIFECYCLE = /* @__PURE__ */ new Set(["DELETED", "ARCHIVED", "CLOSED", "TERMINATED"]);
+function instanceSuffix(radicado) {
+  const d = digitsOf(String(radicado ?? ""));
+  return d.length >= 23 ? Number(d.slice(21, 23)) : 0;
+}
 async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
-  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
-  if (args.id) q = q.eq("id", args.id);
-  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
-  else return { item: null, error: "Indica el id o el radicado del asunto." };
-  const { data, error } = await q;
-  if (error) return { item: null, error: error.message };
-  const item = data?.[0];
-  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
-  return { item, error: null };
+  const select = columns.includes("radicado_digits") ? columns : `${columns}, radicado_digits, lifecycle_state, updated_at`;
+  if (args.id) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).eq("id", args.id).limit(1);
+    if (error) return { item: null, error: error.message };
+    const item = data?.[0];
+    return item ? { item, error: null, note: null } : { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+  const raw = (args.radicado ?? "").trim();
+  if (!raw) return { item: null, error: "Indica el id o el radicado del asunto." };
+  const v = radicadoQueryVariants(raw);
+  let rows = [];
+  if (v.base21) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).like("radicado_digits", `${v.base21}%`).limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  } else if (v.partial) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).like("radicado_digits", `%${v.digits}%`).limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  } else {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).eq("radicado", raw).limit(1);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  }
+  if (rows.length === 0) {
+    return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+  if (rows.length === 1) return { item: rows[0], error: null, note: null };
+  const exact = v.canonical23 ? rows.find((r) => digitsOf(String(r.radicado ?? "")) === v.canonical23) : void 0;
+  const ranked = [...rows].sort((a, b) => {
+    const aInactive = INACTIVE_LIFECYCLE.has(String(a.lifecycle_state ?? "ACTIVE").toUpperCase());
+    const bInactive = INACTIVE_LIFECYCLE.has(String(b.lifecycle_state ?? "ACTIVE").toUpperCase());
+    if (aInactive !== bInactive) return aInactive ? 1 : -1;
+    const bySuffix = instanceSuffix(b.radicado) - instanceSuffix(a.radicado);
+    if (bySuffix !== 0) return bySuffix;
+    return String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
+  });
+  const chosen = exact ?? ranked[0];
+  const candidates = rows.map((r) => ({
+    id: String(r.id),
+    radicado: r.radicado ?? null
+  }));
+  const note = exact ? `El radicado "${raw}" coincide con ${rows.length} instancias; se us\xF3 la coincidencia exacta ${chosen.radicado}.` : `El radicado "${raw}" coincide con ${rows.length} instancias (${candidates.map((c) => c.radicado ?? c.id).join(", ")}); se resolvi\xF3 a la instancia activa ${chosen.radicado}.`;
+  return { item: chosen, error: null, note, candidates };
 }
 
 // src/lib/mcp/tools/list-work-items.ts
@@ -173,7 +241,9 @@ var get_work_item_default = defineTool2({
   description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
   inputSchema: {
     id: z2.string().uuid().optional().describe("work_item UUID."),
-    radicado: z2.string().trim().optional().describe("Radicado exacto (23-d\xEDgitos u otro formato)."),
+    radicado: z2.string().trim().optional().describe(
+      "Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia."
+    ),
     verbose: z2.boolean().optional().describe("Si es true devuelve el objeto work_item crudo completo (~150 campos internos). Default false.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -182,13 +252,11 @@ var get_work_item_default = defineTool2({
     if (unauth) return errorResult(unauth);
     if (!id && !radicado) return errorResult("Indica el id o el radicado del asunto.");
     const sb = sbForUser(ctx);
-    let q = sb.from("work_items").select("*").is("deleted_at", null).limit(1);
-    if (id) q = q.eq("id", id);
-    else if (radicado) q = q.eq("radicado", radicado);
-    const { data: itemRows, error } = await q;
-    if (error) return errorResult(error.message);
-    const item = itemRows?.[0];
-    if (!item) return errorResult("Asunto no encontrado (o no pertenece a tu cuenta).");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "*");
+    if (resolved.error || !resolved.item) {
+      return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
+    }
+    const item = resolved.item;
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
       sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
@@ -246,8 +314,10 @@ var get_work_item_default = defineTool2({
       if (source[key] !== void 0 && source[key] !== null) slimItem[key] = source[key];
     }
     return textResult(
-      `Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
+      `${resolved.note ? `${resolved.note}
+` : ""}Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
       {
+        resolucion: resolved.note ?? null,
         resumen,
         item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
@@ -330,7 +400,7 @@ var list_actuaciones_default = defineTool5({
   title: "Actuaciones de un asunto",
   description: "Lists judicial actuaciones for one matter, newest first. Identify the matter by radicado or work item id. Archived and superseded rows are excluded.",
   inputSchema: {
-    radicado: z4.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z4.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z4.string().uuid().optional().describe("UUID del asunto (alternativa al radicado)."),
     date_from: z4.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre act_date)."),
     date_to: z4.string().optional().describe("Fecha final YYYY-MM-DD (sobre act_date)."),
@@ -341,16 +411,18 @@ var list_actuaciones_default = defineTool5({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado });
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado });
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at, instancia").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 50);
     if (date_from) q = q.gte("act_date", date_from);
     if (date_to) q = q.lte("act_date", date_to);
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
     return textResult(
-      `${data?.length ?? 0} actuaciones para ${item.radicado ?? item.id}.`,
-      { work_item: item, actuaciones: data ?? [] }
+      `${resolved.note ? `${resolved.note}
+` : ""}${data?.length ?? 0} actuaciones para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, actuaciones: data ?? [] }
     );
   }
 });
@@ -363,7 +435,7 @@ var list_publicaciones_default = defineTool6({
   title: "Estados electr\xF3nicos de un asunto",
   description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id.",
   inputSchema: {
-    radicado: z5.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
     date_from: z5.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
     date_to: z5.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
@@ -374,16 +446,18 @@ var list_publicaciones_default = defineTool6({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado });
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado });
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
     if (date_from) q = q.gte("fecha_fijacion", date_from);
     if (date_to) q = q.lte("fecha_fijacion", date_to);
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
     return textResult(
-      `${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
-      { work_item: item, publicaciones: data ?? [] }
+      `${resolved.note ? `${resolved.note}
+` : ""}${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones: data ?? [] }
     );
   }
 });
@@ -465,7 +539,7 @@ var list_deadlines_default = defineTool9({
   description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active \u2014 request them explicitly and never present them as live obligations.",
   inputSchema: {
     status: z8.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
-    radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
     limit: z8.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -474,10 +548,12 @@ var list_deadlines_default = defineTool9({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let workItem = null;
+    let resolucion = null;
     if (radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       workItem = resolved.item;
+      resolucion = resolved.note ?? null;
     }
     let q = sb.from("work_item_deadlines").select("id, work_item_id, deadline_type, label, description, trigger_event, trigger_date, deadline_date, business_days_count, status").order("deadline_date", { ascending: true }).limit(limit ?? 50);
     const mode = status ?? "pending";
@@ -518,7 +594,9 @@ var list_deadlines_default = defineTool9({
       };
     });
     const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
-    return textResult(`${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
+    return textResult(`${resolucion ? `${resolucion}
+` : ""}${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
+      resolucion,
       status: mode,
       hoy: today,
       work_item: workItem,
@@ -599,7 +677,7 @@ var add_note_default = defineTool12({
   title: "Agregar nota a un asunto",
   description: "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
-    radicado: z11.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z11.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z11.string().uuid().optional().describe("UUID del asunto."),
     content: z11.string().trim().min(1).max(4e3).describe("Texto de la nota.")
   },
@@ -608,8 +686,9 @@ var add_note_default = defineTool12({
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
     const entry = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
     const previous = (item.notes ?? "").trim();
@@ -618,7 +697,9 @@ var add_note_default = defineTool12({
 ${entry}` : entry;
     const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
     if (upErr) return errorResult(upErr.message);
-    return textResult(`Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+    return textResult(`${resolved.note ? `${resolved.note}
+` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+      resolucion: resolved.note ?? null,
       work_item_id: item.id,
       note: entry
     });
@@ -628,12 +709,26 @@ ${entry}` : entry;
 // src/lib/mcp/tools/search.ts
 import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z12 } from "npm:zod@^3.25.76";
+var MATCHED_FIELD_KEYS = {
+  radicado: "radicado",
+  "radicado parcial": "radicado_parcial",
+  titulo: "titulo",
+  demandante: "demandante",
+  demandado: "demandado",
+  despacho: "despacho",
+  ciudad: "ciudad",
+  tipo: "tipo",
+  etapa: "etapa",
+  cliente: "cliente",
+  "correo del despacho": "correo_despacho",
+  "correo vinculado": "correo_vinculado"
+};
 var search_default = defineTool13({
   name: "search",
   title: "B\xFAsqueda libre",
-  description: "Free-text search across the caller's matters: radicado, t\xEDtulo, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medell\xEDn'. Results are RLS-scoped to the caller.",
+  description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
-    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, radicado o t\xEDtulo."),
+    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
     workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
     client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
@@ -645,47 +740,51 @@ var search_default = defineTool13({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const terms = query.split(/\s+/).filter((t) => t.length >= 3).slice(0, 4);
-    const needles = terms.length ? terms : [query];
-    let q = sb.from("work_items").select(
-      "id, radicado, title, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at"
-    ).is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 20);
-    for (const term of needles) {
-      const s = `%${term}%`;
-      q = q.or(
-        [
-          `radicado.ilike.${s}`,
-          `title.ilike.${s}`,
-          `authority_name.ilike.${s}`,
-          `authority_city.ilike.${s}`,
-          `demandantes.ilike.${s}`,
-          `demandados.ilike.${s}`
-        ].join(",")
-      );
+    const max = limit ?? 20;
+    const hasFilters = Boolean(workflow_type || client_id || status || city);
+    const { data, error } = await sb.rpc("search_work_items_normalized", {
+      p_query: query,
+      p_limit: hasFilters ? Math.min(max * 5, 200) : max
+    });
+    if (error) return errorResult(error.message);
+    const hits = data ?? [];
+    if (hits.length === 0) {
+      return textResult(`0 asuntos coinciden con "${query}".`, {
+        query,
+        filters: { workflow_type: workflow_type ?? null, client_id: client_id ?? null, status: status ?? null, city: city ?? null },
+        items: []
+      });
     }
+    const ids = hits.map((h) => String(h.id));
+    let q = sb.from("work_items").select("id, radicado, title, workflow_type, stage, status, client_id, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at").in("id", ids);
     if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
     if (client_id) q = q.eq("client_id", client_id);
     if (status) q = q.eq("status", status.toUpperCase());
     if (city) q = q.ilike("authority_city", `%${city}%`);
-    const { data, error } = await q;
-    if (error) return errorResult(error.message);
-    const scored = (data ?? []).map((row) => {
-      const r = row;
-      const hay = ["radicado", "title", "authority_name", "authority_city", "demandantes", "demandados"].map((k) => String(r[k] ?? "").toLowerCase());
-      let score = 0;
-      for (const term of needles) {
-        const t = term.toLowerCase();
-        if (hay[0].includes(t)) score += 2;
-        if (hay.slice(1).some((h) => h.includes(t))) score += 1;
-      }
-      return { ...r, relevance_score: score };
-    }).sort((a, b) => b.relevance_score - a.relevance_score);
+    const { data: rows, error: rowsErr } = await q;
+    if (rowsErr) return errorResult(rowsErr.message);
+    const byId = new Map(
+      (rows ?? []).map((r) => [String(r.id), r])
+    );
+    const items = hits.filter((h) => byId.has(String(h.id))).slice(0, max).map((h) => {
+      const row = byId.get(String(h.id));
+      const fields = (h.matched_fields ?? []).filter(Boolean);
+      return {
+        ...row,
+        client_name: h.client_name ?? null,
+        matched_on: fields.map((f) => MATCHED_FIELD_KEYS[f] ?? f),
+        matched_fields: fields,
+        match_rank: h.match_rank ?? null,
+        // Kept for backwards compatibility: lower rank = better match.
+        relevance_score: 6 - Number(h.match_rank ?? 5)
+      };
+    });
     return textResult(
-      `${scored.length} asuntos coinciden con "${query}".`,
+      `${items.length} asuntos coinciden con "${query}".`,
       {
         query,
         filters: { workflow_type: workflow_type ?? null, client_id: client_id ?? null, status: status ?? null, city: city ?? null },
-        items: scored
+        items
       }
     );
   }
@@ -700,7 +799,7 @@ var list_alerts_default = defineTool14({
   description: "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
   inputSchema: {
     work_item_id: z13.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
     status: z13.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
     limit: z13.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
@@ -710,10 +809,12 @@ var list_alerts_default = defineTool14({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let entityId = work_item_id ?? null;
+    let resolucion = null;
     if (!entityId && radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       entityId = resolved.item.id;
+      resolucion = resolved.note ?? null;
     }
     let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at").order("fired_at", { ascending: false }).limit(limit ?? 30);
     const normalized = status?.toUpperCase();
@@ -746,7 +847,9 @@ var list_alerts_default = defineTool14({
       };
     });
     const unread = alerts.filter((a) => !a.leida).length;
-    return textResult(`${alerts.length} alertas (${unread} sin leer).`, {
+    return textResult(`${resolucion ? `${resolucion}
+` : ""}${alerts.length} alertas (${unread} sin leer).`, {
+      resolucion,
       status: status ?? "PENDING+ACKNOWLEDGED",
       work_item_id: entityId,
       unread,
@@ -867,7 +970,7 @@ var get_document_url_default = defineTool17({
   description: "Returns a short-lived download URL for the PDF attached to a publicaci\xF3n (estado electr\xF3nico) of one of the caller's matters. It never generates new documents; it only exposes an existing attachment under the established access policy.",
   inputSchema: {
     work_item_id: z16.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z16.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z16.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     document_id: z16.string().uuid().describe("UUID de la publicaci\xF3n (estado) cuyo PDF se solicita.")
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
@@ -887,6 +990,7 @@ var get_document_url_default = defineTool17({
     const publicUrl = pub.pdf_url ?? null;
     if (publicUrl && /^https?:\/\//i.test(publicUrl) && /storage\.googleapis\.com/i.test(publicUrl)) {
       return textResult(`Enlace p\xFAblico del documento de ${pub.title ?? "la publicaci\xF3n"}.`, {
+        resolucion: resolved.note ?? null,
         document_id,
         work_item_id: itemId,
         url: publicUrl,
@@ -910,6 +1014,7 @@ var get_document_url_default = defineTool17({
       );
     }
     return textResult("Enlace temporal generado (v\xE1lido ~10 minutos).", {
+      resolucion: resolved.note ?? null,
       document_id,
       work_item_id: itemId,
       url: payload.url,
@@ -928,7 +1033,7 @@ var add_hearing_default = defineTool18({
   description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
     work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z17.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z17.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     date: z17.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
     description: z17.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
     location: z17.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
@@ -957,8 +1062,9 @@ var add_hearing_default = defineTool18({
     }).select("id, work_item_id, custom_name, scheduled_at, location, status").maybeSingle();
     if (error) return errorResult(error.message);
     return textResult(
-      `Audiencia agendada para el asunto ${resolved.item.radicado ?? itemId}.`,
-      { hearing: data ?? null }
+      `${resolved.note ? `${resolved.note}
+` : ""}Audiencia agendada para el asunto ${resolved.item.radicado ?? itemId}.`,
+      { resolucion: resolved.note ?? null, hearing: data ?? null }
     );
   }
 });
@@ -1146,11 +1252,12 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.4.0",
+  version: "0.4.1",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
-    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`.",
+    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`, que tambi\xE9n acepta radicados con guiones, parciales y correos de despacho.",
+    "Radicados: cualquier par\xE1metro `radicado` acepta la forma con guiones, con espacios, la base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
     "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos.",
     "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buz\xF3n que a\xFAn no existen como expediente.",

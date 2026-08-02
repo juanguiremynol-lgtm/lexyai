@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -35,7 +35,7 @@
       {
         "name": "search",
         "title": "Búsqueda libre",
-        "description": "Free-text search across the caller's matters: radicado, título, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medellín'. Results are RLS-scoped to the caller.",
+        "description": "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, título, partes, cliente y su identificación, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -47,7 +47,7 @@
             "query": {
               "type": "string",
               "minLength": 2,
-              "description": "Texto libre: parte, despacho, ciudad, radicado o título."
+              "description": "Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o título."
             },
             "workflow_type": {
               "type": "string",
@@ -132,7 +132,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado exacto (23-dígitos u otro formato)."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin el cero inicial o base+instancia."
             },
             "verbose": {
               "type": "boolean",
@@ -158,7 +158,7 @@
           "properties": {
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "id": {
               "type": "string",
@@ -199,7 +199,7 @@
           "properties": {
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "id": {
               "type": "string",
@@ -344,7 +344,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Limitar a un asunto por radicado."
+              "description": "Limitar a un asunto por radicado (23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia)."
             },
             "limit": {
               "type": "integer",
@@ -377,7 +377,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Limitar a un asunto por radicado."
+              "description": "Limitar a un asunto por radicado (23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia)."
             },
             "status": {
               "type": "string",
@@ -492,7 +492,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "document_id": {
               "type": "string",
@@ -655,7 +655,7 @@
           "properties": {
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "id": {
               "type": "string",
@@ -697,7 +697,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado del asunto."
+              "description": "Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."
             },
             "date": {
               "type": "string",
