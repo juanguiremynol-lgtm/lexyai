@@ -40,6 +40,7 @@ import {
   AlertBulkConfirmDialog 
 } from "@/components/alerts";
 import { NotificationsAlertTab } from "@/components/alerts/NotificationsAlertTab";
+import { AlertsByTypeTab } from "@/components/alerts/AlertsByTypeTab";
 import { AlertConsolidatedRow } from "@/components/alerts/AlertConsolidatedRow";
 import {
   normalizePortal,
@@ -830,8 +831,12 @@ export default function Alerts() {
         </div>
       )}
 
-      <Tabs defaultValue="notifications" className="w-full">
+      <Tabs defaultValue="by_type" className="w-full">
         <TabsList className="flex-wrap">
+          <TabsTrigger value="by_type">
+            <AlertTriangle className="h-4 w-4 mr-1" />
+            Por tipo
+          </TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="h-4 w-4 mr-1" />
             Notificaciones
@@ -851,6 +856,10 @@ export default function Alerts() {
             Sistema ({alertInstances?.length || 0})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="by_type">
+          <AlertsByTypeTab />
+        </TabsContent>
 
         <TabsContent value="notifications">
           <NotificationsAlertTab />

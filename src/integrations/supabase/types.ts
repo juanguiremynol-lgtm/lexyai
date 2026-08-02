@@ -89,6 +89,33 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter10_alert_purge_report: {
+        Row: {
+          alert_type: string | null
+          count: number
+          created_at: string
+          id: string
+          phase: string
+          severity: string | null
+        }
+        Insert: {
+          alert_type?: string | null
+          count: number
+          created_at?: string
+          id?: string
+          phase: string
+          severity?: string | null
+        }
+        Update: {
+          alert_type?: string | null
+          count?: number
+          created_at?: string
+          id?: string
+          phase?: string
+          severity?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
@@ -352,7 +379,7 @@ export type Database = {
           actions: Json | null
           alert_rule_id: string | null
           alert_source: string | null
-          alert_type: string | null
+          alert_type: string
           created_at: string
           dismissal_reason: string | null
           dismissed_at: string | null
@@ -384,7 +411,7 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           alert_source?: string | null
-          alert_type?: string | null
+          alert_type?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -416,7 +443,7 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           alert_source?: string | null
-          alert_type?: string | null
+          alert_type?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -605,6 +632,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      alert_suppression_log: {
+        Row: {
+          alert_type: string | null
+          created_at: string
+          entity_id: string | null
+          id: string
+          organization_id: string | null
+          owner_id: string | null
+          payload: Json | null
+          reason: string
+          severity: string | null
+          title: string | null
+        }
+        Insert: {
+          alert_type?: string | null
+          created_at?: string
+          entity_id?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          payload?: Json | null
+          reason: string
+          severity?: string | null
+          title?: string | null
+        }
+        Update: {
+          alert_type?: string | null
+          created_at?: string
+          entity_id?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          payload?: Json | null
+          reason?: string
+          severity?: string | null
+          title?: string | null
+        }
+        Relationships: []
       }
       alerts: {
         Row: {
@@ -17618,10 +17684,12 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      alert_breaker_bypass_enabled: { Args: never; Returns: boolean }
       alert_family: {
         Args: { p_alert_type: string; p_title: string }
         Returns: string
       }
+      alert_lifecycle_maintenance: { Args: never; Returns: Json }
       alert_source_event_key: {
         Args: {
           p_alert_type: string
@@ -18078,6 +18146,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      is_adverse_or_term_opening_text: {
+        Args: { p_text: string }
+        Returns: boolean
+      }
       is_backfill_source: {
         Args: { p_run_mode: string; p_source: string }
         Returns: boolean
@@ -18172,6 +18244,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
+      regenerate_doctrine_alerts: { Args: never; Returns: Json }
       rpc_insert_notification: {
         Args: {
           p_audience_scope: string

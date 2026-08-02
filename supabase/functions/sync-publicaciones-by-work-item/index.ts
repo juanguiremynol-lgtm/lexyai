@@ -2173,28 +2173,9 @@ Deno.serve(withSyncTimeline(async (req) => {
             terminos_inician: null,
           });
 
-          // ============= CREATE ALERT FOR NEW ESTADOS =============
-          try {
-            await supabase.from('alert_instances').insert({
-              owner_id: workItem.owner_id,
-              organization_id: workItem.organization_id,
-              entity_id: workItem.id,
-              entity_type: 'WORK_ITEM',
-              severity: 'INFO',
-              title: `Nuevo Estado: ${pub.tipo || pub.clasificacion?.categoria || 'Publicación'}`,
-              message: `${pub.titulo || pub.key}`,
-              status: 'PENDING',
-              payload: {
-                fecha_publicacion: fechaPublicacion,
-                asset_id: pub.asset_id,
-                pdf_url: pub.pdf_url,
-              },
-            });
-            result.alerts_created++;
-            console.log(`[sync-pub] Created alert for: ${pub.titulo}`);
-          } catch (alertErr) {
-            console.warn('[sync-pub] Failed to create alert:', alertErr);
-          }
+          // ITER10 ALERT DOCTRINE: a newly ingested estado is timeline content,
+          // not an alert. Emission removed at source (see Línea procesal).
+          // Deadline/term generators remain the only path that can raise an alert.
 
         } else if (counts.updated_count > 0) {
           console.log(`[sync-pub] ♻️ Provenance merged for: ${pub.titulo}`);
