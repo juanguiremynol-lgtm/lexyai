@@ -677,7 +677,7 @@ var add_note_default = defineTool12({
   title: "Agregar nota a un asunto",
   description: "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
-    radicado: z11.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z11.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z11.string().uuid().optional().describe("UUID del asunto."),
     content: z11.string().trim().min(1).max(4e3).describe("Texto de la nota.")
   },
@@ -686,8 +686,9 @@ var add_note_default = defineTool12({
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
     const entry = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
     const previous = (item.notes ?? "").trim();
@@ -696,7 +697,9 @@ var add_note_default = defineTool12({
 ${entry}` : entry;
     const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
     if (upErr) return errorResult(upErr.message);
-    return textResult(`Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+    return textResult(`${resolved.note ? `${resolved.note}
+` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+      resolucion: resolved.note ?? null,
       work_item_id: item.id,
       note: entry
     });

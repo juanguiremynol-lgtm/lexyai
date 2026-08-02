@@ -8,7 +8,11 @@ export default defineTool({
   description:
     "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
-    radicado: z.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe("Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."),
     id: z.string().uuid().optional().describe("UUID del asunto."),
     content: z.string().trim().min(1).max(4000).describe("Texto de la nota."),
   },
@@ -18,8 +22,9 @@ export default defineTool({
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 
-    const { item, error } = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
 
     const stamp = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
     const entry = `[${stamp} · vía asistente IA] ${content}`;
@@ -32,7 +37,8 @@ export default defineTool({
       .eq("id", item.id as string);
     if (upErr) return errorResult(upErr.message);
 
-    return textResult(`Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+    return textResult(`${resolved.note ? `${resolved.note}\n` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
+      resolucion: resolved.note ?? null,
       work_item_id: item.id,
       note: entry,
     });
