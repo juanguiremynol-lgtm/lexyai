@@ -32,11 +32,14 @@ export function useUnreadAlerts() {
       if (!user || !organization?.id) return 0;
       userIdRef.current = user.id;
 
+      // ITER10 doctrine: the badge counts only actionable alerts
+      // (PENDING, severity >= WARNING). INFO rows are timeline content.
       const { count, error } = await supabase
         .from('alert_instances')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', user.id)
-        .in('status', ['PENDING', 'SENT', 'ACKNOWLEDGED'])
+        .eq('status', 'PENDING')
+        .in('severity', ['WARNING', 'CRITICAL'])
         .is('seen_at', null);
 
       if (error) {
@@ -75,6 +78,7 @@ export function useUnreadAlerts() {
 
           // Show toast for CRITICAL severity
           const newAlert = payload.new as { severity?: string; title?: string; message?: string };
+          if (newAlert.severity !== 'CRITICAL' && newAlert.severity !== 'WARNING') return;
           if (newAlert.severity === 'CRITICAL') {
             toast.error(`${newAlert.title}: ${newAlert.message?.slice(0, 120)}`, {
               duration: 10_000,
