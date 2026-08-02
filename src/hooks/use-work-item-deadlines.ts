@@ -32,6 +32,7 @@ export interface WorkItemDeadline {
     | "FULFILLED_BY_EMAIL_EVIDENCE"
     | "INVALID_NO_TERM"
     | "VENCIDO_SIN_SUBSANAR"
+    | "PRESUNCION_DESCARTADA_POR_AVANCE"
     | "DISMISSED"
     | "CANCELLED";
   calculation_meta: {
