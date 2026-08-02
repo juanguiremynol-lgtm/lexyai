@@ -11,6 +11,34 @@ import { z } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/shared.ts
 import { createClient } from "npm:@supabase/supabase-js@^2.89.0";
+
+// src/lib/search/normalized-search.ts
+var MIN_PARTIAL_DIGITS = 4;
+function digitsOf(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+function radicadoQueryVariants(query) {
+  const digits = digitsOf(query);
+  if (digits.length >= 23) {
+    const d23 = digits.slice(0, 23);
+    return { digits, canonical23: d23, base21: d23.slice(0, 21), partial: false };
+  }
+  if (digits.length === 22) {
+    const padded = `0${digits}`;
+    return { digits, canonical23: padded, base21: padded.slice(0, 21), partial: false };
+  }
+  if (digits.length === 21) {
+    return { digits, canonical23: `${digits}00`, base21: digits, partial: false };
+  }
+  return {
+    digits,
+    canonical23: null,
+    base21: null,
+    partial: digits.length >= MIN_PARTIAL_DIGITS
+  };
+}
+
+// src/lib/mcp/shared.ts
 function sbForUser(ctx) {
   return createClient(
     process.env.SUPABASE_URL,
@@ -125,16 +153,56 @@ async function requirePlatformAdmin(ctx) {
   if (error || !data) return { error: NOT_PLATFORM_ADMIN, sb };
   return { error: null, sb };
 }
+var INACTIVE_LIFECYCLE = /* @__PURE__ */ new Set(["DELETED", "ARCHIVED", "CLOSED", "TERMINATED"]);
+function instanceSuffix(radicado) {
+  const d = digitsOf(String(radicado ?? ""));
+  return d.length >= 23 ? Number(d.slice(21, 23)) : 0;
+}
 async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflow_type, stage, authority_name, client_id") {
-  let q = sb.from("work_items").select(columns).is("deleted_at", null).limit(1);
-  if (args.id) q = q.eq("id", args.id);
-  else if (args.radicado) q = q.eq("radicado", args.radicado.trim());
-  else return { item: null, error: "Indica el id o el radicado del asunto." };
-  const { data, error } = await q;
-  if (error) return { item: null, error: error.message };
-  const item = data?.[0];
-  if (!item) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
-  return { item, error: null };
+  const select = columns.includes("radicado_digits") ? columns : `${columns}, radicado_digits, lifecycle_state, updated_at`;
+  if (args.id) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).eq("id", args.id).limit(1);
+    if (error) return { item: null, error: error.message };
+    const item = data?.[0];
+    return item ? { item, error: null, note: null } : { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+  const raw = (args.radicado ?? "").trim();
+  if (!raw) return { item: null, error: "Indica el id o el radicado del asunto." };
+  const v = radicadoQueryVariants(raw);
+  let rows = [];
+  if (v.base21) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).like("radicado_digits", `${v.base21}%`).limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  } else if (v.partial) {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).like("radicado_digits", `%${v.digits}%`).limit(20);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  } else {
+    const { data, error } = await sb.from("work_items").select(select).is("deleted_at", null).eq("radicado", raw).limit(1);
+    if (error) return { item: null, error: error.message };
+    rows = data ?? [];
+  }
+  if (rows.length === 0) {
+    return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  }
+  if (rows.length === 1) return { item: rows[0], error: null, note: null };
+  const exact = v.canonical23 ? rows.find((r) => digitsOf(String(r.radicado ?? "")) === v.canonical23) : void 0;
+  const ranked = [...rows].sort((a, b) => {
+    const aInactive = INACTIVE_LIFECYCLE.has(String(a.lifecycle_state ?? "ACTIVE").toUpperCase());
+    const bInactive = INACTIVE_LIFECYCLE.has(String(b.lifecycle_state ?? "ACTIVE").toUpperCase());
+    if (aInactive !== bInactive) return aInactive ? 1 : -1;
+    const bySuffix = instanceSuffix(b.radicado) - instanceSuffix(a.radicado);
+    if (bySuffix !== 0) return bySuffix;
+    return String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
+  });
+  const chosen = exact ?? ranked[0];
+  const candidates = rows.map((r) => ({
+    id: String(r.id),
+    radicado: r.radicado ?? null
+  }));
+  const note = exact ? `El radicado "${raw}" coincide con ${rows.length} instancias; se us\xF3 la coincidencia exacta ${chosen.radicado}.` : `El radicado "${raw}" coincide con ${rows.length} instancias (${candidates.map((c) => c.radicado ?? c.id).join(", ")}); se resolvi\xF3 a la instancia activa ${chosen.radicado}.`;
+  return { item: chosen, error: null, note, candidates };
 }
 
 // src/lib/mcp/tools/list-work-items.ts
