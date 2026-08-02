@@ -127,19 +127,25 @@ export function RechazoPresuntoBanner({ workItemId }: Props) {
               <div className="flex-1 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-semibold text-amber-900 dark:text-amber-200">
-                    {confirmado ? "Rechazo confirmado" : "Rechazo presunto — verificar"}
+                    {confirmado
+                      ? "Rechazo confirmado"
+                      : "Posible rechazo presunto — verificar en el expediente"}
                   </p>
                   <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
-                    Presunción procesal
+                    Hipótesis — requiere verificación
                   </Badge>
                 </div>
                 <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
                   Demanda inadmitida el <strong>{fmt(row.trigger_date)}</strong>; el término de
                   subsanación de 5 días hábiles venció el <strong>{fmt(row.deadline_date)}</strong> sin
-                  que se detecte escrito de subsanación en el expediente.
+                  que se detecte escrito de subsanación en el expediente ni en el correo (incluidos
+                  vínculos descartados), y sin actuación, estado o etapa posterior al auto inadmisorio.
                   {rule.auto_rechazo_date
                     ? ` Auto de rechazo registrado el ${fmt(String(rule.auto_rechazo_date))}.`
                     : " Verifique si se radicó subsanación por un canal no reflejado en el portal."}
+                </p>
+                <p className="text-xs text-amber-900/70 dark:text-amber-100/70">
+                  Esta es una hipótesis del sistema: no cambia la etapa ni el estado del proceso.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button
