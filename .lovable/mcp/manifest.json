@@ -344,7 +344,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Limitar a un asunto por radicado."
+              "description": "Limitar a un asunto por radicado (23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia)."
             },
             "limit": {
               "type": "integer",

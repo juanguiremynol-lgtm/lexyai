@@ -9,7 +9,11 @@ export default defineTool({
     "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active — request them explicitly and never present them as live obligations.",
   inputSchema: {
     status: z.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
-    radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe("Limitar a un asunto por radicado (23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia)."),
     limit: z.number().int().min(1).max(200).optional().describe("Máximo de filas (default 50)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -19,10 +23,12 @@ export default defineTool({
     const sb = sbForUser(ctx);
 
     let workItem: Record<string, unknown> | null = null;
+    let resolucion: string | null = null;
     if (radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       workItem = resolved.item;
+      resolucion = resolved.note ?? null;
     }
 
     let q = sb
@@ -99,7 +105,8 @@ export default defineTool({
           ? "Términos en revisión (vencidos en el backfill): NO son obligaciones vigentes."
           : "Incluye activos y en revisión; los PENDING_REVIEW no son obligaciones vigentes.";
 
-    return textResult(`${deadlines.length} términos. ${note} (hoy = ${today}, America/Bogota)`, {
+    return textResult(`${resolucion ? `${resolucion}\n` : ""}${deadlines.length} términos. ${note} (hoy = ${today}, America/Bogota)`, {
+      resolucion,
       status: mode,
       hoy: today,
       work_item: workItem,

@@ -539,7 +539,7 @@ var list_deadlines_default = defineTool9({
   description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active \u2014 request them explicitly and never present them as live obligations.",
   inputSchema: {
     status: z8.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
-    radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
     limit: z8.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -548,10 +548,12 @@ var list_deadlines_default = defineTool9({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let workItem = null;
+    let resolucion = null;
     if (radicado) {
       const resolved = await resolveWorkItem(sb, { radicado });
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       workItem = resolved.item;
+      resolucion = resolved.note ?? null;
     }
     let q = sb.from("work_item_deadlines").select("id, work_item_id, deadline_type, label, description, trigger_event, trigger_date, deadline_date, business_days_count, status").order("deadline_date", { ascending: true }).limit(limit ?? 50);
     const mode = status ?? "pending";
@@ -592,7 +594,9 @@ var list_deadlines_default = defineTool9({
       };
     });
     const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
-    return textResult(`${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
+    return textResult(`${resolucion ? `${resolucion}
+` : ""}${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
+      resolucion,
       status: mode,
       hoy: today,
       work_item: workItem,
