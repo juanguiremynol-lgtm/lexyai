@@ -435,7 +435,7 @@ var list_publicaciones_default = defineTool6({
   title: "Estados electr\xF3nicos de un asunto",
   description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id.",
   inputSchema: {
-    radicado: z5.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
     date_from: z5.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
     date_to: z5.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
@@ -446,16 +446,18 @@ var list_publicaciones_default = defineTool6({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado });
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado });
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
     if (date_from) q = q.gte("fecha_fijacion", date_from);
     if (date_to) q = q.lte("fecha_fijacion", date_to);
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
     return textResult(
-      `${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
-      { work_item: item, publicaciones: data ?? [] }
+      `${resolved.note ? `${resolved.note}
+` : ""}${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones: data ?? [] }
     );
   }
 });

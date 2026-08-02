@@ -8,7 +8,11 @@ export default defineTool({
   description:
     "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id.",
   inputSchema: {
-    radicado: z.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z
+      .string()
+      .trim()
+      .optional()
+      .describe("Radicado en cualquier forma: 23 dígitos, con guiones, con espacios, base de 21 dígitos, 22 dígitos sin cero inicial o base+instancia."),
     id: z.string().uuid().optional().describe("UUID del asunto."),
     date_from: z.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
     date_to: z.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
@@ -19,8 +23,9 @@ export default defineTool({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { item, error } = await resolveWorkItem(sb, { id, radicado });
-    if (error || !item) return errorResult(error ?? "Asunto no encontrado.");
+    const resolved = await resolveWorkItem(sb, { id, radicado });
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
 
     let q = sb
       .from("work_item_publicaciones")
@@ -35,8 +40,8 @@ export default defineTool({
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
     return textResult(
-      `${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
-      { work_item: item, publicaciones: data ?? [] },
+      `${resolved.note ? `${resolved.note}\n` : ""}${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones: data ?? [] },
     );
   },
 });
