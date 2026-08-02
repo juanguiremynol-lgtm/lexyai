@@ -17657,10 +17657,12 @@ export type Database = {
         Returns: undefined
       }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
+      alert_breaker_bypass_enabled: { Args: never; Returns: boolean }
       alert_family: {
         Args: { p_alert_type: string; p_title: string }
         Returns: string
       }
+      alert_lifecycle_maintenance: { Args: never; Returns: Json }
       alert_source_event_key: {
         Args: {
           p_alert_type: string
@@ -18215,6 +18217,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
+      regenerate_doctrine_alerts: { Args: never; Returns: Json }
       rpc_insert_notification: {
         Args: {
           p_audience_scope: string
