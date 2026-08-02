@@ -32,11 +32,12 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.4.0",
+  version: "0.4.1",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
-    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medellín') usa `search`.",
+    "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medellín') usa `search`, que también acepta radicados con guiones, parciales y correos de despacho.",
+    "Radicados: cualquier parámetro `radicado` acepta la forma con guiones, con espacios, la base de 21 dígitos, 22 dígitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electrónicos).",
     "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicación; nunca genera documentos nuevos.",
     "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buzón que aún no existen como expediente.",
