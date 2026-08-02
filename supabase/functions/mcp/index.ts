@@ -1010,7 +1010,7 @@ var add_hearing_default = defineTool18({
   description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
     work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z17.string().trim().optional().describe("Radicado del asunto."),
+    radicado: z17.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     date: z17.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
     description: z17.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
     location: z17.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
@@ -1039,8 +1039,9 @@ var add_hearing_default = defineTool18({
     }).select("id, work_item_id, custom_name, scheduled_at, location, status").maybeSingle();
     if (error) return errorResult(error.message);
     return textResult(
-      `Audiencia agendada para el asunto ${resolved.item.radicado ?? itemId}.`,
-      { hearing: data ?? null }
+      `${resolved.note ? `${resolved.note}
+` : ""}Audiencia agendada para el asunto ${resolved.item.radicado ?? itemId}.`,
+      { resolucion: resolved.note ?? null, hearing: data ?? null }
     );
   }
 });
