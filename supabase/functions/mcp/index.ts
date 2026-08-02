@@ -709,12 +709,26 @@ ${entry}` : entry;
 // src/lib/mcp/tools/search.ts
 import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z12 } from "npm:zod@^3.25.76";
+var MATCHED_FIELD_KEYS = {
+  radicado: "radicado",
+  "radicado parcial": "radicado_parcial",
+  titulo: "titulo",
+  demandante: "demandante",
+  demandado: "demandado",
+  despacho: "despacho",
+  ciudad: "ciudad",
+  tipo: "tipo",
+  etapa: "etapa",
+  cliente: "cliente",
+  "correo del despacho": "correo_despacho",
+  "correo vinculado": "correo_vinculado"
+};
 var search_default = defineTool13({
   name: "search",
   title: "B\xFAsqueda libre",
-  description: "Free-text search across the caller's matters: radicado, t\xEDtulo, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medell\xEDn'. Results are RLS-scoped to the caller.",
+  description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
-    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, radicado o t\xEDtulo."),
+    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
     workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
     client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
@@ -726,47 +740,51 @@ var search_default = defineTool13({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const terms = query.split(/\s+/).filter((t) => t.length >= 3).slice(0, 4);
-    const needles = terms.length ? terms : [query];
-    let q = sb.from("work_items").select(
-      "id, radicado, title, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at"
-    ).is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 20);
-    for (const term of needles) {
-      const s = `%${term}%`;
-      q = q.or(
-        [
-          `radicado.ilike.${s}`,
-          `title.ilike.${s}`,
-          `authority_name.ilike.${s}`,
-          `authority_city.ilike.${s}`,
-          `demandantes.ilike.${s}`,
-          `demandados.ilike.${s}`
-        ].join(",")
-      );
+    const max = limit ?? 20;
+    const hasFilters = Boolean(workflow_type || client_id || status || city);
+    const { data, error } = await sb.rpc("search_work_items_normalized", {
+      p_query: query,
+      p_limit: hasFilters ? Math.min(max * 5, 200) : max
+    });
+    if (error) return errorResult(error.message);
+    const hits = data ?? [];
+    if (hits.length === 0) {
+      return textResult(`0 asuntos coinciden con "${query}".`, {
+        query,
+        filters: { workflow_type: workflow_type ?? null, client_id: client_id ?? null, status: status ?? null, city: city ?? null },
+        items: []
+      });
     }
+    const ids = hits.map((h) => String(h.id));
+    let q = sb.from("work_items").select("id, radicado, title, workflow_type, stage, status, client_id, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at").in("id", ids);
     if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
     if (client_id) q = q.eq("client_id", client_id);
     if (status) q = q.eq("status", status.toUpperCase());
     if (city) q = q.ilike("authority_city", `%${city}%`);
-    const { data, error } = await q;
-    if (error) return errorResult(error.message);
-    const scored = (data ?? []).map((row) => {
-      const r = row;
-      const hay = ["radicado", "title", "authority_name", "authority_city", "demandantes", "demandados"].map((k) => String(r[k] ?? "").toLowerCase());
-      let score = 0;
-      for (const term of needles) {
-        const t = term.toLowerCase();
-        if (hay[0].includes(t)) score += 2;
-        if (hay.slice(1).some((h) => h.includes(t))) score += 1;
-      }
-      return { ...r, relevance_score: score };
-    }).sort((a, b) => b.relevance_score - a.relevance_score);
+    const { data: rows, error: rowsErr } = await q;
+    if (rowsErr) return errorResult(rowsErr.message);
+    const byId = new Map(
+      (rows ?? []).map((r) => [String(r.id), r])
+    );
+    const items = hits.filter((h) => byId.has(String(h.id))).slice(0, max).map((h) => {
+      const row = byId.get(String(h.id));
+      const fields = (h.matched_fields ?? []).filter(Boolean);
+      return {
+        ...row,
+        client_name: h.client_name ?? null,
+        matched_on: fields.map((f) => MATCHED_FIELD_KEYS[f] ?? f),
+        matched_fields: fields,
+        match_rank: h.match_rank ?? null,
+        // Kept for backwards compatibility: lower rank = better match.
+        relevance_score: 6 - Number(h.match_rank ?? 5)
+      };
+    });
     return textResult(
-      `${scored.length} asuntos coinciden con "${query}".`,
+      `${items.length} asuntos coinciden con "${query}".`,
       {
         query,
         filters: { workflow_type: workflow_type ?? null, client_id: client_id ?? null, status: status ?? null, city: city ?? null },
-        items: scored
+        items
       }
     );
   }

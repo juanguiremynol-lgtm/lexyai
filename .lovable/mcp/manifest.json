@@ -35,7 +35,7 @@
       {
         "name": "search",
         "title": "Búsqueda libre",
-        "description": "Free-text search across the caller's matters: radicado, título, partes (demandantes/demandados), authority (despacho) and city. Use it for natural queries like 'el caso contra Bancolombia en Medellín'. Results are RLS-scoped to the caller.",
+        "description": "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, título, partes, cliente y su identificación, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -47,7 +47,7 @@
             "query": {
               "type": "string",
               "minLength": 2,
-              "description": "Texto libre: parte, despacho, ciudad, radicado o título."
+              "description": "Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o título."
             },
             "workflow_type": {
               "type": "string",
