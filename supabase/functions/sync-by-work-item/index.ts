@@ -3977,15 +3977,65 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // ── Record external_sync_run (best-effort, non-blocking) ──
     // Skip if orchestrator already recorded (USE_ORCHESTRATOR_SYNC=true)
+
+    // ── Iteration 12: persistence ledger (both paths) ──
+    // Parsed rows must equal accounted rows. Anything else is real data loss and
+    // is surfaced loudly instead of being inferred from "inserted === 0".
+    const ledgerAccounted =
+      persistLedger.inserted +
+      persistLedger.updated +
+      persistLedger.skippedDuplicate +
+      persistLedger.skippedStructural;
+    const ledgerUnaccounted = Math.max(
+      0,
+      persistLedger.parsed - ledgerAccounted - persistLedger.rejected - persistLedger.errored,
+    );
+    const ledgerHasLoss = ledgerUnaccounted > 0 || persistLedger.errored > 0;
+
+    if (persistLedger.parsed > 0 || ledgerHasLoss) {
+      try {
+        await supabase.from('sync_persist_buckets').insert({
+          work_item_id,
+          organization_id: workItem.organization_id,
+          sync_run_id: orchestratorSyncRunId,
+          trace_id: traceId,
+          provider: result.provider_used || result.provider_attempts.map((a: any) => a.provider).join('+') || null,
+          data_kind: 'ACTS',
+          parsed_count: persistLedger.parsed,
+          inserted_count: persistLedger.inserted,
+          updated_count: persistLedger.updated,
+          skipped_duplicate_count: persistLedger.skippedDuplicate,
+          skipped_structural_count: persistLedger.skippedStructural,
+          rejected_count: persistLedger.rejected,
+          error_count: persistLedger.errored,
+          unaccounted_count: ledgerUnaccounted,
+          // Only keep non-trivial outcomes to avoid unbounded payloads.
+          outcomes: persistLedger.outcomes
+            .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
+            .slice(0, 200),
+        });
+      } catch { /* ledger is best-effort */ }
+    }
+
+    if (useOrchestrator) {
+      await reconcileSyncRunPersistence(supabase, orchestratorSyncRunId, {
+        parsed: persistLedger.parsed,
+        inserted: persistLedger.inserted,
+        updated: persistLedger.updated,
+        skippedDuplicate: persistLedger.skippedDuplicate,
+        skippedStructural: persistLedger.skippedStructural,
+        rejected: persistLedger.rejected,
+        errored: persistLedger.errored,
+      });
+    }
+
     if (!useOrchestrator) {
       try {
         const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
-        // BUG 1c: detect silent write failures — feed brought data but nothing persisted.
-        const anyProviderReportedData = result.provider_attempts.some(
-          (a: any) => (a?.actuacionesCount || 0) > 0
-        );
-        const persistedZeroDespiteData =
-          anyProviderReportedData && (result.inserted_count || 0) === 0;
+        // Iteration 12: a mismatch means rows the pipeline could not account for —
+        // NOT "the feed had rows and none were new", which is the normal steady
+        // state and used to raise a daily flood of phantom PERSIST_MISMATCH runs.
+        const persistedZeroDespiteData = ledgerHasLoss;
         const runStatus = !result.ok
           ? 'FAILED'
           : persistedZeroDespiteData
@@ -3998,7 +4048,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         const runErrorMessage = result.errors.length > 0
           ? result.errors.join('; ').slice(0, 500)
           : persistedZeroDespiteData
-            ? 'Providers reported data but zero rows were persisted to work_item_acts (silent write failure or upstream mismatch).'
+            ? `Persistence ledger mismatch: parsed=${persistLedger.parsed}, inserted=${persistLedger.inserted}, updated=${persistLedger.updated}, duplicate=${persistLedger.skippedDuplicate}, structural=${persistLedger.skippedStructural}, rejected=${persistLedger.rejected}, error=${persistLedger.errored}, unaccounted=${ledgerUnaccounted}`
             : null;
         await supabase.from('external_sync_runs').insert({
           work_item_id,
