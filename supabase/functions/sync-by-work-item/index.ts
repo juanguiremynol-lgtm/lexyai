@@ -3048,8 +3048,45 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-by-work-item] RPC upsert error:`, insertError);
         result.errors.push(`Failed to upsert actuacion: ${insertError.message}`);
+        persistLedger.parsed++;
+        persistLedger.errored++;
+        persistLedger.outcomes.push({
+          bucket: 'ERROR',
+          title: description,
+          fingerprint,
+          reason: insertError.message,
+        });
       } else {
-        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors: string[] };
+        const counts = rpcResult as {
+          inserted_count: number;
+          updated_count: number;
+          skipped_count: number;
+          parsed_count?: number;
+          structural_count?: number;
+          rejected_count?: number;
+          error_count?: number;
+          errors: string[];
+          outcomes?: Array<Record<string, unknown>>;
+        };
+
+        // Ledger accounting — one bucket per parsed row, no silent drops.
+        persistLedger.parsed += counts.parsed_count ?? 1;
+        persistLedger.inserted += counts.inserted_count || 0;
+        persistLedger.updated += counts.updated_count || 0;
+        persistLedger.skippedStructural += counts.structural_count || 0;
+        persistLedger.skippedDuplicate +=
+          Math.max(0, (counts.skipped_count || 0) - (counts.structural_count || 0));
+        persistLedger.rejected += counts.rejected_count || 0;
+        persistLedger.errored += counts.error_count || 0;
+        if (Array.isArray(counts.outcomes)) {
+          persistLedger.outcomes.push(...counts.outcomes);
+        }
+        if ((counts.rejected_count || 0) > 0 || (counts.error_count || 0) > 0) {
+          console.warn(
+            `[sync-by-work-item] PERSIST_BUCKET rejected=${counts.rejected_count || 0} error=${counts.error_count || 0} fp=${fingerprint.slice(0, 12)} :: ${(counts.errors || []).join('; ').slice(0, 300)}`,
+          );
+        }
+
         if (counts.inserted_count > 0) {
           result.inserted_count++;
           attemptedFingerprints.push(fingerprint);
