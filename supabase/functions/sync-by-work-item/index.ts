@@ -1461,6 +1461,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
     const useOrchestrator = await shouldUseOrchestrator(supabase, workItem.organization_id);
+    // Orchestrator finalizes its external_sync_runs row at fetch time; we reconcile
+    // it with the real ingestion outcome once the persistence loop has finished.
+    let orchestratorSyncRunId: string | null = null;
 
     // Fetch CPNU freshness context for snapshot staleness detection (used by both paths)
     const cpnuFreshnessCtx = {
