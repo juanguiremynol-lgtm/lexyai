@@ -1570,6 +1570,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       result.provider_order_reason = orchExec.providerOrderReason;
       result.warnings.push(...orchExec.warnings);
       fetchResult = orchExec.fetchResult;
+      orchestratorSyncRunId = orchExec.syncRunId;
 
       // Handle scraping-initiated case
       if (!fetchResult && orchExec.scrapingInitiated && orchExec.scrapingResult) {
