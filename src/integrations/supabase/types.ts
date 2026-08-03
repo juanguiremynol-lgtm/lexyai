@@ -13181,6 +13181,69 @@ export type Database = {
           },
         ]
       }
+      sync_persist_buckets: {
+        Row: {
+          created_at: string
+          data_kind: string
+          error_count: number
+          id: string
+          inserted_count: number
+          organization_id: string | null
+          outcomes: Json
+          parsed_count: number
+          provider: string | null
+          rejected_count: number
+          skipped_duplicate_count: number
+          skipped_structural_count: number
+          sync_run_id: string | null
+          trace_id: string | null
+          unaccounted_count: number
+          updated_at: string
+          updated_count: number
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          data_kind: string
+          error_count?: number
+          id?: string
+          inserted_count?: number
+          organization_id?: string | null
+          outcomes?: Json
+          parsed_count?: number
+          provider?: string | null
+          rejected_count?: number
+          skipped_duplicate_count?: number
+          skipped_structural_count?: number
+          sync_run_id?: string | null
+          trace_id?: string | null
+          unaccounted_count?: number
+          updated_at?: string
+          updated_count?: number
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          data_kind?: string
+          error_count?: number
+          id?: string
+          inserted_count?: number
+          organization_id?: string | null
+          outcomes?: Json
+          parsed_count?: number
+          provider?: string | null
+          rejected_count?: number
+          skipped_duplicate_count?: number
+          skipped_structural_count?: number
+          sync_run_id?: string | null
+          trace_id?: string | null
+          unaccounted_count?: number
+          updated_at?: string
+          updated_count?: number
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       sync_retry_queue: {
         Row: {
           attempt: number
