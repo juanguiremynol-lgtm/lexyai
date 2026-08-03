@@ -25,6 +25,7 @@ import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
   orchestrateSync,
   createFetchRegistry,
+  reconcileSyncRunPersistence,
   type SyncRunContext,
   type SyncRunResult,
   type ProviderFetchFn,
