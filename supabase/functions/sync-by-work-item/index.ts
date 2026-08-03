@@ -2692,6 +2692,22 @@ Deno.serve(withSyncTimeline(async (req) => {
     let latestDate: string | null = null;
     const attemptedFingerprints: string[] = []; // Track fingerprints for post-insert verification
 
+    // ── Iteration 12: persistence truth ledger ──
+    // Every parsed row must land in exactly one bucket. Rows that a guard trigger
+    // rejects, or that collide with a structural dedupe index, used to vanish from
+    // every counter (the RPC swallowed them into `errors`), which produced phantom
+    // PERSIST_MISMATCH runs and "0 novedades" reports while data was actually fine.
+    const persistLedger = {
+      parsed: 0,
+      inserted: 0,
+      updated: 0,
+      skippedDuplicate: 0,
+      skippedStructural: 0,
+      rejected: 0,
+      errored: 0,
+      outcomes: [] as Array<Record<string, unknown>>,
+    };
+
     // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
     // This prevents SAMAI duplicates where the same court event produces slightly different
     // annotation text across scraping runs, resulting in different fingerprints.
