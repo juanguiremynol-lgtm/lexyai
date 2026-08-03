@@ -285,6 +285,68 @@ function sanitizeForDebug(obj: unknown): unknown {
 export { recordDebugPayload };
 
 /**
+ * Iteration 12 — post-ingestion reconciliation.
+ *
+ * `orchestrateSync()` finalizes the external_sync_runs row at FETCH time, but the
+ * legacy adapters deliberately report insertedCount = 0 (they only fetch; the
+ * ingestion RPC persists later in the caller). The run row therefore always read
+ * `total_inserted_acts = 0`, which the mismatch heuristic then flagged as
+ * PERSIST_MISMATCH even when every row landed correctly.
+ *
+ * Callers must invoke this once ingestion has completed so the run row reflects
+ * the truth: how many rows were parsed, and how many are accounted for.
+ */
+export async function reconcileSyncRunPersistence(
+  supabase: any,
+  runId: string | null,
+  counts: {
+    parsed: number;
+    inserted: number;
+    updated: number;
+    skippedDuplicate: number;
+    skippedStructural: number;
+    rejected: number;
+    errored: number;
+  },
+): Promise<{ status: string; errorCode: string | null; unaccounted: number }> {
+  const accounted =
+    counts.inserted + counts.updated + counts.skippedDuplicate + counts.skippedStructural;
+  const unaccounted = Math.max(0, counts.parsed - accounted - counts.rejected - counts.errored);
+
+  // A mismatch is now defined as rows the pipeline could not account for — NOT
+  // "inserted === 0", which is the normal steady state when nothing is new.
+  const hasLoss = unaccounted > 0 || counts.errored > 0;
+  const status = hasLoss ? "PARTIAL" : "SUCCESS";
+  const errorCode = hasLoss ? "PERSIST_MISMATCH" : null;
+
+  if (!runId) return { status, errorCode, unaccounted };
+
+  try {
+    const patch: Record<string, unknown> = {
+      total_inserted_acts: counts.inserted,
+      total_skipped_acts: counts.skippedDuplicate + counts.skippedStructural,
+    };
+    if (hasLoss) {
+      patch.status = status;
+      patch.error_code = errorCode;
+      patch.error_message =
+        `Persistence ledger: parsed=${counts.parsed}, inserted=${counts.inserted}, updated=${counts.updated}, ` +
+        `duplicate=${counts.skippedDuplicate}, structural=${counts.skippedStructural}, ` +
+        `rejected=${counts.rejected}, error=${counts.errored}, unaccounted=${unaccounted}`;
+    } else {
+      // Clear stale fetch-time PERSIST_MISMATCH verdicts.
+      patch.error_code = null;
+      patch.error_message = null;
+    }
+    await supabase.from("external_sync_runs").update(patch).eq("id", runId);
+  } catch {
+    // Best-effort — never break main flow
+  }
+
+  return { status, errorCode, unaccounted };
+}
+
+/**
  * Finalize a sync run record with results.
  */
 async function finalizeSyncRun(
