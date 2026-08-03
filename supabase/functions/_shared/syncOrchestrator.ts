@@ -333,12 +333,17 @@ export async function reconcileSyncRunPersistence(
         `Persistence ledger: parsed=${counts.parsed}, inserted=${counts.inserted}, updated=${counts.updated}, ` +
         `duplicate=${counts.skippedDuplicate}, structural=${counts.skippedStructural}, ` +
         `rejected=${counts.rejected}, error=${counts.errored}, unaccounted=${unaccounted}`;
+      await supabase.from("external_sync_runs").update(patch).eq("id", runId);
     } else {
-      // Clear stale fetch-time PERSIST_MISMATCH verdicts.
-      patch.error_code = null;
-      patch.error_message = null;
+      await supabase.from("external_sync_runs").update(patch).eq("id", runId);
+      // Clear ONLY stale fetch-time PERSIST_MISMATCH verdicts. Genuine provider
+      // failures keep their own error_code and status untouched.
+      await supabase
+        .from("external_sync_runs")
+        .update({ status: "SUCCESS", error_code: null, error_message: null })
+        .eq("id", runId)
+        .eq("error_code", "PERSIST_MISMATCH");
     }
-    await supabase.from("external_sync_runs").update(patch).eq("id", runId);
   } catch {
     // Best-effort — never break main flow
   }
