@@ -25,6 +25,7 @@ import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
   orchestrateSync,
   createFetchRegistry,
+  reconcileSyncRunPersistence,
   type SyncRunContext,
   type SyncRunResult,
   type ProviderFetchFn,
@@ -1460,6 +1461,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
     const useOrchestrator = await shouldUseOrchestrator(supabase, workItem.organization_id);
+    // Orchestrator finalizes its external_sync_runs row at fetch time; we reconcile
+    // it with the real ingestion outcome once the persistence loop has finished.
+    let orchestratorSyncRunId: string | null = null;
 
     // Fetch CPNU freshness context for snapshot staleness detection (used by both paths)
     const cpnuFreshnessCtx = {
@@ -1566,6 +1570,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       result.provider_order_reason = orchExec.providerOrderReason;
       result.warnings.push(...orchExec.warnings);
       fetchResult = orchExec.fetchResult;
+      orchestratorSyncRunId = orchExec.syncRunId;
 
       // Handle scraping-initiated case
       if (!fetchResult && orchExec.scrapingInitiated && orchExec.scrapingResult) {
@@ -2692,6 +2697,22 @@ Deno.serve(withSyncTimeline(async (req) => {
     let latestDate: string | null = null;
     const attemptedFingerprints: string[] = []; // Track fingerprints for post-insert verification
 
+    // ── Iteration 12: persistence truth ledger ──
+    // Every parsed row must land in exactly one bucket. Rows that a guard trigger
+    // rejects, or that collide with a structural dedupe index, used to vanish from
+    // every counter (the RPC swallowed them into `errors`), which produced phantom
+    // PERSIST_MISMATCH runs and "0 novedades" reports while data was actually fine.
+    const persistLedger = {
+      parsed: 0,
+      inserted: 0,
+      updated: 0,
+      skippedDuplicate: 0,
+      skippedStructural: 0,
+      rejected: 0,
+      errored: 0,
+      outcomes: [] as Array<Record<string, unknown>>,
+    };
+
     // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
     // This prevents SAMAI duplicates where the same court event produces slightly different
     // annotation text across scraping runs, resulting in different fingerprints.
@@ -3032,8 +3053,45 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-by-work-item] RPC upsert error:`, insertError);
         result.errors.push(`Failed to upsert actuacion: ${insertError.message}`);
+        persistLedger.parsed++;
+        persistLedger.errored++;
+        persistLedger.outcomes.push({
+          bucket: 'ERROR',
+          title: description,
+          fingerprint,
+          reason: insertError.message,
+        });
       } else {
-        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors: string[] };
+        const counts = rpcResult as {
+          inserted_count: number;
+          updated_count: number;
+          skipped_count: number;
+          parsed_count?: number;
+          structural_count?: number;
+          rejected_count?: number;
+          error_count?: number;
+          errors: string[];
+          outcomes?: Array<Record<string, unknown>>;
+        };
+
+        // Ledger accounting — one bucket per parsed row, no silent drops.
+        persistLedger.parsed += counts.parsed_count ?? 1;
+        persistLedger.inserted += counts.inserted_count || 0;
+        persistLedger.updated += counts.updated_count || 0;
+        persistLedger.skippedStructural += counts.structural_count || 0;
+        persistLedger.skippedDuplicate +=
+          Math.max(0, (counts.skipped_count || 0) - (counts.structural_count || 0));
+        persistLedger.rejected += counts.rejected_count || 0;
+        persistLedger.errored += counts.error_count || 0;
+        if (Array.isArray(counts.outcomes)) {
+          persistLedger.outcomes.push(...counts.outcomes);
+        }
+        if ((counts.rejected_count || 0) > 0 || (counts.error_count || 0) > 0) {
+          console.warn(
+            `[sync-by-work-item] PERSIST_BUCKET rejected=${counts.rejected_count || 0} error=${counts.error_count || 0} fp=${fingerprint.slice(0, 12)} :: ${(counts.errors || []).join('; ').slice(0, 300)}`,
+          );
+        }
+
         if (counts.inserted_count > 0) {
           result.inserted_count++;
           attemptedFingerprints.push(fingerprint);
@@ -3919,15 +3977,65 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // ── Record external_sync_run (best-effort, non-blocking) ──
     // Skip if orchestrator already recorded (USE_ORCHESTRATOR_SYNC=true)
+
+    // ── Iteration 12: persistence ledger (both paths) ──
+    // Parsed rows must equal accounted rows. Anything else is real data loss and
+    // is surfaced loudly instead of being inferred from "inserted === 0".
+    const ledgerAccounted =
+      persistLedger.inserted +
+      persistLedger.updated +
+      persistLedger.skippedDuplicate +
+      persistLedger.skippedStructural;
+    const ledgerUnaccounted = Math.max(
+      0,
+      persistLedger.parsed - ledgerAccounted - persistLedger.rejected - persistLedger.errored,
+    );
+    const ledgerHasLoss = ledgerUnaccounted > 0 || persistLedger.errored > 0;
+
+    if (persistLedger.parsed > 0 || ledgerHasLoss) {
+      try {
+        await supabase.from('sync_persist_buckets').insert({
+          work_item_id,
+          organization_id: workItem.organization_id,
+          sync_run_id: orchestratorSyncRunId,
+          trace_id: traceId,
+          provider: result.provider_used || result.provider_attempts.map((a: any) => a.provider).join('+') || null,
+          data_kind: 'ACTS',
+          parsed_count: persistLedger.parsed,
+          inserted_count: persistLedger.inserted,
+          updated_count: persistLedger.updated,
+          skipped_duplicate_count: persistLedger.skippedDuplicate,
+          skipped_structural_count: persistLedger.skippedStructural,
+          rejected_count: persistLedger.rejected,
+          error_count: persistLedger.errored,
+          unaccounted_count: ledgerUnaccounted,
+          // Only keep non-trivial outcomes to avoid unbounded payloads.
+          outcomes: persistLedger.outcomes
+            .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
+            .slice(0, 200),
+        });
+      } catch { /* ledger is best-effort */ }
+    }
+
+    if (useOrchestrator) {
+      await reconcileSyncRunPersistence(supabase, orchestratorSyncRunId, {
+        parsed: persistLedger.parsed,
+        inserted: persistLedger.inserted,
+        updated: persistLedger.updated,
+        skippedDuplicate: persistLedger.skippedDuplicate,
+        skippedStructural: persistLedger.skippedStructural,
+        rejected: persistLedger.rejected,
+        errored: persistLedger.errored,
+      });
+    }
+
     if (!useOrchestrator) {
       try {
         const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
-        // BUG 1c: detect silent write failures — feed brought data but nothing persisted.
-        const anyProviderReportedData = result.provider_attempts.some(
-          (a: any) => (a?.actuacionesCount || 0) > 0
-        );
-        const persistedZeroDespiteData =
-          anyProviderReportedData && (result.inserted_count || 0) === 0;
+        // Iteration 12: a mismatch means rows the pipeline could not account for —
+        // NOT "the feed had rows and none were new", which is the normal steady
+        // state and used to raise a daily flood of phantom PERSIST_MISMATCH runs.
+        const persistedZeroDespiteData = ledgerHasLoss;
         const runStatus = !result.ok
           ? 'FAILED'
           : persistedZeroDespiteData
@@ -3940,7 +4048,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         const runErrorMessage = result.errors.length > 0
           ? result.errors.join('; ').slice(0, 500)
           : persistedZeroDespiteData
-            ? 'Providers reported data but zero rows were persisted to work_item_acts (silent write failure or upstream mismatch).'
+            ? `Persistence ledger mismatch: parsed=${persistLedger.parsed}, inserted=${persistLedger.inserted}, updated=${persistLedger.updated}, duplicate=${persistLedger.skippedDuplicate}, structural=${persistLedger.skippedStructural}, rejected=${persistLedger.rejected}, error=${persistLedger.errored}, unaccounted=${ledgerUnaccounted}`
             : null;
         await supabase.from('external_sync_runs').insert({
           work_item_id,
