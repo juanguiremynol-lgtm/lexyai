@@ -416,10 +416,12 @@ export default function Processes() {
                         </TableCell>
                         <TableCell>
                           {(item as any).monitoring_enabled === false ? (
-                            <Badge variant="outline" className="gap-1 text-xs border-orange-500/50 text-orange-600">
-                              <Pause className="h-3 w-3" />
-                              Suspendido
-                            </Badge>
+                            <Link to="/app/sin-monitoreo" title="Ver expedientes sin monitoreo">
+                              <Badge variant="outline" className="gap-1 text-xs border-orange-500/50 text-orange-600">
+                                <Pause className="h-3 w-3" />
+                                Monitoreo desactivado
+                              </Badge>
+                            </Link>
                           ) : (item as any).provider_reachable === false ? (
                             <Badge variant="outline" className="gap-1 text-xs border-yellow-500/50 text-yellow-600">
                               <AlertTriangle className="h-3 w-3" />
