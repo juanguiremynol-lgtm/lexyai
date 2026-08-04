@@ -167,6 +167,11 @@ const CHAIN: Record<string, string[]> = {
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };
 
+/** `PENAL` is a legacy in-memory alias (iteration 15 normalized it to
+ *  PENAL_906) and is NOT a member of the `workflow_type` enum — filtering the
+ *  portfolio query by it made Postgres reject the whole sweep. */
+const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
+
 type TransferState =
   | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE";
 
@@ -275,7 +280,7 @@ Deno.serve(async (req) => {
 
   if (workItemIds?.length) q = q.in("id", workItemIds);
   else if (radicados?.length) q = q.in("radicado", radicados);
-  else q = q.eq("monitoring_enabled", true).in("workflow_type", Object.keys(CHAIN)).order("last_synced_at", { ascending: true, nullsFirst: true });
+  else q = q.eq("monitoring_enabled", true).in("workflow_type", QUERYABLE_WORKFLOWS).order("last_synced_at", { ascending: true, nullsFirst: true });
 
   const { data: items, error: itemsErr } = await q.range(offset, offset + limit - 1);
   if (itemsErr) {
