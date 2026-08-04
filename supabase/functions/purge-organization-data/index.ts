@@ -239,16 +239,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Delete actuaciones
+    // Delete actuaciones — ITER13: `work_item_acts` is canonical; the frozen
+    // legacy table is still purged so no personal data survives the request.
     if (workItemIds.length > 0) {
-      const actRes1 = await serviceClient.from("actuaciones").select("id").in("filing_id", workItemIds);
-      result.deleted_counts.actuaciones += (actRes1.data?.length || 0);
-      await serviceClient.from("actuaciones").delete().in("filing_id", workItemIds);
-    }
-    if (workItemIds.length > 0) {
-      const actRes2 = await serviceClient.from("actuaciones").select("id").in("monitored_process_id", workItemIds);
-      result.deleted_counts.actuaciones += (actRes2.data?.length || 0);
-      await serviceClient.from("actuaciones").delete().in("monitored_process_id", workItemIds);
+      const canonRes = await serviceClient.from("work_item_acts").select("id").in("work_item_id", workItemIds);
+      result.deleted_counts.actuaciones += (canonRes.data?.length || 0);
+      await serviceClient.from("work_item_acts").delete().in("work_item_id", workItemIds);
+
+      for (const col of ["filing_id", "monitored_process_id", "work_item_id"]) {
+        const legacyRes = await serviceClient
+          .from("actuaciones_legacy_20260131").select("id").in(col, workItemIds);
+        result.deleted_counts.actuaciones += (legacyRes.data?.length || 0);
+        await serviceClient.from("actuaciones_legacy_20260131").delete().in(col, workItemIds);
+      }
     }
 
     // Delete alerts

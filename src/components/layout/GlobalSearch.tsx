@@ -238,9 +238,12 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
 
   const buildActuacionesQuery = () => {
     let q = supabase
-      .from("actuaciones")
-      .select("id, work_item_id, act_type_guess, normalized_text, act_date")
-      .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
+      // ITER13: `actuaciones` is frozen (actuaciones_legacy_20260131).
+      // `work_item_acts` is the single canonical actuaciones table.
+      .from("work_item_acts")
+      .select("id, work_item_id, act_type, description, act_date")
+      .or(`description.ilike.${searchPattern},act_type.ilike.${searchPattern}`)
+      .or("is_archived.is.null,is_archived.eq.false")
       .order("act_date", { ascending: false })
       .limit(limitPerType);
 
@@ -297,13 +300,14 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   }).sort((a, b) => a.relevance - b.relevance);
 
   const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => {
-    const snippet = act.normalized_text?.substring(0, 60) + (act.normalized_text && act.normalized_text.length > 60 ? "..." : "") || "Sin descripción";
+    const text = act.description ?? "";
+    const snippet = text ? `${text.substring(0, 60)}${text.length > 60 ? "..." : ""}` : "Sin descripción";
     const result = {
       id: act.id,
       type: "actuacion" as const,
-      title: act.act_type_guess || "Actuación",
+      title: act.act_type || "Actuación",
       subtitle: snippet,
-      badge: act.act_type_guess || "Actuación",
+      badge: act.act_type || "Actuación",
       badgeVariant: "default" as const,
       route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
       relevance: 5,

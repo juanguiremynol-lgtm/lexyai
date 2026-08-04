@@ -269,8 +269,9 @@ export function UnifiedDebugConsole() {
 
         // Check stored actuaciones
         const { data: storedActs, count: actCount } = await supabase
-          .from('actuaciones')
-          .select('id, raw_text, act_date, source, indice, anexos_count, estado', { count: 'exact' })
+          // ITER13: canonical actuaciones table (legacy `actuaciones` is frozen).
+          .from('work_item_acts')
+          .select('id, description, act_date, source, raw_data, discovery_type', { count: 'exact' })
           .eq('work_item_id', workItem.id)
           .order('act_date', { ascending: false })
           .limit(5);

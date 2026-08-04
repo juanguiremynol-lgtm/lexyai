@@ -88,8 +88,9 @@ Deno.serve(async (req) => {
         .order('fecha_fijacion', { ascending: false });
 
       const { data: existingActs } = await adminDb
-        .from('actuaciones')
-        .select('id, normalized_text, act_date, source, hash_fingerprint')
+        // ITER13: canonical table (legacy `actuaciones` frozen 2026-01-31).
+        .from('work_item_acts')
+        .select('id, description, act_date, source, hash_fingerprint')
         .eq('work_item_id', work_item_id)
         .order('act_date', { ascending: false })
         .limit(5);
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
         actuaciones_count: existingActs?.length || 0,
         latest_actuaciones: existingActs?.map(a => ({
           act_date: a.act_date,
-          text: a.normalized_text?.slice(0, 80),
+          text: a.description?.slice(0, 80),
           source: a.source,
         })),
       };
