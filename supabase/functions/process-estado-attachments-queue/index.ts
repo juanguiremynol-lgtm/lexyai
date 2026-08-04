@@ -111,7 +111,9 @@ async function processOne(
     if (row.publicacion_id) {
       await supabase
         .from("work_item_publicaciones")
-        .update({ pdf_url: row.storage_path } as never)
+        // Storage paths NEVER go into pdf_url (that column is a URL and the
+        // UI would concatenate a path onto the app origin → SPA 404).
+        .update({ pdf_storage_path: row.storage_path, pdf_available: true } as never)
         .eq("id", row.publicacion_id);
     }
     return { success: true };
@@ -150,7 +152,7 @@ async function processOne(
     if (row.publicacion_id) {
       await supabase
         .from("work_item_publicaciones")
-        .update({ pdf_url: path } as never)
+        .update({ pdf_storage_path: path, pdf_available: true } as never)
         .eq("id", row.publicacion_id);
     }
     return { success: true };
