@@ -42,6 +42,11 @@ import {
   type ProviderPubUnit,
 } from '../canonicalPublicacionMapper.ts';
 
+// Deno global declaration — this module is also type-checked by the Vitest
+// (browser/node) program, which has no Deno lib.
+declare const Deno: { env: { get(key: string): string | undefined } };
+
+
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
