@@ -332,11 +332,24 @@ async function writePublicacionesAttemptRow(
   } catch (_e) { /* best-effort */ }
 }
 
-function errorResponse(code: string, message: string, status: number = 400): Response {
+/**
+ * ITERATION 21 — every non-2xx must carry a diagnosable body.
+ * Shape: { error, stage, radicado, pg_message } plus legacy code/message.
+ */
+function errorResponse(
+  code: string,
+  message: string,
+  status: number = 400,
+  extra: { stage?: string; radicado?: string | null; pg_message?: string | null } = {},
+): Response {
   return jsonResponse({
     ok: false,
+    error: code,
     code,
     message,
+    stage: extra.stage ?? 'unknown',
+    radicado: extra.radicado ?? null,
+    pg_message: extra.pg_message ?? null,
     timestamp: new Date().toISOString(),
   }, status);
 }
