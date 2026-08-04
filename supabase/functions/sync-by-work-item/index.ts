@@ -3256,43 +3256,37 @@ Deno.serve(withSyncTimeline(async (req) => {
             );
             
             if (stageSuggestion && stageSuggestion.confidence >= 0.7) {
-              const suggestionFingerprint = `stage_${work_item_id.slice(0, 8)}_${stageSuggestion.suggestedStage}_${new Date().toISOString().split('T')[0]}`;
-              
-              // Check for existing pending suggestion
-              const { data: existingSuggestion } = await supabase
-                .from('work_item_stage_suggestions')
-                .select('id')
-                .eq('work_item_id', work_item_id)
-                .eq('status', 'PENDING')
-                .maybeSingle();
-              
-              if (!existingSuggestion) {
-                // ALL suggestions are created as PENDING - never auto-apply
-                const { error: suggestionError } = await supabase
-                  .from('work_item_stage_suggestions')
-                  .insert({
-                    work_item_id,
-                    owner_id: workItem.owner_id,
-                    organization_id: workItem.organization_id,
-                    suggested_stage: stageSuggestion.suggestedStage,
-                    confidence: stageSuggestion.confidence,
-                    reason: stageSuggestion.reason,
-                    source_type: 'ACTUACION',
-                    event_fingerprint: suggestionFingerprint,
-                    status: 'PENDING', // ALWAYS PENDING - requires explicit user approval
-                  });
-                
-                if (suggestionError) {
-                  console.warn(`[sync-by-work-item] Failed to create stage suggestion:`, suggestionError.message);
-                } else {
-                  console.log(`[sync-by-work-item] Created PENDING stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence}) - requires user approval`);
-                  
-                  // Record inference run to enforce daily rate limit
-                  await supabase.rpc('record_inference_run', {
-                    p_work_item_id: work_item_id,
-                    p_timezone: 'America/Bogota'
-                  });
-                }
+              // ITER19 B1–B4: the DB is the single gate. `upsert_standing_stage_suggestion`
+              // applies the monotonic guard, the no-op guard and latest-event-wins, and
+              // returns NULL when the suggestion is suppressed. Never auto-applied.
+              const eventDate = (act.fechaActuacion || act.fecha_actuacion || act.fecha || null) as string | null;
+              const eventText = `${act.actuacion ?? ''} ${act.anotacion ?? ''}`.trim();
+              const suggestionFingerprint = `stage_${work_item_id.slice(0, 8)}_${stageSuggestion.suggestedStage}_${(eventDate ?? new Date().toISOString()).slice(0, 10)}`;
+
+              const { data: suggestionId, error: suggestionError } = await supabase.rpc(
+                'upsert_standing_stage_suggestion',
+                {
+                  p_work_item_id: work_item_id,
+                  p_suggested_stage: stageSuggestion.suggestedStage,
+                  p_confidence: stageSuggestion.confidence,
+                  p_reason: stageSuggestion.reason,
+                  p_source_type: 'ACTUACION',
+                  p_event_fingerprint: suggestionFingerprint,
+                  p_event_date: eventDate ? String(eventDate).slice(0, 10) : null,
+                  p_event_text: eventText || null,
+                },
+              );
+
+              if (suggestionError) {
+                console.warn(`[sync-by-work-item] Failed to create stage suggestion:`, suggestionError.message);
+              } else if (!suggestionId) {
+                console.log(`[sync-by-work-item] Stage suggestion suppressed by guard (${stageSuggestion.suggestedStage})`);
+              } else {
+                console.log(`[sync-by-work-item] Standing PENDING stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence}) - requires user approval`);
+                await supabase.rpc('record_inference_run', {
+                  p_work_item_id: work_item_id,
+                  p_timezone: 'America/Bogota',
+                });
               }
             }
           }

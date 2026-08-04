@@ -6,7 +6,7 @@ import { Check, FileText, Mail, Newspaper, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { getWorkflowPhases, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
+import { clampInferredPhase, getWorkflowPhases, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
 import type { WorkflowType } from "@/lib/workflow-constants";
 
 export interface PhaseReach {
@@ -40,8 +40,11 @@ interface PhaseStepperProps {
 export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhase }: PhaseStepperProps) {
   const phases = getWorkflowPhases(workflowType);
   const mapped = mapStageToCanonicalPhase(workflowType, currentStage);
-  const currentPhase = mapped ?? inferredPhase ?? null;
-  const isInferred = !mapped && !!inferredPhase;
+  // ITER19 B6: an inferred phase may never render the matter as earlier than
+  // the phase implied by its recorded stage.
+  const clampedInferred = clampInferredPhase(workflowType, currentStage, inferredPhase);
+  const currentPhase = mapped ?? clampedInferred ?? null;
+  const isInferred = !mapped && !!clampedInferred;
   const currentIndex = phases.findIndex((p) => p.key === currentPhase);
   const reachByPhase = new Map(reaches.map((r) => [r.phaseKey, r]));
 

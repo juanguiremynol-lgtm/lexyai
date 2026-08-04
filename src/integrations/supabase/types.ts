@@ -116,6 +116,39 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter19_stage_suggestion_report: {
+        Row: {
+          created_at: string
+          created_at_original: string | null
+          current_stage: string | null
+          id: string
+          old_suggestion: string | null
+          outcome: string | null
+          radicado: string | null
+          source_type: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_at_original?: string | null
+          current_stage?: string | null
+          id?: string
+          old_suggestion?: string | null
+          outcome?: string | null
+          radicado?: string | null
+          source_type?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_at_original?: string | null
+          current_stage?: string | null
+          id?: string
+          old_suggestion?: string | null
+          outcome?: string | null
+          radicado?: string | null
+          source_type?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
@@ -5428,6 +5461,36 @@ export type Database = {
           radicado_prefix?: string
           updated_at?: string
           workflow_type?: string | null
+        }
+        Relationships: []
+      }
+      despacho_coverage_transitions: {
+        Row: {
+          created_at: string
+          evidence: Json
+          from_publishes: boolean
+          id: string
+          provider_key: string
+          radicado_prefix: string
+          to_publishes: boolean
+        }
+        Insert: {
+          created_at?: string
+          evidence?: Json
+          from_publishes: boolean
+          id?: string
+          provider_key: string
+          radicado_prefix: string
+          to_publishes: boolean
+        }
+        Update: {
+          created_at?: string
+          evidence?: Json
+          from_publishes?: boolean
+          id?: string
+          provider_key?: string
+          radicado_prefix?: string
+          to_publishes?: boolean
         }
         Relationships: []
       }
@@ -16883,8 +16946,12 @@ export type Database = {
           audit_log_id: string | null
           confidence: number
           created_at: string
+          dismiss_reason: string | null
+          event_date: string | null
           event_fingerprint: string | null
+          event_text: string | null
           id: string
+          is_regression: boolean
           organization_id: string
           owner_id: string
           reason: string | null
@@ -16902,8 +16969,12 @@ export type Database = {
           audit_log_id?: string | null
           confidence: number
           created_at?: string
+          dismiss_reason?: string | null
+          event_date?: string | null
           event_fingerprint?: string | null
+          event_text?: string | null
           id?: string
+          is_regression?: boolean
           organization_id: string
           owner_id: string
           reason?: string | null
@@ -16921,8 +16992,12 @@ export type Database = {
           audit_log_id?: string | null
           confidence?: number
           created_at?: string
+          dismiss_reason?: string | null
+          event_date?: string | null
           event_fingerprint?: string | null
+          event_text?: string | null
           id?: string
+          is_regression?: boolean
           organization_id?: string
           owner_id?: string
           reason?: string | null
@@ -17976,6 +18051,7 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      act_is_stage_bearing: { Args: { p_text: string }; Returns: boolean }
       add_business_days_sql: {
         Args: { p_days: number; p_start: string }
         Returns: string
@@ -18281,10 +18357,15 @@ export type Database = {
           subjects: string[]
         }[]
       }
+      despacho_has_coverage_gap: {
+        Args: { p_radicado: string }
+        Returns: boolean
+      }
       despacho_silence_note: {
         Args: { p_provider: string; p_radicado: string; p_workflow: string }
         Returns: string
       }
+      detect_despacho_coverage_recovery: { Args: never; Returns: number }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
         Returns: {
@@ -18295,6 +18376,7 @@ export type Database = {
         }[]
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
+      dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
       email_outbox_health: {
         Args: { _hours?: number }
         Returns: {
@@ -18319,6 +18401,10 @@ export type Database = {
       email_subtype_stage: {
         Args: { p_subject: string; p_subtype: string; p_workflow: string }
         Returns: string
+      }
+      event_text_indicates_regresion: {
+        Args: { p_text: string }
+        Returns: boolean
       }
       extract_provider_hearing: {
         Args: { p_annotation: string; p_title: string; p_today?: string }
@@ -18741,6 +18827,19 @@ export type Database = {
           p_status: Database["public"]["Enums"]["daily_sync_status"]
         }
         Returns: undefined
+      }
+      upsert_standing_stage_suggestion: {
+        Args: {
+          p_confidence: number
+          p_event_date?: string
+          p_event_fingerprint: string
+          p_event_text?: string
+          p_reason: string
+          p_source_type: string
+          p_suggested_stage: string
+          p_work_item_id: string
+        }
+        Returns: string
       }
       user_has_accepted_current_terms: {
         Args: { p_user_id: string }
