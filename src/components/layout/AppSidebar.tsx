@@ -15,6 +15,7 @@ import {
   FileSignature,
   PenTool,
   Monitor,
+  PauseCircle,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
