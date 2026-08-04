@@ -238,9 +238,12 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
 
   const buildActuacionesQuery = () => {
     let q = supabase
-      .from("actuaciones")
-      .select("id, work_item_id, act_type_guess, normalized_text, act_date")
-      .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
+      // ITER13: `actuaciones` is frozen (actuaciones_legacy_20260131).
+      // `work_item_acts` is the single canonical actuaciones table.
+      .from("work_item_acts")
+      .select("id, work_item_id, act_type, description, act_date")
+      .or(`description.ilike.${searchPattern},act_type.ilike.${searchPattern}`)
+      .or("is_archived.is.null,is_archived.eq.false")
       .order("act_date", { ascending: false })
       .limit(limitPerType);
 
