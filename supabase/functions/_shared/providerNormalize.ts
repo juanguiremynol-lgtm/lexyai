@@ -12,6 +12,7 @@ import {
   type DateSource,
 } from "./sync-constraints.ts";
 import { canonicalActFingerprint, canonicalPubFingerprint } from "./canonicalFingerprint.ts";
+import { normalizeSourceKey } from "./canonicalSource.ts";
 
 // Re-export for convenience — edge functions can import from here
 export { sanitizeDateSource, DATE_SOURCE_TO_CONFIDENCE };
@@ -130,8 +131,11 @@ export async function normalizeActuaciones(
   workItemId: string,
   ownerId: string,
   organizationId: string,
+  /** ITERATION 24 — provider key; canonicalised to the closed source enum. */
+  sourceKey?: string | null,
 ) {
   const results = [];
+  const canonicalSource = normalizeSourceKey(sourceKey, "cpnu");
   for (const a of raw) {
     const description = a.description || a.raw_text || "";
     const fingerprint =
@@ -159,7 +163,8 @@ export async function normalizeActuaciones(
       date_source: dateSource,
       date_confidence: DATE_SOURCE_TO_CONFIDENCE[dateSource] || "low",
       source_url: a.source_url || provenance.source_url || null,
-      source: "external_provider",
+      source: canonicalSource,
+      sources: [canonicalSource],
       raw_data: a.raw_data || null,
       provider_instance_id: provenance.provider_instance_id,
       provider_case_id: provenance.provider_case_id,
@@ -178,8 +183,11 @@ export async function normalizePublicaciones(
   workItemId: string,
   ownerId: string,
   organizationId: string,
+  /** ITERATION 24 — provider key; canonicalised to the closed source enum. */
+  sourceKey?: string | null,
 ) {
   const results = [];
+  const canonicalSource = normalizeSourceKey(sourceKey, "publicaciones");
   for (const p of raw) {
     const description = p.description || p.raw_text || "";
     const fingerprint =
@@ -204,7 +212,8 @@ export async function normalizePublicaciones(
       // Map to work_item_publicaciones column names
       title: description,
       annotation: p.raw_text || null,
-      source: "external_provider",
+      source: canonicalSource,
+      sources: [canonicalSource],
       published_at: p.pub_date || null,
       pdf_url: p.source_url || provenance.source_url || null,
       entry_url: null,

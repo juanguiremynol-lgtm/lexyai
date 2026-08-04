@@ -38,6 +38,7 @@
  */
 
 import { canonicalPubFingerprint } from "./canonicalFingerprint.ts";
+import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 
 // ───────────────────────── date / string helpers ─────────────────────────
 
