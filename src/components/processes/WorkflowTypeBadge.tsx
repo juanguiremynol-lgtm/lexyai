@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Scale, Landmark, Gavel, Building2, Send, Briefcase, Shield, FileText } from "lucide-react";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
+import { HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkflowTypeBadgeProps {
@@ -19,6 +20,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ComponentType<{ className?: str
   LABORAL: Briefcase,
   PENAL_906: Shield,
   GENERIC: FileText,
+  INDETERMINADO: HelpCircle,
 };
 
 const WORKFLOW_COLORS: Record<WorkflowType, string> = {
@@ -30,6 +32,7 @@ const WORKFLOW_COLORS: Record<WorkflowType, string> = {
   LABORAL: "bg-rose-500/15 text-rose-700 border-rose-500/30 dark:text-rose-400",
   PENAL_906: "bg-red-500/15 text-red-700 border-red-500/30 dark:text-red-400",
   GENERIC: "bg-muted text-muted-foreground border-border",
+  INDETERMINADO: "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-400",
 };
 
 export function WorkflowTypeBadge({ 

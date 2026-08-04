@@ -82,6 +82,7 @@ export const WORKFLOW_PHASES: Record<WorkflowType, CanonicalPhase[]> = {
     { key: "SENTENCIA", label: "Decisión" },
     { key: "RECURSOS", label: "Recursos" },
   ],
+  INDETERMINADO: [],
   GENERIC: [
     { key: "PREPARACION", label: "Preparación" },
     { key: "RADICACION", label: "Radicación" },

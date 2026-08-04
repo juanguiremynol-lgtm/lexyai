@@ -13,6 +13,9 @@ export const PROVIDER_CHAIN_BY_WORKFLOW: Record<string, string[]> = {
   // never emitted by Andromeda; canonical value is PENAL_906.
   PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
+  // Subject matter unknown (mixed-competence court): monitoring never stops,
+  // it just fans out to every provider until the matter is classified.
+  INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };
 
