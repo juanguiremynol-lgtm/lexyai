@@ -276,3 +276,28 @@ export function inferPhaseFromText(
 export function getWorkflowPhases(workflowType: WorkflowType): CanonicalPhase[] {
   return WORKFLOW_PHASES[workflowType] ?? WORKFLOW_PHASES.GENERIC;
 }
+
+/**
+ * ITER19 B6 — monotonic display guard.
+ *
+ * The inferred fallback phase may never render a matter as EARLIER than the
+ * phase implied by its recorded stage. When the recorded stage is unmappable
+ * we still derive a floor from its own vocabulary and clamp the inference to
+ * it, so a matter recorded at "recursos" is never displayed at "admisión".
+ */
+export function clampInferredPhase(
+  workflowType: WorkflowType,
+  currentStage: string | null | undefined,
+  inferredPhase: string | null | undefined,
+): string | null {
+  if (!inferredPhase) return null;
+  const floor =
+    mapStageToCanonicalPhase(workflowType, currentStage) ??
+    inferPhaseFromText(workflowType, currentStage);
+  if (!floor) return inferredPhase;
+  const phases = getWorkflowPhases(workflowType);
+  const floorIndex = phases.findIndex((p) => p.key === floor);
+  const inferredIndex = phases.findIndex((p) => p.key === inferredPhase);
+  if (floorIndex < 0 || inferredIndex < 0) return inferredPhase;
+  return inferredIndex < floorIndex ? floor : inferredPhase;
+}
