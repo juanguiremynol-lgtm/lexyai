@@ -502,8 +502,30 @@ Deno.serve(async (req) => {
       const rawText = `${raw["Actuación"] || ""} ${raw["Anotación"] || ""}`.trim();
       if (!rawText) continue;
 
-      const eventDate = parseDate(raw["Fecha de Actuación"]);
-      const fingerprint = `penal_${simpleHash(`${work_item_id}|${eventDate || ""}|${rawText.slice(0, 100)}`)}`;
+      // ITERATION 22 — PENAL_906 joins the canonical identity model. The old
+      // `penal_<hash>` scheme made the same CPNU actuación hash differently
+      // here than in `sync-by-work-item`, so the bridge saw a permanent phantom
+      // gap on every penal item. Identity now comes from the shared act mapper.
+      const canonicalAct = toCanonicalActRow(
+        {
+          actuacion: String(raw["Actuación"] || ""),
+          anotacion: raw["Anotación"] ? String(raw["Anotación"]) : null,
+          fecha: raw["Fecha de Actuación"] ? String(raw["Fecha de Actuación"]) : null,
+          fecha_registro: raw["Fecha de Registro"] ? String(raw["Fecha de Registro"]) : null,
+          _source: "cpnu",
+        },
+        {
+          owner_id: workItem.owner_id,
+          organization_id: workItem.organization_id,
+          work_item_id,
+          workflow_type: "PENAL_906",
+          scrape_date: scrapeDate,
+          despacho: fetchResult.proceso?.["Despacho"] || null,
+          source: "cpnu",
+        },
+      );
+      const eventDate = canonicalAct.act_date;
+      const fingerprint = canonicalAct.hash_fingerprint;
 
       if (existingFingerprints.has(fingerprint)) {
         eventsSkippedDuplicate++;
@@ -516,23 +538,13 @@ Deno.serve(async (req) => {
 
       // Insert work_item_act
       const { error: insertError } = await supabase.from("work_item_acts").insert({
-        owner_id: workItem.owner_id,
-        organization_id: workItem.organization_id,
-        work_item_id: work_item_id,
-        workflow_type: "PENAL_906",
-        act_date: eventDate,
-        description: summary,
+        ...canonicalAct,
+        // Penal-specific enrichment layered on top of the canonical row.
         act_type: "ACTUACION",
-        source: "cpnu",
-        hash_fingerprint: fingerprint,
         phase_inferred: classification.phase,
         keywords_matched: classification.keywords,
-        event_date: eventDate,
-        scrape_date: scrapeDate,
-        despacho: fetchResult.proceso?.["Despacho"] || null,
         event_summary: summary,
         source_url: `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${cleanRadicado}`,
-        source_platform: "cpnu",
       });
 
       if (!insertError) {
