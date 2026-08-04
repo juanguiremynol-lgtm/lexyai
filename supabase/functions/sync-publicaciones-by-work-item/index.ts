@@ -2129,6 +2129,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-pub] RPC client error: ${JSON.stringify(insertError)}`);
         result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
+        pubLedger.parsed++;
+        pubLedger.errored++;
+        pubLedger.outcomes.push({
+          bucket: 'ERROR',
+          title: pub.titulo || null,
+          reason: insertError.message,
+        });
         if (isSamai && result.samai_estados_summary) {
           recordSamaiOutcome(
             result.samai_estados_summary,
@@ -2140,12 +2147,34 @@ Deno.serve(withSyncTimeline(async (req) => {
         }
       } else {
         const counts = rpcResult as {
+          parsed_count?: number;
           inserted_count: number;
           updated_count: number;
           skipped_count: number;
+          structural_count?: number;
+          rejected_count?: number;
+          error_count?: number;
+          unique_violation_count?: number;
           errors?: string[];
           outcomes?: Array<{ bucket: SamaiPersistBucket; title?: string; reason?: string }>;
         };
+
+        // Ledger accumulation (per-row buckets straight from the RPC).
+        pubLedger.parsed += counts.parsed_count ?? 1;
+        pubLedger.inserted += counts.inserted_count || 0;
+        pubLedger.updated += counts.updated_count || 0;
+        pubLedger.skippedStructural += counts.structural_count || 0;
+        pubLedger.skippedDuplicate += Math.max(
+          0,
+          (counts.skipped_count || 0) - (counts.structural_count || 0),
+        );
+        pubLedger.rejected += counts.rejected_count || 0;
+        pubLedger.errored += counts.error_count || 0;
+        pubLedger.uniqueViolations += counts.unique_violation_count || 0;
+        if (Array.isArray(counts.outcomes)) {
+          pubLedger.outcomes.push(...(counts.outcomes as Array<Record<string, unknown>>));
+        }
+
         if (isSamai && result.samai_estados_summary) {
           const terminal = counts.outcomes?.[0];
           if (terminal) {
