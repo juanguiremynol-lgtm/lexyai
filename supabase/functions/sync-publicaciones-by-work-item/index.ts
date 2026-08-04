@@ -1246,13 +1246,13 @@ Deno.serve(withSyncTimeline(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500);
+      return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500, { stage: 'env' });
     }
 
     // Auth check - support both user tokens and service role (for scheduled jobs)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401);
+      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, { stage: 'auth_header' });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -1266,13 +1266,13 @@ Deno.serve(withSyncTimeline(async (req) => {
     try {
       payload = await req.json();
     } catch (_parseErr) {
-      return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
+      return errorResponse('INVALID_JSON', 'Could not parse request body', 400, { stage: 'parse_body' });
     }
 
     const { work_item_id, _scheduled } = payload;
     
     if (!work_item_id) {
-      return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400);
+      return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, { stage: 'validate_input' });
     }
 
     let userId: string | null = null;
@@ -1290,7 +1290,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       
       if (authError || !authUser?.id) {
         console.error(`[sync-pub] Auth error:`, authError?.message);
-        return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
+        return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, { stage: 'verify_jwt', pg_message: authError?.message ?? null });
       }
 
       userId = authUser.id;
@@ -1306,7 +1306,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     if (workItemError || !workItem) {
       console.log(`[sync-pub] Work item not found: ${work_item_id}`);
-      return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
+      return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404, { stage: 'load_work_item', pg_message: workItemError?.message ?? null });
     }
 
     // ============= BUG 2 fix — PAUSE GATE (monitoring_enabled) =============
@@ -1357,9 +1357,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (membershipError || !membership) {
         console.log(`[sync-pub] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
         return errorResponse(
-          'ACCESS_DENIED', 
-          'You do not have permission to sync this work item. You must be a member of the organization.', 
-          403
+          'ACCESS_DENIED',
+          'You do not have permission to sync this work item. You must be a member of the organization.',
+          403,
+          { stage: 'membership_check', radicado: (workItem as any)?.radicado ?? null, pg_message: membershipError?.message ?? null },
         );
       }
 
@@ -1393,7 +1394,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       return errorResponse(
         'MISSING_RADICADO',
         'Publicaciones sync is only available for registered processes with a valid 23-digit radicado. Please edit the work item to add a radicado.',
-        400
+        400,
+        { stage: 'validate_radicado', radicado: (workItem as any)?.radicado ?? null },
       );
     }
 
@@ -2708,7 +2710,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     // degraded response so login/creation flows do not fail hard.
     return jsonResponse({
       ok: false,
+      error: 'INTERNAL_ERROR',
       status: 'internal_error',
+      stage: 'unhandled',
+      pg_message: err instanceof Error ? err.message : null,
       reason: err instanceof Error ? err.message : 'An unexpected error occurred',
     }, 200);
   }
