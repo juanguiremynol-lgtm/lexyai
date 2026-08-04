@@ -15026,6 +15026,7 @@ export type Database = {
           instancia: string | null
           is_archived: boolean | null
           is_canonical: boolean | null
+          is_future_dated: boolean
           is_notifiable: boolean | null
           is_retroactive: boolean | null
           keywords_matched: string[] | null
@@ -15082,6 +15083,7 @@ export type Database = {
           instancia?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_future_dated?: boolean
           is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
@@ -15138,6 +15140,7 @@ export type Database = {
           instancia?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_future_dated?: boolean
           is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
@@ -16030,6 +16033,7 @@ export type Database = {
           ingest_run_mode: string
           is_archived: boolean | null
           is_canonical: boolean | null
+          is_future_dated: boolean
           is_notifiable: boolean | null
           is_retroactive: boolean
           last_seen_at: string
@@ -16076,6 +16080,7 @@ export type Database = {
           ingest_run_mode?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_future_dated?: boolean
           is_notifiable?: boolean | null
           is_retroactive?: boolean
           last_seen_at?: string
@@ -16122,6 +16127,7 @@ export type Database = {
           ingest_run_mode?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_future_dated?: boolean
           is_notifiable?: boolean | null
           is_retroactive?: boolean
           last_seen_at?: string
@@ -17998,10 +18004,12 @@ export type Database = {
         }
         Returns: string
       }
-      count_anexos_nuevos: {
-        Args: { p_organization_id: string; p_since: string }
-        Returns: number
-      }
+      count_anexos_nuevos:
+        | {
+            Args: { p_organization_id: string; p_since: string }
+            Returns: number
+          }
+        | { Args: { p_since: string }; Returns: number }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
@@ -18010,6 +18018,7 @@ export type Database = {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
       }
+      detect_monitoring_disabled_live: { Args: never; Returns: number }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
         Returns: {
@@ -18248,8 +18257,31 @@ export type Database = {
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_check: { Args: { p_user_id: string }; Returns: boolean }
+      is_procedurally_live_stage: {
+        Args: { p_stage: string }
+        Returns: boolean
+      }
       is_profile_complete: { Args: { p_user_id: string }; Returns: boolean }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
+      list_unmonitored_work_items: {
+        Args: never
+        Returns: {
+          last_act_date: string
+          last_act_description: string
+          last_ingest: string
+          lifecycle_state: string
+          monitoring_disabled_at: string
+          monitoring_disabled_by: string
+          monitoring_disabled_reason: string
+          organization_id: string
+          procedurally_live: boolean
+          radicado: string
+          stage: string
+          title: string
+          work_item_id: string
+          workflow_type: string
+        }[]
+      }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]
