@@ -33,6 +33,12 @@ import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { usePpActuaciones, resyncPpActuaciones } from "@/hooks/use-pp-actuaciones";
 import { supabase } from "@/integrations/supabase/client";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
+import {
+  documentUrlCandidates,
+  hasResolvableDocument,
+  openStoredDocument,
+  type StoredDocumentRow,
+} from "@/lib/document-url-resolver";
 
 interface Props {
   workItem: WorkItem;
@@ -59,6 +65,7 @@ interface LocalPub {
   fecha_providencia: string | null;
   detected_at: string | null;
   pdf_url: string | null;
+  pdf_storage_path?: string | null;
   raw_data: Record<string, unknown> | null;
   storage_path: string | null;
 }
@@ -130,31 +137,13 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
  * `proxyPdfUrl`, which for open portal hosts (ramajudicial.gov.co) works in
  * `window.open`.
  */
-async function openStorageAttachment(
-  publicacionId: string,
-  storagePath: string,
-  proxyPdfUrl?: string,
-): Promise<void> {
-  try {
-    const { data, error } = await supabase.functions.invoke("get-estado-attachment-url", {
-      body: { publicacion_id: publicacionId, storage_path: storagePath },
+async function openStorageAttachment(row: StoredDocumentRow): Promise<void> {
+  const ok = await openStoredDocument(row);
+  if (!ok) {
+    toast.error("No se pudo abrir el PDF almacenado", {
+      description: "El archivo no está disponible en este momento.",
     });
-    if (!error && data?.url) {
-      window.open(data.url as string, "_blank", "noopener,noreferrer");
-      return;
-    }
-    console.warn("[openStorageAttachment] edge fn failed", error?.message, data);
-  } catch (err) {
-    console.warn("[openStorageAttachment] edge fn threw", err);
   }
-  // UI-side fallback: open portal URL directly if it looks like an open host.
-  if (proxyPdfUrl && /ramajudicial\.gov\.co/i.test(proxyPdfUrl)) {
-    window.open(proxyPdfUrl, "_blank", "noopener,noreferrer");
-    return;
-  }
-  toast.error("No se pudo abrir el PDF almacenado", {
-    description: "El archivo no está disponible en este momento.",
-  });
 }
 
 // PDF handling and provenance chips now live inline in the EstadosTable
@@ -175,12 +164,14 @@ export function PublicacionesPpTab({ workItem }: Props) {
     queryFn: async (): Promise<LocalPub[]> => {
       const { data: pubs, error } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, fecha_fijacion, fecha_providencia, detected_at, pdf_url, raw_data")
+        .select(
+          "id, title, source, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, raw_data",
+        )
         .eq("work_item_id", workItem.id)
         .eq("source", "publicaciones")
         .eq("is_archived", false);
       if (error) throw error;
-      const rows = (pubs ?? []) as Array<Omit<LocalPub, "storage_path">>;
+      const rows = (pubs ?? []) as unknown as Array<Omit<LocalPub, "storage_path">>;
       if (rows.length === 0) return [];
 
       // Enrich with storage_path from the attachment queue when available.
@@ -194,7 +185,10 @@ export function PublicacionesPpTab({ workItem }: Props) {
       for (const a of attachments ?? []) {
         if (a.publicacion_id && a.storage_path) byPub.set(a.publicacion_id, a.storage_path);
       }
-      return rows.map((r) => ({ ...r, storage_path: byPub.get(r.id) ?? null }));
+      return rows.map((r) => ({
+        ...r,
+        storage_path: r.pdf_storage_path ?? byPub.get(r.id) ?? null,
+      }));
     },
     enabled: !!workItem.id,
     staleTime: 60 * 1000,
@@ -316,7 +310,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
   // Map merged WorkItemAct[] → EstadoRow[] for the Icarus-style table.
   const estadoRows: EstadoRow[] = (filteredActs ?? []).map((act) => {
     const raw = (act.raw_data ?? {}) as Record<string, unknown>;
-    const storagePath = raw.storage_path as string | undefined;
+    const docRow = (raw.__doc_row as StoredDocumentRow | undefined) ?? null;
     const proxyPdfUrl = raw.pdf_url as string | undefined;
     const pdfIndividualUrl = raw.pdf_individual_url as string | undefined;
     const rawTipo =
@@ -324,12 +318,8 @@ export function PublicacionesPpTab({ workItem }: Props) {
       (raw.tipo_documento as string | undefined) ||
       (raw.tipoPublicacion as string | undefined) ||
       null;
-    const onOpenFile = storagePath?.trim()
-      ? () => {
-          const pubId = String(act.id).replace(/^local-pub-/, "");
-          openStorageAttachment(pubId, storagePath, proxyPdfUrl);
-        }
-      : undefined;
+    const onOpenFile =
+      docRow && hasResolvableDocument(docRow) ? () => void openStorageAttachment(docRow) : undefined;
     return {
       key: act.id,
       fuente: "PP",
