@@ -44,12 +44,19 @@ const STATE_LABEL: Record<string, string> = {
   GAP: "Filas no transferidas",
   TRANSFER_FAILED: "Reintento fallido",
   PROVIDER_UNAVAILABLE: "Proveedor sin respuesta",
+  PROVIDER_INVENTORY_SUSPECT: "Inventario sospechoso (0 en fuente con filas locales)",
+  INFRA_FAILURE: "Falla de nuestra infraestructura",
+  PROVIDER_JOB_ABORTED: "Trabajo del proveedor abortado",
+  PROVIDER_NEVER_COMPLETES: "El proveedor nunca completa",
+  PROVIDER_NO_ROWS: "Fuente vacía (confirmada)",
 };
 
 const TERMINAL_LABEL: Record<string, string> = {
   PROVIDER_JOB_FAILED: "Trabajo del proveedor falló",
   PROVIDER_NEVER_COMPLETES: "El proveedor nunca completa",
   PROVIDER_UNKNOWN_PROCESS: "Proceso no reconocido por el proveedor",
+  PROVIDER_JOB_ABORTED: "Trabajo abortado (limitador, cancelación u OOM)",
+  INFRA_FAILURE: "Falla de infraestructura (nuestra)",
 };
 
 export function BridgeIntegrityPanel() {
