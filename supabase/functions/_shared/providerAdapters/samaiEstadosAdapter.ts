@@ -32,7 +32,7 @@ import {
   redactPII,
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
-import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
+import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -403,10 +403,11 @@ function normalizeOneEstado(
   // Fingerprint
   const fingerprint = computeSamaiEstadosFingerprint(
     fecha || '',
-    actuacion,
+    title,
     anotacion,
     options?.workItemId,
     options?.crossProviderDedup,
+    resolvePartyHint(e as Record<string, unknown>),
   );
 
   if (!fecha && !actuacion) return null;
@@ -442,6 +443,7 @@ export function computeSamaiEstadosFingerprint(
   _anotacion: string,
   workItemId?: string,
   _crossProvider?: boolean,
+  partyHint?: string | null,
 ): string {
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes same estado reported by
   // Publicaciones and SAMAI Estados on TUTELA union routing.
@@ -450,7 +452,7 @@ export function computeSamaiEstadosFingerprint(
     pub_date: fecha,
     tipo_publicacion: actuacion,
     title: actuacion,
-    party_hint: null,
+    party_hint: partyHint ?? null,
   });
 }
 

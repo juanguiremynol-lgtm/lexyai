@@ -38,7 +38,11 @@ import {
 } from '../radicadoUtils.ts';
 
 import { fetchFromCpnu } from './cpnuAdapter.ts';
-import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
+import {
+  canonicalActFingerprint,
+  canonicalPubFingerprint,
+  resolvePartyHint,
+} from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -365,14 +369,20 @@ export function normalizeTutelasActuaciones(
 
       if (!fecha && !actuacion) return null;
 
+      // ITERATION 26 — hash exactly the title we persist (truncated/redacted),
+      // otherwise the adapter identity and the stored-row identity diverge.
+      const actTitle = options?.redactPII
+        ? redactPII(truncate(actuacion, 120) || '')
+        : truncate(actuacion, 120) || '';
       const fingerprint = computeTutelasFingerprint(
-        fecha, actuacion, anotacion,
+        fecha, actTitle, anotacion,
         options?.workItemId, options?.crossProviderDedup,
+        resolvePartyHint(act as Record<string, unknown>),
       );
 
       return {
         fecha_actuacion: fecha,
-        actuacion: options?.redactPII ? redactPII(truncate(actuacion, 120) || '') : truncate(actuacion, 120) || '',
+        actuacion: actTitle,
         anotacion: options?.redactPII ? redactPII(truncate(anotacion, 300) || '') : (anotacion || null),
         hash_fingerprint: fingerprint,
         source_platform: PROVIDER_KEY,
@@ -408,9 +418,12 @@ export function normalizeTutelasEstados(
 
       const attachments = extractTutelasAttachments(e, PROVIDER_KEY);
 
-      const fingerprint = computeTutelasFingerprint(
-        fecha, tipo, descripcion || '',
-        options?.workItemId, options?.crossProviderDedup,
+      // Estados are PUBLICACIONES: they must carry a pub identity, not an act
+      // identity (iteration 26 — one fact, one identity function).
+      const fingerprint = computeTutelasEstadoFingerprint(
+        fecha, tipo,
+        options?.workItemId,
+        resolvePartyHint(e as Record<string, unknown>),
       );
 
       return {
@@ -440,6 +453,7 @@ export function computeTutelasFingerprint(
   _descripcion: string,
   workItemId?: string,
   _crossProvider?: boolean,
+  partyHint?: string | null,
 ): string {
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes the same tutela act reported
   // by CPNU vs SAMAI vs TUTELAS-API. Anotación deliberately excluded — it
@@ -449,7 +463,23 @@ export function computeTutelasFingerprint(
     work_item_id: workItemId ?? null,
     act_date: fecha,
     actuacion: tipo,
-    party_hint: null,
+    party_hint: partyHint ?? null,
+  });
+}
+
+/** Pub identity for a tutela estado — same helper the persistence path uses. */
+export function computeTutelasEstadoFingerprint(
+  fecha: string,
+  tipo: string,
+  workItemId?: string,
+  partyHint?: string | null,
+): string {
+  return canonicalPubFingerprint({
+    work_item_id: workItemId ?? null,
+    pub_date: fecha,
+    tipo_publicacion: tipo,
+    title: tipo,
+    party_hint: partyHint ?? null,
   });
 }
 

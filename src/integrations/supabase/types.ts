@@ -18967,6 +18967,8 @@ export type Database = {
         Args: { p_work_item_id: string }
         Returns: Json
       }
+      rpc_canon_fingerprint_probe: { Args: { p_payload: Json }; Returns: Json }
+      rpc_identity_drift_summary: { Args: never; Returns: Json }
       rpc_insert_notification: {
         Args: {
           p_audience_scope: string

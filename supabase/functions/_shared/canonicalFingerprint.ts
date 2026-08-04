@@ -79,6 +79,36 @@ export function extractPartyDiscriminator(
   return "";
 }
 
+/**
+ * ITERATION 26 — the ONE place a party hint may be read from a raw provider
+ * payload. Every adapter and every mapper must call this instead of reading
+ * `parte` (or hardcoding `null`) on its own. Only STRUCTURED fields are
+ * consulted: free-text `anotacion` / `descripcion` / `titulo` are provenance,
+ * never identity.
+ */
+const STRUCTURED_PARTY_FIELDS = [
+  "parte",
+  "Parte",
+  "parte_notificada",
+  "Docum. a notif.",
+  "docum_a_notif",
+  "documA notif",
+  "sujeto",
+  "Sujeto",
+  "tipo_parte",
+] as const;
+
+export function resolvePartyHint(
+  raw: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  for (const field of STRUCTURED_PARTY_FIELDS) {
+    const v = (raw as Record<string, unknown>)[field];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return null;
+}
+
 /** Normalize a title/tipo string: NFD strip accents, lowercase, trim,
  *  collapse whitespace, drop any " - " / " — " tail (anotación concatenada). */
 export function normalizeTitle(raw: string | null | undefined): string {

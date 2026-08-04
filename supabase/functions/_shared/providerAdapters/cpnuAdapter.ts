@@ -41,7 +41,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { parseCpnuSujetos } from '../partyNormalization.ts';
-import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
+import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 
 import {
   checkSnapshotFreshness,
@@ -50,6 +50,11 @@ import {
   type FreshnessCheckResult,
   type IngestionMetadata,
 } from '../cpnuFreshnessGate.ts';
+
+// Deno global declaration — this module is also type-checked by the Vitest
+// (browser/node) program, which has no Deno lib.
+declare const Deno: { env: { get(key: string): string | undefined } };
+
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -93,6 +98,10 @@ function computeCpnuFingerprint(
   _fechaRegistro?: string,
   _anotacion?: string,
   _instancia?: string,
+  /** ITERATION 26 — structured party hint from the raw payload. Never a local
+   *  variant, never a hardcoded null: it must be whatever `resolvePartyHint`
+   *  reads off the provider row, exactly like the canonical mapper does. */
+  partyHint?: string | null,
 ): string {
   return canonicalActFingerprint({
     // Never fall back to radicado — canonical helper rejects non-UUID inputs
@@ -101,7 +110,7 @@ function computeCpnuFingerprint(
     work_item_id: workItemId ?? null,
     act_date: fecha,
     actuacion,
-    party_hint: null,
+    party_hint: partyHint ?? null,
   });
 }
 
@@ -135,6 +144,7 @@ function normalizeActuaciones(
       radicado, fecha, actuacionTitle, despacho,
       opts?.workItemId, opts?.crossProviderDedup,
       fechaRegistro, anotacion, instanciaVal,
+      resolvePartyHint(act),
     );
 
     const normalized: NormalizedActuacion = {

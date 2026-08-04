@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.rpc_identity_drift_summary() FROM anon;
