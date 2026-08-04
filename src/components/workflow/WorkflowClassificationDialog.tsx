@@ -43,6 +43,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   LABORAL: <Briefcase className="h-5 w-5" />,
   PENAL_906: <Shield className="h-5 w-5" />,
   GENERIC: <FileText className="h-5 w-5" />,
+  INDETERMINADO: <HelpCircle className="h-5 w-5" />,
 };
 
 export function WorkflowClassificationDialog({
