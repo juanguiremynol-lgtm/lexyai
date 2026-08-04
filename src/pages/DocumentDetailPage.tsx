@@ -378,7 +378,7 @@ export default function DocumentDetailPage() {
   const hasFinalPdfHash = !!(doc as any).final_pdf_sha256;
   const isUploadedPdf = (doc as any).source_type === "UPLOADED_PDF";
   const resolvedWorkItemId = workItemId || (doc as any).work_item_id;
-  const backPath = resolvedWorkItemId ? `/app/work-items/${resolvedWorkItemId}` : "/platform/generic-signing-docs";
+  const backPath = resolvedWorkItemId ? `/app/work-items/${resolvedWorkItemId}` : "/app/documents";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -404,8 +404,8 @@ export default function DocumentDetailPage() {
               </Link>
             )}
             {!resolvedWorkItemId && (
-              <Link to="/platform/generic-signing-docs" className="hover:text-primary transition-colors">
-                ← Documentos Genéricos
+              <Link to="/app/documents" className="hover:text-primary transition-colors">
+                ← Documentos
               </Link>
             )}
             <span>Creado {formatCOT(doc.created_at)}</span>
