@@ -1999,21 +1999,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
       const parsedFecha = parseDate(fechaPublicacion);
 
-      // Generate unique fingerprint using asset_id (guaranteed unique per publication)
-      // Include event date so that repeated titles across different dates
-      // (e.g. "Auto que ordena requerir" on 2024-11-29 and 2025-02-07) do NOT collide.
-      const dateKey = parsedFecha || fechaFromTitle || '0000-00-00';
-      const partyHint = (pub as any)?.parte
-        ?? (pub as any)?.raw_data?.parte
-        ?? (pub as any)?.raw_data?.["Docum. a notif."]
-        ?? null;
-      const fingerprint = generatePublicacionFingerprint(
+      // ITERATION 22 — one canonical row, one identity. The row we persist and
+      // the fingerprint we compare are produced by the SAME shared mapper the
+      // adapters and `bridge-reconcile` use, and the identity is recomputable
+      // from the stored row (fecha_fijacion ?? published_at + tipo + title).
+      const canonicalRow = toCanonicalPubRow(pub as unknown as ProviderPubUnit, {
         work_item_id,
-        pub.asset_id,
-        pub.key,
-        pub.titulo || 'untitled',
-        { pubDate: dateKey, tipo: (pub as any)?.tipo_publicacion ?? null, partyHint },
-      );
+        organization_id: workItem.organization_id,
+        source: (pub as any)._source_provider || 'publicaciones',
+      });
+      const fingerprint = canonicalRow.hash_fingerprint;
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
       // (work_item_id, hash_fingerprint) lookup. The previous inline check caused
