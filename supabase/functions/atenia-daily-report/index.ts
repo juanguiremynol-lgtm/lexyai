@@ -322,7 +322,8 @@ async function toolDiscoveryLedger(sb: any): Promise<Record<string, unknown>> {
     .from("work_items")
     .select("id, radicado, stage, workflow_type")
     .eq("monitoring_enabled", false)
-    .not("lifecycle_state", "in", '("DELETED","ARCHIVED")');
+    .neq("lifecycle_state", "DELETED")
+    .neq("lifecycle_state", "ARCHIVED");
 
   return {
     since: sinceISO,
