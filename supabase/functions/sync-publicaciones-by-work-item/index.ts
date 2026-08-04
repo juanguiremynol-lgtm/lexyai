@@ -1150,51 +1150,11 @@ function extractPublicacionesFromResponse(
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
 
-  const publicaciones = rawPublicaciones.flatMap((p: any): PublicacionV3[] => {
-    const estadoPub = buildEstadoPublicationFromActuacion(p);
-    const individualPub = buildIndividualPublicationFromActuacion(p);
-    const combined: PublicacionV3[] = [];
-    if (estadoPub) combined.push(estadoPub);
-    if (individualPub) combined.push(individualPub);
-    if (combined.length > 0) return combined;
-
-    // /historico may return actuación-level PDFs with an embedded `estado`
-    // object. For this ESTADOS sync, those auto PDFs must not be stored as
-    // work_item_publicaciones. They belong to actuaciones/attachments, not the
-    // estado publication row.
-    if (p?.estado && typeof p.estado === 'object') return [];
-
-    const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
-    const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
-    const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
-    // /historico aditivo: state (fijación) date + auto date
-    const estadoObj = p.estado && typeof p.estado === 'object' ? p.estado : null;
-    const fechaEstadoRaw =
-      estadoObj?.fecha_publicacion || estadoObj?.fecha || p.fecha_estado || p.fecha_fijacion || null;
-    const autoFromDocs = Array.isArray(p.documentos_pdf)
-      ? (p.documentos_pdf.find((d: any) => (d?.tipo || '').toLowerCase() === 'auto')?.fecha ?? null)
-      : null;
-    const fechaAutoRaw =
-      extractAutoDateFromText(p.texto_auto) || p.fecha_auto || autoFromDocs || null;
-    return [{
-      key,
-      tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
-      asset_id: p.asset_id || p.id || p.hash_documento || key,
-      url: p.entry_url || p.url || p.enlace,
-      titulo: title,
-      fecha_publicacion: p.fecha_publicacion || p.fecha_hora_inicio || p.fechaFijacion || p.fechaPublicacion || p.fecha || p.fecha_actuacion || p.fecha_estado || null,
-      fecha_hora_inicio: p.fecha_hora_inicio || null,
-      tipo_evento: p.tipo_evento || p.tipo || 'Estado Electrónico',
-      pdf_url: typeof pdfUrl === 'string' ? pdfUrl : undefined,
-      fecha_estado_raw: fechaEstadoRaw,
-      fecha_auto_raw: fechaAutoRaw,
-      clasificacion: p.clasificacion || {
-        categoria: p.tipo_evento || p.tipo || 'Estado Electrónico',
-        descripcion: p.descripcion || p.anotacion || title,
-        es_descargable: typeof pdfUrl === 'string' && pdfUrl.length > 0,
-      },
-    }];
-  });
+  // ITERATION 22 — shared mapper. Explosion (estado planilla + individual
+  // providencia) and every derived field now come from
+  // `_shared/canonicalPublicacionMapper.ts`, byte-identical to what the
+  // adapters and the bridge compute.
+  const publicaciones = explodeProviderPublicaciones(data) as unknown as PublicacionV3[];
 
   console.log(`[sync-pub] Found ${publicaciones.length} publications`);
   return { 
