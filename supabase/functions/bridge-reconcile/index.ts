@@ -118,6 +118,16 @@ function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItem
   return ids.filter((x): x is string => Boolean(x));
 }
 
+/** Legal identity is the normalized juridical fact, not a transported hash. */
+export function legalIdentity(kind: "ACT" | "PUB", row: Record<string, any>, workItemId: string): string {
+  if (kind === "PUB") return canonicalPubIdentityFromRow(row as any, workItemId);
+  return canonicalActIdentityFromRow({
+    act_date: row.fecha_actuacion ?? row.act_date ?? null,
+    description: row.actuacion ?? row.description ?? null,
+    raw_data: row.raw_data ?? {},
+  }, workItemId);
+}
+
 const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
 
@@ -256,11 +266,11 @@ const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
 
 type TransferState =
   | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE"
-  | "PROVIDER_INVENTORY_SUSPECT" | "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
+  | "IDENTITY_MISMATCH" | "PROVIDER_INVENTORY_SUSPECT" | "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
 
 /** States that assert nothing about transferred rows. */
 const NON_CONCLUSIVE: TransferState[] = [
-  "PROVIDER_UNAVAILABLE", "PROVIDER_INVENTORY_SUSPECT",
+  "PROVIDER_UNAVAILABLE", "PROVIDER_INVENTORY_SUSPECT", "IDENTITY_MISMATCH",
   "INFRA_FAILURE", "PROVIDER_JOB_ABORTED", "PROVIDER_NEVER_COMPLETES",
 ];
 
@@ -495,14 +505,15 @@ Deno.serve(async (req) => {
 
         // Deduplicate provider rows on their strongest identity so a provider
         // that repeats a row across pages is not counted twice.
-        const providerRows = new Map<string, string[]>();
+        const providerRows = new Map<string, { ids: string[]; row: Record<string, any> }>();
         for (const r of rows as unknown as Record<string, any>[]) {
           const ids = providerIdentities(kind, r, wi.id);
           if (ids.length === 0) continue;
-          if (!providerRows.has(ids[0])) providerRows.set(ids[0], ids);
+          const key = norm(legalIdentity(kind, r, wi.id)) ?? ids[0];
+          if (!providerRows.has(key)) providerRows.set(key, { ids, row: r });
         }
 
-        const localState = async (): Promise<{ ids: Set<string>; count: number }> => {
+        const localState = async (): Promise<{ ids: Set<string>; legal: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
           const cols = kind === "ACT"
             ? "hash_fingerprint, act_date, description, raw_data, source"
@@ -523,18 +534,21 @@ Deno.serve(async (req) => {
             allowed.length === 0 || allowed.includes(String(r.source ?? "").toLowerCase())
           );
           const ids = new Set<string>();
+          const legal = new Set<string>();
           for (const r of own) {
             for (const id of localIdentities(kind, r, wi.id)) ids.add(id);
+            legal.add(legalIdentity(kind, r, wi.id));
           }
-          return { ids, count: own.length };
+          return { ids, legal, count: own.length };
         };
 
-        const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
+        const landed = (entry: { ids: string[] }, key: string, local: Awaited<ReturnType<typeof localState>>) =>
+          local.legal.has(key) || entry.ids.some((id) => local.ids.has(id));
 
 
         let local = await localState();
         let missing = [...providerRows.entries()]
-          .filter(([, ids]) => !landed(ids, local.ids))
+          .filter(([key, entry]) => !landed(entry, key, local))
           .map(([key]) => key);
         let providerCount = providerRows.size;
         let recovered = 0;
@@ -558,11 +572,12 @@ Deno.serve(async (req) => {
             lastError = secondFailure?.detail ?? "Reconsulta sin respuesta utilizable";
           } else {
             const secondRows = kind === "ACT" ? second.actuaciones : second.publicaciones;
-            const rows2 = new Map<string, string[]>();
+            const rows2 = new Map<string, { ids: string[]; row: Record<string, any> }>();
             for (const r of secondRows as unknown as Record<string, any>[]) {
               const ids = providerIdentities(kind, r, wi.id);
               if (ids.length === 0) continue;
-              if (!rows2.has(ids[0])) rows2.set(ids[0], ids);
+              const key = norm(legalIdentity(kind, r, wi.id)) ?? ids[0];
+              if (!rows2.has(key)) rows2.set(key, { ids, row: r });
             }
             if (rows2.size === 0) {
               state = "PROVIDER_NO_ROWS";
@@ -571,7 +586,7 @@ Deno.serve(async (req) => {
               for (const [k, v] of rows2) providerRows.set(k, v);
               providerCount = providerRows.size;
               missing = [...providerRows.entries()]
-                .filter(([, ids]) => !landed(ids, local.ids))
+                .filter(([key, entry]) => !landed(entry, key, local))
                 .map(([key]) => key);
               state = missing.length === 0 ? "IN_SYNC" : "GAP";
               lastError = null;
@@ -579,7 +594,24 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Self-healing bridge: a gap re-runs the persistence path once. Only a
+        // A provider inventory that is equal to or narrower than local history
+        // cannot prove transfer loss. Unmatched rows in either case are an
+        // identity/window mismatch; only provider_count > local_count can open
+        // a bridge gap.
+        if (providerCount <= local.count && missing.length > 0) {
+          state = "IDENTITY_MISMATCH";
+          const providerLegal = new Set(providerRows.keys());
+          lastError = JSON.stringify({
+            reason: providerCount === local.count
+              ? "EQUAL_COUNTS_WITH_UNMATCHED_IDENTITIES"
+              : "PROVIDER_INVENTORY_NARROWER_THAN_LOCAL_HISTORY",
+            inventory_windowed: providerCount < local.count,
+            provider_unmatched: missing.slice(0, 25),
+            local_unmatched: [...local.legal].filter((id) => !providerLegal.has(norm(id) ?? id)).slice(0, 25),
+          });
+        }
+
+        // Self-healing bridge: a genuine gap re-runs the persistence path. Only a
         // conclusive GAP may heal — a suspect or unavailable inventory has not
         // established that anything is missing.
         if (heal && state === "GAP" && missing.length > 0) {
@@ -597,7 +629,7 @@ Deno.serve(async (req) => {
           if (!invoked.ok) lastError = invoked.detail;
           local = await localState();
           const stillMissing = [...providerRows.entries()]
-            .filter(([, ids]) => !landed(ids, local.ids))
+            .filter(([key, entry]) => !landed(entry, key, local))
             .map(([key]) => key);
           recovered = missing.length - stillMissing.length;
           healed += recovered;
