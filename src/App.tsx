@@ -104,8 +104,6 @@ import {
   PlatformCoverageGapsPage,
   PlatformWaitlistPage,
   PlatformPdfSettingsPage,
-  PlatformGenericSigningPage,
-  PlatformGenericSigningDocsPage,
   PlatformHearingsCatalogPage,
   PlatformNotificationDispatchPage,
   PlatformWhatsAppPage,
@@ -314,8 +312,6 @@ const App = () => (
             <Route path="coverage-gaps" element={<ErrorBoundary><PlatformCoverageGapsPage /></ErrorBoundary>} />
             <Route path="waitlist" element={<ErrorBoundary><PlatformWaitlistPage /></ErrorBoundary>} />
             <Route path="pdf-settings" element={<ErrorBoundary><PlatformPdfSettingsPage /></ErrorBoundary>} />
-            <Route path="generic-signing" element={<ErrorBoundary><PlatformGenericSigningPage /></ErrorBoundary>} />
-            <Route path="generic-signing-docs" element={<ErrorBoundary><PlatformGenericSigningDocsPage /></ErrorBoundary>} />
             <Route path="hearings-catalog" element={<ErrorBoundary><PlatformHearingsCatalogPage /></ErrorBoundary>} />
             <Route path="notification-dispatch" element={<ErrorBoundary><PlatformNotificationDispatchPage /></ErrorBoundary>} />
             <Route path="whatsapp" element={<ErrorBoundary><PlatformWhatsAppPage /></ErrorBoundary>} />

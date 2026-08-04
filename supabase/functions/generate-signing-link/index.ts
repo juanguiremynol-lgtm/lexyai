@@ -121,7 +121,6 @@ Deno.serve(async (req) => {
         signer_email,
         signer_name,
         organization_id: doc.organization_id,
-        is_generic_mode: body.is_generic_mode || false,
       });
 
       if (!eligibility.allowed) {
@@ -161,7 +160,6 @@ Deno.serve(async (req) => {
         action: "UPLOADED_PDF_SIGNING_LINK_CREATED",
         metadata: {
           is_platform_admin: isAdmin,
-          is_generic_mode: isAdmin && (body.is_generic_mode || false),
           work_item_id: doc.work_item_id,
           signer_email,
         },
