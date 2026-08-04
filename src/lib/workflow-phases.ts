@@ -11,6 +11,11 @@ import type { WorkflowType } from "@/lib/workflow-constants";
 export interface CanonicalPhase {
   key: string;
   label: string;
+  /**
+   * Parallel/terminal outcome branch (e.g. Preclusión in Ley 906). Rendered
+   * apart from the linear sequence and never counted as "completed".
+   */
+  branch?: boolean;
 }
 
 export const WORKFLOW_PHASES: Record<WorkflowType, CanonicalPhase[]> = {
@@ -53,11 +58,16 @@ export const WORKFLOW_PHASES: Record<WorkflowType, CanonicalPhase[]> = {
     { key: "RECURSOS", label: "Recursos" },
   ],
   PENAL_906: [
-    { key: "PREPARACION", label: "Indagación" },
-    { key: "RADICACION", label: "Imputación" },
-    { key: "AUDIENCIAS", label: "Audiencias" },
+    { key: "INDAGACION", label: "Indagación" },
+    { key: "IMPUTACION", label: "Formulación de imputación" },
+    { key: "MEDIDA_ASEGURAMIENTO", label: "Medida de aseguramiento" },
+    { key: "ESCRITO_ACUSACION", label: "Escrito de acusación" },
+    { key: "AUDIENCIA_ACUSACION", label: "Audiencia de formulación de acusación" },
+    { key: "PREPARATORIA", label: "Audiencia preparatoria" },
+    { key: "JUICIO_ORAL", label: "Juicio oral" },
     { key: "SENTENCIA", label: "Sentencia" },
     { key: "RECURSOS", label: "Recursos" },
+    { key: "PRECLUSION", label: "Preclusión", branch: true },
   ],
   PETICION: [
     { key: "RADICACION", label: "Radicada" },
