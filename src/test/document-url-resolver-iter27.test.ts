@@ -67,3 +67,28 @@ describe("document-url-resolver", () => {
     expect(await resolveDocumentUrl(null)).toBeNull();
   });
 });
+
+/**
+ * Live smoke: a real stored object must retrieve with HTTP 200 +
+ * application/pdf. Skipped unless a Supabase session is present in the env
+ * (CI/sandbox only); verified manually on 2026-08-04 against publicación
+ * 4d929c44-… (122667 bytes, application/pdf).
+ */
+const token = process.env.LOVABLE_BROWSER_SUPABASE_ACCESS_TOKEN;
+const projectUrl = process.env.VITE_SUPABASE_URL;
+const maybe = token && projectUrl ? it : it.skip;
+
+describe("document retrieval smoke", () => {
+  maybe("retrieves a real stored PDF (200, application/pdf)", async () => {
+    const res = await fetch(`${projectUrl}/functions/v1/get-estado-attachment-url`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ publicacion_id: "4d929c44-da89-4f3a-95e0-c627fb1c6326" }),
+    });
+    const payload = (await res.json()) as { url?: string };
+    expect(payload.url).toBeTruthy();
+    const pdf = await fetch(payload.url!);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-type")).toContain("application/pdf");
+  }, 30_000);
+});
