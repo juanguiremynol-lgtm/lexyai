@@ -18136,6 +18136,22 @@ export type Database = {
             Returns: number
           }
         | { Args: { p_since: string }; Returns: number }
+      cron_job_health: {
+        Args: never
+        Returns: {
+          active: boolean
+          consecutive_failures: number
+          failing_hours: number
+          jobid: number
+          jobname: string
+          last_error: string
+          last_run: string
+          last_status: string
+          last_success: string
+          never_succeeded: boolean
+          schedule: string
+        }[]
+      }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
