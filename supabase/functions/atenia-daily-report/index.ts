@@ -122,6 +122,25 @@ async function toolCronWatchdogStatus(sb: any): Promise<Record<string, unknown>>
 }
 
 async function toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
+  return await _toolDeadLetterSummary(sb);
+}
+
+/** pg_cron job health across EVERY scheduled job (no whitelist). */
+async function toolPgCronHealth(sb: any): Promise<Record<string, unknown>> {
+  const { data, error } = await sb.rpc("cron_job_health");
+  if (error) throw new Error(error.message);
+  const jobs = (data ?? []) as any[];
+  return {
+    total_jobs: jobs.length,
+    never_succeeded: jobs.filter((j) => j.active && j.never_succeeded).map((j) => j.jobname),
+    failing: jobs
+      .filter((j) => j.active && j.consecutive_failures >= 3)
+      .map((j) => ({ jobname: j.jobname, consecutive_failures: j.consecutive_failures, last_error: j.last_error })),
+    jobs,
+  };
+}
+
+async function _toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
   const { data } = await sb
     .from("sync_item_failure_tracker")
     .select("work_item_id, organization_id, consecutive_failures, last_failure_reason, dead_lettered, work_items(workflow_type, radicado)")
