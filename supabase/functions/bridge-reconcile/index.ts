@@ -30,6 +30,87 @@ import {
   fetchFromSamaiEstados,
   type ProviderAdapterResult,
 } from "../_shared/providerAdapters/index.ts";
+import {
+  canonicalActFingerprint,
+  canonicalPubFingerprint,
+} from "../_shared/canonicalFingerprint.ts";
+
+/**
+ * ITERATION 21 — false-gap elimination.
+ *
+ * The reconciler used to compare the adapter's `hash_fingerprint` against the
+ * stored `hash_fingerprint`. Those two strings are produced by two different
+ * ingestion paths (the shared adapter vs. the sync function's own mapper) that
+ * derive `tipo`/`title`/date differently, so an identical juridical fact hashed
+ * to two different values and the row was reported missing even while sitting
+ * in the table. El Retiro showed provider 3 / local 6 / missing 3 — arithmetic
+ * that can only come from mismatched identity, never from a real gap.
+ *
+ * Identity is now a SET per row: the provider's own row key (asset_id / key),
+ * the transported fingerprint, and the canonical fingerprint recomputed from
+ * the row's juridical fields. A provider row counts as landed when any of its
+ * identities matches any identity of any local row.
+ */
+function norm(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s && s !== "null" && s !== "undefined" ? s.toLowerCase() : null;
+}
+
+function providerIdentities(
+  kind: "ACT" | "PUB",
+  row: Record<string, any>,
+  workItemId: string,
+): string[] {
+  const raw = (row.raw_data ?? {}) as Record<string, any>;
+  const ids = [
+    norm(row.hash_fingerprint),
+    norm(row.asset_id ?? raw.asset_id ?? raw.id),
+    norm(row.key ?? raw.key),
+  ];
+  if (kind === "PUB") {
+    ids.push(norm(canonicalPubFingerprint({
+      work_item_id: workItemId,
+      pub_date: row.fecha_fijacion ?? row.published_at ?? raw.fecha_publicacion ?? null,
+      tipo_publicacion: row.tipo_publicacion ?? null,
+      title: row.title ?? raw.titulo ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  } else {
+    ids.push(norm(canonicalActFingerprint({
+      work_item_id: workItemId,
+      act_date: row.fecha_actuacion ?? row.act_date ?? null,
+      actuacion: row.actuacion ?? row.description ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  }
+  return ids.filter((x): x is string => Boolean(x));
+}
+
+function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItemId: string): string[] {
+  const raw = (row.raw_data ?? {}) as Record<string, any>;
+  const ids = [
+    norm(row.hash_fingerprint),
+    norm(raw.asset_id ?? raw.id),
+    norm(raw.key),
+  ];
+  if (kind === "PUB") {
+    ids.push(norm(canonicalPubFingerprint({
+      work_item_id: workItemId,
+      pub_date: row.fecha_fijacion ?? row.published_at ?? null,
+      tipo_publicacion: row.tipo_publicacion ?? null,
+      title: row.title ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  } else {
+    ids.push(norm(canonicalActFingerprint({
+      work_item_id: workItemId,
+      act_date: row.act_date ?? null,
+      actuacion: row.description ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  }
+  return ids.filter((x): x is string => Boolean(x));
+}
 
 const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
