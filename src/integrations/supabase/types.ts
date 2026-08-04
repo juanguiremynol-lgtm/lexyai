@@ -16526,6 +16526,7 @@ export type Database = {
           organization_id: string
           origen_texto: string | null
           pdf_available: boolean | null
+          pdf_storage_path: string | null
           pdf_url: string | null
           provenance: Json | null
           provider_case_id: string | null
@@ -16575,6 +16576,7 @@ export type Database = {
           organization_id: string
           origen_texto?: string | null
           pdf_available?: boolean | null
+          pdf_storage_path?: string | null
           pdf_url?: string | null
           provenance?: Json | null
           provider_case_id?: string | null
@@ -16624,6 +16626,7 @@ export type Database = {
           organization_id?: string
           origen_texto?: string | null
           pdf_available?: boolean | null
+          pdf_storage_path?: string | null
           pdf_url?: string | null
           provenance?: Json | null
           provider_case_id?: string | null
