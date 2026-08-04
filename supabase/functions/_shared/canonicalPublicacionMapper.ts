@@ -347,7 +347,11 @@ export function toCanonicalPubRow(
   unit: ProviderPubUnit,
   ctx: CanonicalPubContext,
 ): CanonicalPubRow {
-  const sourceProvider = unit._source_provider || ctx.source || "publicaciones";
+  // ITERATION 24 — closed lowercase enum, canonicalised at this single mapper.
+  const sourceProvider = normalizeSourceKey(
+    unit._source_provider || ctx.source || "publicaciones",
+    "publicaciones",
+  );
   const isSamai = sourceProvider === "samai_estados";
 
   const fechaFromTitle = extractDateFromTitle(unit.titulo || "");
@@ -405,7 +409,11 @@ export function toCanonicalPubRow(
     date_source: isSamai ? "api_explicit" : dateSource,
     date_confidence: isSamai ? "medium" : (parsedFecha ? "high" : "low"),
     raw_schema_version: "publicaciones_v3",
-    sources: [sourceProvider],
+    sources: normalizeSourceList(
+      unit._source_provider || ctx.source || "publicaciones",
+      null,
+      "publicaciones",
+    ),
   };
 }
 

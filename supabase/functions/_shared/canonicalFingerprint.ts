@@ -184,10 +184,18 @@ export function canonicalActFingerprint(input: {
   return `wi_${wi}_${simpleHash(`act|${wi}|${date}|${title}${suffix}`)}`;
 }
 
-/** Canonical, source-agnostic fingerprint for a work_item_publicaciones row. */
+/** Canonical, source-agnostic fingerprint for a work_item_publicaciones row.
+ *
+ *  ITERATION 24: `tipo_publicacion` NO LONGER participates in identity. The
+ *  same estado arrived typed as `Estado Electrónico`, as `document`, and as
+ *  NULL depending on the payload shape, producing up to three rows for one
+ *  publication. `tipo` is a transport/descriptive attribute, not part of the
+ *  juridical fact; it is kept in the signature for call-site compatibility and
+ *  deliberately ignored. Mirrors `public.canon_pub_fingerprint` in SQL. */
 export function canonicalPubFingerprint(input: {
   work_item_id: string | null;
   pub_date: string | null;
+  /** Accepted for compatibility — intentionally NOT part of identity. */
   tipo_publicacion: string | null;
   /** Prefer `title`; `description` accepted for legacy callers. */
   title: string | null;
@@ -197,10 +205,9 @@ export function canonicalPubFingerprint(input: {
 }): string {
   const wi = normalizeWorkItemId(input.work_item_id);
   const date = normalizeDate(input.pub_date);
-  const tipo = normalizeTitle(input.tipo_publicacion || "");
   const rawTitle = stripTitleNoise(input.title ?? input.description ?? "");
   const title = normalizeTitle(rawTitle);
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
-  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${tipo}|${title}${suffix}`)}`;
+  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${title}${suffix}`)}`;
 }
