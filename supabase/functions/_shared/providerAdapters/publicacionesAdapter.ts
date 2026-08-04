@@ -333,8 +333,11 @@ function normalizeOnePublicacion(
     if (m) fecha = `${m[1]}-${m[2]}-${m[3]}`;
   }
 
-  // Extract tipo
-  let tipo = String(unit.tipo_evento || p.tipo_actuacion || '');
+  // Extract tipo. Exploded units already carry a decided tipo ("Estado
+  // Electrónico" / "Providencia"); only the generic fallback needs inference.
+  let tipo = unit.tipo && unit.tipo !== 'Estado'
+    ? String(unit.tipo)
+    : String(p.tipo_evento || p.tipo_actuacion || '');
   if (!tipo || tipo === 'null' || tipo === 'Estado') {
     if (/^ESTADOS?\b/i.test(tituloStr)) tipo = 'Estado Electrónico';
     else if (/^EDICTO/i.test(tituloStr)) tipo = 'Edicto';
