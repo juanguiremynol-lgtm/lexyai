@@ -25,7 +25,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { getColombiaToday } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 import { hasResolvableDocument, openStoredDocument } from "@/lib/document-url-resolver";
-import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import {
   bogotaDayKey,
