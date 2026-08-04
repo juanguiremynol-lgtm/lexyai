@@ -41,10 +41,9 @@ function simpleHash(data: string): string {
   return `${Math.abs(h1).toString(16).padStart(8, "0")}${Math.abs(h2).toString(16).padStart(8, "0")}`;
 }
 
-/** Party tokens whose presence in the post-" - " suffix distinguishes two
- *  otherwise-equal acts on the same day (e.g. "Recepción Memorial - DEL
- *  ACCIONANTE" vs "... - DEL ACCIONADO"). Detected on the RAW string before
- *  stripping the suffix so the discriminator survives normalization. */
+/** Party tokens whose presence in an explicit provider party field can
+ *  distinguish two otherwise-equal acts on the same day. Free-form annotation
+ *  is excluded because providers transport it separately from `actuacion`. */
 const PARTY_TOKENS = [
   "accionante",
   "accionado",
@@ -58,11 +57,10 @@ const PARTY_TOKENS = [
   "opositor",
 ] as const;
 
-/** Extract a party discriminator token from the post-" - " suffix of a title,
- *  or from a raw_data.parte / raw_data.docum_a_notif hint if provided. Returns
- *  "" when the suffix is just noise (truncation, provider anotación tail). */
+/** Extract a party discriminator only from an explicit structured hint.
+ *  Never infer identity from a mutable title/annotation suffix. */
 export function extractPartyDiscriminator(
-  raw: string | null | undefined,
+  _raw: string | null | undefined,
   hint?: string | null | undefined,
 ): string {
   const scan = (s: string): string => {
@@ -74,20 +72,11 @@ export function extractPartyDiscriminator(
     }
     return "";
   };
-  // 1) Hard discriminator from raw_data if the caller supplied one.
   if (hint) {
     const h = scan(String(hint));
     if (h) return h;
   }
-  // 2) Otherwise inspect the post-" - " / " — " suffix of the title itself.
-  if (!raw) return "";
-  const s = String(raw);
-  const i1 = s.indexOf(" - ");
-  const i2 = s.indexOf(" — ");
-  const sepIdx = i1 === -1 ? i2 : i2 === -1 ? i1 : Math.min(i1, i2);
-  if (sepIdx < 0) return "";
-  const suffix = s.slice(sepIdx + 3);
-  return scan(suffix);
+  return "";
 }
 
 /** Normalize a title/tipo string: NFD strip accents, lowercase, trim,

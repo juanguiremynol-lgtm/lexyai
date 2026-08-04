@@ -144,10 +144,7 @@ export async function normalizeActuaciones(
         work_item_id: workItemId,
         act_date: a.act_date || null,
         actuacion: description,
-        party_hint:
-          (a.raw_data && (a.raw_data as any).parte) ||
-          (a.raw_data && (a.raw_data as any).docum_a_notif) ||
-          null,
+        party_hint: (a.raw_data && (a.raw_data as any).parte) || null,
       });
 
     const dateSource = sanitizeDateSource(a.date_source || "api_explicit") as DateSource;
