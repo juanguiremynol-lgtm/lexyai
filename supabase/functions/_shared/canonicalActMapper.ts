@@ -17,6 +17,7 @@
  */
 
 import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
+import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 
 export interface ProviderActUnit {
   actuacion: string;
@@ -120,7 +121,12 @@ export function toCanonicalActRow(
 ): CanonicalActRow {
   const actDate = unit.act_date ?? parseActDate(unit.fecha);
   const description = canonicalActDescription(unit);
-  const actSource = unit._source || ctx.source || "cpnu";
+  // ITERATION 24 — `source` is a closed lowercase enum, canonicalised HERE and
+  // nowhere else. Compound values (`CPNU+TUTELAS`) collapse to their primary
+  // provider; the full chain survives in `sources`.
+  const rawSource = unit._source || ctx.source || "cpnu";
+  const actSource = normalizeSourceKey(rawSource, "cpnu");
+  const sourceList = normalizeSourceList(rawSource, unit._consolidated_sources ?? null, "cpnu");
   const dateSource = actDate ? "api_explicit" : "inferred_sync";
 
   const rawData: Record<string, unknown> = {
@@ -136,8 +142,8 @@ export function toCanonicalActRow(
     fecha_finaliza_termino: unit.fecha_finaliza_termino ?? null,
   };
   if (unit.parte) rawData.parte = unit.parte;
-  const consolidated = unit._consolidated_sources;
-  if (consolidated && consolidated.length > 1) rawData._sources = consolidated;
+  const consolidated = sourceList;
+  if (consolidated.length > 1) rawData._sources = consolidated;
   if (unit._cross_provider_data) Object.assign(rawData, unit._cross_provider_data);
 
   return {
@@ -152,7 +158,7 @@ export function toCanonicalActRow(
     event_summary: description.slice(0, 500),
     source: actSource,
     source_platform: SOURCE_PLATFORM[actSource] || actSource,
-    sources: consolidated && consolidated.length > 1 ? consolidated : [actSource],
+    sources: consolidated.length > 0 ? consolidated : [actSource],
     hash_fingerprint: canonicalActFingerprint({
       work_item_id: ctx.work_item_id,
       act_date: actDate,
