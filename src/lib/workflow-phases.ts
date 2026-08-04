@@ -174,6 +174,50 @@ const PHASE_HEURISTICS: Array<[RegExp, string]> = [
   [/CUMPLIMIENTO|EJECUCION|EJECUTORIA|ARCHIV|TERMINACION/, "CUMPLIMIENTO"],
 ];
 
+/**
+ * Ley 906/2004 (sistema penal acusatorio) vocabulary. Penal matters do not
+ * share the civil "radicación / admisión / traslado" sequence, so they get
+ * their own stage map and heuristics, evaluated before the generic ones.
+ */
+const PENAL_STAGE_TO_PHASE: Record<string, string> = {
+  PENDIENTE_CLASIFICACION: "INDAGACION",
+  NOTICIA_CRIMINAL_INDAGACION: "INDAGACION",
+  INDAGACION: "INDAGACION",
+  IMPUTACION_INVESTIGACION: "IMPUTACION",
+  IMPUTACION: "IMPUTACION",
+  MEDIDA_ASEGURAMIENTO: "MEDIDA_ASEGURAMIENTO",
+  ESCRITO_ACUSACION: "ESCRITO_ACUSACION",
+  ACUSACION: "AUDIENCIA_ACUSACION",
+  AUDIENCIA_ACUSACION: "AUDIENCIA_ACUSACION",
+  PREPARATORIA: "PREPARATORIA",
+  AUDIENCIA_PREPARATORIA: "PREPARATORIA",
+  JUICIO_ORAL: "JUICIO_ORAL",
+  SENTENCIA_TRAMITE: "SENTENCIA",
+  SENTENCIA: "SENTENCIA",
+  FINALIZADO_ABSUELTO: "SENTENCIA",
+  FINALIZADO_CONDENADO: "SENTENCIA",
+  SEGUNDA_INSTANCIA: "RECURSOS",
+  RECURSOS: "RECURSOS",
+  APELACION: "RECURSOS",
+  EJECUTORIA: "SENTENCIA",
+  PRECLUSION_TRAMITE: "PRECLUSION",
+  PRECLUSION: "PRECLUSION",
+  PRECLUIDO_ARCHIVADO: "PRECLUSION",
+};
+
+const PENAL_HEURISTICS: Array<[RegExp, string]> = [
+  [/PRECLUS/, "PRECLUSION"],
+  [/MEDIDA\s*DE?\s*ASEGURAMIENTO|DETENCION\s*PREVENTIVA/, "MEDIDA_ASEGURAMIENTO"],
+  [/ESCRITO\s*DE?\s*ACUSACION|TRASLADO\s*(DEL?\s*)?ESCRITO\s*DE?\s*ACUSACION/, "ESCRITO_ACUSACION"],
+  [/(AUDIENCIA|FORMULACION)[^.]{0,30}ACUSACION|ACUSACION/, "AUDIENCIA_ACUSACION"],
+  [/PREPARATORIA/, "PREPARATORIA"],
+  [/JUICIO\s*ORAL|AUDIENCIA\s*CONCENTRADA|JUICIO/, "JUICIO_ORAL"],
+  [/IMPUTACION|LEGALIZACION\s*DE?\s*CAPTURA/, "IMPUTACION"],
+  [/INDAGACION|NOTICIA\s*CRIMINAL|QUERELLA|DENUNCIA/, "INDAGACION"],
+  [/SENTENCIA|FALLO|CONDENA|ABSOLU/, "SENTENCIA"],
+  [/APEL|RECURSO|CASACION|SEGUNDA\s*INSTANCIA/, "RECURSOS"],
+];
+
 export function mapStageToCanonicalPhase(
   workflowType: WorkflowType,
   stage: string | null | undefined,
@@ -182,6 +226,15 @@ export function mapStageToCanonicalPhase(
   const phases = WORKFLOW_PHASES[workflowType] ?? WORKFLOW_PHASES.GENERIC;
   const keys = new Set(phases.map((p) => p.key));
   const raw = stage.toUpperCase();
+
+  if (workflowType === "PENAL_906") {
+    const penal = PENAL_STAGE_TO_PHASE[raw];
+    if (penal && keys.has(penal)) return penal;
+    for (const [re, key] of PENAL_HEURISTICS) {
+      if (re.test(raw) && keys.has(key)) return key;
+    }
+    return null;
+  }
 
   const preAdmission = PRE_ADMISSION_STAGES[raw];
   if (preAdmission && keys.has(preAdmission)) return preAdmission;
@@ -212,7 +265,8 @@ export function inferPhaseFromText(
     .toUpperCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  for (const [re, key] of PHASE_HEURISTICS) {
+  const rules = workflowType === "PENAL_906" ? PENAL_HEURISTICS : PHASE_HEURISTICS;
+  for (const [re, key] of rules) {
     if (re.test(raw) && keys.has(key)) return key;
   }
   return null;
