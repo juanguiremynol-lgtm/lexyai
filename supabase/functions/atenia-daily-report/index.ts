@@ -141,6 +141,33 @@ async function toolPgCronHealth(sb: any): Promise<Record<string, unknown>> {
 }
 
 async function _toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
+  return await __toolDeadLetterSummaryImpl(sb);
+}
+
+/** Email delivery health — enqueued / sent / failed / stuck (24h + 7d). */
+async function toolOutboxHealth(sb: any): Promise<Record<string, unknown>> {
+  const read = async (hours: number) => {
+    const { data, error } = await sb.rpc("email_outbox_health", { _hours: hours });
+    if (error) throw new Error(error.message);
+    return (Array.isArray(data) ? data[0] : data) ?? {};
+  };
+  const last24h = await read(24);
+  const last7d = await read(168);
+  return {
+    last_24h: last24h,
+    last_7d: last7d,
+    verdict:
+      Number(last24h.enqueued ?? 0) > 0 && Number(last24h.sent ?? 0) === 0
+        ? "CRITICAL: mensajes encolados y ninguno entregado en 24h"
+        : Number(last24h.failed_rate ?? 0) > 0.2
+        ? "CRITICAL: tasa de fallo > 20% en 24h"
+        : Number(last24h.stuck_over_30min ?? 0) > 0
+        ? "WARNING: mensajes atascados en SENDING > 30 min"
+        : "OK",
+  };
+}
+
+async function __toolDeadLetterSummaryImpl(sb: any): Promise<Record<string, unknown>> {
   const { data } = await sb
     .from("sync_item_failure_tracker")
     .select("work_item_id, organization_id, consecutive_failures, last_failure_reason, dead_lettered, work_items(workflow_type, radicado)")
@@ -369,6 +396,7 @@ function getTools(): ToolDef[] {
     { name: "DEAD_LETTER_SUMMARY", label: "Dead Letter Summary", fn: toolDeadLetterSummary },
     { name: "CRON_WATCHDOG", label: "Cron / Watchdog Status", fn: toolCronWatchdogStatus },
     { name: "PG_CRON_HEALTH", label: "pg_cron Job Health (all jobs)", fn: toolPgCronHealth },
+    { name: "OUTBOX_HEALTH", label: "Email Delivery Health (enqueued / sent / failed / stuck)", fn: toolOutboxHealth },
     { name: "PREFLIGHT_CHECKS", label: "Preflight Checks", fn: toolPreflightChecks },
     { name: "DEEP_DIVES", label: "Deep Dives (today)", fn: toolDeepDives },
     { name: "E2E_TESTS", label: "E2E Tests (today)", fn: toolE2eTests },
@@ -572,6 +600,22 @@ function generateTxtReport(
   }
   ln();
 
+  const outbox = results.find(r => r.name === "OUTBOX_HEALTH");
+  ln("Entrega de correo (email_outbox):");
+  if (outbox?.status === "OK") {
+    const o = outbox.output as any;
+    const fmt = (w: any) =>
+      `enqueued=${w?.enqueued ?? 0}, sent=${w?.sent ?? 0}, failed=${w?.failed ?? 0}, ` +
+      `suppressed=${w?.suppressed ?? 0}, pending=${w?.pending ?? 0}, stuck>30min=${w?.stuck_over_30min ?? 0}, ` +
+      `failed_rate=${Math.round(Number(w?.failed_rate ?? 0) * 100)}%`;
+    ln(`  24h: ${fmt(o?.last_24h)}`);
+    ln(`  7d : ${fmt(o?.last_7d)}`);
+    ln(`  veredicto: ${o?.verdict}`);
+  } else {
+    ln("  [Outbox health unavailable]");
+  }
+  ln();
+
   // ─── SECTION 6: ERRORS / ANOMALIES ────────────────────────────────
   ln("───────────────────────────────────────────────────────────────────");
   ln("SECTION 6 — ERRORS / ANOMALIES");
@@ -583,6 +627,12 @@ function generateTxtReport(
   const failedTools = results.filter(r => r.status === "ERROR");
   if (failedTools.length > 0) {
     errors.push(`${failedTools.length} tool(s) failed: ${failedTools.map(t => t.name).join(", ")}`);
+  }
+
+  // Email delivery anomalies — enqueued is not delivered.
+  if (outbox?.status === "OK") {
+    const o = outbox.output as any;
+    if (o?.verdict && o.verdict !== "OK") errors.push(`Entrega de correo — ${o.verdict}`);
   }
 
   // Provider errors
