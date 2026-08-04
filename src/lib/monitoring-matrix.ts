@@ -8,8 +8,10 @@
 export const PROVIDER_CHAIN_BY_WORKFLOW: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
   LABORAL: ["cpnu", "publicaciones"],
-  PENAL: ["cpnu", "publicaciones"],
   PENAL_906: ["cpnu", "publicaciones"],
+  // Defensive alias only — 'PENAL' is not a workflow_type enum value and is
+  // never emitted by Andromeda; canonical value is PENAL_906.
+  PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };
