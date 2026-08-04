@@ -2023,43 +2023,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         pdf_url: pub.pdf_url?.slice(0, 80),
       });
 
-      // Insert new publication
-      // FIX 2.2: Derive date_confidence from date_source
-      // BUG FIX: 'inferred' is NOT a valid value for check_pub_date_source constraint.
-      // Must use 'inferred_sync' (when no date extracted) or 'parsed_filename'/'parsed_title' (when extracted from title).
-      const dateSource = parsedFecha 
-        ? 'api_explicit' 
-        : (fechaFromTitle ? 'parsed_title' : 'inferred_sync');
-      const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
-
       // ── Upsert via RPC with explicit sources[] array merge ──
-      // Date semantics — RATIFICADO iteración 6.2:
-      //  * SAMAI (samai_estados) reporta fecha de PROVIDENCIA, nunca fecha de
-      //    fijación de estado. fecha_fijacion y fecha_desfijacion quedan SIEMPRE
-      //    en NULL (sin inferencias): escribirlas plantaría una mina para
-      //    cualquier lector que ancle términos en esa columna.
-      //    published_at = fecha de providencia a las 00:00 America/Bogota.
-      //  * Publicaciones reporta la fijación real → fecha_fijacion.
-      const sourceProvider = (pub as any)._source_provider || 'publicaciones';
+      // Date semantics — RATIFICADO iteración 6.2, now enforced inside the
+      // shared mapper: SAMAI reports providencia dates (published_at at 00:00
+      // America/Bogota, fecha_fijacion NULL); Publicaciones reports the real
+      // fijación. No date logic lives in this function anymore.
+      const sourceProvider = canonicalRow.source;
       const isSamai = sourceProvider === 'samai_estados';
-      const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
-
-      // /historico aditivo (2026-07-08): pull estado (fijación) date and auto date
-      // when the provider surfaces them explicitly. Falls back to the single
-      // `parsedFecha` above so behavior stays identical for legacy responses.
-      const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
-      const parsedAutoDate = parseDate(pub.fecha_auto_raw);
-      const effectiveEstadoDate = isSamai ? null : parsedEstadoDate;
-      const fijacionIso = effectiveEstadoDate
-        ? new Date(effectiveEstadoDate + 'T12:00:00Z').toISOString()
-        : isoDate;
-      const providenciaIso = parsedAutoDate
-        ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
-        : null;
-      // 00:00 America/Bogota (UTC-5) para las filas de SAMAI.
-      const samaiProvidenciaDate = parsedAutoDate || parsedFecha;
-      const samaiPublishedAt = samaiProvidenciaDate
-        ? new Date(samaiProvidenciaDate + 'T05:00:00Z').toISOString()
+      const effectiveEstadoDate = canonicalRow.fecha_fijacion
+        ? canonicalRow.fecha_fijacion.slice(0, 10)
         : null;
 
       const refreshedLegacyIds = await refreshLegacyPdfRowsForProxy(
@@ -2079,31 +2051,13 @@ Deno.serve(withSyncTimeline(async (req) => {
         continue;
       }
 
+      // Only SAMAI rows assert a NULL desfijación; for Publicaciones the key is
+      // omitted so an existing, separately-derived desfijación is preserved.
+      const rpcRecord: Record<string, unknown> = { ...canonicalRow };
+      if (!isSamai) delete rpcRecord.fecha_desfijacion;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
-        records: JSON.stringify([{
-          work_item_id,
-          organization_id: workItem.organization_id,
-          source: sourceProvider,
-          title: pub.titulo || pub.key || 'Sin título',
-          annotation: pub.clasificacion?.descripcion || null,
-          pdf_url: pub.pdf_url || null,
-          entry_url: pub.url || null,
-          pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: isSamai ? samaiPublishedAt : isoDate,
-          // RATIFICADO 6.2: NUNCA fijación desde samai_estados.
-          fecha_fijacion: isSamai ? null : fijacionIso,
-          fecha_desfijacion: isSamai ? null : undefined,
-          fecha_providencia: isSamai
-            ? (providenciaIso || samaiPublishedAt)
-            : providenciaIso,
-          tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
-          hash_fingerprint: fingerprint,
-          raw_data: pub,
-          date_source: isSamai ? 'api_explicit' : dateSource,
-          date_confidence: isSamai ? 'medium' : dateConfidence,
-          raw_schema_version: 'publicaciones_v3',
-          sources: [sourceProvider],
-        }]),
+        records: JSON.stringify([rpcRecord]),
       });
 
       if (insertError) {
