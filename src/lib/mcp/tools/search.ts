@@ -34,7 +34,7 @@ export default defineTool({
       .trim()
       .min(2)
       .describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o título."),
-    workflow_type: z.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ("PENAL" se acepta como alias de PENAL_906)."),
+    workflow_type: z.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
     client_id: z.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),

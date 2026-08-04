@@ -6,10 +6,10 @@ export default defineTool({
   name: "list_work_items",
   title: "Listar asuntos (work items)",
   description:
-    "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ("PENAL" se acepta como alias de PENAL_906)).",
+    "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
   inputSchema: {
     search: z.string().trim().optional().describe("Free-text match on radicado, título, partes, o autoridad."),
-    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ("PENAL" se acepta como alias de PENAL_906)."),
+    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
