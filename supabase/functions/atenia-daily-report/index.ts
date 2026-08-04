@@ -368,6 +368,7 @@ function getTools(): ToolDef[] {
     { name: "REMEDIATION_QUEUE", label: "Remediation Queue", fn: toolRemediationQueue },
     { name: "DEAD_LETTER_SUMMARY", label: "Dead Letter Summary", fn: toolDeadLetterSummary },
     { name: "CRON_WATCHDOG", label: "Cron / Watchdog Status", fn: toolCronWatchdogStatus },
+    { name: "PG_CRON_HEALTH", label: "pg_cron Job Health (all jobs)", fn: toolPgCronHealth },
     { name: "PREFLIGHT_CHECKS", label: "Preflight Checks", fn: toolPreflightChecks },
     { name: "DEEP_DIVES", label: "Deep Dives (today)", fn: toolDeepDives },
     { name: "E2E_TESTS", label: "E2E Tests (today)", fn: toolE2eTests },
