@@ -33,9 +33,25 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Dashboard tab persistence via URL
-  const VALID_TABS = ["cgp", "laboral", "penal", "cpaca", "administrativos", "peticiones", "tutelas"];
+  const { isPracticed } = usePracticeAreas();
+
+  // Tabs hidden by practice areas must not be reachable by URL either.
+  const TAB_AREA: Record<string, "CGP" | "LABORAL" | "PENAL_906" | "CPACA" | "GOV_PROCEDURE" | "PETICION" | "TUTELA" | null> = {
+    cgp: "CGP",
+    laboral: "LABORAL",
+    penal: "PENAL_906",
+    cpaca: "CPACA",
+    administrativos: "GOV_PROCEDURE",
+    peticiones: "PETICION",
+    tutelas: "TUTELA",
+    "por-clasificar": null,
+  };
+  const VALID_TABS = Object.keys(TAB_AREA).filter((t) => {
+    const area = TAB_AREA[t];
+    return area === null || isPracticed(area);
+  });
   const urlTab = searchParams.get("tab");
-  const activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : "cgp";
+  const activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : VALID_TABS[0] ?? "por-clasificar";
 
   const handleTabChange = useCallback((value: string) => {
     setSearchParams({ tab: value }, { replace: true });
