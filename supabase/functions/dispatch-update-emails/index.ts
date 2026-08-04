@@ -490,8 +490,11 @@ Deno.serve(async (req) => {
       work_items_scanned: result.workItemsCount,
       email_stats: {
         pending_alerts: alerts.length,
-        emails_sent: result.emailsEnqueued,
-        emails_failed: result.errors.length,
+        // NOT delivery. This function only enqueues into email_outbox;
+        // whether the message actually left the building is measured by
+        // email_outbox_health() and the watchdog's delivery alerts.
+        emails_enqueued: result.emailsEnqueued,
+        enqueue_errors: result.errors.length,
       },
       errors: result.errors.length > 0
         ? [{ code: "DISPATCH_ERR", message: result.errors.slice(0, 5).join("; "), count: result.errors.length }]
