@@ -505,8 +505,8 @@ Deno.serve(async (req) => {
         const localState = async (): Promise<{ ids: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
           const cols = kind === "ACT"
-            ? "hash_fingerprint, act_date, description, raw_data"
-            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data";
+            ? "hash_fingerprint, act_date, description, raw_data, source"
+            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data, source";
           const { data } = await admin.from(table)
             .select(cols)
             .eq("work_item_id", wi.id)
@@ -574,8 +574,10 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Self-healing bridge: a gap re-runs the persistence path once.
-        if (heal && missing.length > 0) {
+        // Self-healing bridge: a gap re-runs the persistence path once. Only a
+        // conclusive GAP may heal — a suspect or unavailable inventory has not
+        // established that anything is missing.
+        if (heal && state === "GAP" && missing.length > 0) {
           const fn = kind === "ACT" ? "sync-by-work-item" : "sync-publicaciones-by-work-item";
           // `_scheduled` is the service-role contract of both sync functions:
           // it skips the interactive JWT/membership check. `_force` bypasses
