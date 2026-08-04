@@ -783,9 +783,11 @@ Deno.serve(async (req) => {
           .single();
 
         const { data: actuaciones } = await supabase
-          .from('actuaciones')
-          .select('act_date, raw_text, normalized_text')
+          // ITER13: canonical table (legacy `actuaciones` frozen 2026-01-31).
+          .from('work_item_acts')
+          .select('act_date, description, event_summary')
           .eq('work_item_id', existingWorkItem.id)
+          .or('is_archived.is.null,is_archived.eq.false')
           .order('act_date', { ascending: false })
           .limit(50);
 
@@ -796,7 +798,7 @@ Deno.serve(async (req) => {
           fecha_ultima_actuacion: updatedWorkItem?.last_action_date,
           actuaciones: actuaciones?.map(a => ({
             fecha: a.act_date || '',
-            actuacion: a.raw_text,
+            actuacion: a.description,
             anotacion: '',
           })) || [],
           total_actuaciones: updatedWorkItem?.total_actuaciones || actuaciones?.length || 0,
