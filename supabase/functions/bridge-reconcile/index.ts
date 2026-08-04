@@ -19,6 +19,17 @@
  *   GAP                  — provider has rows we do not have
  *   TRANSFER_FAILED      — re-sync ran and rows still did not land
  *   PROVIDER_UNAVAILABLE — provider errored/timed out; nothing can be concluded
+ *
+ * ITERATION 23 — plausible-empty is the dangerous case.
+ *   PROVIDER_NO_ROWS is an assertion about the SOURCE ("there is nothing
+ *   there"). It may only be recorded when the provider returned a well-formed
+ *   successful inventory that genuinely contained zero rows. Every other
+ *   outcome — non-2xx, timeout, abort, limiter exhaustion, malformed body — is
+ *   ours or the provider's infrastructure and is recorded as
+ *   INFRA_FAILURE / PROVIDER_JOB_ABORTED / PROVIDER_NEVER_COMPLETES with the
+ *   verbatim response. Additionally, provider 0 + local > 0 is never accepted
+ *   at face value: it is recorded as PROVIDER_INVENTORY_SUSPECT and re-queried
+ *   once before it may settle on PROVIDER_NO_ROWS.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -111,6 +122,77 @@ const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
 
 /**
+ * ITERATION 23 — like-for-like comparison.
+ *
+ * Each provider only produces ONE row kind. Six ledger rows read
+ * "cpnu · PUB · provider 0 / local 6 · PROVIDER_NO_ROWS": CPNU never emits
+ * publicaciones, and the local side was counting `work_item_publicaciones`
+ * rows written by the *Publicaciones* provider. Nothing was missing; the
+ * comparison was apples-to-oranges. A provider is now only reconciled against
+ * the row kind it actually produces, and the local side only counts rows
+ * attributed to that same provider.
+ */
+const PROVIDER_ROW_KINDS: Record<string, Array<"ACT" | "PUB">> = {
+  cpnu: ["ACT"],
+  samai: ["ACT"],
+  tutelas: ["ACT"],
+  publicaciones: ["PUB"],
+  samai_estados: ["PUB"],
+};
+
+/** Local `source` values attributable to each provider (case-insensitive). */
+const PROVIDER_LOCAL_SOURCES: Record<string, string[]> = {
+  cpnu: ["cpnu", "cpnu+tutelas"],
+  samai: ["samai"],
+  tutelas: ["tutelas", "cpnu+tutelas"],
+  publicaciones: ["publicaciones", "pp"],
+  samai_estados: ["samai_estados"],
+};
+
+/**
+ * Failure taxonomy ratified with GCP (iteration 23 item 5). An exhausted
+ * limiter, an aborted job, an OOM or a 401/403 is never an empty result.
+ */
+type FailureState = "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
+
+function classifyProviderFailure(res: ProviderAdapterResult): { state: FailureState; detail: string } | null {
+  const msg = String(res.errorMessage ?? "").trim();
+  const lower = msg.toLowerCase();
+  const http = res.httpStatus ?? 0;
+
+  if (res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
+    return {
+      state: "PROVIDER_NEVER_COMPLETES",
+      detail: msg || `${res.provider}: ${res.status} — el trabajo no completó dentro del sondeo`,
+    };
+  }
+
+  const abortish = /abort|cancel|limiter|rate.?limit|too many|429|oom|out of memory|killed|memory limit|job failed|scraping (trigger )?failed/
+    .test(lower);
+  const infraish = /401|403|unauthorized|forbidden|auth|invalid_json|malformed|html|cannot get|route|5\d\d|bad gateway|econn|network|fetch failed|dns/
+    .test(lower) || http === 401 || http === 403 || http === 429 || http >= 500;
+
+  if (res.status === "ERROR") {
+    return {
+      state: abortish && !infraish ? "PROVIDER_JOB_ABORTED" : "INFRA_FAILURE",
+      detail: msg || `${res.provider}: ERROR sin mensaje (HTTP ${http || "?"})`,
+    };
+  }
+
+  // `EMPTY` is the trap: several adapters return EMPTY for outcomes that are
+  // in fact failures ("Scraping trigger failed", auth rejections, malformed
+  // bodies). Only a clean, well-formed zero-row answer survives this filter.
+  if (res.status === "EMPTY" && msg) {
+    if (abortish) return { state: "PROVIDER_JOB_ABORTED", detail: msg };
+    if (infraish) return { state: "INFRA_FAILURE", detail: msg };
+  }
+  if (http && (http < 200 || http >= 300) && http !== 404) {
+    return { state: "INFRA_FAILURE", detail: msg || `HTTP ${http}` };
+  }
+  return null;
+}
+
+/**
  * ITERATION 21 — "the error is the bug before the bug".
  *
  * `supabase.functions.invoke()` throws away the response body and reports the
@@ -173,7 +255,14 @@ const CHAIN: Record<string, string[]> = {
 const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
 
 type TransferState =
-  | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE";
+  | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_INVENTORY_SUSPECT" | "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
+
+/** States that assert nothing about transferred rows. */
+const NON_CONCLUSIVE: TransferState[] = [
+  "PROVIDER_UNAVAILABLE", "PROVIDER_INVENTORY_SUSPECT",
+  "INFRA_FAILURE", "PROVIDER_JOB_ABORTED", "PROVIDER_NEVER_COMPLETES",
+];
 
 interface LedgerLine {
   work_item_id: string;
