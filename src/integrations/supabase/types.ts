@@ -17758,6 +17758,7 @@ export type Database = {
         Args: { p_alert_type: string; p_title: string }
         Returns: string
       }
+      alert_is_standing: { Args: { p_alert_type: string }; Returns: boolean }
       alert_lifecycle_maintenance: { Args: never; Returns: Json }
       alert_source_event_key: {
         Args: {
@@ -17768,6 +17769,10 @@ export type Database = {
           p_payload: Json
           p_title: string
         }
+        Returns: string
+      }
+      alert_standing_fingerprint: {
+        Args: { p_alert_type: string; p_entity_id: string; p_owner_id: string }
         Returns: string
       }
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
@@ -18427,6 +18432,7 @@ export type Database = {
         }
         Returns: string
       }
+      sync_suggestion_alerts: { Args: never; Returns: Json }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       unaccent_lower_safe: { Args: { p_text: string }; Returns: string }
       update_daily_sync_ledger: {
