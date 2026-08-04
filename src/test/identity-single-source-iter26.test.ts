@@ -141,14 +141,20 @@ describe("iter26 · 2 — adapter identity == persistence identity", () => {
 
   it("cpnu: a raw payload carrying a parte propagates into identity", () => {
     const raw = { fecha: "2026-04-01", actuacion: "Auto admisorio", parte: "Demandante" };
-    const adapterFp = computeCpnuFingerprint(raw.fecha, raw.actuacion, null, WI, false, raw);
+    const adapterFp = computeCpnuFingerprint(
+      "05001333301520260011300", raw.fecha, raw.actuacion, "Juzgado 15",
+      WI, false, "2026-04-02", "anotación libre", "1", resolvePartyHint(raw),
+    );
     const rowFp = canonicalActIdentityFromRow(
       { act_date: raw.fecha, description: raw.actuacion, raw_data: raw } as any,
       WI,
     );
     expect(adapterFp).toBe(rowFp);
     // …and it differs from the same act without the parte.
-    expect(adapterFp).not.toBe(computeCpnuFingerprint(raw.fecha, raw.actuacion, null, WI, false, {}));
+    expect(adapterFp).not.toBe(computeCpnuFingerprint(
+      "05001333301520260011300", raw.fecha, raw.actuacion, "Juzgado 15",
+      WI, false, undefined, undefined, undefined, null,
+    ));
   });
 
   it("samai: partyHint option reaches the canonical helper", () => {
