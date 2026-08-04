@@ -387,9 +387,17 @@ Deno.serve(async (req) => {
 
   /** Persist one ledger line immediately so a timeout never loses evidence. */
   async function persistLine(line: LedgerLine, organizationId: string | null) {
-    const isGap = line.transfer_state === "GAP"
-      || line.transfer_state === "TRANSFER_FAILED"
-      || line.transfer_state === "PROVIDER_UNAVAILABLE";
+    // Iteration 23: only states that genuinely indicate LOSS open a gap clock.
+    // A provider that did not answer proves nothing and must never raise
+    // BRIDGE_TRANSFER_GAP.
+    const isGap = line.transfer_state === "GAP" || line.transfer_state === "TRANSFER_FAILED";
+
+    // Iteration 21 item 1 must never leave a failure state without evidence.
+    if (!line.last_error && (isGap || NON_CONCLUSIVE.includes(line.transfer_state))) {
+      line.last_error = line.transfer_state === "TRANSFER_FAILED"
+        ? `Re-sincronización ejecutada sin error HTTP y ${line.missing_count} fila(s) siguen sin aterrizar (${line.provider_key}/${line.row_kind}). Huellas: ${line.missing_fingerprints.slice(0, 5).join(", ") || "n/d"}`
+        : `${line.provider_key}: ${line.transfer_state} sin detalle reportado por el adaptador`;
+    }
 
     const { data: existing } = await admin
       .from("bridge_inventory_ledger")
@@ -454,20 +462,35 @@ Deno.serve(async (req) => {
 
       if (res.status === "ERROR" || res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
         const line: LedgerLine = {
-          work_item_id: wi.id, radicado, provider_key: provider, row_kind: "ACT",
+          work_item_id: wi.id, radicado, provider_key: provider,
+          row_kind: PROVIDER_ROW_KINDS[provider]?.[0] ?? "ACT",
           provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
-          transfer_state: "PROVIDER_UNAVAILABLE", missing_fingerprints: [],
-          last_error: res.errorMessage ?? res.status,
+          transfer_state: failure?.state ?? "PROVIDER_UNAVAILABLE",
+          missing_fingerprints: [],
+          last_error: failure?.detail ?? res.errorMessage ?? res.status,
         };
         lines.push(line);
         await persistLine(line, wi.organization_id ?? null);
         continue;
       }
 
-      for (const kind of ["ACT", "PUB"] as const) {
+      // A "successful" answer that is really a failure (see classifier) may not
+      // become PROVIDER_NO_ROWS either.
+      if (failure) {
+        const line: LedgerLine = {
+          work_item_id: wi.id, radicado, provider_key: provider,
+          row_kind: PROVIDER_ROW_KINDS[provider]?.[0] ?? "ACT",
+          provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
+          transfer_state: failure.state, missing_fingerprints: [],
+          last_error: failure.detail,
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
+        continue;
+      }
+
+      for (const kind of (PROVIDER_ROW_KINDS[provider] ?? ["ACT", "PUB"])) {
         const rows = kind === "ACT" ? res.actuaciones : res.publicaciones;
-        if (kind === "PUB" && res.actuaciones.length > 0 && rows.length === 0) continue;
-        if (kind === "ACT" && res.actuaciones.length === 0 && res.publicaciones.length > 0) continue;
 
         // Deduplicate provider rows on their strongest identity so a provider
         // that repeats a row across pages is not counted twice.
