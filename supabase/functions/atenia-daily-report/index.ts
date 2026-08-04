@@ -280,9 +280,68 @@ async function toolWorkItemFreshness(sb: any): Promise<Record<string, unknown>> 
 
 // ─── Tool registry ───────────────────────────────────────────────────
 
+/**
+ * Iteration 13.1 — discovery ledger.
+ *
+ * The headline counts PERSISTED news (rows that actually landed today):
+ * NOVEDAD + ACTUACION_RETROACTIVA. "Históricas" is reserved for rows that
+ * arrived through an explicit sweep/import (HISTORICO_DETECTADO), i.e. dated
+ * before enrolment. The anexos counter lets Icarus (files in the digital
+ * index) and Andromeda (actuaciones) reconcile on sight.
+ */
+const SWEEP_MODES = ["SWEEP", "FULL_SWEEP", "HISTORICAL", "BACKFILL", "IMPORT", "INITIAL_SYNC"];
+
+async function toolDiscoveryLedger(sb: any): Promise<Record<string, unknown>> {
+  const sinceISO = `${todayCOT()}T05:00:00.000Z`; // 00:00 COT
+
+  const countRows = async (table: string, apply: (q: any) => any) => {
+    const q = apply(sb.from(table).select("id", { count: "exact", head: true }).gte("detected_at", sinceISO));
+    const { count, error } = await q;
+    return error ? 0 : (count ?? 0);
+  };
+
+  const news = ["NOVEDAD", "ACTUACION_RETROACTIVA"];
+
+  const [actsNews, actsHist, pubsNews, pubsHist] = await Promise.all([
+    countRows("work_item_acts", (q: any) => q.in("discovery_type", news)),
+    countRows("work_item_acts", (q: any) =>
+      q.eq("discovery_type", "HISTORICO_DETECTADO").in("ingest_run_mode", SWEEP_MODES)),
+    countRows("work_item_publicaciones", (q: any) => q.in("discovery_type", news)),
+    countRows("work_item_publicaciones", (q: any) =>
+      q.eq("discovery_type", "HISTORICO_DETECTADO").in("ingest_run_mode", SWEEP_MODES)),
+  ]);
+
+  const { data: anexos } = await sb.rpc("count_anexos_nuevos", { p_since: sinceISO });
+
+  const { count: futureDatedActs } = await sb
+    .from("work_item_acts")
+    .select("id", { count: "exact", head: true })
+    .eq("is_future_dated", true);
+
+  const { data: unmonitored } = await sb
+    .from("work_items")
+    .select("id, radicado, stage, workflow_type")
+    .eq("monitoring_enabled", false)
+    .not("lifecycle_state", "in", '("DELETED","ARCHIVED")');
+
+  return {
+    since: sinceISO,
+    persisted_news_acts: actsNews,
+    persisted_news_pubs: pubsNews,
+    persisted_news_total: actsNews + pubsNews,
+    historicas_sweep_acts: actsHist,
+    historicas_sweep_pubs: pubsHist,
+    anexos_nuevos: anexos ?? 0,
+    future_dated_acts_flagged: futureDatedActs ?? 0,
+    monitoring_disabled_items: (unmonitored || []).length,
+    monitoring_disabled_sample: (unmonitored || []).slice(0, 15),
+  };
+}
+
 function getTools(): ToolDef[] {
   return [
     { name: "HEALTH_SNAPSHOT", label: "Health Snapshot (7d)", fn: toolHealthSnapshot },
+    { name: "DISCOVERY_LEDGER", label: "Discovery Ledger (persisted news / históricas / anexos)", fn: toolDiscoveryLedger },
     { name: "KPI_REPORT", label: "Latest KPI Report", fn: toolKPIReport },
     { name: "PER_ORG_KPIS", label: "Per-Org KPIs (today)", fn: toolPerOrgKPIs },
     { name: "PROVIDER_STATUS", label: "Provider Status", fn: toolProviderStatus },
