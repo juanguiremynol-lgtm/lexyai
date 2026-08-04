@@ -594,11 +594,18 @@ Deno.serve(async (req) => {
           }
         }
 
-        if (providerCount === local.count && missing.length > 0) {
+        // A provider inventory that is equal to or narrower than local history
+        // cannot prove transfer loss. Unmatched rows in either case are an
+        // identity/window mismatch; only provider_count > local_count can open
+        // a bridge gap.
+        if (providerCount <= local.count && missing.length > 0) {
           state = "IDENTITY_MISMATCH";
           const providerLegal = new Set(providerRows.keys());
           lastError = JSON.stringify({
-            reason: "EQUAL_COUNTS_WITH_UNMATCHED_IDENTITIES",
+            reason: providerCount === local.count
+              ? "EQUAL_COUNTS_WITH_UNMATCHED_IDENTITIES"
+              : "PROVIDER_INVENTORY_NARROWER_THAN_LOCAL_HISTORY",
+            inventory_windowed: providerCount < local.count,
             provider_unmatched: missing.slice(0, 25),
             local_unmatched: [...local.legal].filter((id) => !providerLegal.has(norm(id) ?? id)).slice(0, 25),
           });
