@@ -75,3 +75,21 @@ describe("PENAL_906 phase catalog (Ley 906/2004)", () => {
     expect(inferPhaseFromText("PENAL_906", "audiencia concentrada")).toBe("JUICIO_ORAL");
   });
 });
+
+describe("penal email evidence vocabulary", () => {
+  const sender = "juzgado01pmpalmira@cendoj.ramajudicial.gov.co";
+  it.each([
+    ["Audiencia de formulación de imputación", "IMPUTACION"],
+    ["Se legaliza captura y se formula imputación", "IMPUTACION"],
+    ["Imposición de medida de aseguramiento privativa de la libertad", "MEDIDA_ASEGURAMIENTO"],
+    ["Traslado del escrito de acusación", "ESCRITO_ACUSACION"],
+    ["Solicitud de preclusión de la investigación", "PRECLUSION"],
+    ["Citación audiencia preparatoria", "CITACION_AUDIENCIA"],
+    ["Citación a audiencia concentrada", "CITACION_AUDIENCIA"],
+  ])("classifies %s as %s", async (subject, expected) => {
+    const { classifyEvidenceSubtype } = await import(
+      "../../supabase/functions/_shared/emailMatcher.ts"
+    );
+    expect(classifyEvidenceSubtype(subject, sender)).toBe(expected);
+  });
+});
