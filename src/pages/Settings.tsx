@@ -32,6 +32,7 @@ import { BillingTab } from "@/components/settings/BillingTab";
 import { ProviderInstanceManager } from "@/components/settings/ProviderInstanceManager";
 import { UserPrivacySettings } from "@/components/settings/UserPrivacySettings";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
+import { PracticeAreasSettings } from "@/components/settings/PracticeAreasSettings";
 import { OrgTaskTemplatesManager } from "@/components/settings/OrgTaskTemplatesManager";
 import { OrgAlertDefaultsManager } from "@/components/settings/OrgAlertDefaultsManager";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -309,7 +310,10 @@ export default function Settings() {
             </TabsContent>
 
             <TabsContent value="org-templates">
-              <OrgTaskTemplatesManager />
+              <PracticeAreasSettings />
+              <div className="mt-6">
+                <OrgTaskTemplatesManager />
+              </div>
             </TabsContent>
 
             <TabsContent value="org-alerts">
