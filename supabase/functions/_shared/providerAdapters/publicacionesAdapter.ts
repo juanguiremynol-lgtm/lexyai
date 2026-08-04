@@ -33,6 +33,14 @@ import {
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
 import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
+// ITERATION 22 — the adapter no longer owns a mapper. Explosion, date
+// semantics and identity come from the single canonical module, so the rows
+// the bridge inventories are the same rows the sync persists.
+import {
+  explodeProviderPublicaciones,
+  toCanonicalPubRow,
+  type ProviderPubUnit,
+} from '../canonicalPublicacionMapper.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
