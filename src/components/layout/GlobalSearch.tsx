@@ -300,13 +300,14 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   }).sort((a, b) => a.relevance - b.relevance);
 
   const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => {
-    const snippet = act.normalized_text?.substring(0, 60) + (act.normalized_text && act.normalized_text.length > 60 ? "..." : "") || "Sin descripción";
+    const text = act.description ?? "";
+    const snippet = text ? `${text.substring(0, 60)}${text.length > 60 ? "..." : ""}` : "Sin descripción";
     const result = {
       id: act.id,
       type: "actuacion" as const,
-      title: act.act_type_guess || "Actuación",
+      title: act.act_type || "Actuación",
       subtitle: snippet,
-      badge: act.act_type_guess || "Actuación",
+      badge: act.act_type || "Actuación",
       badgeVariant: "default" as const,
       route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
       relevance: 5,
