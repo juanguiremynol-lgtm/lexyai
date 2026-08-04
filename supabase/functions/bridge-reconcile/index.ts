@@ -376,21 +376,40 @@ Deno.serve(async (req) => {
         if (kind === "PUB" && res.actuaciones.length > 0 && rows.length === 0) continue;
         if (kind === "ACT" && res.actuaciones.length === 0 && res.publicaciones.length > 0) continue;
 
-        const providerFps = [...new Set(rows.map((r) => r.hash_fingerprint).filter(Boolean))];
+        // Deduplicate provider rows on their strongest identity so a provider
+        // that repeats a row across pages is not counted twice.
+        const providerRows = new Map<string, string[]>();
+        for (const r of rows as unknown as Record<string, any>[]) {
+          const ids = providerIdentities(kind, r, wi.id);
+          if (ids.length === 0) continue;
+          if (!providerRows.has(ids[0])) providerRows.set(ids[0], ids);
+        }
 
-        const localFps = async (): Promise<Set<string>> => {
+        const localState = async (): Promise<{ ids: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
+          const cols = kind === "ACT"
+            ? "hash_fingerprint, act_date, description, raw_data"
+            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data";
           const { data } = await admin.from(table)
-            .select("hash_fingerprint")
+            .select(cols)
             .eq("work_item_id", wi.id)
             .limit(2000);
-          return new Set((data ?? []).map((r: { hash_fingerprint: string }) => r.hash_fingerprint));
+          const ids = new Set<string>();
+          for (const r of (data ?? []) as unknown as Record<string, any>[]) {
+            for (const id of localIdentities(kind, r, wi.id)) ids.add(id);
+          }
+          return { ids, count: (data ?? []).length };
         };
 
-        let local = await localFps();
-        let missing = providerFps.filter((fp) => !local.has(fp));
+        const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
+
+        let local = await localState();
+        let missing = [...providerRows.entries()]
+          .filter(([, ids]) => !landed(ids, local.ids))
+          .map(([key]) => key);
+        const providerCount = providerRows.size;
         let recovered = 0;
-        let state: TransferState = providerFps.length === 0
+        let state: TransferState = providerCount === 0
           ? "PROVIDER_NO_ROWS"
           : missing.length === 0 ? "IN_SYNC" : "GAP";
         let lastError: string | null = null;
@@ -409,8 +428,10 @@ Deno.serve(async (req) => {
             trigger: "BRIDGE_RECONCILE",
           });
           if (!invoked.ok) lastError = invoked.detail;
-          local = await localFps();
-          const stillMissing = providerFps.filter((fp) => !local.has(fp));
+          local = await localState();
+          const stillMissing = [...providerRows.entries()]
+            .filter(([, ids]) => !landed(ids, local.ids))
+            .map(([key]) => key);
           recovered = missing.length - stillMissing.length;
           healed += recovered;
           missing = stillMissing;
@@ -419,8 +440,8 @@ Deno.serve(async (req) => {
 
         const line: LedgerLine = {
           work_item_id: wi.id, radicado, provider_key: provider, row_kind: kind,
-          provider_count: providerFps.length,
-          local_count: local.size,
+          provider_count: providerCount,
+          local_count: local.count,
           missing_count: missing.length,
           recovered_count: recovered,
           transfer_state: state,
