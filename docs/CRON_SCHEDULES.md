@@ -136,6 +136,22 @@ SELECT cron.schedule(
 
 ## Verification
 
+### Cron health monitoring (iteration 16)
+
+`public.cron_job_health()` (platform-admin only) summarizes **every** job in
+`cron.job` over the last 7 days: last run, last success, consecutive failures,
+`never_succeeded` and `failing_hours`. It is consumed by:
+
+- `atenia-cron-watchdog` (every 10 min) → WARNING at 3 consecutive failures,
+  CRITICAL when a job never succeeded or has been failing > 6h. Alerts land on
+  the platform surface (`alert_instances`, `entity_type = 'platform'`).
+- `atenia-daily-report` → tool `PG_CRON_HEALTH`, printed in SECTION 5.
+- Platform UI → "Jobs programados (pg_cron)" in the cron health panel.
+
+> Cron jobs must authenticate to edge functions with the `x-cron-key` header
+> (`CRON_SERVICE_KEY`). Never use `current_setting('supabase.service_role_key')`
+> — that GUC does not exist in the pg_cron runtime and fails on every run.
+
 List active cron jobs:
 ```sql
 SELECT jobid, schedule, command, jobname FROM cron.job ORDER BY jobname;
