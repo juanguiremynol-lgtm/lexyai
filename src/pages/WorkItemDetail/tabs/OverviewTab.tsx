@@ -47,6 +47,7 @@ import { WORKFLOW_TYPES, getStageLabel, getStagesForWorkflow, getStageOrderForWo
 import { EntityClientLink } from "@/components/shared";
 import { MilestonesChecklist } from "@/components/work-items";
 import { cn } from "@/lib/utils";
+import { WorkItemCoveragePanel } from "@/components/work-items/WorkItemCoveragePanel";
 
 // Extended WorkItem type with SAMAI fields
 interface ExtendedWorkItem extends WorkItem {
@@ -111,29 +112,6 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
   const stageOrder = getStageOrderForWorkflow(workItem.workflow_type, workItem.cgp_phase || undefined);
   const stages = getStagesForWorkflow(workItem.workflow_type, workItem.cgp_phase || undefined);
   const currentStageIndex = stageOrder.indexOf(workItem.stage);
-
-  // Toggle monitoring mutation
-  const toggleMonitoringMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      const { setWorkItemLifecycle } = await import("@/lib/lifecycle");
-      const { data: { user } } = await supabase.auth.getUser();
-      const r = await setWorkItemLifecycle(supabase, {
-        workItemId: workItem.id,
-        newState: enabled ? "ACTIVE" : "PAUSED",
-        reason: enabled ? "USER_REACTIVATE" : "USER_SUSPENDED",
-        actor: "USER",
-        actorUserId: user?.id ?? null,
-      });
-      if (!r.ok) throw new Error(r.error || "toggle failed");
-    },
-    onSuccess: (_, enabled) => {
-      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      toast.success(enabled ? "Monitoreo activado" : "Monitoreo desactivado");
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
-  });
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "No especificada";
@@ -590,73 +568,14 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
           </CardContent>
         </Card>
 
-        {/* Monitoring Settings - for CGP, CPACA */}
-        {(workItem.workflow_type === "CGP" || workItem.workflow_type === "CPACA") && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="h-5 w-5" />
-                Rastreador Rama Judicial
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <Label>Monitoreo Automático</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Consultar automáticamente la Rama Judicial para nuevas actuaciones
-                  </p>
-                </div>
-                <Switch
-                  checked={workItem.monitoring_enabled}
-                  onCheckedChange={(checked) => toggleMonitoringMutation.mutate(checked)}
-                  disabled={toggleMonitoringMutation.isPending || !workItem.radicado}
-                />
-              </div>
-
-              {!workItem.radicado && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  ⚠️ Ingrese el número de radicado para habilitar el monitoreo automático
-                </p>
-              )}
-
-              {workItem.last_crawled_at && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <RefreshCw className="h-4 w-4" />
-                  Última consulta: {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
-                </div>
-              )}
-
-              {workItem.scrape_status && (
-                <div className="flex items-center gap-2">
-                  {workItem.scrape_status === "SUCCESS" ? (
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                  ) : workItem.scrape_status === "FAILED" ? (
-                    <XCircle className="h-4 w-4 text-destructive" />
-                  ) : (
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <span className="text-sm">
-                    {workItem.scrape_status === "SUCCESS" 
-                      ? "Sincronizado correctamente" 
-                      : workItem.scrape_status === "FAILED" 
-                        ? "Error en última sincronización"
-                        : workItem.scrape_status === "IN_PROGRESS"
-                          ? "Sincronizando..."
-                          : "Pendiente"}
-                  </span>
-                </div>
-              )}
-
-              {workItem.monitoring_enabled && (
-                <Badge variant="outline" className="text-xs">
-                  <Clock className="h-3 w-3 mr-1" />
-                  Se ejecuta automáticamente cada día
-                </Badge>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        {/* Coverage truth (iteration 14): monitoring is derived, not asked. */}
+        <WorkItemCoveragePanel
+          workItemId={workItem.id}
+          workflowType={workItem.workflow_type}
+          radicado={workItem.radicado}
+          monitoringEnabled={workItem.monitoring_enabled !== false}
+          monitoringDisabledReason={(workItem as any).monitoring_disabled_reason ?? null}
+        />
       </div>
 
       {/* Sidebar - 1 column */}
