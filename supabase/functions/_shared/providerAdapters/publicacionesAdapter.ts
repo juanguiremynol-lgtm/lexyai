@@ -306,45 +306,41 @@ export function normalizePublicacionesResponse(
   data: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion[] {
-  // publicaciones-procesales-api /historico returns `actuaciones`; older endpoints
-  // used `publicaciones`. Accept either, plus a top-level array as a last resort.
-  const rawPubs = Array.isArray(data?.publicaciones)
-    ? data.publicaciones
-    : (Array.isArray(data?.actuaciones)
-      ? data.actuaciones
-      : (Array.isArray(data) ? data : []));
-
-  return rawPubs
-    .map((p: any) => normalizeOnePublicacion(p, options))
+  // Explosion is shared: one raw actuación may legitimately be an estado
+  // planilla AND an individual providencia. Doing it here (and only here)
+  // guarantees the adapter's inventory count matches the persisted count.
+  return explodeProviderPublicaciones(data)
+    .map((unit) => normalizeOnePublicacion(unit, options))
     .filter((p: NormalizedPublicacion | null): p is NormalizedPublicacion => p !== null);
 }
 
 function normalizeOnePublicacion(
-  p: any,
+  unit: ProviderPubUnit,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion | null {
+  const p: any = unit.raw_data ?? unit;
   // Extract date
   let fecha: string | null | undefined = normalizeDate(
-    p.fecha_publicacion ?? p.fecha_hora_inicio ?? p.fechaFijacion ??
+    unit.fecha_publicacion ?? unit.fecha_hora_inicio ?? p.fechaFijacion ??
     p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro ??
     p.fecha_actuacion ?? p.fecha_estado,
   );
-  const tituloStr = String(p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || '');
+  const tituloStr = String(unit.titulo || '');
   if (!fecha && tituloStr) fecha = extractDateFromTitle(tituloStr) || null;
-  const pdfUrl = String(p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url || '');
+  const pdfUrl = String(unit.pdf_url || '');
   if (!fecha && pdfUrl) {
     const m = pdfUrl.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
     if (m) fecha = `${m[1]}-${m[2]}-${m[3]}`;
   }
 
   // Extract tipo
-  let tipo = String(p.tipo_evento || p.tipo_actuacion || '');
-  if (!tipo || tipo === 'null') {
+  let tipo = String(unit.tipo_evento || p.tipo_actuacion || '');
+  if (!tipo || tipo === 'null' || tipo === 'Estado') {
     if (/^ESTADOS?\b/i.test(tituloStr)) tipo = 'Estado Electrónico';
     else if (/^EDICTO/i.test(tituloStr)) tipo = 'Edicto';
     else if (/^NOTIFICACI/i.test(tituloStr)) tipo = 'Notificación';
     else if (/^TRASLADO/i.test(tituloStr)) tipo = 'Traslado';
-    else tipo = truncate(String(p.tipo || p.actuacion || 'Estado'), 80) || 'Estado';
+    else tipo = truncate(String(unit.tipo || p.actuacion || 'Estado'), 80) || 'Estado';
   }
 
   const cleanTitle = tituloStr.replace(/\.pdf$/i, '').trim();
@@ -355,16 +351,17 @@ function normalizeOnePublicacion(
   // Attachments
   const attachments = extractAttachments(p, PROVIDER_KEY);
 
-  // Fingerprint
-  const assetId = p.asset_id || p.id || p.hash_documento || p.key || '';
-  const fingerprint = computePublicacionFingerprint(
-    options?.workItemId || '',
-    assetId,
-    p.key,
-    tituloStr,
-    options?.crossProviderDedup,
-    { pubDate: fecha || null, tipo: tipo || null, partyHint: null },
+  // IDENTITY — computed by the canonical mapper from the same unit that the
+  // persistence path maps, so adapter-side and stored fingerprints are equal.
+  const canonicalRow = toCanonicalPubRow(
+    { ...unit, tipo, titulo: unit.titulo || tipo },
+    {
+      work_item_id: options?.workItemId || '',
+      organization_id: null,
+      source: unit._source_provider || PROVIDER_KEY,
+    },
   );
+  const fingerprint = canonicalRow.hash_fingerprint;
 
   if (!fecha && !title) return null;
 
@@ -378,12 +375,12 @@ function normalizeOnePublicacion(
     sources: [PROVIDER_KEY],
     juzgado: p.juzgado || p.despacho || p.nombre_despacho || undefined,
     pdf_url: pdfUrl || undefined,
-    entry_url: p.entry_url || p.url || undefined,
-    asset_id: p.asset_id || p.id || p.hash_documento || undefined,
-    key: p.key || p.id || undefined,
+    entry_url: unit.url || undefined,
+    asset_id: unit.asset_id || undefined,
+    key: unit.key || undefined,
     terminos_inician: undefined, // Calculated by caller
     attachments: attachments.length > 0 ? attachments : undefined,
-    clasificacion: p.clasificacion || undefined,
+    clasificacion: unit.clasificacion || undefined,
     raw_data: p,
   };
 }
