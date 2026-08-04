@@ -99,6 +99,32 @@ export function AteniaCronHealthPanel() {
     refetchInterval: 120_000,
   });
 
+  // pg_cron health — every scheduled job, no whitelist
+  const { data: pgCron, isLoading: loadingPgCron } = useQuery({
+    queryKey: ["pg-cron-health"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cron_job_health" as any);
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        jobname: string;
+        schedule: string;
+        active: boolean;
+        last_run: string | null;
+        last_status: string | null;
+        last_success: string | null;
+        consecutive_failures: number;
+        never_succeeded: boolean;
+        failing_hours: number;
+        last_error: string | null;
+      }>;
+    },
+    refetchInterval: 120_000,
+  });
+
+  const pgCronProblems = (pgCron ?? []).filter(
+    (j) => j.active && (j.never_succeeded || j.consecutive_failures >= 3),
+  );
+
   const triggerWatchdog = async () => {
     try {
       const { error } = await supabase.functions.invoke("atenia-cron-watchdog");
