@@ -75,3 +75,61 @@ silently for state**; the email discrepancy surfaces as an informational note
   so a matter is never rendered earlier than its recorded stage.
 
 All writers must go through `public.upsert_standing_stage_suggestion(...)`.
+---
+
+## Invariant 3 — Identity is computed in exactly ONE place (iteration 26)
+
+Next to "nothing auto-applies" and source-primacy, this is now a standing rule:
+
+> **The identity (fingerprint) of a judicial fact is computed in exactly one
+> place, from structured fields only.**
+> Never from free text, never from transport metadata, never from the source
+> name.
+
+Concretely:
+
+| Aspect | Status | Where |
+| --- | --- | --- |
+| Act identity | `canonicalActFingerprint()` | `supabase/functions/_shared/canonicalFingerprint.ts` |
+| Pub identity | `canonicalPubFingerprint()` | same file |
+| Party discriminator | `resolvePartyHint()` → `extractPartyDiscriminator()` | same file |
+| SQL functions | **audit-only mirror**, never write identity | `canon_act_fingerprint`, `canon_pub_fingerprint` |
+| Parity enforcement | blocking test vs. a real Postgres call | `rpc_canon_fingerprint_probe` + `src/test/identity-single-source-iter26.test.ts` |
+
+### What is identity, and what is only provenance
+
+**Identity** — `work_item_id` + normalized date + normalized title
+(+ a structured `parte` hint when the provider supplies one as its own field).
+
+**Provenance (NEVER identity)**
+- free-text `anotación` / description tails, including the roles that appear in
+  them (`DEMANDANTE`, `ACCIONANTE`, `APODERADO`, …);
+- `tipo_publicacion` (the same estado arrives as `Estado Electrónico`, as
+  `document`, and as `NULL`);
+- the provider / `source` name and its casing;
+- `fecha_registro`, `despacho`, `instancia`, `asset_id`, `article_id`, URLs.
+
+### Rules that follow
+
+1. **Adapters never build a fingerprint by hand.** Every `compute*Fingerprint`
+   helper is a thin wrapper over the canonical helper and must forward the
+   structured party hint via `resolvePartyHint(rawPayload)` — never a
+   hardcoded `null`, never a local field list.
+2. **Adapters hash exactly the title they persist** (post-truncation,
+   post-redaction). Hashing the untruncated title while storing the truncated
+   one is a divergence.
+3. **Estados are publicaciones.** A publication row must carry a pub identity
+   (`pub_…`), an act row an act identity (`wi_…`). Never cross them.
+4. **`hash_fingerprint` is immutable** once written (enforced by
+   `protect_core_fields_*` triggers). Repairing historical identity is a
+   deliberate, audited one-off, not a routine update.
+5. **`article_id` travels as an explicit field** (`raw_data.article_id`,
+   surfaced by `pubArticleIdFromRow`). Parsing it out of the composite `key`
+   string survives only as a locked legacy fallback.
+6. **Bridge matching is exact.** `bridge-reconcile` matches on canonical
+   identity equality; auxiliary keys are a diagnostic fallback that LOGS
+   (`IDENTITY_FALLBACK_RESCUE`) and is recorded on the ledger line. A fallback
+   that silently rescues a mismatch is how this defect class stayed invisible
+   for five days.
+7. **`CHAIN`, `PROVIDER_ROW_KINDS` and `PROVIDER_LOCAL_SOURCES` move together**
+   (`_shared/bridgeProviderMatrix.ts`), asserted by test.
