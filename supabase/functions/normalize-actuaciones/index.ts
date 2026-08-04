@@ -366,20 +366,31 @@ Deno.serve(async (req) => {
     await logStep('INIT', true, 'Normalization started', { work_item_id: resolvedWorkItemId, monitored_process_id, filing_id });
     
     // Fetch actuaciones to normalize - prioritize work_item_id
+    // ITER13: read from the canonical actuaciones table. The legacy
+    // `actuaciones` table is frozen (actuaciones_legacy_20260131).
     let query = supabase
-      .from('actuaciones')
+      .from('work_item_acts')
       .select('*')
       .eq('owner_id', owner_id);
     
     if (resolvedWorkItemId) {
       query = query.eq('work_item_id', resolvedWorkItemId);
-    } else if (monitored_process_id) {
-      query = query.eq('monitored_process_id', monitored_process_id);
-    } else if (filing_id) {
-      query = query.eq('filing_id', filing_id);
+    } else if (monitored_process_id || filing_id) {
+      // Legacy scoping columns do not exist on work_item_acts; without a
+      // resolved work item there is nothing canonical to normalize.
+      query = query.eq('work_item_id', monitored_process_id || filing_id);
     }
     
-    const { data: actuaciones, error: fetchError } = await query;
+    const { data: rawActs, error: fetchError } = await query;
+    // Map canonical columns onto the legacy shape this function works with.
+    const actuaciones = (rawActs || []).map((a: Record<string, unknown>) => ({
+      ...a,
+      raw_text: (a.description as string) ?? '',
+      normalized_text: (a.event_summary as string) ?? (a.description as string) ?? '',
+      act_type_guess: (a.act_type as string) ?? null,
+      adapter_name: (a.source_platform as string) ?? (a.source as string) ?? null,
+      attachments: ((a.raw_data as Record<string, unknown> | null)?.attachments as unknown[]) ?? [],
+    }));
     
     if (fetchError) {
       await logStep('FETCH_ACTUACIONES', false, `Error: ${fetchError.message}`);
