@@ -24,7 +24,6 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
-import { canonicalPubFingerprint } from "../_shared/canonicalFingerprint.ts";
 // ITERATION 22 — the ONE canonical provider→row transformation. This function
 // no longer owns a parallel mapper; explosion, field derivation and identity
 // all come from the shared module so the bridge, the cron, the retry queue and
