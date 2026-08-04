@@ -87,6 +87,21 @@ interface ProviderConnectivityCheck {
   status?: number;
   latencyMs?: number;
   error?: string;
+  /**
+   * ITERATION 23 — GCP now exposes operational metrics on /health. We ingest
+   * them verbatim so platform health can show real infrastructure pressure
+   * instead of inferring it. A service reporting status "degraded" is a
+   * WARNING here (never a statement about any matter).
+   */
+  service_status?: string;
+  degraded?: boolean;
+  metrics?: {
+    rate_limiter?: unknown;
+    job_store?: unknown;
+    ocr_cache?: unknown;
+    temp_pdfs?: unknown;
+    retencion_jobs?: unknown;
+  };
 }
 
 // Provider auth check (GET /snapshot with test radicado - requires valid API key)
@@ -295,10 +310,28 @@ async function checkConnectivity(
     clearTimeout(timeoutId);
     const latencyMs = Date.now() - start;
 
+    let body: Record<string, any> = {};
+    try {
+      body = (await response.json()) as Record<string, any>;
+    } catch {
+      body = {};
+    }
+
+    const serviceStatus = typeof body.status === "string" ? body.status : undefined;
+
     return {
       ok: response.ok,
       status: response.status,
       latencyMs,
+      service_status: serviceStatus,
+      degraded: serviceStatus ? serviceStatus.toLowerCase() === "degraded" : undefined,
+      metrics: {
+        rate_limiter: body.rate_limiter ?? undefined,
+        job_store: body.job_store ?? undefined,
+        ocr_cache: body.ocr_cache ?? undefined,
+        temp_pdfs: body.temp_pdfs ?? undefined,
+        retencion_jobs: body.retencion_jobs ?? undefined,
+      },
     };
   } catch (err) {
     return {

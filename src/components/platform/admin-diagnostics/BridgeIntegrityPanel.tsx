@@ -44,13 +44,52 @@ const STATE_LABEL: Record<string, string> = {
   GAP: "Filas no transferidas",
   TRANSFER_FAILED: "Reintento fallido",
   PROVIDER_UNAVAILABLE: "Proveedor sin respuesta",
+  PROVIDER_INVENTORY_SUSPECT: "Inventario sospechoso (0 en fuente con filas locales)",
+  INFRA_FAILURE: "Falla de nuestra infraestructura",
+  PROVIDER_JOB_ABORTED: "Trabajo del proveedor abortado",
+  PROVIDER_NEVER_COMPLETES: "El proveedor nunca completa",
+  PROVIDER_NO_ROWS: "Fuente vacía (confirmada)",
 };
 
 const TERMINAL_LABEL: Record<string, string> = {
   PROVIDER_JOB_FAILED: "Trabajo del proveedor falló",
   PROVIDER_NEVER_COMPLETES: "El proveedor nunca completa",
   PROVIDER_UNKNOWN_PROCESS: "Proceso no reconocido por el proveedor",
+  PROVIDER_JOB_ABORTED: "Trabajo abortado (limitador, cancelación u OOM)",
+  INFRA_FAILURE: "Falla de infraestructura (nuestra)",
 };
+
+/**
+ * ITERATION 23 item 5 — infrastructure metrics reported by the provider
+ * services. These are OUR operational signals: they never describe a matter.
+ */
+interface ProviderInfra {
+  provider: string;
+  ok: boolean;
+  service_status?: string;
+  degraded?: boolean;
+  latencyMs?: number;
+  metrics?: Record<string, unknown>;
+}
+
+const METRIC_LABEL: Record<string, string> = {
+  rate_limiter: "Limitador",
+  job_store: "Cola de trabajos",
+  ocr_cache: "Caché OCR",
+  temp_pdfs: "PDF temporales",
+  retencion_jobs: "Retención de trabajos",
+};
+
+function summarizeMetric(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join(" · ");
+  }
+  return String(value);
+}
 
 export function BridgeIntegrityPanel() {
   const [running, setRunning] = useState(false);
@@ -75,6 +114,26 @@ export function BridgeIntegrityPanel() {
         .limit(50);
       if (error) throw error;
       return (data ?? []) as HealthRow[];
+    },
+  });
+
+  const infra = useQuery({
+    queryKey: ["gcp-provider-infra"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<ProviderInfra[]> => {
+      const { data, error } = await supabase.functions.invoke("integration-health", {
+        body: { provider_health: true },
+      });
+      if (error) throw error;
+      const ph = ((data as any)?.provider_health ?? {}) as Record<string, any>;
+      return Object.entries(ph).map(([provider, v]) => ({
+        provider,
+        ok: !!v?.connectivity?.ok,
+        service_status: v?.connectivity?.service_status,
+        degraded: !!v?.connectivity?.degraded,
+        latencyMs: v?.connectivity?.latencyMs,
+        metrics: v?.connectivity?.metrics ?? {},
+      }));
     },
   });
 
@@ -145,6 +204,58 @@ export function BridgeIntegrityPanel() {
         <section className="space-y-2">
           <h4 className="flex items-center gap-2 text-sm font-medium">
             <ScanEye className="h-4 w-4" /> Salud por fuente
+          </h4>
+        </section>
+
+        <section className="space-y-2">
+          <h4 className="flex items-center gap-2 text-sm font-medium">
+            <PlugZap className="h-4 w-4" /> Infraestructura de los servicios de proveedor
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            Señales operativas nuestras. Nunca se presentan como un hecho del expediente.
+          </p>
+          {infra.isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : (infra.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin métricas disponibles.</p>
+          ) : (
+            <div className="space-y-2">
+              {(infra.data ?? []).map((s) => (
+                <div key={s.provider} className="rounded-md border p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium uppercase">{s.provider}</span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        s.degraded
+                          ? "border-amber-500/50 text-amber-600"
+                          : s.ok
+                            ? "border-emerald-500/50 text-emerald-600"
+                            : "border-destructive/50 text-destructive"
+                      }`}
+                    >
+                      {s.degraded ? "Degradado" : s.ok ? "Operativo" : "Sin conexión"}
+                      {s.service_status ? ` · ${s.service_status}` : ""}
+                      {typeof s.latencyMs === "number" ? ` · ${s.latencyMs} ms` : ""}
+                    </Badge>
+                  </div>
+                  <div className="space-y-0.5">
+                    {Object.entries(METRIC_LABEL).map(([key, label]) => (
+                      <p key={key} className="text-[10px] text-muted-foreground">
+                        <span className="font-medium">{label}:</span>{" "}
+                        {summarizeMetric((s.metrics ?? {})[key])}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-2">
+          <h4 className="flex items-center gap-2 text-sm font-medium">
+            <ScanEye className="h-4 w-4" /> Detalle por fuente
           </h4>
           {health.isLoading ? (
             <Skeleton className="h-16 w-full" />

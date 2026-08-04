@@ -19,6 +19,17 @@
  *   GAP                  — provider has rows we do not have
  *   TRANSFER_FAILED      — re-sync ran and rows still did not land
  *   PROVIDER_UNAVAILABLE — provider errored/timed out; nothing can be concluded
+ *
+ * ITERATION 23 — plausible-empty is the dangerous case.
+ *   PROVIDER_NO_ROWS is an assertion about the SOURCE ("there is nothing
+ *   there"). It may only be recorded when the provider returned a well-formed
+ *   successful inventory that genuinely contained zero rows. Every other
+ *   outcome — non-2xx, timeout, abort, limiter exhaustion, malformed body — is
+ *   ours or the provider's infrastructure and is recorded as
+ *   INFRA_FAILURE / PROVIDER_JOB_ABORTED / PROVIDER_NEVER_COMPLETES with the
+ *   verbatim response. Additionally, provider 0 + local > 0 is never accepted
+ *   at face value: it is recorded as PROVIDER_INVENTORY_SUSPECT and re-queried
+ *   once before it may settle on PROVIDER_NO_ROWS.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -111,6 +122,77 @@ const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
 
 /**
+ * ITERATION 23 — like-for-like comparison.
+ *
+ * Each provider only produces ONE row kind. Six ledger rows read
+ * "cpnu · PUB · provider 0 / local 6 · PROVIDER_NO_ROWS": CPNU never emits
+ * publicaciones, and the local side was counting `work_item_publicaciones`
+ * rows written by the *Publicaciones* provider. Nothing was missing; the
+ * comparison was apples-to-oranges. A provider is now only reconciled against
+ * the row kind it actually produces, and the local side only counts rows
+ * attributed to that same provider.
+ */
+const PROVIDER_ROW_KINDS: Record<string, Array<"ACT" | "PUB">> = {
+  cpnu: ["ACT"],
+  samai: ["ACT"],
+  tutelas: ["ACT"],
+  publicaciones: ["PUB"],
+  samai_estados: ["PUB"],
+};
+
+/** Local `source` values attributable to each provider (case-insensitive). */
+const PROVIDER_LOCAL_SOURCES: Record<string, string[]> = {
+  cpnu: ["cpnu", "cpnu+tutelas"],
+  samai: ["samai"],
+  tutelas: ["tutelas", "cpnu+tutelas"],
+  publicaciones: ["publicaciones", "pp"],
+  samai_estados: ["samai_estados"],
+};
+
+/**
+ * Failure taxonomy ratified with GCP (iteration 23 item 5). An exhausted
+ * limiter, an aborted job, an OOM or a 401/403 is never an empty result.
+ */
+type FailureState = "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
+
+function classifyProviderFailure(res: ProviderAdapterResult): { state: FailureState; detail: string } | null {
+  const msg = String(res.errorMessage ?? "").trim();
+  const lower = msg.toLowerCase();
+  const http = res.httpStatus ?? 0;
+
+  if (res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
+    return {
+      state: "PROVIDER_NEVER_COMPLETES",
+      detail: msg || `${res.provider}: ${res.status} — el trabajo no completó dentro del sondeo`,
+    };
+  }
+
+  const abortish = /abort|cancel|limiter|rate.?limit|too many|429|oom|out of memory|killed|memory limit|job failed|scraping (trigger )?failed/
+    .test(lower);
+  const infraish = /401|403|unauthorized|forbidden|auth|invalid_json|malformed|html|cannot get|route|5\d\d|bad gateway|econn|network|fetch failed|dns/
+    .test(lower) || http === 401 || http === 403 || http === 429 || http >= 500;
+
+  if (res.status === "ERROR") {
+    return {
+      state: abortish && !infraish ? "PROVIDER_JOB_ABORTED" : "INFRA_FAILURE",
+      detail: msg || `${res.provider}: ERROR sin mensaje (HTTP ${http || "?"})`,
+    };
+  }
+
+  // `EMPTY` is the trap: several adapters return EMPTY for outcomes that are
+  // in fact failures ("Scraping trigger failed", auth rejections, malformed
+  // bodies). Only a clean, well-formed zero-row answer survives this filter.
+  if (res.status === "EMPTY" && msg) {
+    if (abortish) return { state: "PROVIDER_JOB_ABORTED", detail: msg };
+    if (infraish) return { state: "INFRA_FAILURE", detail: msg };
+  }
+  if (http && (http < 200 || http >= 300) && http !== 404) {
+    return { state: "INFRA_FAILURE", detail: msg || `HTTP ${http}` };
+  }
+  return null;
+}
+
+/**
  * ITERATION 21 — "the error is the bug before the bug".
  *
  * `supabase.functions.invoke()` throws away the response body and reports the
@@ -173,7 +255,14 @@ const CHAIN: Record<string, string[]> = {
 const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
 
 type TransferState =
-  | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE";
+  | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_INVENTORY_SUSPECT" | "INFRA_FAILURE" | "PROVIDER_JOB_ABORTED" | "PROVIDER_NEVER_COMPLETES";
+
+/** States that assert nothing about transferred rows. */
+const NON_CONCLUSIVE: TransferState[] = [
+  "PROVIDER_UNAVAILABLE", "PROVIDER_INVENTORY_SUSPECT",
+  "INFRA_FAILURE", "PROVIDER_JOB_ABORTED", "PROVIDER_NEVER_COMPLETES",
+];
 
 interface LedgerLine {
   work_item_id: string;
@@ -298,9 +387,17 @@ Deno.serve(async (req) => {
 
   /** Persist one ledger line immediately so a timeout never loses evidence. */
   async function persistLine(line: LedgerLine, organizationId: string | null) {
-    const isGap = line.transfer_state === "GAP"
-      || line.transfer_state === "TRANSFER_FAILED"
-      || line.transfer_state === "PROVIDER_UNAVAILABLE";
+    // Iteration 23: only states that genuinely indicate LOSS open a gap clock.
+    // A provider that did not answer proves nothing and must never raise
+    // BRIDGE_TRANSFER_GAP.
+    const isGap = line.transfer_state === "GAP" || line.transfer_state === "TRANSFER_FAILED";
+
+    // Iteration 21 item 1 must never leave a failure state without evidence.
+    if (!line.last_error && (isGap || NON_CONCLUSIVE.includes(line.transfer_state))) {
+      line.last_error = line.transfer_state === "TRANSFER_FAILED"
+        ? `Re-sincronización ejecutada sin error HTTP y ${line.missing_count} fila(s) siguen sin aterrizar (${line.provider_key}/${line.row_kind}). Huellas: ${line.missing_fingerprints.slice(0, 5).join(", ") || "n/d"}`
+        : `${line.provider_key}: ${line.transfer_state} sin detalle reportado por el adaptador`;
+    }
 
     const { data: existing } = await admin
       .from("bridge_inventory_ledger")
@@ -347,6 +444,8 @@ Deno.serve(async (req) => {
       const res = await callProvider(provider, radicado, wi.id, forceRefresh);
       if (!res) continue;
 
+      const failure = classifyProviderFailure(res);
+
       // Record raw source health regardless of outcome.
       const emitted = res.actuaciones.length + res.publicaciones.length;
       await admin.from("provider_source_health").upsert({
@@ -355,30 +454,44 @@ Deno.serve(async (req) => {
         provider_key: provider,
         last_run_at: new Date().toISOString(),
         last_row_emitted_at: emitted > 0 ? new Date().toISOString() : undefined,
-        terminal_state: res.status === "ERROR"
-          ? "PROVIDER_JOB_FAILED"
-          : res.status === "TIMEOUT"
-            ? "PROVIDER_NEVER_COMPLETES"
-            : null,
-        note: res.errorMessage?.slice(0, 400) ?? null,
+        // Iteration 23: GCP's ratified taxonomy travels verbatim into our
+        // health signal. INFRA_FAILURE is ours and stays in platform health;
+        // only PROVIDER_NEVER_COMPLETES may ever surface on a matter.
+        terminal_state: failure?.state ?? null,
+        note: (failure?.detail ?? res.errorMessage)?.slice(0, 400) ?? null,
       }, { onConflict: "radicado,provider_key" });
 
       if (res.status === "ERROR" || res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
         const line: LedgerLine = {
-          work_item_id: wi.id, radicado, provider_key: provider, row_kind: "ACT",
+          work_item_id: wi.id, radicado, provider_key: provider,
+          row_kind: PROVIDER_ROW_KINDS[provider]?.[0] ?? "ACT",
           provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
-          transfer_state: "PROVIDER_UNAVAILABLE", missing_fingerprints: [],
-          last_error: res.errorMessage ?? res.status,
+          transfer_state: failure?.state ?? "PROVIDER_UNAVAILABLE",
+          missing_fingerprints: [],
+          last_error: failure?.detail ?? res.errorMessage ?? res.status,
         };
         lines.push(line);
         await persistLine(line, wi.organization_id ?? null);
         continue;
       }
 
-      for (const kind of ["ACT", "PUB"] as const) {
+      // A "successful" answer that is really a failure (see classifier) may not
+      // become PROVIDER_NO_ROWS either.
+      if (failure) {
+        const line: LedgerLine = {
+          work_item_id: wi.id, radicado, provider_key: provider,
+          row_kind: PROVIDER_ROW_KINDS[provider]?.[0] ?? "ACT",
+          provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
+          transfer_state: failure.state, missing_fingerprints: [],
+          last_error: failure.detail,
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
+        continue;
+      }
+
+      for (const kind of (PROVIDER_ROW_KINDS[provider] ?? ["ACT", "PUB"])) {
         const rows = kind === "ACT" ? res.actuaciones : res.publicaciones;
-        if (kind === "PUB" && res.actuaciones.length > 0 && rows.length === 0) continue;
-        if (kind === "ACT" && res.actuaciones.length === 0 && res.publicaciones.length > 0) continue;
 
         // Deduplicate provider rows on their strongest identity so a provider
         // that repeats a row across pages is not counted twice.
@@ -392,17 +505,23 @@ Deno.serve(async (req) => {
         const localState = async (): Promise<{ ids: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
           const cols = kind === "ACT"
-            ? "hash_fingerprint, act_date, description, raw_data"
-            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data";
+            ? "hash_fingerprint, act_date, description, raw_data, source"
+            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data, source";
           const { data } = await admin.from(table)
             .select(cols)
             .eq("work_item_id", wi.id)
             .limit(2000);
+          // Like-for-like: only rows attributable to THIS provider count as the
+          // local side of THIS provider's inventory.
+          const allowed = PROVIDER_LOCAL_SOURCES[provider] ?? [];
+          const own = ((data ?? []) as unknown as Record<string, any>[]).filter((r) =>
+            allowed.length === 0 || allowed.includes(String(r.source ?? "").toLowerCase())
+          );
           const ids = new Set<string>();
-          for (const r of (data ?? []) as unknown as Record<string, any>[]) {
+          for (const r of own) {
             for (const id of localIdentities(kind, r, wi.id)) ids.add(id);
           }
-          return { ids, count: (data ?? []).length };
+          return { ids, count: own.length };
         };
 
         const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
@@ -412,15 +531,53 @@ Deno.serve(async (req) => {
         let missing = [...providerRows.entries()]
           .filter(([, ids]) => !landed(ids, local.ids))
           .map(([key]) => key);
-        const providerCount = providerRows.size;
+        let providerCount = providerRows.size;
         let recovered = 0;
         let state: TransferState = providerCount === 0
           ? "PROVIDER_NO_ROWS"
           : missing.length === 0 ? "IN_SYNC" : "GAP";
         let lastError: string | null = null;
 
-        // Self-healing bridge: a gap re-runs the persistence path once.
-        if (heal && missing.length > 0) {
+        // ITERATION 23 item 1b — provider 0 + local > 0 is never taken at face
+        // value. We re-query once, after a cool-off that keeps us out of the
+        // CPNU polling window, and only settle on NO_ROWS when the second,
+        // clean answer also returns zero.
+        if (providerCount === 0 && local.count > 0) {
+          state = "PROVIDER_INVENTORY_SUSPECT";
+          lastError = `Inventario 0 del proveedor con ${local.count} fila(s) locales de la misma fuente: se reconsulta antes de concluir.`;
+          await new Promise((r) => setTimeout(r, 5000));
+          const second = await callProvider(provider, radicado, wi.id, true);
+          const secondFailure = second ? classifyProviderFailure(second) : null;
+          if (!second || secondFailure) {
+            state = secondFailure?.state ?? "PROVIDER_UNAVAILABLE";
+            lastError = secondFailure?.detail ?? "Reconsulta sin respuesta utilizable";
+          } else {
+            const secondRows = kind === "ACT" ? second.actuaciones : second.publicaciones;
+            const rows2 = new Map<string, string[]>();
+            for (const r of secondRows as unknown as Record<string, any>[]) {
+              const ids = providerIdentities(kind, r, wi.id);
+              if (ids.length === 0) continue;
+              if (!rows2.has(ids[0])) rows2.set(ids[0], ids);
+            }
+            if (rows2.size === 0) {
+              state = "PROVIDER_NO_ROWS";
+              lastError = null;
+            } else {
+              for (const [k, v] of rows2) providerRows.set(k, v);
+              providerCount = providerRows.size;
+              missing = [...providerRows.entries()]
+                .filter(([, ids]) => !landed(ids, local.ids))
+                .map(([key]) => key);
+              state = missing.length === 0 ? "IN_SYNC" : "GAP";
+              lastError = null;
+            }
+          }
+        }
+
+        // Self-healing bridge: a gap re-runs the persistence path once. Only a
+        // conclusive GAP may heal — a suspect or unavailable inventory has not
+        // established that anything is missing.
+        if (heal && state === "GAP" && missing.length > 0) {
           const fn = kind === "ACT" ? "sync-by-work-item" : "sync-publicaciones-by-work-item";
           // `_scheduled` is the service-role contract of both sync functions:
           // it skips the interactive JWT/membership check. `_force` bypasses

@@ -21,6 +21,18 @@ export interface BridgeVerification {
   recoveredRows: number;
 }
 
+/**
+ * Iteration 23: the ratified failure taxonomy. None of these states asserts
+ * anything about the source, so none of them may license a pause.
+ */
+const NON_CONCLUSIVE_STATES = new Set([
+  "PROVIDER_UNAVAILABLE",
+  "PROVIDER_INVENTORY_SUSPECT",
+  "INFRA_FAILURE",
+  "PROVIDER_JOB_ABORTED",
+  "PROVIDER_NEVER_COMPLETES",
+]);
+
 export async function verifyWithProvider(workItemId: string): Promise<BridgeVerification> {
   const fallback: BridgeVerification = {
     hasProviderRows: false,
@@ -39,7 +51,7 @@ export async function verifyWithProvider(workItemId: string): Promise<BridgeVeri
 
   return {
     hasProviderRows: providerRowCount > 0,
-    providerAnswered: lines.some((l) => l.transfer_state !== "PROVIDER_UNAVAILABLE"),
+    providerAnswered: lines.some((l) => !NON_CONCLUSIVE_STATES.has(l.transfer_state)),
     providerRowCount,
     recoveredRows: Number(data.recovered_rows ?? 0),
   };
