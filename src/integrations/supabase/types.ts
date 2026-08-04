@@ -151,7 +151,7 @@ export type Database = {
           },
         ]
       }
-      actuaciones: {
+      actuaciones_legacy_20260131: {
         Row: {
           act_date: string | null
           act_date_raw: string | null
@@ -3580,7 +3580,7 @@ export type Database = {
             foreignKeyName: "cgp_milestones_source_actuacion_id_fkey"
             columns: ["source_actuacion_id"]
             isOneToOne: false
-            referencedRelation: "actuaciones"
+            referencedRelation: "actuaciones_legacy_20260131"
             referencedColumns: ["id"]
           },
           {
@@ -17929,14 +17929,24 @@ export type Database = {
         Args: { p_deadline_date: string }
         Returns: string
       }
-      classify_discovery: {
-        Args: {
-          p_detected_at: string
-          p_legal_date: string
-          p_run_mode: string
-        }
-        Returns: string
-      }
+      classify_discovery:
+        | {
+            Args: {
+              p_detected_at: string
+              p_legal_date: string
+              p_run_mode: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_detected_at: string
+              p_enrolled_on: string
+              p_legal_date: string
+              p_run_mode: string
+            }
+            Returns: string
+          }
       classify_email_evidence_subtype: {
         Args: { p_sender: string; p_subject: string }
         Returns: string
@@ -17987,6 +17997,10 @@ export type Database = {
           p_court_name: string
         }
         Returns: string
+      }
+      count_anexos_nuevos: {
+        Args: { p_organization_id: string; p_since: string }
+        Returns: number
       }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
