@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
       const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
-        body: JSON.stringify({ health_check: true }),
+        body: JSON.stringify(body.probe_payload ?? { health_check: true }),
       });
       return { status: r.status, body: (await r.text()).slice(0, 200) };
     };
