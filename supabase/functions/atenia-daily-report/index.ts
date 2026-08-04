@@ -417,6 +417,19 @@ function generateTxtReport(
     ln("  [Health snapshot unavailable]");
   }
 
+  // Iteration 13.1 — persisted-news headline (never "detected but not landed")
+  const ledger = results.find(r => r.name === "DISCOVERY_LEDGER");
+  if (ledger?.status === "OK") {
+    const d = ledger.output as any;
+    ln();
+    ln("  Ingesta de hoy (persistida):");
+    ln(`    Novedades persistidas:       ${d.persisted_news_total ?? 0} (actuaciones ${d.persisted_news_acts ?? 0} · estados ${d.persisted_news_pubs ?? 0})`);
+    ln(`    Históricas (barrido explícito): ${(d.historicas_sweep_acts ?? 0) + (d.historicas_sweep_pubs ?? 0)}`);
+    ln(`    Anexos nuevos (índice digital): ${d.anexos_nuevos ?? 0}`);
+    ln(`    Actuaciones con fecha futura marcadas: ${d.future_dated_acts_flagged ?? 0}`);
+    ln(`    Expedientes con monitoreo desactivado: ${d.monitoring_disabled_items ?? 0}`);
+  }
+
   // Alerts
   const queueResult = results.find(r => r.name === "REMEDIATION_QUEUE");
   const incidentResult = results.find(r => r.name === "INCIDENTS");
