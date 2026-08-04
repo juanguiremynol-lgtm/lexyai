@@ -45,7 +45,6 @@ const navItems = [
   { title: "Dashboard", url: "/app/dashboard", icon: LayoutDashboard },
   { title: "Clientes", url: "/app/clients", icon: Briefcase },
   { title: "Procesos", url: "/app/processes", icon: Scale },
-  { title: "Sin monitoreo", url: "/app/sin-monitoreo", icon: PauseCircle },
   { title: "Estados de Hoy", url: "/app/estados-hoy", icon: Newspaper, countKey: 'estados' as const },
   { title: "Actuaciones de Hoy", url: "/app/actuaciones-hoy", icon: Scale, countKey: 'actuaciones' as const },
   { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
