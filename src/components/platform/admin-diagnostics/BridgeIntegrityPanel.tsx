@@ -205,6 +205,58 @@ export function BridgeIntegrityPanel() {
           <h4 className="flex items-center gap-2 text-sm font-medium">
             <ScanEye className="h-4 w-4" /> Salud por fuente
           </h4>
+        </section>
+
+        <section className="space-y-2">
+          <h4 className="flex items-center gap-2 text-sm font-medium">
+            <PlugZap className="h-4 w-4" /> Infraestructura de los servicios de proveedor
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            Señales operativas nuestras. Nunca se presentan como un hecho del expediente.
+          </p>
+          {infra.isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : (infra.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin métricas disponibles.</p>
+          ) : (
+            <div className="space-y-2">
+              {(infra.data ?? []).map((s) => (
+                <div key={s.provider} className="rounded-md border p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium uppercase">{s.provider}</span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        s.degraded
+                          ? "border-amber-500/50 text-amber-600"
+                          : s.ok
+                            ? "border-emerald-500/50 text-emerald-600"
+                            : "border-destructive/50 text-destructive"
+                      }`}
+                    >
+                      {s.degraded ? "Degradado" : s.ok ? "Operativo" : "Sin conexión"}
+                      {s.service_status ? ` · ${s.service_status}` : ""}
+                      {typeof s.latencyMs === "number" ? ` · ${s.latencyMs} ms` : ""}
+                    </Badge>
+                  </div>
+                  <div className="space-y-0.5">
+                    {Object.entries(METRIC_LABEL).map(([key, label]) => (
+                      <p key={key} className="text-[10px] text-muted-foreground">
+                        <span className="font-medium">{label}:</span>{" "}
+                        {summarizeMetric((s.metrics ?? {})[key])}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-2">
+          <h4 className="flex items-center gap-2 text-sm font-medium">
+            <ScanEye className="h-4 w-4" /> Detalle por fuente
+          </h4>
           {health.isLoading ? (
             <Skeleton className="h-16 w-full" />
           ) : (health.data ?? []).length === 0 ? (
