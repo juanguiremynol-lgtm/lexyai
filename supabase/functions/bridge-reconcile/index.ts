@@ -151,6 +151,30 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* empty body is valid */ }
 
+  // Permanent auth diagnostic: iteration 21 traced the opaque non-2xx to the
+  // header shape used for internal service-role calls. Keep the probe so the
+  // next credential rotation is diagnosable in one call instead of a week.
+  if (body.probe_auth === true) {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-publicaciones-by-work-item`;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const probe = async (headers: Record<string, string>) => {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ health_check: true }),
+      });
+      return { status: r.status, body: (await r.text()).slice(0, 200) };
+    };
+    return new Response(JSON.stringify({
+      ok: true,
+      key_shape: key.startsWith("sb_secret_") ? "opaque_sb_secret" : key.startsWith("ey") ? "legacy_jwt" : "unknown",
+      key_len: key.length,
+      authorization_only: await probe({ Authorization: `Bearer ${key}` }),
+      apikey_only: await probe({ apikey: key }),
+      both: await probe({ apikey: key, Authorization: `Bearer ${key}` }),
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const workItemIds = Array.isArray(body.work_item_ids) ? body.work_item_ids as string[] : null;
   const radicados = Array.isArray(body.radicados) ? body.radicados as string[] : null;
   const limit = Math.min(Number(body.limit ?? 25) || 25, 100);
