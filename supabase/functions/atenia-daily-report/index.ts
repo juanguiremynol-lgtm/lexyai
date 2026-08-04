@@ -122,6 +122,25 @@ async function toolCronWatchdogStatus(sb: any): Promise<Record<string, unknown>>
 }
 
 async function toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
+  return await _toolDeadLetterSummary(sb);
+}
+
+/** pg_cron job health across EVERY scheduled job (no whitelist). */
+async function toolPgCronHealth(sb: any): Promise<Record<string, unknown>> {
+  const { data, error } = await sb.rpc("cron_job_health");
+  if (error) throw new Error(error.message);
+  const jobs = (data ?? []) as any[];
+  return {
+    total_jobs: jobs.length,
+    never_succeeded: jobs.filter((j) => j.active && j.never_succeeded).map((j) => j.jobname),
+    failing: jobs
+      .filter((j) => j.active && j.consecutive_failures >= 3)
+      .map((j) => ({ jobname: j.jobname, consecutive_failures: j.consecutive_failures, last_error: j.last_error })),
+    jobs,
+  };
+}
+
+async function _toolDeadLetterSummary(sb: any): Promise<Record<string, unknown>> {
   const { data } = await sb
     .from("sync_item_failure_tracker")
     .select("work_item_id, organization_id, consecutive_failures, last_failure_reason, dead_lettered, work_items(workflow_type, radicado)")
@@ -349,6 +368,7 @@ function getTools(): ToolDef[] {
     { name: "REMEDIATION_QUEUE", label: "Remediation Queue", fn: toolRemediationQueue },
     { name: "DEAD_LETTER_SUMMARY", label: "Dead Letter Summary", fn: toolDeadLetterSummary },
     { name: "CRON_WATCHDOG", label: "Cron / Watchdog Status", fn: toolCronWatchdogStatus },
+    { name: "PG_CRON_HEALTH", label: "pg_cron Job Health (all jobs)", fn: toolPgCronHealth },
     { name: "PREFLIGHT_CHECKS", label: "Preflight Checks", fn: toolPreflightChecks },
     { name: "DEEP_DIVES", label: "Deep Dives (today)", fn: toolDeepDives },
     { name: "E2E_TESTS", label: "E2E Tests (today)", fn: toolE2eTests },
@@ -533,6 +553,22 @@ function generateTxtReport(
     }
   } else {
     ln("  [Cron/Watchdog data unavailable]");
+  }
+  ln();
+
+  const pgCron = results.find(r => r.name === "PG_CRON_HEALTH");
+  ln("pg_cron jobs (all scheduled jobs):");
+  if (pgCron?.status === "OK") {
+    const out = pgCron.output as any;
+    const jobs = out?.jobs || [];
+    ln(`  total=${jobs.length}, nunca exitosos=${(out?.never_succeeded || []).length}, con 3+ fallos=${(out?.failing || []).length}`);
+    for (const j of jobs) {
+      const flag = j.never_succeeded ? "NEVER_SUCCEEDED" : (j.consecutive_failures >= 3 ? "FAILING" : "ok");
+      ln(`  [${flag}] ${j.jobname} — schedule=${j.schedule}, last_status=${j.last_status}, last_success=${j.last_success}, consecutive_failures=${j.consecutive_failures}`);
+      if (j.last_error) ln(`    last_error: ${String(j.last_error).slice(0, 200)}`);
+    }
+  } else {
+    ln("  [pg_cron health unavailable]");
   }
   ln();
 

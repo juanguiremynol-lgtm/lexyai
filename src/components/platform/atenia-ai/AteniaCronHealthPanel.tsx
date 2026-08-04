@@ -99,6 +99,32 @@ export function AteniaCronHealthPanel() {
     refetchInterval: 120_000,
   });
 
+  // pg_cron health — every scheduled job, no whitelist
+  const { data: pgCron, isLoading: loadingPgCron } = useQuery({
+    queryKey: ["pg-cron-health"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cron_job_health" as any);
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        jobname: string;
+        schedule: string;
+        active: boolean;
+        last_run: string | null;
+        last_status: string | null;
+        last_success: string | null;
+        consecutive_failures: number;
+        never_succeeded: boolean;
+        failing_hours: number;
+        last_error: string | null;
+      }>;
+    },
+    refetchInterval: 120_000,
+  });
+
+  const pgCronProblems = (pgCron ?? []).filter(
+    (j) => j.active && (j.never_succeeded || j.consecutive_failures >= 3),
+  );
+
   const triggerWatchdog = async () => {
     try {
       const { error } = await supabase.functions.invoke("atenia-cron-watchdog");
@@ -250,6 +276,67 @@ export function AteniaCronHealthPanel() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Sin datos de cobertura</p>
+          )}
+        </div>
+
+        {/* pg_cron jobs — todos */}
+        <div>
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-1.5">
+            <ShieldCheck className="h-4 w-4" />
+            Jobs programados (pg_cron)
+            {pgCronProblems.length > 0 && (
+              <Badge variant="destructive" className="text-xs ml-1">
+                {pgCronProblems.length} con fallos
+              </Badge>
+            )}
+          </h4>
+          {loadingPgCron ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+            </div>
+          ) : (pgCron ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin jobs programados visibles</p>
+          ) : (
+            <div className="rounded-lg border divide-y">
+              {(pgCron ?? [])
+                .slice()
+                .sort((a, b) => {
+                  const rank = (j: typeof a) => (j.never_succeeded ? 0 : j.consecutive_failures >= 3 ? 1 : 2);
+                  return rank(a) - rank(b) || a.jobname.localeCompare(b.jobname);
+                })
+                .map((j) => {
+                  const broken = j.never_succeeded || j.consecutive_failures >= 3;
+                  return (
+                    <div key={j.jobname} className="flex items-start gap-3 p-3">
+                      {broken ? (
+                        <XCircle className="h-4 w-4 mt-0.5 text-red-500 flex-shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-500 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{j.jobname}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {j.schedule} · último éxito:{" "}
+                          {j.last_success
+                            ? formatDistanceToNow(new Date(j.last_success), { addSuffix: true, locale: es })
+                            : "nunca"}
+                        </p>
+                        {j.last_error && (
+                          <p className="text-xs text-red-500 truncate">{j.last_error}</p>
+                        )}
+                      </div>
+                      {j.consecutive_failures > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {j.consecutive_failures} fallos
+                        </Badge>
+                      )}
+                      {!j.active && (
+                        <Badge variant="secondary" className="text-xs">Inactivo</Badge>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           )}
         </div>
       </CardContent>
