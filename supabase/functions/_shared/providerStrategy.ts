@@ -13,6 +13,7 @@
  * │ LABORAL    │ CPNU → SAMAI, TUTELAS        │ PUBLICACIONES → SAMAI_EST,TUT│
  * │ CPACA      │ SAMAI → CPNU, TUTELAS        │ SAMAI_ESTADOS → PUBS, TUT    │
  * │ TUTELA     │ ALL (merge all)              │ ALL (merge all)              │
+ * │ INDETERMIN.│ CPNU + SAMAI (merge)         │ PUBS + SAMAI_EST (merge)     │
  * │ PENAL_906  │ CPNU → TUTELAS, SAMAI        │ PUBLICACIONES → SAMAI_EST,TUT│
  * │ PETICION   │ (none)                       │ (none)                       │
  * │ GOV_PROC   │ (none)                       │ (none)                       │
@@ -75,6 +76,15 @@ const STRATEGY_MAP: Record<string, CategoryStrategy> = {
     fallbackActuaciones: ["TUTELAS", "SAMAI"],
     primaryEstados: ["PUBLICACIONES"],
     fallbackEstados: ["SAMAI_ESTADOS", "TUTELAS"],
+  },
+  // Subject matter not determined yet (mixed-competence court). Monitoring
+  // stays active and merges every provider, exactly like TUTELA.
+  INDETERMINADO: {
+    alwaysMergeAll: true,
+    primaryActuaciones: ["CPNU", "SAMAI"],
+    fallbackActuaciones: ["TUTELAS"],
+    primaryEstados: ["PUBLICACIONES", "SAMAI_ESTADOS"],
+    fallbackEstados: ["TUTELAS"],
   },
   PETICION: {
     alwaysMergeAll: false,
