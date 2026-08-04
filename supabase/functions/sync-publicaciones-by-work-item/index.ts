@@ -34,6 +34,7 @@ import {
   SYNC_COOLDOWN_MS,
 } from "../_shared/onlineSyncEligibility.ts";
 import { resolveProviders } from "../_shared/providerRouting.ts";
+import { reconcileSyncRunPersistence } from "../_shared/syncOrchestrator.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1444,6 +1445,21 @@ Deno.serve(withSyncTimeline(async (req) => {
       inserted: [],
     };
 
+    // ── Iteration 13.1: per-row persistence ledger (publicaciones path) ──
+    // Same contract as the acts path: every parsed row must land in exactly one
+    // bucket, or surface as ERROR with the Postgres message. Nothing vanishes.
+    const pubLedger = {
+      parsed: 0,
+      inserted: 0,
+      updated: 0,
+      skippedDuplicate: 0,
+      skippedStructural: 0,
+      rejected: 0,
+      errored: 0,
+      uniqueViolations: 0,
+      outcomes: [] as Array<Record<string, unknown>>,
+    };
+
     // ============= FETCH PUBLICACIONES (v3 SYNCHRONOUS API) =============
     // Safety timeout: abort fetch if we're approaching edge function hard limit (~150s).
     // This prevents the entire function from timing out and producing an unrecoverable error.
@@ -2114,6 +2130,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (insertError) {
         console.error(`[sync-pub] RPC client error: ${JSON.stringify(insertError)}`);
         result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
+        pubLedger.parsed++;
+        pubLedger.errored++;
+        pubLedger.outcomes.push({
+          bucket: 'ERROR',
+          title: pub.titulo || null,
+          reason: insertError.message,
+        });
         if (isSamai && result.samai_estados_summary) {
           recordSamaiOutcome(
             result.samai_estados_summary,
@@ -2125,12 +2148,34 @@ Deno.serve(withSyncTimeline(async (req) => {
         }
       } else {
         const counts = rpcResult as {
+          parsed_count?: number;
           inserted_count: number;
           updated_count: number;
           skipped_count: number;
+          structural_count?: number;
+          rejected_count?: number;
+          error_count?: number;
+          unique_violation_count?: number;
           errors?: string[];
           outcomes?: Array<{ bucket: SamaiPersistBucket; title?: string; reason?: string }>;
         };
+
+        // Ledger accumulation (per-row buckets straight from the RPC).
+        pubLedger.parsed += counts.parsed_count ?? 1;
+        pubLedger.inserted += counts.inserted_count || 0;
+        pubLedger.updated += counts.updated_count || 0;
+        pubLedger.skippedStructural += counts.structural_count || 0;
+        pubLedger.skippedDuplicate += Math.max(
+          0,
+          (counts.skipped_count || 0) - (counts.structural_count || 0),
+        );
+        pubLedger.rejected += counts.rejected_count || 0;
+        pubLedger.errored += counts.error_count || 0;
+        pubLedger.uniqueViolations += counts.unique_violation_count || 0;
+        if (Array.isArray(counts.outcomes)) {
+          pubLedger.outcomes.push(...(counts.outcomes as Array<Record<string, unknown>>));
+        }
+
         if (isSamai && result.samai_estados_summary) {
           const terminal = counts.outcomes?.[0];
           if (terminal) {
@@ -2552,7 +2597,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ── Record external_sync_run for publicaciones (best-effort) ──
     try {
       const invokedBy = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
-      await supabase.from('external_sync_runs').insert({
+      const { data: runRow } = await supabase.from('external_sync_runs').insert({
         work_item_id,
         organization_id: workItem.organization_id,
         invoked_by: invokedBy,
@@ -2595,7 +2640,51 @@ Deno.serve(withSyncTimeline(async (req) => {
         details: result.samai_estados_summary
           ? { samai_estados: result.samai_estados_summary }
           : {},
-      });
+      }).select('id').single();
+
+      // ── Iteration 13.1: dump the per-row buckets and reconcile the run ──
+      const pubAccounted =
+        pubLedger.inserted +
+        pubLedger.updated +
+        pubLedger.skippedDuplicate +
+        pubLedger.skippedStructural;
+      const pubUnaccounted = Math.max(
+        0,
+        pubLedger.parsed - pubAccounted - pubLedger.rejected - pubLedger.errored,
+      );
+
+      if (pubLedger.parsed > 0 || pubUnaccounted > 0 || pubLedger.errored > 0) {
+        try {
+          await supabase.from('sync_persist_buckets').insert({
+            work_item_id,
+            organization_id: workItem.organization_id,
+            sync_run_id: runRow?.id ?? null,
+            provider: 'publicaciones',
+            data_kind: 'PUBLICACIONES',
+            parsed_count: pubLedger.parsed,
+            inserted_count: pubLedger.inserted,
+            updated_count: pubLedger.updated,
+            skipped_duplicate_count: pubLedger.skippedDuplicate,
+            skipped_structural_count: pubLedger.skippedStructural,
+            rejected_count: pubLedger.rejected,
+            error_count: pubLedger.errored,
+            unaccounted_count: pubUnaccounted,
+            outcomes: pubLedger.outcomes
+              .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
+              .slice(0, 200),
+          });
+        } catch { /* ledger is best-effort */ }
+
+        await reconcileSyncRunPersistence(supabase, runRow?.id ?? null, {
+          parsed: pubLedger.parsed,
+          inserted: pubLedger.inserted,
+          updated: pubLedger.updated,
+          skippedDuplicate: pubLedger.skippedDuplicate,
+          skippedStructural: pubLedger.skippedStructural,
+          rejected: pubLedger.rejected,
+          errored: pubLedger.errored,
+        }, 'PUBS');
+      }
     } catch (_traceErr) { /* best-effort */ }
 
     return jsonResponse(result);
