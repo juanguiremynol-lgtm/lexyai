@@ -25,6 +25,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
 import { toast } from "sonner";
+import {
+  documentUrlCandidates,
+  hasResolvableDocument,
+  isDirectlyOpenable,
+  openStoredDocument,
+} from "@/lib/document-url-resolver";
 
 interface EstadosTabProps {
   workItem: WorkItem;
