@@ -33,7 +33,10 @@ interface CoverageRow {
   provider_label: string;
   last_ok_run: string | null;
   last_ingest: string | null;
-  status_code: "CUBIERTO" | "SILENCIO_CONOCIDO" | "SIN_RESPUESTA" | "SIN_FILAS";
+  // Iteration 23: "SIN_RESPUESTA" is reserved for a provider that genuinely
+  // never completes. Failures on our own side surface as "EN_VERIFICACION" and
+  // are never stated as a fact about the matter.
+  status_code: "CUBIERTO" | "SILENCIO_CONOCIDO" | "SIN_RESPUESTA" | "EN_VERIFICACION" | "SIN_FILAS";
   status_label: string;
 }
 
@@ -54,6 +57,8 @@ function statusTone(code: CoverageRow["status_code"]) {
       return "border-sky-500/50 text-sky-600";
     case "SIN_RESPUESTA":
       return "border-amber-500/50 text-amber-600";
+    case "EN_VERIFICACION":
+      return "border-slate-400/50 text-slate-500";
     default:
       return "border-muted-foreground/40 text-muted-foreground";
   }
@@ -192,7 +197,7 @@ export function WorkItemCoveragePanel({
                   <Badge variant="outline" className={`gap-1 text-[10px] ${statusTone(row.status_code)}`}>
                     {row.status_code === "CUBIERTO" ? (
                       <Activity className="h-3 w-3" />
-                    ) : row.status_code === "SILENCIO_CONOCIDO" ? (
+                    ) : row.status_code === "SILENCIO_CONOCIDO" || row.status_code === "EN_VERIFICACION" ? (
                       <Info className="h-3 w-3" />
                     ) : (
                       <AlertTriangle className="h-3 w-3" />
@@ -201,9 +206,11 @@ export function WorkItemCoveragePanel({
                       ? "Cubierto"
                       : row.status_code === "SILENCIO_CONOCIDO"
                         ? "Silencio esperado"
-                        : row.status_code === "SIN_RESPUESTA"
-                          ? "Sin respuesta"
-                          : "Sin filas"}
+                        : row.status_code === "EN_VERIFICACION"
+                          ? "Verificación en curso"
+                          : row.status_code === "SIN_RESPUESTA"
+                            ? "Sin respuesta"
+                            : "Sin filas"}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">{row.status_label}</p>
