@@ -5302,6 +5302,42 @@ export type Database = {
           },
         ]
       }
+      despacho_coverage: {
+        Row: {
+          created_at: string
+          despacho_label: string
+          id: string
+          note: string
+          provider_key: string
+          publishes: boolean
+          radicado_prefix: string
+          updated_at: string
+          workflow_type: string | null
+        }
+        Insert: {
+          created_at?: string
+          despacho_label: string
+          id?: string
+          note: string
+          provider_key: string
+          publishes?: boolean
+          radicado_prefix: string
+          updated_at?: string
+          workflow_type?: string | null
+        }
+        Update: {
+          created_at?: string
+          despacho_label?: string
+          id?: string
+          note?: string
+          provider_key?: string
+          publishes?: boolean
+          radicado_prefix?: string
+          updated_at?: string
+          workflow_type?: string | null
+        }
+        Relationships: []
+      }
       detected_processes: {
         Row: {
           ciudad_inferida: string | null
@@ -9224,6 +9260,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      monitoring_reconciliation_log: {
+        Row: {
+          detail: Json
+          drift: string
+          id: string
+          radicado: string | null
+          ran_at: string
+          work_item_id: string | null
+          workflow_type: string | null
+        }
+        Insert: {
+          detail?: Json
+          drift: string
+          id?: string
+          radicado?: string | null
+          ran_at?: string
+          work_item_id?: string | null
+          workflow_type?: string | null
+        }
+        Update: {
+          detail?: Json
+          drift?: string
+          id?: string
+          radicado?: string | null
+          ran_at?: string
+          work_item_id?: string | null
+          workflow_type?: string | null
+        }
+        Relationships: []
       }
       mrr_pricing_config: {
         Row: {
@@ -15978,6 +16044,61 @@ export type Database = {
           },
         ]
       }
+      work_item_provider_enrollment: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          organization_id: string | null
+          provider_key: string
+          scope: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          organization_id?: string | null
+          provider_key: string
+          scope: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          organization_id?: string | null
+          provider_key?: string
+          scope?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_pub_extras: {
         Row: {
           created_at: string
@@ -18023,7 +18144,10 @@ export type Database = {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
       }
-      detect_monitoring_disabled_live: { Args: never; Returns: number }
+      despacho_silence_note: {
+        Args: { p_provider: string; p_radicado: string; p_workflow: string }
+        Returns: string
+      }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
         Returns: {
@@ -18179,6 +18303,18 @@ export type Database = {
       }
       get_user_org_id: { Args: never; Returns: string }
       get_user_organization_id: { Args: never; Returns: string }
+      get_work_item_coverage: {
+        Args: { p_work_item_id: string }
+        Returns: {
+          last_ingest: string
+          last_ok_run: string
+          provider_key: string
+          provider_label: string
+          scope: string
+          status_code: string
+          status_label: string
+        }[]
+      }
       get_work_item_recipients: {
         Args: { p_work_item_id: string }
         Returns: {
@@ -18267,26 +18403,11 @@ export type Database = {
         Returns: boolean
       }
       is_profile_complete: { Args: { p_user_id: string }; Returns: boolean }
-      is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
-      list_unmonitored_work_items: {
-        Args: never
-        Returns: {
-          last_act_date: string
-          last_act_description: string
-          last_ingest: string
-          lifecycle_state: string
-          monitoring_disabled_at: string
-          monitoring_disabled_by: string
-          monitoring_disabled_reason: string
-          organization_id: string
-          procedurally_live: boolean
-          radicado: string
-          stage: string
-          title: string
-          work_item_id: string
-          workflow_type: string
-        }[]
+      is_provider_monitored_workflow: {
+        Args: { p_workflow: string }
+        Returns: boolean
       }
+      is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]
@@ -18333,6 +18454,11 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      provider_chain_for_workflow: {
+        Args: { p_workflow: string }
+        Returns: string[]
+      }
+      provider_scope: { Args: { p_provider: string }; Returns: string }
       purge_old_data_access_logs: {
         Args: { p_retention_days?: number }
         Returns: number
@@ -18359,11 +18485,16 @@ export type Database = {
         Args: { p_user_id?: string }
         Returns: number
       }
+      reconcile_monitoring_invariant: { Args: never; Returns: Json }
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
+      resume_work_item_monitoring: {
+        Args: { p_work_item_id: string }
+        Returns: Json
+      }
       rpc_insert_notification: {
         Args: {
           p_audience_scope: string
@@ -18432,7 +18563,15 @@ export type Database = {
         }
         Returns: string
       }
+      suspend_work_item_monitoring: {
+        Args: { p_reason: string; p_work_item_id: string }
+        Returns: Json
+      }
       sync_suggestion_alerts: { Args: never; Returns: Json }
+      sync_work_item_enrollment: {
+        Args: { p_work_item_id: string }
+        Returns: number
+      }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       unaccent_lower_safe: { Args: { p_text: string }; Returns: string }
       update_daily_sync_ledger: {
