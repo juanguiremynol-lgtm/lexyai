@@ -117,6 +117,26 @@ export function BridgeIntegrityPanel() {
     },
   });
 
+  const infra = useQuery({
+    queryKey: ["gcp-provider-infra"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<ProviderInfra[]> => {
+      const { data, error } = await supabase.functions.invoke("integration-health", {
+        body: { provider_health: true },
+      });
+      if (error) throw error;
+      const ph = ((data as any)?.provider_health ?? {}) as Record<string, any>;
+      return Object.entries(ph).map(([provider, v]) => ({
+        provider,
+        ok: !!v?.connectivity?.ok,
+        service_status: v?.connectivity?.service_status,
+        degraded: !!v?.connectivity?.degraded,
+        latencyMs: v?.connectivity?.latencyMs,
+        metrics: v?.connectivity?.metrics ?? {},
+      }));
+    },
+  });
+
   async function runReconcile() {
     setRunning(true);
     const { error } = await supabase.functions.invoke("bridge-reconcile", { body: { limit: 25 } });
