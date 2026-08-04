@@ -27,6 +27,10 @@ export interface EstadoRow {
   despacho?: string | null;
   tipo_documento?: string | null;
   fecha?: string | null;
+  /** Provider text provenance — 'ocr' when the body was recovered from an image. */
+  origen_texto?: string | null;
+  /** Provider flagged the row as needing a human read. */
+  requiere_revision_manual?: boolean | null;
   gcs_url_auto?: string | null;
   gcs_url_tabla?: string | null;
   pdf_url?: string | null;
@@ -140,6 +144,14 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                       >
                         {fuenteLabel(r.fuente)}
                       </span>
+                      {(r.origen_texto?.toLowerCase() === "ocr" || r.requiere_revision_manual) && (
+                        <span
+                          className="inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                          title="El texto se recuperó por OCR desde una imagen. Verifique contra el PDF antes de tomar decisiones."
+                        >
+                          Texto recuperado por OCR — verifique
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="p-3 align-top text-sm text-foreground/85 break-words">

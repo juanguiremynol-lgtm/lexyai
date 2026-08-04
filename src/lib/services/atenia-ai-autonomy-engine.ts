@@ -9,6 +9,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { mayAutoSuspendMonitoring } from './bridge-verification';
 import {
   evaluateFreshnessClassification,
   evaluateFreshnessViolations,
@@ -384,6 +385,10 @@ async function evaluateAutoSuspend(
     if (!check.allowed) continue;
 
     const totalFailures = (item.consecutive_not_found ?? 0) + (item.consecutive_other_errors ?? 0);
+
+    // Iteration 20: provider inventory decides, not our failure counters.
+    const verdict = await mayAutoSuspendMonitoring(item.id);
+    if (!verdict.allowed) continue;
 
     try {
       await (supabase

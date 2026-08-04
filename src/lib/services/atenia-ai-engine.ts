@@ -8,6 +8,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { mayAutoSuspendMonitoring } from './bridge-verification';
 
 // ============= CONFIG =============
 
@@ -103,6 +104,11 @@ export async function processUnreachableItems(organizationId: string): Promise<D
   const demonitoredItems: DemonitorResult['items'] = [];
 
   for (const item of unreachableItems) {
+    // Iteration 20: consecutive 404s from our own sync path are not proof the
+    // matter is absent upstream. Verify against the provider inventory first.
+    const verdict = await mayAutoSuspendMonitoring(item.id);
+    if (!verdict.allowed) continue;
+
     const { error } = await (supabase
       .from('work_items') as any)
       .update({

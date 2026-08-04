@@ -3118,6 +3118,88 @@ export type Database = {
         }
         Relationships: []
       }
+      bridge_inventory_ledger: {
+        Row: {
+          created_at: string
+          first_gap_at: string | null
+          id: string
+          last_checked_at: string
+          last_error: string | null
+          local_count: number
+          missing_count: number
+          missing_fingerprints: Json
+          organization_id: string | null
+          provider_count: number
+          provider_key: string
+          radicado: string | null
+          recovered_count: number
+          row_kind: string
+          transfer_state: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          first_gap_at?: string | null
+          id?: string
+          last_checked_at?: string
+          last_error?: string | null
+          local_count?: number
+          missing_count?: number
+          missing_fingerprints?: Json
+          organization_id?: string | null
+          provider_count?: number
+          provider_key: string
+          radicado?: string | null
+          recovered_count?: number
+          row_kind?: string
+          transfer_state?: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          first_gap_at?: string | null
+          id?: string
+          last_checked_at?: string
+          last_error?: string | null
+          local_count?: number
+          missing_count?: number
+          missing_fingerprints?: Json
+          organization_id?: string | null
+          provider_count?: number
+          provider_key?: string
+          radicado?: string | null
+          recovered_count?: number
+          row_kind?: string
+          transfer_state?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cgp_deadline_rules: {
         Row: {
           cgp_variant: string
@@ -12543,6 +12625,82 @@ export type Database = {
           },
         ]
       }
+      provider_source_health: {
+        Row: {
+          consecutive_empty_runs: number
+          coverage_suspect: boolean
+          coverage_suspect_note: string | null
+          created_at: string
+          id: string
+          last_row_emitted_at: string | null
+          last_run_at: string | null
+          note: string | null
+          parse_mismatch_count: number
+          parse_mismatch_note: string | null
+          provider_key: string
+          radicado: string
+          terminal_state: string | null
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          consecutive_empty_runs?: number
+          coverage_suspect?: boolean
+          coverage_suspect_note?: string | null
+          created_at?: string
+          id?: string
+          last_row_emitted_at?: string | null
+          last_run_at?: string | null
+          note?: string | null
+          parse_mismatch_count?: number
+          parse_mismatch_note?: string | null
+          provider_key: string
+          radicado: string
+          terminal_state?: string | null
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          consecutive_empty_runs?: number
+          coverage_suspect?: boolean
+          coverage_suspect_note?: string | null
+          created_at?: string
+          id?: string
+          last_row_emitted_at?: string | null
+          last_run_at?: string | null
+          note?: string | null
+          parse_mismatch_count?: number
+          parse_mismatch_note?: string | null
+          provider_key?: string
+          radicado?: string
+          terminal_state?: string | null
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_source_health_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "provider_source_health_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "provider_source_health_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_sync_traces: {
         Row: {
           created_at: string
@@ -15263,6 +15421,7 @@ export type Database = {
           keywords_matched: string[] | null
           last_seen_at: string
           organization_id: string | null
+          origen_texto: string | null
           owner_id: string
           parsing_errors: string[] | null
           phase_inferred: number | null
@@ -15271,6 +15430,7 @@ export type Database = {
           provider_instance_id: string | null
           raw_data: Json | null
           raw_schema_version: string | null
+          requiere_revision_manual: boolean
           retro_gap_days: number | null
           scrape_date: string | null
           source: string | null
@@ -15320,6 +15480,7 @@ export type Database = {
           keywords_matched?: string[] | null
           last_seen_at?: string
           organization_id?: string | null
+          origen_texto?: string | null
           owner_id: string
           parsing_errors?: string[] | null
           phase_inferred?: number | null
@@ -15328,6 +15489,7 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
@@ -15377,6 +15539,7 @@ export type Database = {
           keywords_matched?: string[] | null
           last_seen_at?: string
           organization_id?: string | null
+          origen_texto?: string | null
           owner_id?: string
           parsing_errors?: string[] | null
           phase_inferred?: number | null
@@ -15385,6 +15548,7 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
@@ -16324,6 +16488,7 @@ export type Database = {
           is_retroactive: boolean
           last_seen_at: string
           organization_id: string
+          origen_texto: string | null
           pdf_available: boolean | null
           pdf_url: string | null
           provenance: Json | null
@@ -16333,6 +16498,7 @@ export type Database = {
           raw_data: Json | null
           raw_json: Json | null
           raw_schema_version: string | null
+          requiere_revision_manual: boolean
           retro_gap_days: number | null
           source: string
           sources: string[] | null
@@ -16371,6 +16537,7 @@ export type Database = {
           is_retroactive?: boolean
           last_seen_at?: string
           organization_id: string
+          origen_texto?: string | null
           pdf_available?: boolean | null
           pdf_url?: string | null
           provenance?: Json | null
@@ -16380,6 +16547,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           source?: string
           sources?: string[] | null
@@ -16418,6 +16586,7 @@ export type Database = {
           is_retroactive?: boolean
           last_seen_at?: string
           organization_id?: string
+          origen_texto?: string | null
           pdf_available?: boolean | null
           pdf_url?: string | null
           provenance?: Json | null
@@ -16427,6 +16596,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           source?: string
           sources?: string[] | null
@@ -18190,6 +18360,22 @@ export type Database = {
           table_name: string
           total_rows: number
           unmapped: number
+        }[]
+      }
+      bridge_gap_summary: {
+        Args: { _min_hours?: number }
+        Returns: {
+          hours_open: number
+          last_checked_at: string
+          last_error: string
+          local_count: number
+          missing_count: number
+          provider_count: number
+          provider_key: string
+          radicado: string
+          row_kind: string
+          transfer_state: string
+          work_item_id: string
         }[]
       }
       build_dedupe_key: {
