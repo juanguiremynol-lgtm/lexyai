@@ -30,9 +30,142 @@ import {
   fetchFromSamaiEstados,
   type ProviderAdapterResult,
 } from "../_shared/providerAdapters/index.ts";
+import {
+  canonicalActFingerprint,
+  canonicalPubFingerprint,
+} from "../_shared/canonicalFingerprint.ts";
+
+/**
+ * ITERATION 21 — false-gap elimination.
+ *
+ * The reconciler used to compare the adapter's `hash_fingerprint` against the
+ * stored `hash_fingerprint`. Those two strings are produced by two different
+ * ingestion paths (the shared adapter vs. the sync function's own mapper) that
+ * derive `tipo`/`title`/date differently, so an identical juridical fact hashed
+ * to two different values and the row was reported missing even while sitting
+ * in the table. El Retiro showed provider 3 / local 6 / missing 3 — arithmetic
+ * that can only come from mismatched identity, never from a real gap.
+ *
+ * Identity is now a SET per row: the provider's own row key (asset_id / key),
+ * the transported fingerprint, and the canonical fingerprint recomputed from
+ * the row's juridical fields. A provider row counts as landed when any of its
+ * identities matches any identity of any local row.
+ */
+function norm(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s && s !== "null" && s !== "undefined" ? s.toLowerCase() : null;
+}
+
+function providerIdentities(
+  kind: "ACT" | "PUB",
+  row: Record<string, any>,
+  workItemId: string,
+): string[] {
+  const raw = (row.raw_data ?? {}) as Record<string, any>;
+  const ids = [
+    norm(row.hash_fingerprint),
+    norm(row.asset_id ?? raw.asset_id ?? raw.id),
+    norm(row.key ?? raw.key),
+    norm(raw?.estado?.article_id),
+  ];
+  if (kind === "PUB") {
+    ids.push(norm(canonicalPubFingerprint({
+      work_item_id: workItemId,
+      pub_date: row.fecha_fijacion ?? row.published_at ?? raw.fecha_publicacion ?? null,
+      tipo_publicacion: row.tipo_publicacion ?? null,
+      title: row.title ?? raw.titulo ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  } else {
+    ids.push(norm(canonicalActFingerprint({
+      work_item_id: workItemId,
+      act_date: row.fecha_actuacion ?? row.act_date ?? null,
+      actuacion: row.actuacion ?? row.description ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  }
+  return ids.filter((x): x is string => Boolean(x));
+}
+
+function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItemId: string): string[] {
+  const raw = (row.raw_data ?? {}) as Record<string, any>;
+  const ids = [
+    norm(row.hash_fingerprint),
+    norm(raw.asset_id ?? raw.id),
+    norm(raw.key),
+    // The sync path stores the provider article id inside a composite key
+    // ("individual:184731165:<titulo>:<fecha>"); expose the bare token so it
+    // matches the provider's `raw_data.estado.article_id`.
+    norm(String(raw.key ?? "").split(":")[1]),
+  ];
+  if (kind === "PUB") {
+    ids.push(norm(canonicalPubFingerprint({
+      work_item_id: workItemId,
+      pub_date: row.fecha_fijacion ?? row.published_at ?? null,
+      tipo_publicacion: row.tipo_publicacion ?? null,
+      title: row.title ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  } else {
+    ids.push(norm(canonicalActFingerprint({
+      work_item_id: workItemId,
+      act_date: row.act_date ?? null,
+      actuacion: row.description ?? null,
+      party_hint: raw.parte ?? null,
+    })));
+  }
+  return ids.filter((x): x is string => Boolean(x));
+}
 
 const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
+
+/**
+ * ITERATION 21 — "the error is the bug before the bug".
+ *
+ * `supabase.functions.invoke()` throws away the response body and reports the
+ * useless string "Edge Function returned a non-2xx status code". Two El Retiro
+ * gaps sat undiagnosable on the ledger because of it. We call the sync
+ * functions over raw HTTP instead and persist status + body verbatim.
+ */
+async function invokeSyncFunction(
+  fn: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; detail: string | null }> {
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fn}`;
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  // The observed non-2xx was a platform-level `502 Bad Gateway` with an HTML
+  // body: the worker was still saturated by the preceding 120s CPNU poll when
+  // the next invocation arrived. It is transient and must be retried, not
+  // recorded as a transfer defect.
+  let last = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+   try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Opaque `sb_secret_` keys must travel as `apikey`; legacy JWT service
+        // keys are accepted on both headers. Sending both keeps either shape
+        // working and stops the gateway from 401-ing before the function runs.
+        "apikey": key,
+        "Authorization": `Bearer ${key}`,
+        "x-invoked-by": "bridge-reconcile",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(110_000),
+    });
+    const text = await res.text();
+    if (res.ok) return { ok: true, detail: null };
+    last = `${fn} HTTP ${res.status} ${res.statusText} (attempt ${attempt}) :: ${(text || "<empty body>").slice(0, 600)}`;
+    if (res.status < 500) return { ok: false, detail: last };
+   } catch (err) {
+    last = `${fn} FETCH_FAILED (attempt ${attempt}) :: ${String((err as Error)?.message ?? err).slice(0, 400)}`;
+   }
+   if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 4000));
+  }
+  return { ok: false, detail: last };
+}
 
 const CHAIN: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
@@ -108,11 +241,41 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* empty body is valid */ }
 
+  // Permanent auth diagnostic: iteration 21 traced the opaque non-2xx to the
+  // header shape used for internal service-role calls. Keep the probe so the
+  // next credential rotation is diagnosable in one call instead of a week.
+  if (body.probe_auth === true) {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-publicaciones-by-work-item`;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const probe = async (headers: Record<string, string>) => {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body.probe_payload ?? { health_check: true }),
+      });
+      return { status: r.status, body: (await r.text()).slice(0, 200) };
+    };
+    return new Response(JSON.stringify({
+      ok: true,
+      key_shape: key.startsWith("sb_secret_") ? "opaque_sb_secret" : key.startsWith("ey") ? "legacy_jwt" : "unknown",
+      key_len: key.length,
+      authorization_only: await probe({ Authorization: `Bearer ${key}` }),
+      apikey_only: await probe({ apikey: key }),
+      both: await probe({ apikey: key, Authorization: `Bearer ${key}` }),
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const workItemIds = Array.isArray(body.work_item_ids) ? body.work_item_ids as string[] : null;
   const radicados = Array.isArray(body.radicados) ? body.radicados as string[] : null;
   const limit = Math.min(Number(body.limit ?? 25) || 25, 100);
   const heal = body.heal !== false;
   const forceRefresh = body.force_refresh === true;
+  // Portfolio sweeps must be chunked: the platform kills a function at 150s of
+  // idle time, and a single CPNU deep poll can burn most of that alone.
+  const providerFilter = Array.isArray(body.providers) ? (body.providers as string[]) : null;
+  const offset = Math.max(Number(body.offset ?? 0) || 0, 0);
+  const budgetMs = Math.min(Number(body.budget_ms ?? 100_000) || 100_000, 130_000);
+  const startedAt = Date.now();
 
   let q = admin
     .from("work_items")
@@ -124,7 +287,7 @@ Deno.serve(async (req) => {
   else if (radicados?.length) q = q.in("radicado", radicados);
   else q = q.eq("monitoring_enabled", true).in("workflow_type", Object.keys(CHAIN)).order("last_synced_at", { ascending: true, nullsFirst: true });
 
-  const { data: items, error: itemsErr } = await q.limit(limit);
+  const { data: items, error: itemsErr } = await q.range(offset, offset + limit - 1);
   if (itemsErr) {
     return new Response(JSON.stringify({ ok: false, error: itemsErr.message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -133,12 +296,59 @@ Deno.serve(async (req) => {
 
   const lines: LedgerLine[] = [];
   let healed = 0;
+  let processed = 0;
+  let budgetExhausted = false;
+
+  const openGaps: LedgerLine[] = [];
+
+  /** Persist one ledger line immediately so a timeout never loses evidence. */
+  async function persistLine(line: LedgerLine, organizationId: string | null) {
+    const isGap = line.transfer_state === "GAP"
+      || line.transfer_state === "TRANSFER_FAILED"
+      || line.transfer_state === "PROVIDER_UNAVAILABLE";
+
+    const { data: existing } = await admin
+      .from("bridge_inventory_ledger")
+      .select("id, first_gap_at")
+      .eq("work_item_id", line.work_item_id)
+      .eq("provider_key", line.provider_key)
+      .eq("row_kind", line.row_kind)
+      .maybeSingle();
+
+    const firstGapAt = isGap ? (existing?.first_gap_at ?? new Date().toISOString()) : null;
+
+    await admin.from("bridge_inventory_ledger").upsert({
+      work_item_id: line.work_item_id,
+      organization_id: organizationId,
+      radicado: line.radicado,
+      provider_key: line.provider_key,
+      row_kind: line.row_kind,
+      provider_count: line.provider_count,
+      local_count: line.local_count,
+      missing_count: line.missing_count,
+      recovered_count: line.recovered_count,
+      transfer_state: line.transfer_state,
+      missing_fingerprints: line.missing_fingerprints,
+      last_error: line.last_error,
+      first_gap_at: firstGapAt,
+      last_checked_at: new Date().toISOString(),
+    }, { onConflict: "work_item_id,provider_key,row_kind" });
+
+    if (isGap && firstGapAt
+        && Date.now() - new Date(firstGapAt).getTime() > GAP_ALERT_HOURS * 3600_000) {
+      openGaps.push(line);
+    }
+  }
 
   for (const wi of items ?? []) {
-    const chain = CHAIN[String(wi.workflow_type ?? "").toUpperCase()] ?? [];
+    if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
+    let chain = CHAIN[String(wi.workflow_type ?? "").toUpperCase()] ?? [];
+    if (providerFilter?.length) chain = chain.filter((p) => providerFilter.includes(p));
     const radicado = String(wi.radicado);
+    processed++;
 
     for (const provider of chain) {
+      if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
       const res = await callProvider(provider, radicado, wi.id, forceRefresh);
       if (!res) continue;
 
@@ -159,12 +369,14 @@ Deno.serve(async (req) => {
       }, { onConflict: "radicado,provider_key" });
 
       if (res.status === "ERROR" || res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
-        lines.push({
+        const line: LedgerLine = {
           work_item_id: wi.id, radicado, provider_key: provider, row_kind: "ACT",
           provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
           transfer_state: "PROVIDER_UNAVAILABLE", missing_fingerprints: [],
           last_error: res.errorMessage ?? res.status,
-        });
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
         continue;
       }
 
@@ -173,21 +385,41 @@ Deno.serve(async (req) => {
         if (kind === "PUB" && res.actuaciones.length > 0 && rows.length === 0) continue;
         if (kind === "ACT" && res.actuaciones.length === 0 && res.publicaciones.length > 0) continue;
 
-        const providerFps = [...new Set(rows.map((r) => r.hash_fingerprint).filter(Boolean))];
+        // Deduplicate provider rows on their strongest identity so a provider
+        // that repeats a row across pages is not counted twice.
+        const providerRows = new Map<string, string[]>();
+        for (const r of rows as unknown as Record<string, any>[]) {
+          const ids = providerIdentities(kind, r, wi.id);
+          if (ids.length === 0) continue;
+          if (!providerRows.has(ids[0])) providerRows.set(ids[0], ids);
+        }
 
-        const localFps = async (): Promise<Set<string>> => {
+        const localState = async (): Promise<{ ids: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
+          const cols = kind === "ACT"
+            ? "hash_fingerprint, act_date, description, raw_data"
+            : "hash_fingerprint, fecha_fijacion, published_at, tipo_publicacion, title, raw_data";
           const { data } = await admin.from(table)
-            .select("hash_fingerprint")
+            .select(cols)
             .eq("work_item_id", wi.id)
             .limit(2000);
-          return new Set((data ?? []).map((r: { hash_fingerprint: string }) => r.hash_fingerprint));
+          const ids = new Set<string>();
+          for (const r of (data ?? []) as unknown as Record<string, any>[]) {
+            for (const id of localIdentities(kind, r, wi.id)) ids.add(id);
+          }
+          return { ids, count: (data ?? []).length };
         };
 
-        let local = await localFps();
-        let missing = providerFps.filter((fp) => !local.has(fp));
+        const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
+
+
+        let local = await localState();
+        let missing = [...providerRows.entries()]
+          .filter(([, ids]) => !landed(ids, local.ids))
+          .map(([key]) => key);
+        const providerCount = providerRows.size;
         let recovered = 0;
-        let state: TransferState = providerFps.length === 0
+        let state: TransferState = providerCount === 0
           ? "PROVIDER_NO_ROWS"
           : missing.length === 0 ? "IN_SYNC" : "GAP";
         let lastError: string | null = null;
@@ -195,74 +427,40 @@ Deno.serve(async (req) => {
         // Self-healing bridge: a gap re-runs the persistence path once.
         if (heal && missing.length > 0) {
           const fn = kind === "ACT" ? "sync-by-work-item" : "sync-publicaciones-by-work-item";
-          const { error: syncErr } = await admin.functions.invoke(fn, {
-            // `_scheduled` is the service-role contract of both sync functions:
-            // it skips the interactive JWT/membership check.
-            body: { work_item_id: wi.id, _scheduled: true, force_refresh: true, trigger: "BRIDGE_RECONCILE" },
+          // `_scheduled` is the service-role contract of both sync functions:
+          // it skips the interactive JWT/membership check. `_force` bypasses
+          // the cooldown gate, which otherwise makes healing a silent no-op.
+          const invoked = await invokeSyncFunction(fn, {
+            work_item_id: wi.id,
+            _scheduled: true,
+            _force: true,
+            force_refresh: true,
+            trigger: "BRIDGE_RECONCILE",
           });
-          if (syncErr) lastError = String(syncErr.message).slice(0, 400);
-          local = await localFps();
-          const stillMissing = providerFps.filter((fp) => !local.has(fp));
+          if (!invoked.ok) lastError = invoked.detail;
+          local = await localState();
+          const stillMissing = [...providerRows.entries()]
+            .filter(([, ids]) => !landed(ids, local.ids))
+            .map(([key]) => key);
           recovered = missing.length - stillMissing.length;
           healed += recovered;
           missing = stillMissing;
           state = missing.length === 0 ? "IN_SYNC" : "TRANSFER_FAILED";
         }
 
-        lines.push({
+        const line: LedgerLine = {
           work_item_id: wi.id, radicado, provider_key: provider, row_kind: kind,
-          provider_count: providerFps.length,
-          local_count: local.size,
+          provider_count: providerCount,
+          local_count: local.count,
           missing_count: missing.length,
           recovered_count: recovered,
           transfer_state: state,
           missing_fingerprints: missing.slice(0, 50),
           last_error: lastError,
-        });
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
       }
-    }
-  }
-
-  // Persist the ledger, preserving first_gap_at across runs.
-  const openGaps: LedgerLine[] = [];
-  for (const line of lines) {
-    const isGap = line.transfer_state === "GAP"
-      || line.transfer_state === "TRANSFER_FAILED"
-      || line.transfer_state === "PROVIDER_UNAVAILABLE";
-
-    const { data: existing } = await admin
-      .from("bridge_inventory_ledger")
-      .select("id, first_gap_at")
-      .eq("work_item_id", line.work_item_id)
-      .eq("provider_key", line.provider_key)
-      .eq("row_kind", line.row_kind)
-      .maybeSingle();
-
-    const firstGapAt = isGap
-      ? (existing?.first_gap_at ?? new Date().toISOString())
-      : null;
-
-    const wi = (items ?? []).find((i) => i.id === line.work_item_id);
-    await admin.from("bridge_inventory_ledger").upsert({
-      work_item_id: line.work_item_id,
-      organization_id: wi?.organization_id ?? null,
-      radicado: line.radicado,
-      provider_key: line.provider_key,
-      row_kind: line.row_kind,
-      provider_count: line.provider_count,
-      local_count: line.local_count,
-      missing_count: line.missing_count,
-      recovered_count: line.recovered_count,
-      transfer_state: line.transfer_state,
-      missing_fingerprints: line.missing_fingerprints,
-      last_error: line.last_error,
-      first_gap_at: firstGapAt,
-      last_checked_at: new Date().toISOString(),
-    }, { onConflict: "work_item_id,provider_key,row_kind" });
-
-    if (isGap && firstGapAt
-        && Date.now() - new Date(firstGapAt).getTime() > GAP_ALERT_HOURS * 3600_000) {
-      openGaps.push(line);
     }
   }
 
@@ -287,6 +485,9 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     ok: true,
     checked_items: items?.length ?? 0,
+    processed_items: processed,
+    next_offset: budgetExhausted || (items?.length ?? 0) === limit ? offset + processed : null,
+    budget_exhausted: budgetExhausted,
     lines,
     recovered_rows: healed,
     open_gaps: openGaps.length,
