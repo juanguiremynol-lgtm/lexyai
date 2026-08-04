@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     // Load publicacion + its work_item.organization_id in one hop.
     const { data: pub, error: pubErr } = await admin
       .from("work_item_publicaciones")
-      .select("id, organization_id, pdf_url, raw_data")
+      .select("id, organization_id, pdf_url, pdf_storage_path, raw_data")
       .eq("id", publicacionId)
       .single();
     if (pubErr || !pub) return json({ error: "publicacion_not_found" }, 404);
@@ -90,6 +90,9 @@ Deno.serve(async (req) => {
     // downloaded attachments), fall back to pdf_url on the publicacion when
     // it points to a bucket path (some legacy rows store it there).
     let storagePath: string | null = storagePathOverride;
+    if (!storagePath && typeof pub.pdf_storage_path === "string" && pub.pdf_storage_path.trim()) {
+      storagePath = pub.pdf_storage_path;
+    }
     if (!storagePath) {
       const { data: queueRow } = await admin
         .from("estado_attachment_queue")
