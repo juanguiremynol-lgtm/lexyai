@@ -59,6 +59,38 @@ const TERMINAL_LABEL: Record<string, string> = {
   INFRA_FAILURE: "Falla de infraestructura (nuestra)",
 };
 
+/**
+ * ITERATION 23 item 5 — infrastructure metrics reported by the provider
+ * services. These are OUR operational signals: they never describe a matter.
+ */
+interface ProviderInfra {
+  provider: string;
+  ok: boolean;
+  service_status?: string;
+  degraded?: boolean;
+  latencyMs?: number;
+  metrics?: Record<string, unknown>;
+}
+
+const METRIC_LABEL: Record<string, string> = {
+  rate_limiter: "Limitador",
+  job_store: "Cola de trabajos",
+  ocr_cache: "Caché OCR",
+  temp_pdfs: "PDF temporales",
+  retencion_jobs: "Retención de trabajos",
+};
+
+function summarizeMetric(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join(" · ");
+  }
+  return String(value);
+}
+
 export function BridgeIntegrityPanel() {
   const [running, setRunning] = useState(false);
 
