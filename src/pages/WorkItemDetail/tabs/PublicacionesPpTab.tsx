@@ -74,10 +74,13 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
 
   // pdf_url on the row can be either a proxy URL (http[s]://…) or, on
   // older rows, a raw storage path. Keep both channels distinct.
-  const rowPdfIsUrl = !!p.pdf_url && /^https?:\/\//i.test(p.pdf_url);
-  const rawPdfUrl =
-    (typeof raw.pdf_url === "string" ? (raw.pdf_url as string) : null) ||
-    (rowPdfIsUrl ? p.pdf_url : null);
+  const docRow: StoredDocumentRow = {
+    id: p.id,
+    pdf_url: p.pdf_url,
+    pdf_storage_path: p.pdf_storage_path ?? p.storage_path ?? null,
+    raw_data: raw,
+  };
+  const rawPdfUrl = documentUrlCandidates(docRow)[0] ?? null;
 
   return {
     id: `local-pub-${p.id}`,
@@ -103,7 +106,8 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
     raw_data: {
       ...raw,
       pdf_url: rawPdfUrl,
-      storage_path: p.storage_path,
+      storage_path: docRow.pdf_storage_path,
+      __doc_row: docRow,
       __origin: "LOCAL_DB",
     },
     detected_at: p.detected_at,
