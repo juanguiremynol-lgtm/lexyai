@@ -556,6 +556,22 @@ function generateTxtReport(
   }
   ln();
 
+  const pgCron = results.find(r => r.name === "PG_CRON_HEALTH");
+  ln("pg_cron jobs (all scheduled jobs):");
+  if (pgCron?.status === "OK") {
+    const out = pgCron.output as any;
+    const jobs = out?.jobs || [];
+    ln(`  total=${jobs.length}, nunca exitosos=${(out?.never_succeeded || []).length}, con 3+ fallos=${(out?.failing || []).length}`);
+    for (const j of jobs) {
+      const flag = j.never_succeeded ? "NEVER_SUCCEEDED" : (j.consecutive_failures >= 3 ? "FAILING" : "ok");
+      ln(`  [${flag}] ${j.jobname} — schedule=${j.schedule}, last_status=${j.last_status}, last_success=${j.last_success}, consecutive_failures=${j.consecutive_failures}`);
+      if (j.last_error) ln(`    last_error: ${String(j.last_error).slice(0, 200)}`);
+    }
+  } else {
+    ln("  [pg_cron health unavailable]");
+  }
+  ln();
+
   // ─── SECTION 6: ERRORS / ANOMALIES ────────────────────────────────
   ln("───────────────────────────────────────────────────────────────────");
   ln("SECTION 6 — ERRORS / ANOMALIES");
