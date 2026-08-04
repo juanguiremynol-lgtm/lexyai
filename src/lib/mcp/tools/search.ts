@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { canonicalWorkflowType, errorResult, requireAuth, sbForUser, textResult } from "../shared";
 
 /**
  * Single search implementation for web AND MCP: both call the SQL function
