@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { FileText, Table2, ExternalLink, HardDrive, Download, Eye } from "lucide-react";
 import type { WorkItemAct } from "./WorkItemActCard";
+import { isAbsoluteHttpUrl } from "@/lib/document-url-resolver";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
