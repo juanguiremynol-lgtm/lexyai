@@ -47,16 +47,8 @@ interface ExternalApiResponse {
   error?: string;
 }
 
-// Simple hash function for fingerprinting
-function simpleHash(data: string): string {
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(16).padStart(8, "0");
-}
+// ITERATION 22 — the local `penal_<simpleHash>` identity scheme was deleted.
+// Act identity comes from `_shared/canonicalActMapper.ts` only.
 
 // Normalize text for pattern matching
 function normalizeText(text: string): string {
@@ -374,20 +366,7 @@ async function fetchActuaciones(
   }
 }
 
-// Parse Colombian date to ISO
-function parseDate(dateStr: string | undefined): string | null {
-  if (!dateStr) return null;
-  // Try DD/MM/YYYY
-  const dmyMatch = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (dmyMatch) {
-    return `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
-  }
-  // Try YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return dateStr;
-  }
-  return null;
-}
+// ITERATION 22 — date parsing lives in the shared act mapper (`parseActDate`).
 
 Deno.serve(async (req) => {
   // Handle CORS preflight
