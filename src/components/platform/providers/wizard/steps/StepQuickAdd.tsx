@@ -31,7 +31,7 @@ const WORKFLOW_OPTIONS = [
   { value: "LABORAL", label: "LABORAL — Proceso Laboral" },
   { value: "CPACA", label: "CPACA — Contencioso Administrativo" },
   { value: "TUTELA", label: "TUTELA — Acción de Tutela" },
-  { value: "PENAL_906", label: "PENAL — Ley 906" },
+  { value: "PENAL_906", label: "Penal (Ley 906)" },
 ];
 
 /** Derive a slug key from the provider name */

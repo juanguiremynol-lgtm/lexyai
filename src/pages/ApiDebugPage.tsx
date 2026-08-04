@@ -1307,7 +1307,7 @@ export default function ApiDebugPage() {
                   <SelectItem value="LABORAL">LABORAL</SelectItem>
                   <SelectItem value="CPACA">CPACA (Administrativo)</SelectItem>
                   <SelectItem value="TUTELA">TUTELA</SelectItem>
-                  <SelectItem value="PENAL_906">PENAL 906</SelectItem>
+                  <SelectItem value="PENAL_906">Penal (Ley 906)</SelectItem>
                 </SelectContent>
               </Select>
               <div className="text-xs text-muted-foreground space-y-1">

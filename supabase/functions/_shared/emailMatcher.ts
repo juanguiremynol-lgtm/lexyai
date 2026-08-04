@@ -971,6 +971,12 @@ export type EvidenceSubtype =
   | "REQUERIMIENTO"
   | "CITACION_AUDIENCIA"
   | "NOTIFICACION_PERSONAL"
+  // Ley 906/2004 (sistema penal acusatorio) — vocabulario propio: estos actos
+  // no tienen equivalente civil y antes caían en OTRO_JUDICIAL.
+  | "IMPUTACION"
+  | "MEDIDA_ASEGURAMIENTO"
+  | "ESCRITO_ACUSACION"
+  | "PRECLUSION"
   | "OTRO_JUDICIAL";
 
 export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
@@ -989,6 +995,21 @@ export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   ],
   // Solo la inadmisión genuina abre SUBSANACION.
   ["INADMISION", /inadmit|inadmisi[oó]n|so pena de rechazo|t[eé]rmino para subsanar|para subsanar/i],
+  // Penal (Ley 906). Evaluados antes de AUTO_ADMISORIO / TRASLADO / AUDIENCIA
+  // porque comparten vocabulario ("admite", "traslado", "audiencia de…").
+  ["PRECLUSION", /preclusi[oó]n|precluye/i],
+  [
+    "MEDIDA_ASEGURAMIENTO",
+    /medida +de +aseguramiento|detenci[oó]n +preventiva|imposici[oó]n +de +medida/i,
+  ],
+  [
+    "ESCRITO_ACUSACION",
+    /escrito +de +acusaci[oó]n|traslado +(del +)?escrito +de +acusaci[oó]n/i,
+  ],
+  [
+    "IMPUTACION",
+    /formulaci[oó]n +de +imputaci[oó]n|imputaci[oó]n|legalizaci[oó]n +de +captura/i,
+  ],
   ["AUTO_ADMISORIO", /admite|auto admisorio|admisi[oó]n/i],
   ["FIJACION_ESTADO", /estado electr[oó]nico|fija[a-z]* +(el +)?estado/i],
   ["DESISTIMIENTO", /desistimiento/i],
