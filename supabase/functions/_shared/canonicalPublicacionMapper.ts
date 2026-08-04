@@ -37,7 +37,7 @@
  *   - provider-sync-external-provider (via providerNormalize.ts)
  */
 
-import { canonicalPubFingerprint } from "./canonicalFingerprint.ts";
+import { canonicalPubFingerprint, resolvePartyHint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 
 // ───────────────────────── date / string helpers ─────────────────────────
@@ -148,6 +148,9 @@ export interface ProviderPubUnit {
   /** Provider that emitted the unit (`publicaciones` | `samai_estados` | …). */
   _source_provider?: string;
   parte?: string | null;
+  /** ITERATION 26 — provider article id carried as an EXPLICIT field instead
+   *  of being recovered by splitting the composite `key` string. */
+  article_id?: string | null;
   raw_data?: Record<string, unknown>;
 }
 
@@ -177,6 +180,7 @@ function buildEstadoUnit(raw: any): ProviderPubUnit | null {
   return {
     key: `estado:${estadoObj?.article_id || ""}:${estadoObj?.numero || ""}:${estadoDateRaw || ""}:${estadoTitle || ""}`,
     tipo: "Estado Electrónico",
+    article_id: estadoObj?.article_id ? String(estadoObj.article_id) : null,
     asset_id: firstNonEmptyString(estadoObj?.article_id, estadoObj?.numero, estadoTitle, estadoDateRaw),
     url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
     titulo: estadoTitle || estadoObj?.titulo_original || "Estado Electrónico",
@@ -220,6 +224,7 @@ function buildIndividualUnit(raw: any): ProviderPubUnit | null {
   return {
     key: `individual:${estadoObj?.article_id || ""}:${individualNombre}:${fechaActuacion || ""}`,
     tipo: "Providencia",
+    article_id: estadoObj?.article_id ? String(estadoObj.article_id) : null,
     asset_id: firstNonEmptyString(
       autoDoc?.asset_id, `${estadoObj?.article_id || ""}:${fechaActuacion || ""}:individual`,
     ),
@@ -283,6 +288,7 @@ export function explodeProviderPublicaciones(data: any): ProviderPubUnit[] {
     return [{
       key,
       tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || "Estado",
+      article_id: p?.estado?.article_id ? String(p.estado.article_id) : (p.article_id ? String(p.article_id) : null),
       asset_id: p.asset_id || p.id || p.hash_documento || key,
       url: p.entry_url || p.url || p.enlace,
       titulo,
@@ -378,8 +384,8 @@ export function toCanonicalPubRow(
     pub_date: identityDate,
     tipo_publicacion: tipo,
     title,
-    party_hint: unit.parte ?? (unit.raw_data as any)?.parte
-      ?? (unit.raw_data as any)?.["Docum. a notif."] ?? null,
+    // ONE shared resolver — never a local field list (iteration 26).
+    party_hint: unit.parte ?? resolvePartyHint(unit.raw_data) ?? null,
   });
 
   const dateSource = parsedFecha
@@ -439,6 +445,32 @@ export function canonicalPubIdentityFromRow(
     pub_date: row.fecha_fijacion ?? row.published_at ?? null,
     tipo_publicacion: row.tipo_publicacion ?? null,
     title: row.title ?? null,
-    party_hint: (row.raw_data as any)?.parte ?? null,
+    party_hint: (row.raw_data as any)?.parte ?? resolvePartyHint((row.raw_data as any)?.raw_data)
+      ?? resolvePartyHint(row.raw_data) ?? null,
   });
+}
+
+/**
+ * ITERATION 26 — the provider article id, read from an EXPLICIT field.
+ *
+ * `bridge-reconcile` used to recover it with `raw_data.key.split(":")[1]`,
+ * which silently depends on the composite-key convention
+ * `<estado|individual>:<article_id>:<…>` that only
+ * `sync-publicaciones-by-work-item` is guaranteed to emit. Rows written by any
+ * other writer produced a phantom identity token. New rows carry
+ * `raw_data.article_id`; the split survives only as a LEGACY fallback and is
+ * locked by a test.
+ */
+export const LEGACY_PUB_COMPOSITE_KEY_PREFIXES = ["estado", "individual"] as const;
+
+export function pubArticleIdFromRow(row: { raw_data?: any }): string | null {
+  const raw = (row?.raw_data ?? {}) as Record<string, any>;
+  const explicit = raw.article_id ?? raw?.estado?.article_id ?? raw?.raw_data?.estado?.article_id;
+  if (explicit != null && String(explicit).trim() !== "") return String(explicit).trim();
+  const key = String(raw.key ?? "");
+  const parts = key.split(":");
+  if (parts.length >= 3 && (LEGACY_PUB_COMPOSITE_KEY_PREFIXES as readonly string[]).includes(parts[0])) {
+    return parts[1].trim() || null;
+  }
+  return null;
 }

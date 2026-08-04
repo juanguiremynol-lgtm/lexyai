@@ -37,7 +37,7 @@ import {
 } from '../radicadoUtils.ts';
 
 import { parseSujetosArray } from '../partyNormalization.ts';
-import { canonicalActFingerprint } from '../canonicalFingerprint.ts';
+import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -438,7 +438,10 @@ export function normalizeSamaiActuaciones(
       fecha_actuacion: fecha,
       actuacion,
       anotacion,
-      hash_fingerprint: computeSamaiFingerprint(fecha, actuacion, anotacion, options),
+      hash_fingerprint: computeSamaiFingerprint(fecha, actuacion, anotacion, {
+        ...options,
+        partyHint: resolvePartyHint(act as Record<string, unknown>),
+      }),
       source_platform: PROVIDER_KEY,
       sources: [PROVIDER_KEY],
       fecha_registro: fechaRegistro || undefined,
@@ -458,7 +461,7 @@ export function computeSamaiFingerprint(
   fecha: string,
   actuacion: string,
   _anotacion: string | null,
-  options: { workItemId?: string; crossProviderDedup?: boolean } = {},
+  options: { workItemId?: string; crossProviderDedup?: boolean; partyHint?: string | null } = {},
 ): string {
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix): same act reported by SAMAI and CPNU
   // must produce the same fingerprint so the RPC upsert dedupes.
@@ -466,7 +469,7 @@ export function computeSamaiFingerprint(
     work_item_id: options.workItemId ?? null,
     act_date: fecha,
     actuacion,
-    party_hint: null,
+    party_hint: options.partyHint ?? null,
   });
 }
 

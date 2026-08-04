@@ -32,7 +32,7 @@ import {
   redactPII,
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
-import { canonicalPubFingerprint } from '../canonicalFingerprint.ts';
+import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 // ITERATION 22 — the adapter no longer owns a mapper. Explosion, date
 // semantics and identity come from the single canonical module, so the rows
 // the bridge inventories are the same rows the sync persists.
@@ -402,7 +402,14 @@ export function computePublicacionFingerprint(
   _key: string | undefined,
   title: string,
   _crossProvider?: boolean,
-  opts?: { pubDate?: string | null; tipo?: string | null; partyHint?: string | null },
+  opts?: {
+    pubDate?: string | null;
+    tipo?: string | null;
+    partyHint?: string | null;
+    /** Raw provider row — the party hint is derived from it through the ONE
+     *  shared helper when no explicit hint was supplied (iteration 26). */
+    rawData?: Record<string, unknown> | null;
+  },
 ): string {
   // SOURCE-AGNOSTIC (2026-07-12 P0 fix) + CALL-SITE HARMONIZATION
   // (2026-07-14 P0 fix): every call-site of canonicalPubFingerprint must
@@ -413,7 +420,7 @@ export function computePublicacionFingerprint(
     pub_date: opts?.pubDate ?? null,
     tipo_publicacion: opts?.tipo ?? null,
     title,
-    party_hint: opts?.partyHint ?? null,
+    party_hint: opts?.partyHint ?? resolvePartyHint(opts?.rawData) ?? null,
   });
 }
 

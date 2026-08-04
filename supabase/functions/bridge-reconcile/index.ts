@@ -41,8 +41,13 @@ import {
   fetchFromSamaiEstados,
   type ProviderAdapterResult,
 } from "../_shared/providerAdapters/index.ts";
-import { canonicalPubIdentityFromRow } from "../_shared/canonicalPublicacionMapper.ts";
+import { canonicalPubIdentityFromRow, pubArticleIdFromRow } from "../_shared/canonicalPublicacionMapper.ts";
 import { canonicalActIdentityFromRow } from "../_shared/canonicalActMapper.ts";
+import {
+  CHAIN,
+  PROVIDER_LOCAL_SOURCES,
+  PROVIDER_ROW_KINDS,
+} from "../_shared/bridgeProviderMatrix.ts";
 
 /**
  * ITERATION 21 — false-gap elimination.
@@ -105,11 +110,11 @@ function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItem
     norm(row.hash_fingerprint),
     norm(raw.asset_id ?? raw.id),
     norm(raw.key),
-    // The sync path stores the provider article id inside a composite key
-    // ("individual:184731165:<titulo>:<fecha>"); expose the bare token so it
-    // matches the provider's `raw_data.estado.article_id`.
-    norm(String(raw.key ?? "").split(":")[1]),
   ];
+  // ITERATION 26 — the article id is read from an explicit field by the shared
+  // helper (legacy composite-key rows still resolve, but the convention is no
+  // longer inlined here).
+  if (kind === "PUB") ids.push(norm(pubArticleIdFromRow(row)));
   if (kind === "PUB") {
     ids.push(norm(canonicalPubIdentityFromRow(row as any, workItemId)));
   } else {
@@ -142,22 +147,9 @@ const GAP_ALERT_HOURS = 24;
  * the row kind it actually produces, and the local side only counts rows
  * attributed to that same provider.
  */
-const PROVIDER_ROW_KINDS: Record<string, Array<"ACT" | "PUB">> = {
-  cpnu: ["ACT"],
-  samai: ["ACT"],
-  tutelas: ["ACT"],
-  publicaciones: ["PUB"],
-  samai_estados: ["PUB"],
-};
-
-/** Local `source` values attributable to each provider (case-insensitive). */
-const PROVIDER_LOCAL_SOURCES: Record<string, string[]> = {
-  cpnu: ["cpnu", "cpnu+tutelas"],
-  samai: ["samai"],
-  tutelas: ["tutelas", "cpnu+tutelas"],
-  publicaciones: ["publicaciones", "pp"],
-  samai_estados: ["samai_estados"],
-};
+/* PROVIDER_ROW_KINDS / PROVIDER_LOCAL_SOURCES now live in
+ * `_shared/bridgeProviderMatrix.ts` together with CHAIN, so a unit test can
+ * assert the three stay in lockstep (iteration 26 item 5). */
 
 /**
  * Failure taxonomy ratified with GCP (iteration 23 item 5). An exhausted
@@ -248,16 +240,6 @@ async function invokeSyncFunction(
   }
   return { ok: false, detail: last };
 }
-
-const CHAIN: Record<string, string[]> = {
-  CGP: ["cpnu", "publicaciones"],
-  LABORAL: ["cpnu", "publicaciones"],
-  PENAL_906: ["cpnu", "publicaciones"],
-  PENAL: ["cpnu", "publicaciones"],
-  CPACA: ["samai", "samai_estados"],
-  INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],
-  TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
-};
 
 /** `PENAL` is a legacy in-memory alias (iteration 15 normalized it to
  *  PENAL_906) and is NOT a member of the `workflow_type` enum — filtering the
@@ -542,9 +524,28 @@ Deno.serve(async (req) => {
           return { ids, legal, count: own.length };
         };
 
-        const landed = (entry: { ids: string[] }, key: string, local: Awaited<ReturnType<typeof localState>>) =>
-          local.legal.has(key) || entry.ids.some((id) => local.ids.has(id));
-
+        /**
+         * ITERATION 26 item 2d — matching is EXACT canonical-identity equality.
+         *
+         * The permissive intersection (any transported id matching any local
+         * id) was rescuing rows whose canonical identities did not agree, which
+         * is exactly how five consecutive identity defects stayed invisible.
+         * The auxiliary identities survive only as a DIAGNOSTIC fallback: when
+         * they are the only thing that matched, we log it and count it, so the
+         * asymmetry is visible on the ledger instead of being absorbed.
+         */
+        const fallbackRescues: string[] = [];
+        const landed = (entry: { ids: string[] }, key: string, local: Awaited<ReturnType<typeof localState>>) => {
+          if (local.legal.has(key)) return true;
+          const viaFallback = entry.ids.some((id) => local.ids.has(id));
+          if (viaFallback) {
+            console.warn(
+              `[bridge-reconcile] IDENTITY_FALLBACK_RESCUE wi=${wi.id} provider=${provider} kind=${kind} legal=${key} matched_only_by=${entry.ids.filter((id) => local.ids.has(id)).join(",")}`,
+            );
+            if (fallbackRescues.length < 25) fallbackRescues.push(key);
+          }
+          return viaFallback;
+        };
 
         let local = await localState();
         let missing = [...providerRows.entries()]
@@ -645,7 +646,17 @@ Deno.serve(async (req) => {
           recovered_count: recovered,
           transfer_state: state,
           missing_fingerprints: missing.slice(0, 50),
-          last_error: lastError,
+          // A row that only matched through the diagnostic fallback is an
+          // identity asymmetry, not a clean sync: it is always recorded.
+          last_error: fallbackRescues.length > 0
+            ? JSON.stringify({
+                reason: "IDENTITY_FALLBACK_RESCUE",
+                note: "Filas emparejadas solo por identidad auxiliar (asset_id/key/article_id); la huella canónica no coincidió.",
+                count: fallbackRescues.length,
+                sample: fallbackRescues.slice(0, 10),
+                prior_error: lastError,
+              })
+            : lastError,
         };
         lines.push(line);
         await persistLine(line, wi.organization_id ?? null);
