@@ -444,6 +444,8 @@ Deno.serve(async (req) => {
       const res = await callProvider(provider, radicado, wi.id, forceRefresh);
       if (!res) continue;
 
+      const failure = classifyProviderFailure(res);
+
       // Record raw source health regardless of outcome.
       const emitted = res.actuaciones.length + res.publicaciones.length;
       await admin.from("provider_source_health").upsert({
@@ -452,12 +454,11 @@ Deno.serve(async (req) => {
         provider_key: provider,
         last_run_at: new Date().toISOString(),
         last_row_emitted_at: emitted > 0 ? new Date().toISOString() : undefined,
-        terminal_state: res.status === "ERROR"
-          ? "PROVIDER_JOB_FAILED"
-          : res.status === "TIMEOUT"
-            ? "PROVIDER_NEVER_COMPLETES"
-            : null,
-        note: res.errorMessage?.slice(0, 400) ?? null,
+        // Iteration 23: GCP's ratified taxonomy travels verbatim into our
+        // health signal. INFRA_FAILURE is ours and stays in platform health;
+        // only PROVIDER_NEVER_COMPLETES may ever surface on a matter.
+        terminal_state: failure?.state ?? null,
+        note: (failure?.detail ?? res.errorMessage)?.slice(0, 400) ?? null,
       }, { onConflict: "radicado,provider_key" });
 
       if (res.status === "ERROR" || res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
@@ -510,11 +511,17 @@ Deno.serve(async (req) => {
             .select(cols)
             .eq("work_item_id", wi.id)
             .limit(2000);
+          // Like-for-like: only rows attributable to THIS provider count as the
+          // local side of THIS provider's inventory.
+          const allowed = PROVIDER_LOCAL_SOURCES[provider] ?? [];
+          const own = ((data ?? []) as unknown as Record<string, any>[]).filter((r) =>
+            allowed.length === 0 || allowed.includes(String(r.source ?? "").toLowerCase())
+          );
           const ids = new Set<string>();
-          for (const r of (data ?? []) as unknown as Record<string, any>[]) {
+          for (const r of own) {
             for (const id of localIdentities(kind, r, wi.id)) ids.add(id);
           }
-          return { ids, count: (data ?? []).length };
+          return { ids, count: own.length };
         };
 
         const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
@@ -524,12 +531,48 @@ Deno.serve(async (req) => {
         let missing = [...providerRows.entries()]
           .filter(([, ids]) => !landed(ids, local.ids))
           .map(([key]) => key);
-        const providerCount = providerRows.size;
+        let providerCount = providerRows.size;
         let recovered = 0;
         let state: TransferState = providerCount === 0
           ? "PROVIDER_NO_ROWS"
           : missing.length === 0 ? "IN_SYNC" : "GAP";
         let lastError: string | null = null;
+
+        // ITERATION 23 item 1b — provider 0 + local > 0 is never taken at face
+        // value. We re-query once, after a cool-off that keeps us out of the
+        // CPNU polling window, and only settle on NO_ROWS when the second,
+        // clean answer also returns zero.
+        if (providerCount === 0 && local.count > 0) {
+          state = "PROVIDER_INVENTORY_SUSPECT";
+          lastError = `Inventario 0 del proveedor con ${local.count} fila(s) locales de la misma fuente: se reconsulta antes de concluir.`;
+          await new Promise((r) => setTimeout(r, 5000));
+          const second = await callProvider(provider, radicado, wi.id, true);
+          const secondFailure = second ? classifyProviderFailure(second) : null;
+          if (!second || secondFailure) {
+            state = secondFailure?.state ?? "PROVIDER_UNAVAILABLE";
+            lastError = secondFailure?.detail ?? "Reconsulta sin respuesta utilizable";
+          } else {
+            const secondRows = kind === "ACT" ? second.actuaciones : second.publicaciones;
+            const rows2 = new Map<string, string[]>();
+            for (const r of secondRows as unknown as Record<string, any>[]) {
+              const ids = providerIdentities(kind, r, wi.id);
+              if (ids.length === 0) continue;
+              if (!rows2.has(ids[0])) rows2.set(ids[0], ids);
+            }
+            if (rows2.size === 0) {
+              state = "PROVIDER_NO_ROWS";
+              lastError = null;
+            } else {
+              for (const [k, v] of rows2) providerRows.set(k, v);
+              providerCount = providerRows.size;
+              missing = [...providerRows.entries()]
+                .filter(([, ids]) => !landed(ids, local.ids))
+                .map(([key]) => key);
+              state = missing.length === 0 ? "IN_SYNC" : "GAP";
+              lastError = null;
+            }
+          }
+        }
 
         // Self-healing bridge: a gap re-runs the persistence path once.
         if (heal && missing.length > 0) {
