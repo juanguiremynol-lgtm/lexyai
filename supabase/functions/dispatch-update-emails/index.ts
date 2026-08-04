@@ -353,7 +353,11 @@ Deno.serve(async (req) => {
           payload.fecha_fijacion = payload.fecha_fijacion || detail.fecha_fijacion || detail.published_at || "";
           payload.observacion = payload.observacion || detail.observacion || "";
           payload.source = payload.source || detail.source || "";
-          payload.pdf_url = detail.pdf_url || "";
+          // Emails may only carry absolute provider URLs. A storage path would
+          // be concatenated onto the app origin by the mail client → 404.
+          payload.pdf_url = /^https?:\/\//i.test(String(detail.pdf_url ?? ""))
+            ? String(detail.pdf_url)
+            : "";
         }
       }
     }

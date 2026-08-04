@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { FileText, Table2, ExternalLink, HardDrive, Download, Eye } from "lucide-react";
 import type { WorkItemAct } from "./WorkItemActCard";
+import { isAbsoluteHttpUrl } from "@/lib/document-url-resolver";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -139,10 +140,14 @@ function extractSamaiAttachments(act: WorkItemAct): SamaiAnexoDocumento[] {
 
 function DefaultDocButtons({ act }: { act: WorkItemAct }) {
   const raw = act.raw_data as Record<string, unknown> | null | undefined;
-  const autoUrl = raw?.gcs_url_auto as string | undefined;
-  const tablaUrl = raw?.gcs_url_tabla as string | undefined;
-  const pdfIndividualUrl = raw?.pdf_individual_url as string | undefined;
-  const proxyPdfUrl = raw?.pdf_url as string | undefined;
+  // Only absolute provider URLs may become links. Anything else (a storage
+  // object path) would be resolved against the app origin → SPA 404.
+  const abs = (v: unknown): string | undefined =>
+    isAbsoluteHttpUrl(v) ? (v as string).trim() : undefined;
+  const autoUrl = abs(raw?.gcs_url_auto);
+  const tablaUrl = abs(raw?.gcs_url_tabla);
+  const pdfIndividualUrl = abs(raw?.pdf_individual_url);
+  const proxyPdfUrl = abs(raw?.pdf_url);
   const samai = extractSamaiAttachments(act);
   const clasificada = (raw?.estado as string | undefined)?.toUpperCase() === "CLASIFICADA";
 

@@ -25,6 +25,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
 import { toast } from "sonner";
+import {
+  documentUrlCandidates,
+  hasResolvableDocument,
+  isDirectlyOpenable,
+  openStoredDocument,
+} from "@/lib/document-url-resolver";
 
 interface EstadosTabProps {
   workItem: WorkItem;
@@ -75,7 +81,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     queryFn: async () => {
       const { data, error: qErr } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, fecha_fijacion, pdf_url, created_at, raw_data")
+        .select("id, title, source, fecha_fijacion, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
         .eq("work_item_id", workItem.id)
         .eq("is_archived", false);
       if (qErr) throw qErr;
@@ -94,43 +100,20 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   //   2. raw_data.pdf_url                  (samai-estados-api proxy URL)
   //   3. pdf_url if it starts with http    (legacy full URL)
   //   4. otherwise signal storage-bucket flow via `storage_path`
+  // Single resolver (see src/lib/document-url-resolver.ts). A stored row is
+  // never turned into a link by string concatenation.
   const resolveLocalPubUrls = (p: any) => {
-    const raw = (p?.raw_data ?? {}) as Record<string, any>;
-    const nested = (raw?.raw_data ?? {}) as Record<string, any>;
-    const gcsUrl = typeof nested?.gcs_url === "string" ? nested.gcs_url : null;
-    const rawPdfUrl = typeof raw?.pdf_url === "string" ? raw.pdf_url : null;
-    const rawUrlDescarga = typeof nested?.url_descarga === "string" ? nested.url_descarga : null;
-    const stored = typeof p?.pdf_url === "string" ? p.pdf_url : null;
-    const isFullUrl = stored && /^https?:\/\//i.test(stored);
-    const directUrl = gcsUrl || rawPdfUrl || rawUrlDescarga || (isFullUrl ? stored : null);
-    const storagePath = !isFullUrl && stored ? stored : null;
-    return { directUrl, storagePath };
+    const direct = documentUrlCandidates(p).find((u) => isDirectlyOpenable(u)) ?? null;
+    return { directUrl: direct, resolvable: hasResolvableDocument(p) };
   };
 
-  const openLocalPubAttachment = async (
-    publicacionId: string,
-    storagePath: string,
-    fallbackUrl: string | null,
-  ) => {
-    try {
-      const { data, error: fnErr } = await supabase.functions.invoke("get-estado-attachment-url", {
-        body: { publicacion_id: publicacionId, storage_path: storagePath },
+  const openLocalPubAttachment = async (row: any) => {
+    const ok = await openStoredDocument(row);
+    if (!ok) {
+      toast.error("No se pudo abrir el PDF", {
+        description: "El archivo no está disponible en este momento.",
       });
-      if (!fnErr && data?.url) {
-        window.open(data.url as string, "_blank", "noopener,noreferrer");
-        return;
-      }
-      console.warn("[EstadosTab] get-estado-attachment-url failed", fnErr?.message, data);
-    } catch (err) {
-      console.warn("[EstadosTab] get-estado-attachment-url threw", err);
     }
-    if (fallbackUrl) {
-      window.open(fallbackUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    toast.error("No se pudo abrir el PDF", {
-      description: "El archivo no está disponible en este momento.",
-    });
   };
 
   const mergedEstados = useMemo<PpEstado[]>(() => {
@@ -390,11 +373,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
               const localId = idStr.slice("local-".length);
               const src = (localPubs ?? []).find((p: any) => p.id === localId);
               if (!src) return undefined;
-              const { directUrl, storagePath } = resolveLocalPubUrls(src);
-              if (directUrl) return undefined; // EstadosTable will open it directly
-              if (storagePath) {
-                return () => openLocalPubAttachment(localId, storagePath, null);
-              }
+              const { directUrl, resolvable } = resolveLocalPubUrls(src);
+              if (directUrl) return undefined; // EstadosTable opens it directly
+              if (resolvable) return () => openLocalPubAttachment(src);
               return undefined;
             })(),
           }))}
