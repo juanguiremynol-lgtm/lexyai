@@ -4,7 +4,7 @@
  */
 
 // Workflow type enum matching database
-export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC';
+export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC' | 'INDETERMINADO';
 
 // Item source enum matching database
 export type ItemSource = 'ICARUS_IMPORT' | 'SCRAPE_API' | 'MANUAL' | 'EMAIL_IMPORT' | 'MIGRATION';
@@ -101,6 +101,14 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
     description: 'Procesos penales bajo el sistema acusatorio (Ley 906 de 2004)',
     color: 'red',
     icon: 'Shield',
+    hasPhases: false,
+  },
+  INDETERMINADO: {
+    label: 'Por clasificar',
+    shortLabel: 'Por clasificar',
+    description: 'Asuntos cuya materia aún no ha sido determinada (despacho de competencia mixta o sin clase de proceso)',
+    color: 'amber',
+    icon: 'HelpCircle',
     hasPhases: false,
   },
   GENERIC: {
