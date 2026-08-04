@@ -66,7 +66,6 @@ import VoucherRedeemPage from "./pages/VoucherRedeemPage";
 import DemoPage from "./pages/DemoPage";
 import EstadosHoy from "./pages/EstadosHoy";
 import ActuacionesHoy from "./pages/ActuacionesHoy";
-import UnmonitoredWorkItems from "./pages/UnmonitoredWorkItems";
 import SigningPage from "./pages/SigningPage";
 import VerifyDocumentPage from "./pages/VerifyDocumentPage";
 import WorkItemDocumentWizard from "./pages/WorkItemDocumentWizard";
@@ -243,7 +242,6 @@ const App = () => (
             <Route path="processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
             <Route path="estados-hoy" element={<ErrorBoundary><EstadosHoy /></ErrorBoundary>} />
             <Route path="actuaciones-hoy" element={<ErrorBoundary><ActuacionesHoy /></ErrorBoundary>} />
-            <Route path="sin-monitoreo" element={<ErrorBoundary><UnmonitoredWorkItems /></ErrorBoundary>} />
             <Route path="hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
             <Route path="process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
