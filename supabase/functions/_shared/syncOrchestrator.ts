@@ -308,6 +308,8 @@ export async function reconcileSyncRunPersistence(
     rejected: number;
     errored: number;
   },
+  /** Which counters the run row should carry. Defaults to acts. */
+  dataKind: "ACTS" | "PUBS" = "ACTS",
 ): Promise<{ status: string; errorCode: string | null; unaccounted: number }> {
   const accounted =
     counts.inserted + counts.updated + counts.skippedDuplicate + counts.skippedStructural;
@@ -322,10 +324,15 @@ export async function reconcileSyncRunPersistence(
   if (!runId) return { status, errorCode, unaccounted };
 
   try {
-    const patch: Record<string, unknown> = {
-      total_inserted_acts: counts.inserted,
-      total_skipped_acts: counts.skippedDuplicate + counts.skippedStructural,
-    };
+    const patch: Record<string, unknown> = dataKind === "PUBS"
+      ? {
+        total_inserted_pubs: counts.inserted,
+        total_skipped_pubs: counts.skippedDuplicate + counts.skippedStructural,
+      }
+      : {
+        total_inserted_acts: counts.inserted,
+        total_skipped_acts: counts.skippedDuplicate + counts.skippedStructural,
+      };
     if (hasLoss) {
       patch.status = status;
       patch.error_code = errorCode;
