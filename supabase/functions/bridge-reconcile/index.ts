@@ -156,6 +156,12 @@ Deno.serve(async (req) => {
   const limit = Math.min(Number(body.limit ?? 25) || 25, 100);
   const heal = body.heal !== false;
   const forceRefresh = body.force_refresh === true;
+  // Portfolio sweeps must be chunked: the platform kills a function at 150s of
+  // idle time, and a single CPNU deep poll can burn most of that alone.
+  const providerFilter = Array.isArray(body.providers) ? (body.providers as string[]) : null;
+  const offset = Math.max(Number(body.offset ?? 0) || 0, 0);
+  const budgetMs = Math.min(Number(body.budget_ms ?? 100_000) || 100_000, 130_000);
+  const startedAt = Date.now();
 
   let q = admin
     .from("work_items")
@@ -167,7 +173,7 @@ Deno.serve(async (req) => {
   else if (radicados?.length) q = q.in("radicado", radicados);
   else q = q.eq("monitoring_enabled", true).in("workflow_type", Object.keys(CHAIN)).order("last_synced_at", { ascending: true, nullsFirst: true });
 
-  const { data: items, error: itemsErr } = await q.limit(limit);
+  const { data: items, error: itemsErr } = await q.range(offset, offset + limit - 1);
   if (itemsErr) {
     return new Response(JSON.stringify({ ok: false, error: itemsErr.message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -176,12 +182,59 @@ Deno.serve(async (req) => {
 
   const lines: LedgerLine[] = [];
   let healed = 0;
+  let processed = 0;
+  let budgetExhausted = false;
+
+  const openGaps: LedgerLine[] = [];
+
+  /** Persist one ledger line immediately so a timeout never loses evidence. */
+  async function persistLine(line: LedgerLine, organizationId: string | null) {
+    const isGap = line.transfer_state === "GAP"
+      || line.transfer_state === "TRANSFER_FAILED"
+      || line.transfer_state === "PROVIDER_UNAVAILABLE";
+
+    const { data: existing } = await admin
+      .from("bridge_inventory_ledger")
+      .select("id, first_gap_at")
+      .eq("work_item_id", line.work_item_id)
+      .eq("provider_key", line.provider_key)
+      .eq("row_kind", line.row_kind)
+      .maybeSingle();
+
+    const firstGapAt = isGap ? (existing?.first_gap_at ?? new Date().toISOString()) : null;
+
+    await admin.from("bridge_inventory_ledger").upsert({
+      work_item_id: line.work_item_id,
+      organization_id: organizationId,
+      radicado: line.radicado,
+      provider_key: line.provider_key,
+      row_kind: line.row_kind,
+      provider_count: line.provider_count,
+      local_count: line.local_count,
+      missing_count: line.missing_count,
+      recovered_count: line.recovered_count,
+      transfer_state: line.transfer_state,
+      missing_fingerprints: line.missing_fingerprints,
+      last_error: line.last_error,
+      first_gap_at: firstGapAt,
+      last_checked_at: new Date().toISOString(),
+    }, { onConflict: "work_item_id,provider_key,row_kind" });
+
+    if (isGap && firstGapAt
+        && Date.now() - new Date(firstGapAt).getTime() > GAP_ALERT_HOURS * 3600_000) {
+      openGaps.push(line);
+    }
+  }
 
   for (const wi of items ?? []) {
-    const chain = CHAIN[String(wi.workflow_type ?? "").toUpperCase()] ?? [];
+    if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
+    let chain = CHAIN[String(wi.workflow_type ?? "").toUpperCase()] ?? [];
+    if (providerFilter?.length) chain = chain.filter((p) => providerFilter.includes(p));
     const radicado = String(wi.radicado);
+    processed++;
 
     for (const provider of chain) {
+      if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
       const res = await callProvider(provider, radicado, wi.id, forceRefresh);
       if (!res) continue;
 
@@ -202,12 +255,14 @@ Deno.serve(async (req) => {
       }, { onConflict: "radicado,provider_key" });
 
       if (res.status === "ERROR" || res.status === "TIMEOUT" || res.status === "SCRAPING_INITIATED") {
-        lines.push({
+        const line: LedgerLine = {
           work_item_id: wi.id, radicado, provider_key: provider, row_kind: "ACT",
           provider_count: 0, local_count: 0, missing_count: 0, recovered_count: 0,
           transfer_state: "PROVIDER_UNAVAILABLE", missing_fingerprints: [],
           last_error: res.errorMessage ?? res.status,
-        });
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
         continue;
       }
 
@@ -257,7 +312,7 @@ Deno.serve(async (req) => {
           state = missing.length === 0 ? "IN_SYNC" : "TRANSFER_FAILED";
         }
 
-        lines.push({
+        const line: LedgerLine = {
           work_item_id: wi.id, radicado, provider_key: provider, row_kind: kind,
           provider_count: providerFps.length,
           local_count: local.size,
@@ -266,51 +321,10 @@ Deno.serve(async (req) => {
           transfer_state: state,
           missing_fingerprints: missing.slice(0, 50),
           last_error: lastError,
-        });
+        };
+        lines.push(line);
+        await persistLine(line, wi.organization_id ?? null);
       }
-    }
-  }
-
-  // Persist the ledger, preserving first_gap_at across runs.
-  const openGaps: LedgerLine[] = [];
-  for (const line of lines) {
-    const isGap = line.transfer_state === "GAP"
-      || line.transfer_state === "TRANSFER_FAILED"
-      || line.transfer_state === "PROVIDER_UNAVAILABLE";
-
-    const { data: existing } = await admin
-      .from("bridge_inventory_ledger")
-      .select("id, first_gap_at")
-      .eq("work_item_id", line.work_item_id)
-      .eq("provider_key", line.provider_key)
-      .eq("row_kind", line.row_kind)
-      .maybeSingle();
-
-    const firstGapAt = isGap
-      ? (existing?.first_gap_at ?? new Date().toISOString())
-      : null;
-
-    const wi = (items ?? []).find((i) => i.id === line.work_item_id);
-    await admin.from("bridge_inventory_ledger").upsert({
-      work_item_id: line.work_item_id,
-      organization_id: wi?.organization_id ?? null,
-      radicado: line.radicado,
-      provider_key: line.provider_key,
-      row_kind: line.row_kind,
-      provider_count: line.provider_count,
-      local_count: line.local_count,
-      missing_count: line.missing_count,
-      recovered_count: line.recovered_count,
-      transfer_state: line.transfer_state,
-      missing_fingerprints: line.missing_fingerprints,
-      last_error: line.last_error,
-      first_gap_at: firstGapAt,
-      last_checked_at: new Date().toISOString(),
-    }, { onConflict: "work_item_id,provider_key,row_kind" });
-
-    if (isGap && firstGapAt
-        && Date.now() - new Date(firstGapAt).getTime() > GAP_ALERT_HOURS * 3600_000) {
-      openGaps.push(line);
     }
   }
 
@@ -335,6 +349,9 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     ok: true,
     checked_items: items?.length ?? 0,
+    processed_items: processed,
+    next_offset: budgetExhausted || (items?.length ?? 0) === limit ? offset + processed : null,
+    budget_exhausted: budgetExhausted,
     lines,
     recovered_rows: healed,
     open_gaps: openGaps.length,
