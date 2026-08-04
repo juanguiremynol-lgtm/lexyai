@@ -407,6 +407,17 @@ Deno.serve(async (req) => {
 
         const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
 
+        if (body.debug_identity === true) {
+          const t = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
+          const { data: localRows } = await admin.from(t).select("*").eq("work_item_id", wi.id).limit(20);
+          return new Response(JSON.stringify({
+            kind,
+            provider_rows: rows.slice(0, 10),
+            provider_identities: [...providerRows.values()],
+            local_identities: ((localRows ?? []) as any[]).map((r) => localIdentities(kind, r, wi.id)),
+          }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         let local = await localState();
         let missing = [...providerRows.entries()]
           .filter(([, ids]) => !landed(ids, local.ids))
