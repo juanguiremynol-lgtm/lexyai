@@ -510,6 +510,11 @@ Deno.serve(async (req) => {
           const { data } = await admin.from(table)
             .select(cols)
             .eq("work_item_id", wi.id)
+            // ITERATION 24 — archived rows are NOT inventory. Counting them
+            // inflated local_count (~2x provider_count portfolio-wide) and, far
+            // worse, let an archived duplicate "cover" a provider row that had
+            // never landed live, understating missing_count.
+            .eq("is_archived", false)
             .limit(2000);
           // Like-for-like: only rows attributable to THIS provider count as the
           // local side of THIS provider's inventory.
