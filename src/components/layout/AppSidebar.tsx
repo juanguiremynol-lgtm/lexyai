@@ -13,7 +13,6 @@ import {
   Newspaper,
   Mail,
   FileSignature,
-  PenTool,
   Monitor,
   PauseCircle,
 } from "lucide-react";
