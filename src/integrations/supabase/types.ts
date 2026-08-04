@@ -3837,6 +3837,63 @@ export type Database = {
           },
         ]
       }
+      clase_proceso_unmapped_log: {
+        Row: {
+          clase_proceso: string
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          occurrences: number
+          radicado: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          clase_proceso: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          occurrences?: number
+          radicado?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          clase_proceso?: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          occurrences?: number
+          radicado?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
+      clase_proceso_workflow_map: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          pattern: string
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          pattern: string
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          pattern?: string
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       client_contract_allowances: {
         Row: {
           base_limit: number
@@ -5301,6 +5358,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      despacho_competencia_catalog: {
+        Row: {
+          competencia: string
+          corp: string | null
+          created_at: string
+          esp: string
+          id: string
+          label: string
+          notes: string | null
+          subjects: string[]
+          updated_at: string
+        }
+        Insert: {
+          competencia: string
+          corp?: string | null
+          created_at?: string
+          esp: string
+          id?: string
+          label: string
+          notes?: string | null
+          subjects?: string[]
+          updated_at?: string
+        }
+        Update: {
+          competencia?: string
+          corp?: string | null
+          created_at?: string
+          esp?: string
+          id?: string
+          label?: string
+          notes?: string | null
+          subjects?: string[]
+          updated_at?: string
+        }
+        Relationships: []
       }
       despacho_coverage: {
         Row: {
@@ -10051,6 +10144,7 @@ export type Database = {
           is_active: boolean | null
           max_member_seats: number
           name: string
+          practice_areas: string[] | null
           show_estados_ticker: boolean
           slug: string | null
           type: string
@@ -10079,6 +10173,7 @@ export type Database = {
           is_active?: boolean | null
           max_member_seats?: number
           name: string
+          practice_areas?: string[] | null
           show_estados_ticker?: boolean
           slug?: string | null
           type?: string
@@ -10107,6 +10202,7 @@ export type Database = {
           is_active?: boolean | null
           max_member_seats?: number
           name?: string
+          practice_areas?: string[] | null
           show_estados_ticker?: boolean
           slug?: string | null
           type?: string
@@ -17169,6 +17265,8 @@ export type Database = {
           demonitor_at: string | null
           demonitor_reason: string | null
           description: string | null
+          despacho_competencia: string | null
+          despacho_competencia_subjects: string[] | null
           email_linking_enabled: boolean | null
           etapa: string | null
           expediente_url: string | null
@@ -17301,6 +17399,7 @@ export type Database = {
           ubicacion_expediente: string | null
           updated_at: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
+          workflow_type_source: string | null
         }
         Insert: {
           acta_radicacion_url?: string | null
@@ -17348,6 +17447,8 @@ export type Database = {
           demonitor_at?: string | null
           demonitor_reason?: string | null
           description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
           email_linking_enabled?: boolean | null
           etapa?: string | null
           expediente_url?: string | null
@@ -17480,6 +17581,7 @@ export type Database = {
           ubicacion_expediente?: string | null
           updated_at?: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
+          workflow_type_source?: string | null
         }
         Update: {
           acta_radicacion_url?: string | null
@@ -17527,6 +17629,8 @@ export type Database = {
           demonitor_at?: string | null
           demonitor_reason?: string | null
           description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
           email_linking_enabled?: boolean | null
           etapa?: string | null
           expediente_url?: string | null
@@ -17659,6 +17763,7 @@ export type Database = {
           ubicacion_expediente?: string | null
           updated_at?: string
           workflow_type?: Database["public"]["Enums"]["workflow_type"]
+          workflow_type_source?: string | null
         }
         Relationships: [
           {
@@ -18166,6 +18271,16 @@ export type Database = {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
       }
+      despacho_competencia_for_radicado: {
+        Args: { p_radicado: string }
+        Returns: {
+          competencia: string
+          corp: string
+          esp: string
+          label: string
+          subjects: string[]
+        }[]
+      }
       despacho_silence_note: {
         Args: { p_provider: string; p_radicado: string; p_workflow: string }
         Returns: string
@@ -18491,6 +18606,10 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      provider_chain_for_work_item: {
+        Args: { p_radicado: string; p_workflow: string }
+        Returns: string[]
+      }
       provider_chain_for_workflow: {
         Args: { p_workflow: string }
         Returns: string[]
@@ -18888,6 +19007,7 @@ export type Database = {
         | "CPACA"
         | "LABORAL"
         | "PENAL_906"
+        | "INDETERMINADO"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -19298,6 +19418,7 @@ export const Constants = {
         "CPACA",
         "LABORAL",
         "PENAL_906",
+        "INDETERMINADO",
       ],
     },
   },
