@@ -196,7 +196,9 @@ Deno.serve(async (req) => {
         if (heal && missing.length > 0) {
           const fn = kind === "ACT" ? "sync-by-work-item" : "sync-publicaciones-by-work-item";
           const { error: syncErr } = await admin.functions.invoke(fn, {
-            body: { work_item_id: wi.id, force_refresh: true, trigger: "BRIDGE_RECONCILE" },
+            // `_scheduled` is the service-role contract of both sync functions:
+            // it skips the interactive JWT/membership check.
+            body: { work_item_id: wi.id, _scheduled: true, force_refresh: true, trigger: "BRIDGE_RECONCILE" },
           });
           if (syncErr) lastError = String(syncErr.message).slice(0, 400);
           local = await localFps();
