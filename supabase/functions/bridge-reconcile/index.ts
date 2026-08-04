@@ -66,6 +66,7 @@ function providerIdentities(
     norm(row.hash_fingerprint),
     norm(row.asset_id ?? raw.asset_id ?? raw.id),
     norm(row.key ?? raw.key),
+    norm(raw?.estado?.article_id),
   ];
   if (kind === "PUB") {
     ids.push(norm(canonicalPubFingerprint({
@@ -92,6 +93,10 @@ function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItem
     norm(row.hash_fingerprint),
     norm(raw.asset_id ?? raw.id),
     norm(raw.key),
+    // The sync path stores the provider article id inside a composite key
+    // ("individual:184731165:<titulo>:<fecha>"); expose the bare token so it
+    // matches the provider's `raw_data.estado.article_id`.
+    norm(String(raw.key ?? "").split(":")[1]),
   ];
   if (kind === "PUB") {
     ids.push(norm(canonicalPubFingerprint({
@@ -407,16 +412,6 @@ Deno.serve(async (req) => {
 
         const landed = (ids: string[], local: Set<string>) => ids.some((id) => local.has(id));
 
-        if (body.debug_identity === true) {
-          const t = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
-          const { data: localRows } = await admin.from(t).select("*").eq("work_item_id", wi.id).limit(20);
-          return new Response(JSON.stringify({
-            kind,
-            provider_rows: rows.slice(0, 10),
-            provider_identities: [...providerRows.values()],
-            local_identities: ((localRows ?? []) as any[]).map((r) => localIdentities(kind, r, wi.id)),
-          }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
 
         let local = await localState();
         let missing = [...providerRows.entries()]
