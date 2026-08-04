@@ -9,7 +9,11 @@ export type EmailEffectType =
   | "DEADLINE_OPENED"
   | "DEADLINE_SATISFIED"
   | "STAGE_SUGGESTED"
-  | "EXPEDIENTE_LINK_OFFERED";
+  | "EXPEDIENTE_LINK_OFFERED"
+  /** ITER19 A2: non-actionable court notice ("Según correo del despacho…"). */
+  | "NOTICIA_INFORMATIVA"
+  /** ITER19 A3(ii): hearing citation received only by email. */
+  | "HEARING_SUGGESTED";
 
 export interface EmailLinkEffect {
   id: string;
