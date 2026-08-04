@@ -1104,6 +1104,83 @@ Deno.serve(async (req) => {
       console.warn("[watchdog] Trigger health check error:", e);
     }
 
+    // ================================================================
+    // 5l) LAYER 4: pg_cron health — EVERY job in cron.job, no whitelist.
+    // A scheduled job can fail on every run without any heartbeat ever
+    // being written (the edge function is never reached), so heartbeat
+    // monitoring alone is blind to it. This inspects cron.job_run_details.
+    // ================================================================
+    try {
+      const { data: cronHealth, error: cronErr } = await admin.rpc("cron_job_health" as never);
+      if (cronErr) throw new Error(cronErr.message);
+      const jobs = (cronHealth ?? []) as Array<{
+        jobname: string;
+        active: boolean;
+        last_run: string | null;
+        last_status: string | null;
+        last_success: string | null;
+        consecutive_failures: number;
+        never_succeeded: boolean;
+        failing_hours: number;
+        last_error: string | null;
+      }>;
+
+      const neverSucceeded = jobs.filter((j) => j.active && j.never_succeeded);
+      const failingLong = jobs.filter(
+        (j) => j.active && !j.never_succeeded && j.consecutive_failures > 0 && Number(j.failing_hours) > 6,
+      );
+      const failing3 = jobs.filter(
+        (j) =>
+          j.active &&
+          j.consecutive_failures >= 3 &&
+          !neverSucceeded.includes(j) &&
+          !failingLong.includes(j),
+      );
+
+      results.cron_health = {
+        total_jobs: jobs.length,
+        never_succeeded: neverSucceeded.map((j) => j.jobname),
+        failing_over_6h: failingLong.map((j) => j.jobname),
+        failing_3_plus: failing3.map((j) => j.jobname),
+        jobs: jobs.map((j) => ({
+          jobname: j.jobname,
+          active: j.active,
+          last_status: j.last_status,
+          last_success: j.last_success,
+          consecutive_failures: j.consecutive_failures,
+          last_error: j.last_error,
+        })),
+      };
+
+      const describe = (j: { jobname: string; consecutive_failures: number; last_error: string | null }) =>
+        `${j.jobname} (${j.consecutive_failures} fallos${j.last_error ? `: ${j.last_error.slice(0, 90)}` : ""})`;
+
+      if (neverSucceeded.length > 0) {
+        alerts.push({
+          title: "🚨 Cron nunca ha tenido una ejecución exitosa",
+          message: `${neverSucceeded.length} job(s) programados jamás han terminado bien: ${neverSucceeded.map(describe).join(" | ")}`,
+          severity: "CRITICAL",
+        });
+      }
+      if (failingLong.length > 0) {
+        alerts.push({
+          title: "🚨 Cron fallando por más de 6 horas",
+          message: `${failingLong.length} job(s) llevan más de 6h sin éxito: ${failingLong.map(describe).join(" | ")}`,
+          severity: "CRITICAL",
+        });
+      }
+      if (failing3.length > 0) {
+        alerts.push({
+          title: "⚠️ Cron con fallos consecutivos",
+          message: `${failing3.length} job(s) con 3 o más fallos consecutivos: ${failing3.map(describe).join(" | ")}`,
+          severity: "WARNING",
+        });
+      }
+    } catch (e) {
+      console.warn("[watchdog] pg_cron health check error:", e);
+      results.cron_health = { error: (e as Error).message };
+    }
+
     for (const alert of alerts) {
       try {
         await admin.from("atenia_ai_actions").insert({
