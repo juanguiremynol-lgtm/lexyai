@@ -1444,6 +1444,21 @@ Deno.serve(withSyncTimeline(async (req) => {
       inserted: [],
     };
 
+    // ── Iteration 13.1: per-row persistence ledger (publicaciones path) ──
+    // Same contract as the acts path: every parsed row must land in exactly one
+    // bucket, or surface as ERROR with the Postgres message. Nothing vanishes.
+    const pubLedger = {
+      parsed: 0,
+      inserted: 0,
+      updated: 0,
+      skippedDuplicate: 0,
+      skippedStructural: 0,
+      rejected: 0,
+      errored: 0,
+      uniqueViolations: 0,
+      outcomes: [] as Array<Record<string, unknown>>,
+    };
+
     // ============= FETCH PUBLICACIONES (v3 SYNCHRONOUS API) =============
     // Safety timeout: abort fetch if we're approaching edge function hard limit (~150s).
     // This prevents the entire function from timing out and producing an unrecoverable error.
