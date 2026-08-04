@@ -51,7 +51,7 @@
             },
             "workflow_type": {
               "type": "string",
-              "description": "Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."
+              "description": "Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."
             },
             "client_id": {
               "type": "string",
@@ -84,7 +84,7 @@
       {
         "name": "list_work_items",
         "title": "Listar asuntos (work items)",
-        "description": "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION).",
+        "description": "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -99,7 +99,7 @@
             },
             "workflow_type": {
               "type": "string",
-              "description": "Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."
+              "description": "Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."
             },
             "limit": {
               "type": "integer",

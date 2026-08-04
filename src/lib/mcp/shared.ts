@@ -289,3 +289,17 @@ export async function resolveWorkItem(
         .join(", ")}); se resolvió a la instancia activa ${chosen.radicado}.`;
   return { item: chosen, error: null, note, candidates };
 }
+
+/**
+ * Canonical workflow_type for MCP filters.
+ *
+ * The enum has no 'PENAL' value — the criminal type is PENAL_906. Legacy
+ * callers (and LLMs guessing) still send 'PENAL', so it is accepted as a
+ * defensive alias here and never emitted.
+ */
+export function canonicalWorkflowType(raw: string): string {
+  const key = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (key === "PENAL" || key === "PENAL906" || key === "LEY_906") return "PENAL_906";
+  if (key === "PROC_ADMIN" || key === "GOV_PROC") return "GOV_PROCEDURE";
+  return key;
+}

@@ -204,15 +204,21 @@ async function resolveWorkItem(sb, args, columns = "id, radicado, title, workflo
   const note = exact ? `El radicado "${raw}" coincide con ${rows.length} instancias; se us\xF3 la coincidencia exacta ${chosen.radicado}.` : `El radicado "${raw}" coincide con ${rows.length} instancias (${candidates.map((c) => c.radicado ?? c.id).join(", ")}); se resolvi\xF3 a la instancia activa ${chosen.radicado}.`;
   return { item: chosen, error: null, note, candidates };
 }
+function canonicalWorkflowType(raw) {
+  const key = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (key === "PENAL" || key === "PENAL906" || key === "LEY_906") return "PENAL_906";
+  if (key === "PROC_ADMIN" || key === "GOV_PROC") return "GOV_PROCEDURE";
+  return key;
+}
 
 // src/lib/mcp/tools/list-work-items.ts
 var list_work_items_default = defineTool({
   name: "list_work_items",
   title: "Listar asuntos (work items)",
-  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION).",
+  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
   inputSchema: {
     search: z.string().trim().optional().describe("Free-text match on radicado, t\xEDtulo, partes, o autoridad."),
-    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -221,7 +227,7 @@ var list_work_items_default = defineTool({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     let q = sb.from("work_items").select("id, radicado, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at").is("deleted_at", null).order("updated_at", { ascending: false }).limit(limit ?? 25);
-    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (workflow_type) q = q.eq("workflow_type", canonicalWorkflowType(workflow_type));
     if (search) {
       const s = `%${search}%`;
       q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
@@ -729,7 +735,7 @@ var search_default = defineTool13({
   description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
     query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
-    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
     client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z12.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
@@ -757,7 +763,7 @@ var search_default = defineTool13({
     }
     const ids = hits.map((h) => String(h.id));
     let q = sb.from("work_items").select("id, radicado, title, workflow_type, stage, status, client_id, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at").in("id", ids);
-    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (workflow_type) q = q.eq("workflow_type", canonicalWorkflowType(workflow_type));
     if (client_id) q = q.eq("client_id", client_id);
     if (status) q = q.eq("status", status.toUpperCase());
     if (city) q = q.ilike("authority_city", `%${city}%`);

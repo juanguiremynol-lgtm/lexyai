@@ -49,7 +49,7 @@ export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhas
     <>
     <ol className="flex w-full snap-x gap-2 overflow-x-auto pb-2" aria-label="Fases del proceso">
       {phases.map((phase, i) => {
-        const isDone = currentIndex >= 0 && i < currentIndex;
+        const isDone = !phase.branch && currentIndex >= 0 && i < currentIndex && !phases[currentIndex]?.branch;
         const isCurrent = i === currentIndex;
         const reach = reachByPhase.get(phase.key);
         const Icon = reach ? SOURCE_ICON[reach.source] : null;
@@ -61,6 +61,7 @@ export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhas
               isCurrent && "border-primary bg-primary/10",
               isDone && "border-border bg-muted/50",
               !isCurrent && !isDone && "border-dashed border-border/60",
+              phase.branch && !isCurrent && "opacity-70",
             )}
             aria-current={isCurrent ? "step" : undefined}
           >
@@ -84,6 +85,7 @@ export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhas
                 )}
               >
                 {phase.label}
+                {phase.branch ? " (salida)" : ""}
                 {isCurrent && isInferred ? " (inferida)" : ""}
               </span>
             </div>

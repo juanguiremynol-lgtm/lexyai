@@ -15,6 +15,29 @@ export type ItemStatus = 'ACTIVE' | 'INACTIVE' | 'CLOSED' | 'ARCHIVED';
 // CGP Phase (filing vs process) - only for CGP workflow
 export type CGPPhase = 'FILING' | 'PROCESS';
 
+/**
+ * Canonical workflow-type normalizer.
+ *
+ * The database enum has no 'PENAL' value — the canonical criminal type is
+ * 'PENAL_906'. 'PENAL' is accepted here as a DEFENSIVE ALIAS for legacy
+ * payloads, imports and MCP callers, and is never emitted by our own code.
+ */
+export const WORKFLOW_TYPE_ALIASES: Record<string, WorkflowType> = {
+  PENAL: 'PENAL_906',
+  'PENAL906': 'PENAL_906',
+  'PENAL_906': 'PENAL_906',
+  'LEY_906': 'PENAL_906',
+  PROC_ADMIN: 'GOV_PROCEDURE',
+  GOV_PROC: 'GOV_PROCEDURE',
+};
+
+export function normalizeWorkflowType(raw: string | null | undefined): WorkflowType | null {
+  if (!raw) return null;
+  const key = raw.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if (WORKFLOW_TYPE_ALIASES[key]) return WORKFLOW_TYPE_ALIASES[key];
+  return (key in WORKFLOW_TYPES ? (key as WorkflowType) : null);
+}
+
 // Workflow definitions with UI metadata
 export const WORKFLOW_TYPES: Record<WorkflowType, {
   label: string;

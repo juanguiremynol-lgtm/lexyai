@@ -71,7 +71,7 @@ const ALL_WORKFLOW_OPTIONS: { value: WorkflowType; label: string; description: s
   { value: "LABORAL", label: "Laboral", description: "cpnuAdapter (primario) + publicacionesAdapter" },
   { value: "CPACA", label: "CPACA (Administrativo)", description: "samaiAdapter + publicacionesAdapter + samaiEstadosAdapter" },
   { value: "TUTELA", label: "Tutela", description: "cpnuAdapter + tutelasAdapter + samaiAdapter + publicacionesAdapter" },
-  { value: "PENAL_906", label: "Penal 906", description: "cpnuAdapter + publicacionesAdapter" },
+  { value: "PENAL_906", label: "Penal (Ley 906)", description: "cpnuAdapter + publicacionesAdapter" },
   { value: "PROCESO_ADMINISTRATIVO", label: "Proceso Administrativo", description: "samaiAdapter + publicacionesAdapter" },
   { value: "PETICIONES", label: "Peticiones", description: "cpnuAdapter (primario)" },
 ];

@@ -255,7 +255,7 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {WORKFLOW_TYPES_ORDER.filter(wt => wt !== 'PENAL_906' && wt !== 'GOV_PROCEDURE' && wt !== 'PETICION').map(wt => (
+                {WORKFLOW_TYPES_ORDER.filter(wt => wt !== 'GOV_PROCEDURE' && wt !== 'PETICION' && wt !== 'GENERIC').map(wt => (
                   <SelectItem key={wt} value={wt}>
                     {WORKFLOW_TYPES[wt].label}
                   </SelectItem>
