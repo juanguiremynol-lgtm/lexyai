@@ -129,7 +129,13 @@ async function invokeSyncFunction(
 ): Promise<{ ok: boolean; detail: string | null }> {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fn}`;
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  try {
+  // The observed non-2xx was a platform-level `502 Bad Gateway` with an HTML
+  // body: the worker was still saturated by the preceding 120s CPNU poll when
+  // the next invocation arrived. It is transient and must be retried, not
+  // recorded as a transfer defect.
+  let last = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+   try {
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -146,16 +152,14 @@ async function invokeSyncFunction(
     });
     const text = await res.text();
     if (res.ok) return { ok: true, detail: null };
-    return {
-      ok: false,
-      detail: `${fn} HTTP ${res.status} ${res.statusText} :: ${(text || "<empty body>").slice(0, 600)}`,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      detail: `${fn} FETCH_FAILED :: ${String((err as Error)?.message ?? err).slice(0, 400)}`,
-    };
+    last = `${fn} HTTP ${res.status} ${res.statusText} (attempt ${attempt}) :: ${(text || "<empty body>").slice(0, 600)}`;
+    if (res.status < 500) return { ok: false, detail: last };
+   } catch (err) {
+    last = `${fn} FETCH_FAILED (attempt ${attempt}) :: ${String((err as Error)?.message ?? err).slice(0, 400)}`;
+   }
+   if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 4000));
   }
+  return { ok: false, detail: last };
 }
 
 const CHAIN: Record<string, string[]> = {
