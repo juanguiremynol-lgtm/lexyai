@@ -31,8 +31,6 @@ export { default as PlatformAdminAlertsPage } from "./PlatformAdminAlertsPage";
 export { default as PlatformCoverageGapsPage } from "./PlatformCoverageGapsPage";
 export { default as PlatformWaitlistPage } from "./PlatformWaitlistPage";
 export { default as PlatformPdfSettingsPage } from "./PlatformPdfSettingsPage";
-export { default as PlatformGenericSigningPage } from "./PlatformGenericSigningPage";
-export { default as PlatformGenericSigningDocsPage } from "./PlatformGenericSigningDocsPage";
 export { default as PlatformHearingsCatalogPage } from "./PlatformHearingsCatalogPage";
 export { default as PlatformNotificationDispatchPage } from "./PlatformNotificationDispatchPage";
 export { default as PlatformWhatsAppPage } from "./PlatformWhatsAppPage";
