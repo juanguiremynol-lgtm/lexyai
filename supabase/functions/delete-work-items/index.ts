@@ -157,8 +157,12 @@ async function deleteWorkItemDependents(
   }
 
   // Remaining dependents
-  await serviceClient.from("actuaciones").delete().eq("filing_id", workItemId);
-  await serviceClient.from("actuaciones").delete().eq("monitored_process_id", workItemId);
+  // ITER13: the live actuaciones table is `work_item_acts`. The legacy table is
+  // frozen but still purged for data-protection compliance.
+  await serviceClient.from("work_item_acts").delete().eq("work_item_id", workItemId);
+  await serviceClient.from("actuaciones_legacy_20260131").delete().eq("filing_id", workItemId);
+  await serviceClient.from("actuaciones_legacy_20260131").delete().eq("monitored_process_id", workItemId);
+  await serviceClient.from("actuaciones_legacy_20260131").delete().eq("work_item_id", workItemId);
   await serviceClient.from("alerts").delete().eq("filing_id", workItemId);
   await serviceClient.from("hearings").delete().eq("filing_id", workItemId);
   await serviceClient.from("hearings").delete().eq("process_id", workItemId);
