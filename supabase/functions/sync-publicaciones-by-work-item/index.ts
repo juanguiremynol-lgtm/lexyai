@@ -34,6 +34,7 @@ import {
   SYNC_COOLDOWN_MS,
 } from "../_shared/onlineSyncEligibility.ts";
 import { resolveProviders } from "../_shared/providerRouting.ts";
+import { reconcileSyncRunPersistence } from "../_shared/syncOrchestrator.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -2682,7 +2683,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           skippedStructural: pubLedger.skippedStructural,
           rejected: pubLedger.rejected,
           errored: pubLedger.errored,
-        });
+        }, 'PUBS');
       }
     } catch (_traceErr) { /* best-effort */ }
 
