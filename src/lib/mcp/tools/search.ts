@@ -34,7 +34,7 @@ export default defineTool({
       .trim()
       .min(2)
       .describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o título."),
-    workflow_type: z.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL, TUTELA, PETICION."),
+    workflow_type: z.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ("PENAL" se acepta como alias de PENAL_906)."),
     client_id: z.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
@@ -72,7 +72,7 @@ export default defineTool({
       .from("work_items")
       .select("id, radicado, title, workflow_type, stage, status, client_id, authority_name, authority_city, demandantes, demandados, last_action_date, last_action_description, updated_at")
       .in("id", ids);
-    if (workflow_type) q = q.eq("workflow_type", workflow_type.toUpperCase());
+    if (workflow_type) q = q.eq("workflow_type", canonicalWorkflowType(workflow_type));
     if (client_id) q = q.eq("client_id", client_id);
     if (status) q = q.eq("status", status.toUpperCase());
     if (city) q = q.ilike("authority_city", `%${city}%`);
