@@ -79,8 +79,6 @@ const platformNavItems = [
   { title: "Cobertura", url: "/platform/coverage-gaps", icon: ShieldCheck },
   { title: "Lista de Espera", url: "/platform/waitlist", icon: UserPlus },
   { title: "PDF / Gotenberg", url: "/platform/pdf-settings", icon: Printer },
-  { title: "Firma PDF Genérica", url: "/platform/generic-signing", icon: PenTool },
-  { title: "Docs Firma Genérica", url: "/platform/generic-signing-docs", icon: FileText },
   { title: "Catálogo Audiencias", url: "/platform/hearings-catalog", icon: Calendar },
   { title: "Email Dispatch", url: "/platform/notification-dispatch", icon: Mail },
   { title: "WhatsApp", url: "/platform/whatsapp", icon: MessageCircle },
