@@ -9,6 +9,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { mayAutoSuspendMonitoring } from "./bridge-verification";
 
 const GHOST_WARNING_DEDUPE_HOURS = 6;
 
@@ -68,6 +69,13 @@ export async function remediateGhostItems(orgId: string): Promise<GhostRemediati
       });
 
       if (syncErr || syncResult?.error?.includes("not found") || syncResult?.error?.includes("NOT_FOUND")) {
+        // Iteration 20: never quarantine on a local sync failure alone — the
+        // provider may well have rows we failed to transfer.
+        const verdict = await mayAutoSuspendMonitoring(ghost.id);
+        if (!verdict.allowed) {
+          result.bootstrapped++;
+          continue;
+        }
         // Quarantine: disable monitoring with reason
         await (supabase.from("work_items") as any)
           .update({
@@ -78,6 +86,7 @@ export async function remediateGhostItems(orgId: string): Promise<GhostRemediati
             monitoring_disabled_meta: {
               ghost_bootstrap_error: syncErr?.message || syncResult?.error,
               quarantined_at: new Date().toISOString(),
+              provider_verification: verdict.reason,
             },
           })
           .eq("id", ghost.id);

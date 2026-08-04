@@ -869,20 +869,46 @@ Deno.serve(async (req) => {
       const GHOST_MAX_ATTEMPTS = 2;
       let ghostBootstrapped = 0;
       let ghostTerminalized = 0;
+      let ghostClearedByProvider = 0;
 
       for (const ghost of ghostItems ?? []) {
         const attempts = (ghost as any).ghost_bootstrap_attempts ?? 0;
         if (attempts >= GHOST_MAX_ATTEMPTS) {
-          // Terminalize: pause via canonical RPC
-          await admin.rpc("set_work_item_lifecycle", {
-            p_work_item_id: ghost.id,
-            p_new_state: "PAUSED",
-            p_reason: "GHOST_NO_INITIAL_SYNC",
-            p_actor: "AI",
-            p_actor_user: null,
-            p_metadata: { source: "atenia-cron-watchdog", attempts },
-          });
-          ghostTerminalized++;
+          // Iteration 20: a failed local sync is NOT evidence that the matter
+          // has no rows upstream. Ask the provider first — pausing a matter
+          // that GCP can see is the self-confirming ghost loop we are killing.
+          let providerRows = 0;
+          let providerAnswered = false;
+          try {
+            const { data: recon } = await admin.functions.invoke("bridge-reconcile", {
+              body: { work_item_ids: [ghost.id], heal: true, force_refresh: true },
+            });
+            const lines = (recon?.lines ?? []) as Array<{ provider_count: number; transfer_state: string }>;
+            providerAnswered = lines.some((l) => l.transfer_state !== "PROVIDER_UNAVAILABLE");
+            providerRows = lines.reduce((n, l) => n + (l.provider_count ?? 0), 0);
+          } catch (err) {
+            console.warn("[watchdog] ghost provider verification failed:", err);
+          }
+
+          if (providerRows > 0) {
+            // The provider has rows: this is a bridge defect, not a ghost.
+            await admin.from("work_items").update({ ghost_bootstrap_attempts: 0 } as any).eq("id", ghost.id);
+            ghostClearedByProvider++;
+          } else if (!providerAnswered) {
+            // Nothing can be concluded while the provider is unreachable.
+            console.warn(`[watchdog] ghost ${ghost.id}: provider unavailable, deferring`);
+          } else {
+            // Provider answered and genuinely has no rows.
+            await admin.rpc("set_work_item_lifecycle", {
+              p_work_item_id: ghost.id,
+              p_new_state: "PAUSED",
+              p_reason: "GHOST_CONFIRMED_NO_PROVIDER_ROWS",
+              p_actor: "AI",
+              p_actor_user: null,
+              p_metadata: { source: "atenia-cron-watchdog", attempts, provider_verified: true },
+            });
+            ghostTerminalized++;
+          }
         } else {
           // Enqueue one-time bootstrap sync
           const today = new Date().toISOString().slice(0, 10);
@@ -902,7 +928,20 @@ Deno.serve(async (req) => {
           ghostBootstrapped++;
         }
       }
-      results.ghost_remediation = { found: ghostItems?.length ?? 0, bootstrapped: ghostBootstrapped, terminalized: ghostTerminalized };
+      results.ghost_remediation = {
+        found: ghostItems?.length ?? 0,
+        bootstrapped: ghostBootstrapped,
+        terminalized: ghostTerminalized,
+        cleared_by_provider: ghostClearedByProvider,
+      };
+
+      if (ghostClearedByProvider > 0) {
+        alerts.push({
+          title: "🔌 Falsos fantasmas detectados",
+          message: `${ghostClearedByProvider} asunto(s) tenían filas en el proveedor pese a no tener sync local: defecto del puente, no del expediente.`,
+          severity: "WARNING",
+        });
+      }
 
       // Fix F: Only emit warning if there are NEW ghosts (not already terminalized/bootstrapped)
       if ((ghostItems?.length ?? 0) > 0 && ghostTerminalized > 0) {

@@ -7,11 +7,13 @@ import { CronGovernancePanel } from "@/components/platform/atenia-ai/CronGoverna
 import { AteniaCronHealthPanel } from "@/components/platform/atenia-ai/AteniaCronHealthPanel";
 import { NeverSyncedItemsPanel } from "@/components/platform/admin-diagnostics/NeverSyncedItemsPanel";
 import { DeadLetterQueuePanel } from "@/components/platform/admin-diagnostics/DeadLetterQueuePanel";
+import { BridgeIntegrityPanel } from "@/components/platform/admin-diagnostics/BridgeIntegrityPanel";
 
 export function AdminSystemHealthTab() {
   return (
     <div className="space-y-6">
       <SystemHealthDashboard />
+      <BridgeIntegrityPanel />
       <NeverSyncedItemsPanel />
       <DeadLetterQueuePanel />
       <CronGovernancePanel />
