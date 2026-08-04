@@ -34,6 +34,49 @@ import {
 const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
 
+/**
+ * ITERATION 21 — "the error is the bug before the bug".
+ *
+ * `supabase.functions.invoke()` throws away the response body and reports the
+ * useless string "Edge Function returned a non-2xx status code". Two El Retiro
+ * gaps sat undiagnosable on the ledger because of it. We call the sync
+ * functions over raw HTTP instead and persist status + body verbatim.
+ */
+async function invokeSyncFunction(
+  fn: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; detail: string | null }> {
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fn}`;
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Opaque `sb_secret_` keys must travel as `apikey`; legacy JWT service
+        // keys are accepted on both headers. Sending both keeps either shape
+        // working and stops the gateway from 401-ing before the function runs.
+        "apikey": key,
+        "Authorization": `Bearer ${key}`,
+        "x-invoked-by": "bridge-reconcile",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(110_000),
+    });
+    const text = await res.text();
+    if (res.ok) return { ok: true, detail: null };
+    return {
+      ok: false,
+      detail: `${fn} HTTP ${res.status} ${res.statusText} :: ${(text || "<empty body>").slice(0, 600)}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `${fn} FETCH_FAILED :: ${String((err as Error)?.message ?? err).slice(0, 400)}`,
+    };
+  }
+}
+
 const CHAIN: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
   LABORAL: ["cpnu", "publicaciones"],
@@ -195,12 +238,17 @@ Deno.serve(async (req) => {
         // Self-healing bridge: a gap re-runs the persistence path once.
         if (heal && missing.length > 0) {
           const fn = kind === "ACT" ? "sync-by-work-item" : "sync-publicaciones-by-work-item";
-          const { error: syncErr } = await admin.functions.invoke(fn, {
-            // `_scheduled` is the service-role contract of both sync functions:
-            // it skips the interactive JWT/membership check.
-            body: { work_item_id: wi.id, _scheduled: true, force_refresh: true, trigger: "BRIDGE_RECONCILE" },
+          // `_scheduled` is the service-role contract of both sync functions:
+          // it skips the interactive JWT/membership check. `_force` bypasses
+          // the cooldown gate, which otherwise makes healing a silent no-op.
+          const invoked = await invokeSyncFunction(fn, {
+            work_item_id: wi.id,
+            _scheduled: true,
+            _force: true,
+            force_refresh: true,
+            trigger: "BRIDGE_RECONCILE",
           });
-          if (syncErr) lastError = String(syncErr.message).slice(0, 400);
+          if (!invoked.ok) lastError = invoked.detail;
           local = await localFps();
           const stillMissing = providerFps.filter((fp) => !local.has(fp));
           recovered = missing.length - stillMissing.length;
