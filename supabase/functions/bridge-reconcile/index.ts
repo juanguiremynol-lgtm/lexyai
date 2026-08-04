@@ -30,10 +30,8 @@ import {
   fetchFromSamaiEstados,
   type ProviderAdapterResult,
 } from "../_shared/providerAdapters/index.ts";
-import {
-  canonicalActFingerprint,
-  canonicalPubFingerprint,
-} from "../_shared/canonicalFingerprint.ts";
+import { canonicalPubIdentityFromRow } from "../_shared/canonicalPublicacionMapper.ts";
+import { canonicalActIdentityFromRow } from "../_shared/canonicalActMapper.ts";
 
 /**
  * ITERATION 21 — false-gap elimination.
@@ -50,6 +48,10 @@ import {
  * the transported fingerprint, and the canonical fingerprint recomputed from
  * the row's juridical fields. A provider row counts as landed when any of its
  * identities matches any identity of any local row.
+ *
+ * ITERATION 22 — the recomputation is no longer inlined here. Both sides call
+ * `canonicalPubIdentityFromRow` / `canonicalActIdentityFromRow` from the shared
+ * mappers, so the reconciler can never drift from the writers again.
  */
 function norm(v: unknown): string | null {
   const s = String(v ?? "").trim();
@@ -69,20 +71,19 @@ function providerIdentities(
     norm(raw?.estado?.article_id),
   ];
   if (kind === "PUB") {
-    ids.push(norm(canonicalPubFingerprint({
-      work_item_id: workItemId,
-      pub_date: row.fecha_fijacion ?? row.published_at ?? raw.fecha_publicacion ?? null,
+    ids.push(norm(canonicalPubIdentityFromRow({
+      fecha_fijacion: row.fecha_fijacion ?? row.published_at ?? raw.fecha_publicacion ?? null,
+      published_at: null,
       tipo_publicacion: row.tipo_publicacion ?? null,
       title: row.title ?? raw.titulo ?? null,
-      party_hint: raw.parte ?? null,
-    })));
+      raw_data: raw,
+    }, workItemId)));
   } else {
-    ids.push(norm(canonicalActFingerprint({
-      work_item_id: workItemId,
+    ids.push(norm(canonicalActIdentityFromRow({
       act_date: row.fecha_actuacion ?? row.act_date ?? null,
-      actuacion: row.actuacion ?? row.description ?? null,
-      party_hint: raw.parte ?? null,
-    })));
+      description: row.actuacion ?? row.description ?? null,
+      raw_data: raw,
+    }, workItemId)));
   }
   return ids.filter((x): x is string => Boolean(x));
 }
@@ -99,20 +100,9 @@ function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItem
     norm(String(raw.key ?? "").split(":")[1]),
   ];
   if (kind === "PUB") {
-    ids.push(norm(canonicalPubFingerprint({
-      work_item_id: workItemId,
-      pub_date: row.fecha_fijacion ?? row.published_at ?? null,
-      tipo_publicacion: row.tipo_publicacion ?? null,
-      title: row.title ?? null,
-      party_hint: raw.parte ?? null,
-    })));
+    ids.push(norm(canonicalPubIdentityFromRow(row as any, workItemId)));
   } else {
-    ids.push(norm(canonicalActFingerprint({
-      work_item_id: workItemId,
-      act_date: row.act_date ?? null,
-      actuacion: row.description ?? null,
-      party_hint: raw.parte ?? null,
-    })));
+    ids.push(norm(canonicalActIdentityFromRow(row as any, workItemId)));
   }
   return ids.filter((x): x is string => Boolean(x));
 }
@@ -176,6 +166,11 @@ const CHAIN: Record<string, string[]> = {
   INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };
+
+/** `PENAL` is a legacy in-memory alias (iteration 15 normalized it to
+ *  PENAL_906) and is NOT a member of the `workflow_type` enum — filtering the
+ *  portfolio query by it made Postgres reject the whole sweep. */
+const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
 
 type TransferState =
   | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE";
@@ -285,7 +280,7 @@ Deno.serve(async (req) => {
 
   if (workItemIds?.length) q = q.in("id", workItemIds);
   else if (radicados?.length) q = q.in("radicado", radicados);
-  else q = q.eq("monitoring_enabled", true).in("workflow_type", Object.keys(CHAIN)).order("last_synced_at", { ascending: true, nullsFirst: true });
+  else q = q.eq("monitoring_enabled", true).in("workflow_type", QUERYABLE_WORKFLOWS).order("last_synced_at", { ascending: true, nullsFirst: true });
 
   const { data: items, error: itemsErr } = await q.range(offset, offset + limit - 1);
   if (itemsErr) {

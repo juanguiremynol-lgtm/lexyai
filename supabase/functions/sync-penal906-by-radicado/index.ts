@@ -13,6 +13,8 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+// ITERATION 22 — canonical act identity shared with every other CPNU path.
+import { toCanonicalActRow } from "../_shared/canonicalActMapper.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,16 +47,8 @@ interface ExternalApiResponse {
   error?: string;
 }
 
-// Simple hash function for fingerprinting
-function simpleHash(data: string): string {
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(16).padStart(8, "0");
-}
+// ITERATION 22 — the local `penal_<simpleHash>` identity scheme was deleted.
+// Act identity comes from `_shared/canonicalActMapper.ts` only.
 
 // Normalize text for pattern matching
 function normalizeText(text: string): string {
@@ -372,20 +366,7 @@ async function fetchActuaciones(
   }
 }
 
-// Parse Colombian date to ISO
-function parseDate(dateStr: string | undefined): string | null {
-  if (!dateStr) return null;
-  // Try DD/MM/YYYY
-  const dmyMatch = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (dmyMatch) {
-    return `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
-  }
-  // Try YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return dateStr;
-  }
-  return null;
-}
+// ITERATION 22 — date parsing lives in the shared act mapper (`parseActDate`).
 
 Deno.serve(async (req) => {
   // Handle CORS preflight
@@ -502,8 +483,30 @@ Deno.serve(async (req) => {
       const rawText = `${raw["Actuación"] || ""} ${raw["Anotación"] || ""}`.trim();
       if (!rawText) continue;
 
-      const eventDate = parseDate(raw["Fecha de Actuación"]);
-      const fingerprint = `penal_${simpleHash(`${work_item_id}|${eventDate || ""}|${rawText.slice(0, 100)}`)}`;
+      // ITERATION 22 — PENAL_906 joins the canonical identity model. The old
+      // `penal_<hash>` scheme made the same CPNU actuación hash differently
+      // here than in `sync-by-work-item`, so the bridge saw a permanent phantom
+      // gap on every penal item. Identity now comes from the shared act mapper.
+      const canonicalAct = toCanonicalActRow(
+        {
+          actuacion: String(raw["Actuación"] || ""),
+          anotacion: raw["Anotación"] ? String(raw["Anotación"]) : null,
+          fecha: raw["Fecha de Actuación"] ? String(raw["Fecha de Actuación"]) : null,
+          fecha_registro: raw["Fecha de Registro"] ? String(raw["Fecha de Registro"]) : null,
+          _source: "cpnu",
+        },
+        {
+          owner_id: workItem.owner_id,
+          organization_id: workItem.organization_id,
+          work_item_id,
+          workflow_type: "PENAL_906",
+          scrape_date: scrapeDate,
+          despacho: fetchResult.proceso?.["Despacho"] || null,
+          source: "cpnu",
+        },
+      );
+      const eventDate = canonicalAct.act_date;
+      const fingerprint = canonicalAct.hash_fingerprint;
 
       if (existingFingerprints.has(fingerprint)) {
         eventsSkippedDuplicate++;
@@ -516,23 +519,13 @@ Deno.serve(async (req) => {
 
       // Insert work_item_act
       const { error: insertError } = await supabase.from("work_item_acts").insert({
-        owner_id: workItem.owner_id,
-        organization_id: workItem.organization_id,
-        work_item_id: work_item_id,
-        workflow_type: "PENAL_906",
-        act_date: eventDate,
-        description: summary,
+        ...canonicalAct,
+        // Penal-specific enrichment layered on top of the canonical row.
         act_type: "ACTUACION",
-        source: "cpnu",
-        hash_fingerprint: fingerprint,
         phase_inferred: classification.phase,
         keywords_matched: classification.keywords,
-        event_date: eventDate,
-        scrape_date: scrapeDate,
-        despacho: fetchResult.proceso?.["Despacho"] || null,
         event_summary: summary,
         source_url: `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${cleanRadicado}`,
-        source_platform: "cpnu",
       });
 
       if (!insertError) {

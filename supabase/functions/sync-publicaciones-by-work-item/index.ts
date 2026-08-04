@@ -24,7 +24,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
-import { canonicalPubFingerprint } from "../_shared/canonicalFingerprint.ts";
+// ITERATION 22 — the ONE canonical provider→row transformation. This function
+// no longer owns a parallel mapper; explosion, field derivation and identity
+// all come from the shared module so the bridge, the cron, the retry queue and
+// the adapters cannot diverge again.
+import {
+  explodeProviderPublicaciones,
+  toCanonicalPubRow,
+  type ProviderPubUnit,
+} from "../_shared/canonicalPublicacionMapper.ts";
 import {
   fetchFromSamaiEstados,
   formatRadicadoForSamai,
@@ -552,143 +560,11 @@ function findDocumentByType(raw: any, type: string): any | null {
   }) || null;
 }
 
-function buildEstadoPublicationFromActuacion(raw: any): PublicacionV3 | null {
-  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
-  const estadoDoc = findDocumentByType(raw, 'estado');
-
-  if (!estadoObj && !estadoDoc) return null;
-
-  const estadoPdfUrl = firstNonEmptyString(
-    estadoDoc?.pdf_url,
-    estadoObj?.pdf_url,
-    raw?.gcs_url_pdf_estado,
-  );
-  const estadoTitle = firstNonEmptyString(
-    estadoDoc?.titulo,
-    estadoObj?.pdf_nombre,
-    estadoObj?.titulo_original,
-  );
-
-  // This function syncs estados, not autos. If the scraper only has an auto
-  // PDF for an actuación and no estado PDF, do not repoint an estado row to
-  // the auto PDF and do not create a no-PDF duplicate.
-  if (!estadoPdfUrl) return null;
-
-  const estadoDateRaw = firstNonEmptyString(
-    estadoDoc?.fecha,
-    estadoObj?.fecha_publicacion,
-    estadoObj?.fecha,
-    raw?.fecha_estado,
-    raw?.fecha_fijacion,
-  ) || null;
-  const autoDoc = findDocumentByType(raw, 'auto');
-  const autoDateRaw = firstNonEmptyString(
-    extractAutoDateFromText(raw?.texto_auto),
-    raw?.fecha_auto,
-    autoDoc?.fecha,
-  ) || null;
-
-  return {
-    key: String(firstNonEmptyString(
-      `estado:${estadoObj?.article_id || ''}:${estadoObj?.numero || ''}:${estadoDateRaw || ''}:${estadoTitle || ''}`,
-    )),
-    tipo: 'Estado Electrónico',
-    asset_id: firstNonEmptyString(estadoObj?.article_id, estadoObj?.numero, estadoTitle, estadoDateRaw),
-    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
-    titulo: estadoTitle || estadoObj?.titulo_original || 'Estado Electrónico',
-    fecha_publicacion: estadoDateRaw,
-    fecha_hora_inicio: null,
-    tipo_evento: 'Estado Electrónico',
-    pdf_url: estadoPdfUrl,
-    fecha_estado_raw: estadoDateRaw,
-    fecha_auto_raw: autoDateRaw,
-    clasificacion: {
-      categoria: 'Estado Electrónico',
-      descripcion: estadoObj?.titulo_original || raw?.descripcion || estadoTitle || 'Estado Electrónico',
-      es_descargable: !!estadoPdfUrl,
-    },
-  };
-}
-
-/**
- * Build a SECOND publication row for the "individual" (per-radicado) document
- * that PP's /historico returns alongside the planilla-de-estados. Each
- * actuación exposes:
- *   documentos_pdf[{ tipo: 'estado',  ... }]   ← the planilla (public)
- *   documentos_pdf[{ tipo: 'auto',    ... }]   ← the individual providencia
- *
- * Historically we only ingested the estado and dropped the individual, so
- * the jurídically-relevant document ("No repone auto, concede apelación",
- * etc.) was never visible in Andromeda. This helper emits the individual as
- * its own work_item_publicaciones row with a distinct proxy pdf_url. The
- * fecha_estado_raw is kept identical to the sibling estado so the two rows
- * stay associated on the same fijación event; fecha_auto_raw carries the
- * date of the actuación (which is also the providencia date).
- *
- * The title always includes the actuación date to guarantee unique
- * fingerprints across the 3+ actuaciones a radicado may accumulate
- * (individual filenames like "2026-00521.pdf" repeat across dates).
- */
-function buildIndividualPublicationFromActuacion(raw: any): PublicacionV3 | null {
-  const autoDoc = findDocumentByType(raw, 'auto');
-  const individualNombre = firstNonEmptyString(
-    autoDoc?.titulo,
-    raw?.pdf_individual_nombre,
-  );
-  const individualPdfUrl = firstNonEmptyString(
-    autoDoc?.pdf_url,
-    // raw.pdf_url on the actuación itself points to the actuación PDF in the
-    // proxy (Cloud Run) — use it as fallback when documentos_pdf lacks 'auto'.
-    isProxyPdfUrl(raw?.pdf_url) ? raw?.pdf_url : undefined,
-  );
-  if (!individualNombre || !individualPdfUrl) return null;
-  // Only ingest proxy URLs — legacy portal links are unauthenticated and
-  // become 401/404 after a few days.
-  if (!isProxyPdfUrl(individualPdfUrl)) return null;
-
-  const fechaActuacion = firstNonEmptyString(
-    autoDoc?.fecha,
-    raw?.fecha,
-    raw?.fecha_auto,
-  ) || null;
-
-  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
-  const estadoDateRaw = firstNonEmptyString(
-    estadoObj?.fecha_publicacion,
-    estadoObj?.fecha,
-    raw?.fecha_estado,
-    raw?.fecha_fijacion,
-  ) || null;
-
-  const displayFecha = fechaActuacion || estadoDateRaw || '';
-  const title = displayFecha
-    ? `Providencia ${individualNombre} — ${displayFecha}`
-    : `Providencia ${individualNombre}`;
-
-  return {
-    key: `individual:${estadoObj?.article_id || ''}:${individualNombre}:${fechaActuacion || ''}`,
-    tipo: 'Providencia',
-    asset_id: firstNonEmptyString(
-      autoDoc?.asset_id,
-      `${estadoObj?.article_id || ''}:${fechaActuacion || ''}:individual`,
-    ),
-    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.pdf_referencia_url),
-    titulo: title,
-    fecha_publicacion: fechaActuacion,
-    fecha_hora_inicio: null,
-    tipo_evento: 'Providencia',
-    pdf_url: individualPdfUrl,
-    // Keep the fijación date so both rows share the same estado event on the
-    // feed; the individual's own date lives in fecha_auto_raw → fecha_providencia.
-    fecha_estado_raw: estadoDateRaw,
-    fecha_auto_raw: fechaActuacion,
-    clasificacion: {
-      categoria: 'Providencia',
-      descripcion: raw?.descripcion || `Providencia ${individualNombre}`,
-      es_descargable: true,
-    },
-  };
-}
+// ITERATION 22 — `buildEstadoPublicationFromActuacion` /
+// `buildIndividualPublicationFromActuacion` moved verbatim into
+// `_shared/canonicalPublicacionMapper.ts` (`explodeProviderPublicaciones`).
+// Do NOT reintroduce a local copy: two mappers = two fingerprints = phantom
+// bridge gaps (iteration 21/22 root cause).
 
 async function refreshLegacyPdfRowsForProxy(
   supabase: any,
@@ -1141,51 +1017,11 @@ function extractPublicacionesFromResponse(
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
 
-  const publicaciones = rawPublicaciones.flatMap((p: any): PublicacionV3[] => {
-    const estadoPub = buildEstadoPublicationFromActuacion(p);
-    const individualPub = buildIndividualPublicationFromActuacion(p);
-    const combined: PublicacionV3[] = [];
-    if (estadoPub) combined.push(estadoPub);
-    if (individualPub) combined.push(individualPub);
-    if (combined.length > 0) return combined;
-
-    // /historico may return actuación-level PDFs with an embedded `estado`
-    // object. For this ESTADOS sync, those auto PDFs must not be stored as
-    // work_item_publicaciones. They belong to actuaciones/attachments, not the
-    // estado publication row.
-    if (p?.estado && typeof p.estado === 'object') return [];
-
-    const title = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion || p.clasificacion?.descripcion || 'Estado';
-    const pdfUrl = p.pdf_url || p.pdfUrl || p.url_pdf || p.documento_url || p.documentUrl || p.enlace || p.url;
-    const key = String(p.key || p.id || p.asset_id || p.hash_documento || `${p.fecha_publicacion || p.fecha || ''}_${title}`);
-    // /historico aditivo: state (fijación) date + auto date
-    const estadoObj = p.estado && typeof p.estado === 'object' ? p.estado : null;
-    const fechaEstadoRaw =
-      estadoObj?.fecha_publicacion || estadoObj?.fecha || p.fecha_estado || p.fecha_fijacion || null;
-    const autoFromDocs = Array.isArray(p.documentos_pdf)
-      ? (p.documentos_pdf.find((d: any) => (d?.tipo || '').toLowerCase() === 'auto')?.fecha ?? null)
-      : null;
-    const fechaAutoRaw =
-      extractAutoDateFromText(p.texto_auto) || p.fecha_auto || autoFromDocs || null;
-    return [{
-      key,
-      tipo: p.tipo || p.tipo_evento || p.tipo_actuacion || p.actuacion || 'Estado',
-      asset_id: p.asset_id || p.id || p.hash_documento || key,
-      url: p.entry_url || p.url || p.enlace,
-      titulo: title,
-      fecha_publicacion: p.fecha_publicacion || p.fecha_hora_inicio || p.fechaFijacion || p.fechaPublicacion || p.fecha || p.fecha_actuacion || p.fecha_estado || null,
-      fecha_hora_inicio: p.fecha_hora_inicio || null,
-      tipo_evento: p.tipo_evento || p.tipo || 'Estado Electrónico',
-      pdf_url: typeof pdfUrl === 'string' ? pdfUrl : undefined,
-      fecha_estado_raw: fechaEstadoRaw,
-      fecha_auto_raw: fechaAutoRaw,
-      clasificacion: p.clasificacion || {
-        categoria: p.tipo_evento || p.tipo || 'Estado Electrónico',
-        descripcion: p.descripcion || p.anotacion || title,
-        es_descargable: typeof pdfUrl === 'string' && pdfUrl.length > 0,
-      },
-    }];
-  });
+  // ITERATION 22 — shared mapper. Explosion (estado planilla + individual
+  // providencia) and every derived field now come from
+  // `_shared/canonicalPublicacionMapper.ts`, byte-identical to what the
+  // adapters and the bridge compute.
+  const publicaciones = explodeProviderPublicaciones(data) as unknown as PublicacionV3[];
 
   console.log(`[sync-pub] Found ${publicaciones.length} publications`);
   return { 
@@ -1198,29 +1034,8 @@ function extractPublicacionesFromResponse(
   };
 }
 
-/**
- * Generate unique fingerprint for publication deduplication
- * Uses asset_id (guaranteed unique per publication) or falls back to key/title
- */
-function generatePublicacionFingerprint(
-  workItemId: string,
-  assetId: string | undefined,
-  key: string | undefined,
-  title: string,
-  opts?: { pubDate?: string | null; tipo?: string | null; partyHint?: string | null },
-): string {
-  // Assets/keys drift across snapshots — intentionally ignored.
-  void assetId; void key;
-  // Delegate to source-agnostic canonical fingerprint so all write paths
-  // share the same identity model (party discriminator + normalized title).
-  return canonicalPubFingerprint({
-    work_item_id: workItemId,
-    pub_date: opts?.pubDate ?? null,
-    tipo_publicacion: opts?.tipo ?? null,
-    title: (title || 'untitled').replace(/\.pdf$/i, ''),
-    party_hint: opts?.partyHint ?? null,
-  });
-}
+// ITERATION 22 — the local fingerprint helper is gone. Identity comes from
+// `toCanonicalPubRow(...).hash_fingerprint` only.
 
 // ============= MAIN HANDLER =============
 
@@ -2030,21 +1845,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
       const parsedFecha = parseDate(fechaPublicacion);
 
-      // Generate unique fingerprint using asset_id (guaranteed unique per publication)
-      // Include event date so that repeated titles across different dates
-      // (e.g. "Auto que ordena requerir" on 2024-11-29 and 2025-02-07) do NOT collide.
-      const dateKey = parsedFecha || fechaFromTitle || '0000-00-00';
-      const partyHint = (pub as any)?.parte
-        ?? (pub as any)?.raw_data?.parte
-        ?? (pub as any)?.raw_data?.["Docum. a notif."]
-        ?? null;
-      const fingerprint = generatePublicacionFingerprint(
+      // ITERATION 22 — one canonical row, one identity. The row we persist and
+      // the fingerprint we compare are produced by the SAME shared mapper the
+      // adapters and `bridge-reconcile` use, and the identity is recomputable
+      // from the stored row (fecha_fijacion ?? published_at + tipo + title).
+      const canonicalRow = toCanonicalPubRow(pub as unknown as ProviderPubUnit, {
         work_item_id,
-        pub.asset_id,
-        pub.key,
-        pub.titulo || 'untitled',
-        { pubDate: dateKey, tipo: (pub as any)?.tipo_publicacion ?? null, partyHint },
-      );
+        organization_id: workItem.organization_id,
+        source: (pub as any)._source_provider || 'publicaciones',
+      });
+      const fingerprint = canonicalRow.hash_fingerprint;
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
       // (work_item_id, hash_fingerprint) lookup. The previous inline check caused
@@ -2059,43 +1869,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         pdf_url: pub.pdf_url?.slice(0, 80),
       });
 
-      // Insert new publication
-      // FIX 2.2: Derive date_confidence from date_source
-      // BUG FIX: 'inferred' is NOT a valid value for check_pub_date_source constraint.
-      // Must use 'inferred_sync' (when no date extracted) or 'parsed_filename'/'parsed_title' (when extracted from title).
-      const dateSource = parsedFecha 
-        ? 'api_explicit' 
-        : (fechaFromTitle ? 'parsed_title' : 'inferred_sync');
-      const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
-
       // ── Upsert via RPC with explicit sources[] array merge ──
-      // Date semantics — RATIFICADO iteración 6.2:
-      //  * SAMAI (samai_estados) reporta fecha de PROVIDENCIA, nunca fecha de
-      //    fijación de estado. fecha_fijacion y fecha_desfijacion quedan SIEMPRE
-      //    en NULL (sin inferencias): escribirlas plantaría una mina para
-      //    cualquier lector que ancle términos en esa columna.
-      //    published_at = fecha de providencia a las 00:00 America/Bogota.
-      //  * Publicaciones reporta la fijación real → fecha_fijacion.
-      const sourceProvider = (pub as any)._source_provider || 'publicaciones';
+      // Date semantics — RATIFICADO iteración 6.2, now enforced inside the
+      // shared mapper: SAMAI reports providencia dates (published_at at 00:00
+      // America/Bogota, fecha_fijacion NULL); Publicaciones reports the real
+      // fijación. No date logic lives in this function anymore.
+      const sourceProvider = canonicalRow.source;
       const isSamai = sourceProvider === 'samai_estados';
-      const isoDate = parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null;
-
-      // /historico aditivo (2026-07-08): pull estado (fijación) date and auto date
-      // when the provider surfaces them explicitly. Falls back to the single
-      // `parsedFecha` above so behavior stays identical for legacy responses.
-      const parsedEstadoDate = parseDate(pub.fecha_estado_raw);
-      const parsedAutoDate = parseDate(pub.fecha_auto_raw);
-      const effectiveEstadoDate = isSamai ? null : parsedEstadoDate;
-      const fijacionIso = effectiveEstadoDate
-        ? new Date(effectiveEstadoDate + 'T12:00:00Z').toISOString()
-        : isoDate;
-      const providenciaIso = parsedAutoDate
-        ? new Date(parsedAutoDate + 'T12:00:00Z').toISOString()
-        : null;
-      // 00:00 America/Bogota (UTC-5) para las filas de SAMAI.
-      const samaiProvidenciaDate = parsedAutoDate || parsedFecha;
-      const samaiPublishedAt = samaiProvidenciaDate
-        ? new Date(samaiProvidenciaDate + 'T05:00:00Z').toISOString()
+      const effectiveEstadoDate = canonicalRow.fecha_fijacion
+        ? canonicalRow.fecha_fijacion.slice(0, 10)
         : null;
 
       const refreshedLegacyIds = await refreshLegacyPdfRowsForProxy(
@@ -2115,31 +1897,13 @@ Deno.serve(withSyncTimeline(async (req) => {
         continue;
       }
 
+      // Only SAMAI rows assert a NULL desfijación; for Publicaciones the key is
+      // omitted so an existing, separately-derived desfijación is preserved.
+      const rpcRecord: Record<string, unknown> = { ...canonicalRow };
+      if (!isSamai) delete rpcRecord.fecha_desfijacion;
+
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
-        records: JSON.stringify([{
-          work_item_id,
-          organization_id: workItem.organization_id,
-          source: sourceProvider,
-          title: pub.titulo || pub.key || 'Sin título',
-          annotation: pub.clasificacion?.descripcion || null,
-          pdf_url: pub.pdf_url || null,
-          entry_url: pub.url || null,
-          pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
-          published_at: isSamai ? samaiPublishedAt : isoDate,
-          // RATIFICADO 6.2: NUNCA fijación desde samai_estados.
-          fecha_fijacion: isSamai ? null : fijacionIso,
-          fecha_desfijacion: isSamai ? null : undefined,
-          fecha_providencia: isSamai
-            ? (providenciaIso || samaiPublishedAt)
-            : providenciaIso,
-          tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
-          hash_fingerprint: fingerprint,
-          raw_data: pub,
-          date_source: isSamai ? 'api_explicit' : dateSource,
-          date_confidence: isSamai ? 'medium' : dateConfidence,
-          raw_schema_version: 'publicaciones_v3',
-          sources: [sourceProvider],
-        }]),
+        records: JSON.stringify([rpcRecord]),
       });
 
       if (insertError) {
