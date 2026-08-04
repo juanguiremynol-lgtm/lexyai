@@ -5,7 +5,8 @@ import { Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline } from "@/components/pipeline";
+import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray } from "@/components/pipeline";
+import { usePracticeAreas } from "@/hooks/use-practice-areas";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
@@ -162,13 +163,16 @@ export default function Dashboard() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <div className="overflow-x-auto -mx-1 px-1">
           <TabsList className="inline-flex whitespace-nowrap">
-            <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
-            <TabsTrigger value="laboral">Laborales</TabsTrigger>
-            <TabsTrigger value="penal">Penal</TabsTrigger>
-            <TabsTrigger value="cpaca">CPACA</TabsTrigger>
-            <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
-            <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
-            <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
+            {isPracticed("CGP") && <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>}
+            {isPracticed("LABORAL") && <TabsTrigger value="laboral">Laborales</TabsTrigger>}
+            {isPracticed("PENAL_906") && <TabsTrigger value="penal">Penal</TabsTrigger>}
+            {isPracticed("CPACA") && <TabsTrigger value="cpaca">CPACA</TabsTrigger>}
+            {isPracticed("GOV_PROCEDURE") && (
+              <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
+            )}
+            {isPracticed("PETICION") && <TabsTrigger value="peticiones">Peticiones</TabsTrigger>}
+            {isPracticed("TUTELA") && <TabsTrigger value="tutelas">Tutelas</TabsTrigger>}
+            <TabsTrigger value="por-clasificar">Por clasificar</TabsTrigger>
           </TabsList>
         </div>
         
@@ -219,6 +223,14 @@ export default function Dashboard() {
             Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
           </p>
           <TutelasPipeline />
+        </TabsContent>
+
+        <TabsContent value="por-clasificar" className="space-y-4">
+          <p className="text-sm readable-muted">
+            Asuntos en despachos de competencia mixta o sin clase de proceso conocida. La materia
+            no se deduce del radicado: defínela manualmente. El monitoreo continúa activo.
+          </p>
+          <UnclassifiedTray />
         </TabsContent>
       </Tabs>
 
