@@ -8,6 +8,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { isDirectlyOpenable } from "@/lib/document-url-resolver";
 import {
   Table,
   TableBody,
@@ -105,15 +106,21 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
           </TableHeader>
           <TableBody>
             {rows.map((r) => {
+              // Never trust a raw stored value as a link: storage paths and
+              // credentialed proxy URLs must be resolved by the caller
+              // (onOpenFile), not concatenated onto the app origin.
+              const auto = isDirectlyOpenable(r.gcs_url_auto) ? r.gcs_url_auto! : null;
+              const tabla = isDirectlyOpenable(r.gcs_url_tabla) ? r.gcs_url_tabla! : null;
+              const pdf = isDirectlyOpenable(r.pdf_url) ? r.pdf_url! : null;
               const openFile = () => {
                 if (r.onOpenFile) {
                   r.onOpenFile();
                   return;
                 }
-                const url = r.pdf_url || r.gcs_url_auto || r.gcs_url_tabla;
+                const url = pdf || auto || tabla;
                 if (url) window.open(url, "_blank", "noopener,noreferrer");
               };
-              const hasAny = !!(r.onOpenFile || r.pdf_url || r.gcs_url_auto || r.gcs_url_tabla);
+              const hasAny = !!(r.onOpenFile || pdf || auto || tabla);
               return (
                 <TableRow key={r.key} className="align-top">
                   <TableCell className="p-3 align-top">
@@ -169,9 +176,9 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                   </TableCell>
                   <TableCell className="p-3 align-top">
                     <div className="flex items-center gap-1 flex-wrap">
-                      {r.gcs_url_auto && (
+                      {auto && (
                         <a
-                          href={r.gcs_url_auto}
+                          href={auto}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
@@ -179,9 +186,9 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           <FileText className="h-3 w-3" /> Auto
                         </a>
                       )}
-                      {r.gcs_url_tabla && (
+                      {tabla && (
                         <a
-                          href={r.gcs_url_tabla}
+                          href={tabla}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
@@ -189,9 +196,9 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           <Table2 className="h-3 w-3" /> Tabla
                         </a>
                       )}
-                      {r.pdf_url && !r.onOpenFile && (
+                      {pdf && !r.onOpenFile && (
                         <a
-                          href={r.pdf_url}
+                          href={pdf}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
@@ -199,7 +206,7 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           <ExternalLink className="h-3 w-3" /> PDF
                         </a>
                       )}
-                      {!r.gcs_url_auto && !r.gcs_url_tabla && !r.pdf_url && !r.onOpenFile && (
+                      {!auto && !tabla && !pdf && !r.onOpenFile && (
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </div>
