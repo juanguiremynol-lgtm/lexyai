@@ -24,6 +24,8 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { getColombiaToday } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
+import { hasResolvableDocument, openStoredDocument } from "@/lib/document-url-resolver";
+import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import {
   bogotaDayKey,
@@ -80,6 +82,8 @@ interface EstadoRow {
   detected_at: string;
   source: string;
   pdf_url: string | null;
+  pdf_storage_path: string | null;
+  raw_data: Record<string, unknown> | null;
   demandantes: string | null;
   demandados: string | null;
 }
