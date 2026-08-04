@@ -51,6 +51,7 @@ import {
   Calendar,
   Briefcase,
   Shield,
+  HelpCircle,
 } from "lucide-react";
 import {
   type WorkflowType,
