@@ -746,6 +746,7 @@ Deno.serve(async (req) => {
 
       const normalized = await normalizeActuaciones(
         translatedActs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
+        connector?.key ?? null,
       );
 
       // ── Semantic dedup: match against existing canonical rows by (date, normalized_description) ──
@@ -871,6 +872,7 @@ Deno.serve(async (req) => {
     if (pubs.length > 0) {
       const normalized = await normalizePublicaciones(
         pubs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
+        isEstadosProvider ? "samai_estados" : (connector?.key ?? null),
       );
       const { data: inserted } = await db
         .from("work_item_publicaciones")
