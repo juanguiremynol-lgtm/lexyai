@@ -561,143 +561,11 @@ function findDocumentByType(raw: any, type: string): any | null {
   }) || null;
 }
 
-function buildEstadoPublicationFromActuacion(raw: any): PublicacionV3 | null {
-  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
-  const estadoDoc = findDocumentByType(raw, 'estado');
-
-  if (!estadoObj && !estadoDoc) return null;
-
-  const estadoPdfUrl = firstNonEmptyString(
-    estadoDoc?.pdf_url,
-    estadoObj?.pdf_url,
-    raw?.gcs_url_pdf_estado,
-  );
-  const estadoTitle = firstNonEmptyString(
-    estadoDoc?.titulo,
-    estadoObj?.pdf_nombre,
-    estadoObj?.titulo_original,
-  );
-
-  // This function syncs estados, not autos. If the scraper only has an auto
-  // PDF for an actuación and no estado PDF, do not repoint an estado row to
-  // the auto PDF and do not create a no-PDF duplicate.
-  if (!estadoPdfUrl) return null;
-
-  const estadoDateRaw = firstNonEmptyString(
-    estadoDoc?.fecha,
-    estadoObj?.fecha_publicacion,
-    estadoObj?.fecha,
-    raw?.fecha_estado,
-    raw?.fecha_fijacion,
-  ) || null;
-  const autoDoc = findDocumentByType(raw, 'auto');
-  const autoDateRaw = firstNonEmptyString(
-    extractAutoDateFromText(raw?.texto_auto),
-    raw?.fecha_auto,
-    autoDoc?.fecha,
-  ) || null;
-
-  return {
-    key: String(firstNonEmptyString(
-      `estado:${estadoObj?.article_id || ''}:${estadoObj?.numero || ''}:${estadoDateRaw || ''}:${estadoTitle || ''}`,
-    )),
-    tipo: 'Estado Electrónico',
-    asset_id: firstNonEmptyString(estadoObj?.article_id, estadoObj?.numero, estadoTitle, estadoDateRaw),
-    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
-    titulo: estadoTitle || estadoObj?.titulo_original || 'Estado Electrónico',
-    fecha_publicacion: estadoDateRaw,
-    fecha_hora_inicio: null,
-    tipo_evento: 'Estado Electrónico',
-    pdf_url: estadoPdfUrl,
-    fecha_estado_raw: estadoDateRaw,
-    fecha_auto_raw: autoDateRaw,
-    clasificacion: {
-      categoria: 'Estado Electrónico',
-      descripcion: estadoObj?.titulo_original || raw?.descripcion || estadoTitle || 'Estado Electrónico',
-      es_descargable: !!estadoPdfUrl,
-    },
-  };
-}
-
-/**
- * Build a SECOND publication row for the "individual" (per-radicado) document
- * that PP's /historico returns alongside the planilla-de-estados. Each
- * actuación exposes:
- *   documentos_pdf[{ tipo: 'estado',  ... }]   ← the planilla (public)
- *   documentos_pdf[{ tipo: 'auto',    ... }]   ← the individual providencia
- *
- * Historically we only ingested the estado and dropped the individual, so
- * the jurídically-relevant document ("No repone auto, concede apelación",
- * etc.) was never visible in Andromeda. This helper emits the individual as
- * its own work_item_publicaciones row with a distinct proxy pdf_url. The
- * fecha_estado_raw is kept identical to the sibling estado so the two rows
- * stay associated on the same fijación event; fecha_auto_raw carries the
- * date of the actuación (which is also the providencia date).
- *
- * The title always includes the actuación date to guarantee unique
- * fingerprints across the 3+ actuaciones a radicado may accumulate
- * (individual filenames like "2026-00521.pdf" repeat across dates).
- */
-function buildIndividualPublicationFromActuacion(raw: any): PublicacionV3 | null {
-  const autoDoc = findDocumentByType(raw, 'auto');
-  const individualNombre = firstNonEmptyString(
-    autoDoc?.titulo,
-    raw?.pdf_individual_nombre,
-  );
-  const individualPdfUrl = firstNonEmptyString(
-    autoDoc?.pdf_url,
-    // raw.pdf_url on the actuación itself points to the actuación PDF in the
-    // proxy (Cloud Run) — use it as fallback when documentos_pdf lacks 'auto'.
-    isProxyPdfUrl(raw?.pdf_url) ? raw?.pdf_url : undefined,
-  );
-  if (!individualNombre || !individualPdfUrl) return null;
-  // Only ingest proxy URLs — legacy portal links are unauthenticated and
-  // become 401/404 after a few days.
-  if (!isProxyPdfUrl(individualPdfUrl)) return null;
-
-  const fechaActuacion = firstNonEmptyString(
-    autoDoc?.fecha,
-    raw?.fecha,
-    raw?.fecha_auto,
-  ) || null;
-
-  const estadoObj = raw?.estado && typeof raw.estado === 'object' ? raw.estado : null;
-  const estadoDateRaw = firstNonEmptyString(
-    estadoObj?.fecha_publicacion,
-    estadoObj?.fecha,
-    raw?.fecha_estado,
-    raw?.fecha_fijacion,
-  ) || null;
-
-  const displayFecha = fechaActuacion || estadoDateRaw || '';
-  const title = displayFecha
-    ? `Providencia ${individualNombre} — ${displayFecha}`
-    : `Providencia ${individualNombre}`;
-
-  return {
-    key: `individual:${estadoObj?.article_id || ''}:${individualNombre}:${fechaActuacion || ''}`,
-    tipo: 'Providencia',
-    asset_id: firstNonEmptyString(
-      autoDoc?.asset_id,
-      `${estadoObj?.article_id || ''}:${fechaActuacion || ''}:individual`,
-    ),
-    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.pdf_referencia_url),
-    titulo: title,
-    fecha_publicacion: fechaActuacion,
-    fecha_hora_inicio: null,
-    tipo_evento: 'Providencia',
-    pdf_url: individualPdfUrl,
-    // Keep the fijación date so both rows share the same estado event on the
-    // feed; the individual's own date lives in fecha_auto_raw → fecha_providencia.
-    fecha_estado_raw: estadoDateRaw,
-    fecha_auto_raw: fechaActuacion,
-    clasificacion: {
-      categoria: 'Providencia',
-      descripcion: raw?.descripcion || `Providencia ${individualNombre}`,
-      es_descargable: true,
-    },
-  };
-}
+// ITERATION 22 — `buildEstadoPublicationFromActuacion` /
+// `buildIndividualPublicationFromActuacion` moved verbatim into
+// `_shared/canonicalPublicacionMapper.ts` (`explodeProviderPublicaciones`).
+// Do NOT reintroduce a local copy: two mappers = two fingerprints = phantom
+// bridge gaps (iteration 21/22 root cause).
 
 async function refreshLegacyPdfRowsForProxy(
   supabase: any,
@@ -1167,29 +1035,8 @@ function extractPublicacionesFromResponse(
   };
 }
 
-/**
- * Generate unique fingerprint for publication deduplication
- * Uses asset_id (guaranteed unique per publication) or falls back to key/title
- */
-function generatePublicacionFingerprint(
-  workItemId: string,
-  assetId: string | undefined,
-  key: string | undefined,
-  title: string,
-  opts?: { pubDate?: string | null; tipo?: string | null; partyHint?: string | null },
-): string {
-  // Assets/keys drift across snapshots — intentionally ignored.
-  void assetId; void key;
-  // Delegate to source-agnostic canonical fingerprint so all write paths
-  // share the same identity model (party discriminator + normalized title).
-  return canonicalPubFingerprint({
-    work_item_id: workItemId,
-    pub_date: opts?.pubDate ?? null,
-    tipo_publicacion: opts?.tipo ?? null,
-    title: (title || 'untitled').replace(/\.pdf$/i, ''),
-    party_hint: opts?.partyHint ?? null,
-  });
-}
+// ITERATION 22 — the local fingerprint helper is gone. Identity comes from
+// `toCanonicalPubRow(...).hash_fingerprint` only.
 
 // ============= MAIN HANDLER =============
 
