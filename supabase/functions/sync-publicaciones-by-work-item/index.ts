@@ -2596,7 +2596,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ── Record external_sync_run for publicaciones (best-effort) ──
     try {
       const invokedBy = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
-      await supabase.from('external_sync_runs').insert({
+      const { data: runRow } = await supabase.from('external_sync_runs').insert({
         work_item_id,
         organization_id: workItem.organization_id,
         invoked_by: invokedBy,
@@ -2639,7 +2639,51 @@ Deno.serve(withSyncTimeline(async (req) => {
         details: result.samai_estados_summary
           ? { samai_estados: result.samai_estados_summary }
           : {},
-      });
+      }).select('id').single();
+
+      // ── Iteration 13.1: dump the per-row buckets and reconcile the run ──
+      const pubAccounted =
+        pubLedger.inserted +
+        pubLedger.updated +
+        pubLedger.skippedDuplicate +
+        pubLedger.skippedStructural;
+      const pubUnaccounted = Math.max(
+        0,
+        pubLedger.parsed - pubAccounted - pubLedger.rejected - pubLedger.errored,
+      );
+
+      if (pubLedger.parsed > 0 || pubUnaccounted > 0 || pubLedger.errored > 0) {
+        try {
+          await supabase.from('sync_persist_buckets').insert({
+            work_item_id,
+            organization_id: workItem.organization_id,
+            sync_run_id: runRow?.id ?? null,
+            provider: 'publicaciones',
+            data_kind: 'PUBLICACIONES',
+            parsed_count: pubLedger.parsed,
+            inserted_count: pubLedger.inserted,
+            updated_count: pubLedger.updated,
+            skipped_duplicate_count: pubLedger.skippedDuplicate,
+            skipped_structural_count: pubLedger.skippedStructural,
+            rejected_count: pubLedger.rejected,
+            error_count: pubLedger.errored,
+            unaccounted_count: pubUnaccounted,
+            outcomes: pubLedger.outcomes
+              .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
+              .slice(0, 200),
+          });
+        } catch { /* ledger is best-effort */ }
+
+        await reconcileSyncRunPersistence(supabase, runRow?.id ?? null, {
+          parsed: pubLedger.parsed,
+          inserted: pubLedger.inserted,
+          updated: pubLedger.updated,
+          skippedDuplicate: pubLedger.skippedDuplicate,
+          skippedStructural: pubLedger.skippedStructural,
+          rejected: pubLedger.rejected,
+          errored: pubLedger.errored,
+        });
+      }
     } catch (_traceErr) { /* best-effort */ }
 
     return jsonResponse(result);
