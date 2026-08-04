@@ -130,7 +130,7 @@ export default function EstadosHoy() {
         .from("work_item_publicaciones")
         .select(
           `id, work_item_id, title, annotation, despacho, tipo_publicacion,
-           fecha_fijacion, fecha_desfijacion, detected_at, source, pdf_url,
+           fecha_fijacion, fecha_desfijacion, detected_at, source, pdf_url, pdf_storage_path, raw_data,
            work_items!inner(id, radicado, workflow_type, organization_id, demandantes, demandados)`
         )
         .eq("work_items.organization_id", organization.id)
@@ -159,6 +159,8 @@ export default function EstadosHoy() {
         detected_at: r.detected_at,
         source: r.source || "",
         pdf_url: r.pdf_url || null,
+        pdf_storage_path: r.pdf_storage_path || null,
+        raw_data: r.raw_data || null,
         demandantes: r.work_items?.demandantes || null,
         demandados: r.work_items?.demandados || null,
       }));
@@ -468,12 +470,18 @@ function EstadoCard({ e, kind }: { e: EstadoRow; kind: "today" | "late" }) {
               Detectado: {fmtFecha(e.detected_at)}
             </span>
           </div>
-          {e.pdf_url && (
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" asChild>
-              <a href={e.pdf_url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-3 w-3" />
-                PDF
-              </a>
+          {hasResolvableDocument(e) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={async () => {
+                const ok = await openStoredDocument(e);
+                if (!ok) toast.error("El PDF no está disponible en este momento.");
+              }}
+            >
+              <ExternalLink className="h-3 w-3" />
+              PDF
             </Button>
           )}
         </div>
