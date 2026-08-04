@@ -6241,6 +6241,7 @@ export type Database = {
         Row: {
           alert_instance_id: string | null
           attempts: number
+          claimed_at: string | null
           created_at: string
           dedupe_key: string | null
           error: string | null
@@ -6251,6 +6252,7 @@ export type Database = {
           last_attempt_at: string | null
           last_event_at: string | null
           last_event_type: string | null
+          lease_recoveries: number
           metadata: Json | null
           next_attempt_at: string
           notification_rule_id: string | null
@@ -6272,6 +6274,7 @@ export type Database = {
         Insert: {
           alert_instance_id?: string | null
           attempts?: number
+          claimed_at?: string | null
           created_at?: string
           dedupe_key?: string | null
           error?: string | null
@@ -6282,6 +6285,7 @@ export type Database = {
           last_attempt_at?: string | null
           last_event_at?: string | null
           last_event_type?: string | null
+          lease_recoveries?: number
           metadata?: Json | null
           next_attempt_at?: string
           notification_rule_id?: string | null
@@ -6303,6 +6307,7 @@ export type Database = {
         Update: {
           alert_instance_id?: string | null
           attempts?: number
+          claimed_at?: string | null
           created_at?: string
           dedupe_key?: string | null
           error?: string | null
@@ -6313,6 +6318,7 @@ export type Database = {
           last_attempt_at?: string | null
           last_event_at?: string | null
           last_event_type?: string | null
+          lease_recoveries?: number
           metadata?: Json | null
           next_attempt_at?: string
           notification_rule_id?: string | null
@@ -18174,6 +18180,21 @@ export type Database = {
         }[]
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
+      email_outbox_health: {
+        Args: { _hours?: number }
+        Returns: {
+          enqueued: number
+          failed: number
+          failed_rate: number
+          oldest_stuck_minutes: number
+          pending: number
+          sending: number
+          sent: number
+          stuck_over_30min: number
+          suppressed: number
+          window_hours: number
+        }[]
+      }
       email_subtype_confidence: { Args: { p_subtype: string }; Returns: number }
       email_subtype_deadline_type: {
         Args: { p_subtype: string; p_workflow: string }

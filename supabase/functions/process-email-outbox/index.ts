@@ -20,6 +20,13 @@ const corsHeaders = {
 const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
 export const MAX_ATTEMPTS = 8;
 const BATCH_SIZE = 10;
+/** A claim older than this is considered dead (isolate died mid-send). */
+const LEASE_MINUTES = 5;
+/** How many dead leases we tolerate before declaring the row undeliverable. */
+const MAX_LEASE_RECOVERIES = 5;
+/** Hard ceiling on the provider HTTP call so a hung socket can never
+ *  outlive the isolate and strand the row in SENDING. */
+const PROVIDER_TIMEOUT_MS = 20_000;
 
 interface EmailOutboxRow {
   id: string;
@@ -34,6 +41,7 @@ interface EmailOutboxRow {
   work_item_id?: string | null;
   trigger_event?: string | null;
   alert_instance_id?: string | null;
+  lease_recoveries?: number | null;
 }
 
 interface ProcessResult {
@@ -100,6 +108,16 @@ async function resolveActiveProvider(supabase: any): Promise<ResolvedProvider | 
     config[c.config_key] = c.config_value;
   }
 
+  // CREDENTIAL PRECEDENCE — project secrets win over the DB copy.
+  // Iterations 6, 16 and 17 all hit the same failure class: a credential
+  // stored in a table rots while the live secret is valid. The runtime secret
+  // is the source of truth; the DB row is only a fallback for keys that have
+  // no secret configured.
+  for (const key of keys) {
+    const fromEnv = Deno.env.get(key);
+    if (fromEnv && fromEnv.trim().length > 0) config[key] = fromEnv.trim();
+  }
+
   // Determine from address
   const fromKey = keys.find(k => k.endsWith("_FROM_EMAIL"));
   const fromAddress = fromKey ? config[fromKey] : "ATENIA <noreply@andromeda.legal>";
@@ -118,6 +136,7 @@ async function sendViaResend(email: EmailOutboxRow, config: Record<string, strin
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -147,7 +166,13 @@ async function sendViaResend(email: EmailOutboxRow, config: Record<string, strin
       };
     }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Resend connection failed", error_code: "NETWORK_ERROR" };
+    const msg = err instanceof Error ? err.message : "Resend connection failed";
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    return {
+      success: false,
+      error: timedOut ? `Resend no respondió en ${PROVIDER_TIMEOUT_MS / 1000}s: ${msg}` : msg,
+      error_code: timedOut ? "PROVIDER_TIMEOUT" : "NETWORK_ERROR",
+    };
   }
 }
 
@@ -204,6 +229,7 @@ async function sendViaSendGrid(email: EmailOutboxRow, config: Record<string, str
   try {
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -244,6 +270,7 @@ async function sendViaMailgun(email: EmailOutboxRow, config: Record<string, stri
 
     const response = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
       method: "POST",
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       headers: { "Authorization": `Basic ${btoa(`api:${apiKey}`)}` },
       body: formData,
     });
@@ -299,6 +326,25 @@ async function sendEmail(email: EmailOutboxRow, provider: ResolvedProvider | nul
   }
 }
 
+/**
+ * Never-throwing wrapper around the provider call.
+ * Guarantees a SendResult on every path so the caller can always write a
+ * terminal state — a row must never be left in SENDING because of an
+ * exception between claim and outcome.
+ */
+async function sendEmailGuaranteed(email: EmailOutboxRow, provider: ResolvedProvider | null): Promise<SendResult> {
+  try {
+    return await sendEmail(email, provider);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      error_code: "SEND_WRAPPER_EXCEPTION",
+      statusCode: 500,
+    };
+  }
+}
+
 // ═══════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════
@@ -339,53 +385,61 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // ─── Reaper: rescue orphaned SENDING rows before main loop ───
-    // NOTE: We avoid PostgREST .or() with ISO timestamps because its filter
-    // parser splits on '.' and ',' and would misread the timestamp as columns.
+    // ─── Lease reaper: return dead claims to PENDING WITHOUT burning an
+    // attempt. A claim that expired means the isolate died before reaching (or
+    // while waiting on) the provider — that is an infrastructure event, not a
+    // delivery attempt, so it must not consume the row's 8 delivery attempts.
+    // Only a row whose lease died MAX_LEASE_RECOVERIES times is given up on.
     try {
-      const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      let rescuedTotal = 0;
-      let failedTotal = 0;
-      const errs: string[] = [];
+      const leaseCutoff = new Date(Date.now() - LEASE_MINUTES * 60 * 1000).toISOString();
+      const { data: stuck, error: stuckErr } = await supabase
+        .from("email_outbox")
+        .select("id, attempts, lease_recoveries, claimed_at, last_attempt_at")
+        .eq("status", "SENDING")
+        .limit(200);
+      if (stuckErr) throw stuckErr;
 
-      // Branch A: orphans with last_attempt_at IS NULL (legacy rows)
-      // Branch B: orphans with last_attempt_at < cutoff (stuck > 10 min)
-      // For each branch, first flip exhausted to FAILED, then reset rest to PENDING.
-      const runBranch = async (apply: (q: any) => any) => {
-        const failQ = apply(
-          supabase
+      let rescued = 0;
+      let abandoned = 0;
+      for (const row of stuck ?? []) {
+        const claimTs = row.claimed_at ?? row.last_attempt_at;
+        // Fresh lease → still legitimately in flight, leave it alone.
+        if (claimTs && claimTs >= leaseCutoff) continue;
+
+        const recoveries = (row.lease_recoveries ?? 0) + 1;
+        if (recoveries > MAX_LEASE_RECOVERIES) {
+          await supabase
             .from("email_outbox")
             .update({
               status: "FAILED",
               failed_permanent: true,
-              error: "Reaper: exceeded max_attempts while stuck in SENDING",
+              lease_recoveries: recoveries,
+              failure_type: "LEASE_EXHAUSTED",
+              error: `El worker murió antes de contactar al proveedor en ${MAX_LEASE_RECOVERIES} intentos consecutivos (lease expirado).`,
             })
-            .eq("status", "SENDING")
-            .gte("attempts", MAX_ATTEMPTS),
-        ).select("id");
-        const { data: f, error: fe } = await failQ;
-        if (fe) errs.push(`fail: ${fe.message}`);
-        failedTotal += f?.length ?? 0;
-
-        const rescueQ = apply(
-          supabase
+            .eq("id", row.id);
+          abandoned++;
+        } else {
+          const backoffMin = Math.min(recoveries * 2, 30);
+          await supabase
             .from("email_outbox")
-            .update({ status: "PENDING", last_attempt_at: null })
-            .eq("status", "SENDING")
-            .lt("attempts", MAX_ATTEMPTS),
-        ).select("id");
-        const { data: r, error: re } = await rescueQ;
-        if (re) errs.push(`rescue: ${re.message}`);
-        rescuedTotal += r?.length ?? 0;
-      };
-
-      await runBranch((q) => q.is("last_attempt_at", null));
-      await runBranch((q) => q.lt("last_attempt_at", cutoff));
+            .update({
+              status: "PENDING",
+              claimed_at: null,
+              lease_recoveries: recoveries,
+              next_attempt_at: new Date(Date.now() + backoffMin * 60 * 1000).toISOString(),
+              failure_type: "LEASE_RECOVERED",
+              error: `Lease expirado (intento de entrega no consumido). Reintento en ${backoffMin} min.`,
+            })
+            .eq("id", row.id);
+          rescued++;
+        }
+      }
 
       console.info("[reaper]", {
-        rescued_to_pending: rescuedTotal,
-        flipped_to_failed: failedTotal,
-        errors: errs.length ? errs : undefined,
+        inspected: stuck?.length ?? 0,
+        rescued_to_pending: rescued,
+        abandoned_lease_exhausted: abandoned,
       });
     } catch (reaperErr) {
       console.error("[reaper] crashed (non-fatal):", reaperErr);
@@ -470,16 +524,17 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Atomic conditional claim: only flip if row is still PENDING/FAILED.
-        // Two overlapping cron runs both SELECTing the same row won't both
-        // send — only the UPDATE that actually returned the row wins.
-        // The reaper (above) rescues SENDING rows stuck > 10 min.
+        // Atomic conditional claim with a lease. Only flips if the row is
+        // still PENDING/FAILED, so two overlapping runs cannot both send.
+        // `attempts` is NOT incremented here — an attempt is only counted when
+        // the provider actually answered (or refused). The lease reaper above
+        // returns dead claims to PENDING without burning an attempt.
         const { data: claimed, error: claimErr } = await supabase
           .from("email_outbox")
           .update({
             status: "SENDING",
             last_attempt_at: now,
-            attempts: email.attempts + 1,
+            claimed_at: now,
           })
           .eq("id", email.id)
           .in("status", ["PENDING", "FAILED"])
@@ -494,8 +549,8 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Send via resolved provider
-        const sendResult = await sendEmail(email, provider);
+        // Send via resolved provider (never throws — always a terminal state)
+        const sendResult = await sendEmailGuaranteed(email, provider);
 
         if (sendResult.success) {
           console.log(`[process-email-outbox] Email ${email.id} sent successfully via ${result.provider_used}`);
@@ -506,8 +561,11 @@ Deno.serve(async (req) => {
               status: "SENT",
               sent_at: now,
               last_attempt_at: now,
+              claimed_at: null,
+              attempts: email.attempts + 1,
               provider_message_id: sendResult.provider_message_id || null,
               error: null,
+              failure_type: null,
             })
             .eq("id", email.id);
 
@@ -549,6 +607,7 @@ Deno.serve(async (req) => {
               status: "FAILED",
               attempts: newAttempts,
               last_attempt_at: now,
+              claimed_at: null,
               next_attempt_at: nextAttemptAt,
               error: errorMessage,
               failed_permanent: isPermanent || newAttempts >= MAX_ATTEMPTS,
@@ -610,9 +669,11 @@ Deno.serve(async (req) => {
             status: "FAILED",
             attempts: newAttempts,
             last_attempt_at: now,
+            claimed_at: null,
             next_attempt_at: nextAttemptAt,
             error: errorMessage,
             failed_permanent: isMaxed,
+            failure_type: "WORKER_EXCEPTION",
           })
           .eq("id", email.id);
 

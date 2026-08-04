@@ -1181,6 +1181,71 @@ Deno.serve(async (req) => {
       results.cron_health = { error: (e as Error).message };
     }
 
+    // ================================================================
+    // 5m) LAYER 5: Email DELIVERY health (measure the effect, not the
+    // attempt). A cron that "succeeded" while enqueuing mail that never
+    // leaves the outbox is the same silent-failure class as parsed-vs-
+    // persisted rows and executed-vs-successful crons. This watches the
+    // delivered outcome. Platform surface only — never the lawyer's queue.
+    // ================================================================
+    try {
+      const { data: health, error: healthErr } = await admin.rpc("email_outbox_health" as never, { _hours: 24 } as never);
+      if (healthErr) throw new Error(healthErr.message);
+      const h = (Array.isArray(health) ? health[0] : health) as {
+        enqueued: number;
+        sent: number;
+        failed: number;
+        pending: number;
+        sending: number;
+        stuck_over_30min: number;
+        failed_rate: number;
+        oldest_stuck_minutes: number | null;
+      } | undefined;
+
+      results.email_outbox_health = h ?? { error: "no rows" };
+
+      if (h) {
+        const enqueued = Number(h.enqueued ?? 0);
+        const sent = Number(h.sent ?? 0);
+        const failed = Number(h.failed ?? 0);
+        const failedRate = Number(h.failed_rate ?? 0);
+        const stuck = Number(h.stuck_over_30min ?? 0);
+
+        if (enqueued > 0 && sent === 0) {
+          alerts.push({
+            title: "🚨 Correo: 0 entregas en 24h con mensajes encolados",
+            message:
+              `Se encolaron ${enqueued} correo(s) en las últimas 24h y NINGUNO fue entregado ` +
+              `(fallidos: ${failed}, pendientes: ${h.pending}, en envío: ${h.sending}). ` +
+              `La ruta de entrega está caída.`,
+            severity: "CRITICAL",
+          });
+        } else if (enqueued > 0 && failedRate > 0.2) {
+          alerts.push({
+            title: "🚨 Correo: tasa de fallo superior al 20% en 24h",
+            message:
+              `${failed} de ${enqueued} correos fallaron (${Math.round(failedRate * 100)}%) en las últimas 24h. ` +
+              `Revise la credencial y la respuesta del proveedor en la consola de correo.`,
+            severity: "CRITICAL",
+          });
+        }
+
+        if (stuck > 0) {
+          alerts.push({
+            title: "⚠️ Correo: mensajes atascados en SENDING",
+            message:
+              `${stuck} correo(s) llevan más de 30 minutos en estado SENDING ` +
+              `(el más antiguo: ${h.oldest_stuck_minutes ?? "?"} min). ` +
+              `El lease reaper debería recuperarlos; si persisten, el worker está muriendo antes del proveedor.`,
+            severity: "WARNING",
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[watchdog] email outbox health check error:", e);
+      results.email_outbox_health = { error: (e as Error).message };
+    }
+
     for (const alert of alerts) {
       try {
         await admin.from("atenia_ai_actions").insert({
