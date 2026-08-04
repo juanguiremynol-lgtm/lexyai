@@ -55,7 +55,6 @@ export async function validateUploadedPdfEligibility(
     signer_name?: string;
     signer_cedula?: string;
     organization_id?: string;
-    is_generic_mode?: boolean;
   },
 ): Promise<EligibilityResult> {
   // Only enforce for UPLOADED_PDF source type
