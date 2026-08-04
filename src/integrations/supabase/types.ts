@@ -149,6 +149,42 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter24_dedupe_report: {
+        Row: {
+          created_at: string
+          dependents_repointed: Json | null
+          id: string
+          identity_key: string | null
+          loser_id: string | null
+          loser_source: string | null
+          survivor_id: string | null
+          table_name: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          dependents_repointed?: Json | null
+          id?: string
+          identity_key?: string | null
+          loser_id?: string | null
+          loser_source?: string | null
+          survivor_id?: string | null
+          table_name: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          dependents_repointed?: Json | null
+          id?: string
+          identity_key?: string | null
+          loser_id?: string | null
+          loser_source?: string | null
+          survivor_id?: string | null
+          table_name?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
@@ -18412,6 +18448,14 @@ export type Database = {
         Returns: string
       }
       canon_simple_hash: { Args: { p_data: string }; Returns: string }
+      canon_source_key: {
+        Args: { p_fallback?: string; p_raw: string }
+        Returns: string
+      }
+      canon_source_list: {
+        Args: { p_extra?: string[]; p_fallback?: string; p_raw: string }
+        Returns: string[]
+      }
       canon_strip_title_noise: { Args: { p_raw: string }; Returns: string }
       canonicalize_legal_text: { Args: { p_text: string }; Returns: string }
       check_and_increment_login_sync: {
