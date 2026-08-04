@@ -13,6 +13,8 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+// ITERATION 22 — canonical act identity shared with every other CPNU path.
+import { toCanonicalActRow } from "../_shared/canonicalActMapper.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
