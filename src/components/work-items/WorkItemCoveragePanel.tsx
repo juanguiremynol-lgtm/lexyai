@@ -26,6 +26,12 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { isProviderMonitoredWorkflow, providerChainFor } from "@/lib/monitoring-matrix";
+import {
+  ESTADOS_SIGNAL_EXPLANATION,
+  ESTADOS_SIGNAL_LABEL,
+  estadosSignalTone,
+  type EstadosSignal,
+} from "@/lib/estados-coverage-signal";
 
 interface CoverageRow {
   provider_key: string;
@@ -91,8 +97,22 @@ export function WorkItemCoveragePanel({
     },
   });
 
+  // Iteration 33 — cross-provider check: actuaciones without estados.
+  const { data: estadosSignal } = useQuery({
+    queryKey: ["work-item-estados-signal", workItemId],
+    enabled: eligible,
+    queryFn: async (): Promise<EstadosSignal | null> => {
+      const { data, error } = await (supabase as any).rpc("classify_work_item_estados_signal", {
+        p_work_item_id: workItemId,
+      });
+      if (error) throw error;
+      return (data ?? null) as EstadosSignal | null;
+    },
+  });
+
   function refresh() {
     qc.invalidateQueries({ queryKey: ["work-item-coverage", workItemId] });
+    qc.invalidateQueries({ queryKey: ["work-item-estados-signal", workItemId] });
     qc.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
     onChanged?.();
   }
