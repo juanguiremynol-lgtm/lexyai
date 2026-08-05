@@ -6,7 +6,7 @@
  * and notifications (ANCHOR_NOTIFICACION) — never fijación en estado.
  */
 import { addBusinessDays } from "@/lib/colombian-holidays";
-import type { PenalAnchorType, PenalDeadlineRule } from "@/hooks/use-penal-deadline-rules";
+import type { PenalAnchorType, PenalDeadlineRule } from "@/hooks/use-workflow-deadline-rules";
 
 export interface PenalAnchor {
   type: PenalAnchorType;

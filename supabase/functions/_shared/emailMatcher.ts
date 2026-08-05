@@ -980,6 +980,15 @@ export type EvidenceSubtype =
   | "ALLANAMIENTO"
   | "PREACUERDO"
   | "PRECLUSION"
+  // Proceso ejecutivo (CGP). Vocabulario propio: sin estos subtipos, el auto
+  // que libra mandamiento de pago o el que ordena seguir adelante la ejecución
+  // caían en OTRO_JUDICIAL o, peor, en FALLO_SENTENCIA.
+  | "MANDAMIENTO_PAGO"
+  | "SEGUIR_ADELANTE"
+  | "EXCEPCIONES_MERITO"
+  | "LIQUIDACION_CREDITO"
+  | "AVALUO"
+  | "REMATE"
   | "OTRO_JUDICIAL";
 
 export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
@@ -998,6 +1007,17 @@ export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   ],
   // Solo la inadmisión genuina abre SUBSANACION.
   ["INADMISION", /inadmit|inadmisi[oó]n|so pena de rechazo|t[eé]rmino para subsanar|para subsanar/i],
+  // Ejecutivo (CGP). Evaluados antes de FALLO_SENTENCIA / TRASLADO / AUTO_ADMISORIO
+  // porque comparten vocabulario ("sentencia", "traslado", "auto").
+  [
+    "MANDAMIENTO_PAGO",
+    /mandamiento\s*(ejecutivo)?\s*(de\s*)?pago|l[ií]bra?se?\s+mandamiento|libra\s+mandamiento/i,
+  ],
+  ["SEGUIR_ADELANTE", /seguir\s+adelante(\s+(con\s+)?la\s+ejecuci[oó]n)?/i],
+  ["REMATE", /remate|adjudicaci[oó]n\s+del?\s+bien/i],
+  ["AVALUO", /aval[uú]o|aval[uú]a/i],
+  ["LIQUIDACION_CREDITO", /liquidaci[oó]n\s+del?\s+cr[eé]dito|liquidaci[oó]n\s+de\s+costas/i],
+  ["EXCEPCIONES_MERITO", /excepciones\s+de\s+m[eé]rito|traslado\s+de\s+(las\s+)?excepciones/i],
   // Penal (Ley 906). Evaluados antes de AUTO_ADMISORIO / TRASLADO / AUDIENCIA
   // porque comparten vocabulario ("admite", "traslado", "audiencia de…").
   ["PRECLUSION", /preclusi[oó]n|precluye/i],

@@ -313,6 +313,7 @@ export function providerChainForWorkItem(workflow: string | null | undefined, ra
       CGP: ["cpnu", "publicaciones"],
       LABORAL: ["cpnu", "publicaciones"],
       PENAL_906: ["cpnu", "publicaciones"],
+      EJECUTIVO: ["cpnu", "publicaciones"],
       PENAL: ["cpnu", "publicaciones"],
       CPACA: ["samai", "samai_estados"],
       TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],

@@ -19,7 +19,7 @@ import { useWorkItemDeadlines, businessDaysUntil, type WorkItemDeadline } from "
 import { usePendingStageSuggestions } from "@/hooks/use-pending-stage-suggestions";
 import { useStageSuggestion } from "@/hooks/useStageSuggestion";
 import { useSuggestedDeadlineActions } from "@/hooks/use-suggested-deadlines";
-import { usePenalDeadlineRules } from "@/hooks/use-penal-deadline-rules";
+import { useWorkflowDeadlineRules } from "@/hooks/use-workflow-deadline-rules";
 import { penalTermsPendingRatification } from "@/lib/penal906/penal906-terms";
 import { getStageLabel, type WorkflowType, type CGPPhase } from "@/lib/workflow-constants";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
@@ -47,11 +47,17 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const { data: suggestions = [] } = usePendingStageSuggestions(workItemId);
   const { apply, dismiss, isApplying, isDismissing } = useStageSuggestion({ workItemId });
   const deadlineActions = useSuggestedDeadlineActions(workItemId);
-  const isPenal = workflowType === "PENAL_906";
-  const { data: penalRules = [] } = usePenalDeadlineRules();
-  // Penal terms are a specification the lawyer owns: until at least one rule is
-  // ratified the engine computes nothing and we say so explicitly.
-  const penalRulesPending = isPenal && penalTermsPendingRatification(penalRules);
+  // Penal, laboral and ejecutivo terms are a specification the lawyer owns:
+  // until at least one rule of that workflow is ratified the engine computes
+  // nothing and we say so explicitly (iterations 31-32).
+  const RULE_GATED: Record<string, string> = {
+    PENAL_906: "penales (Ley 906)",
+    LABORAL: "laborales",
+    EJECUTIVO: "del proceso ejecutivo",
+  };
+  const gatedLabel = RULE_GATED[workflowType];
+  const { data: workflowRules = [] } = useWorkflowDeadlineRules(gatedLabel ? workflowType : undefined);
+  const penalRulesPending = !!gatedLabel && penalTermsPendingRatification(workflowRules);
 
   const active = deadlines
     .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date)
@@ -81,10 +87,10 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
           <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium">
               <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
-              Reglas de términos penales pendientes de ratificación
+              Reglas de términos {gatedLabel} pendientes de ratificación
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              No se calcula ningún término hasta que las reglas de la Ley 906 sean ratificadas.
+              No se calcula ningún término hasta que estas reglas sean ratificadas.
             </p>
           </div>
         )}

@@ -63,6 +63,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ElementType> = {
   PETICION: FileText,
   GOV_PROCEDURE: Building2,
   LABORAL: Briefcase,
+  EJECUTIVO: Scale,
   PENAL_906: Shield,
   INDETERMINADO: HelpCircle,
 };
@@ -74,6 +75,7 @@ const WORKFLOW_LABELS: Record<WorkflowType, string> = {
   PETICION: "Petición",
   GOV_PROCEDURE: "Administrativo",
   LABORAL: "Laboral",
+  EJECUTIVO: "Ejecutivo",
   PENAL_906: "Penal",
   INDETERMINADO: "Por clasificar",
 };

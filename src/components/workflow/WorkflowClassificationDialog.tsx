@@ -41,6 +41,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   GOV_PROCEDURE: <Building2 className="h-5 w-5" />,
   CPACA: <Landmark className="h-5 w-5" />,
   LABORAL: <Briefcase className="h-5 w-5" />,
+  EJECUTIVO: <Scale className="h-5 w-5" />,
   PENAL_906: <Shield className="h-5 w-5" />,
   GENERIC: <FileText className="h-5 w-5" />,
   INDETERMINADO: <HelpCircle className="h-5 w-5" />,
