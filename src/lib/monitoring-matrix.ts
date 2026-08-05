@@ -14,10 +14,9 @@ export const PROVIDER_CHAIN_BY_WORKFLOW: Record<string, string[]> = {
   // never emitted by Andromeda; canonical value is PENAL_906.
   PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
-  // Mirror of the DB: provider_chain_for_workflow('INDETERMINADO') returns
-  // cpnu + publicaciones. Kept identical on purpose — a mirror that widens the
-  // chain on its own is drift.
-  INDETERMINADO: ["cpnu", "publicaciones"],
+  // Subject matter unknown (mixed-competence court): fan out to every provider
+  // until the matter is classified (iteration 18). Mirrors the DB function.
+  INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };
 
