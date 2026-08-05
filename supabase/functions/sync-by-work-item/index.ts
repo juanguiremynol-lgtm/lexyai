@@ -145,7 +145,6 @@ async function enqueueScrapingRetry(
       work_item_id: input.workItemId,
       organization_id: input.organizationId,
       radicado: input.radicado,
-      workflow_type: input.workflowType,
       stage: input.stage || null,
       kind: input.kind,
       provider: input.provider,

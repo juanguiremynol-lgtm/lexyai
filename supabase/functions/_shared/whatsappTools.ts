@@ -236,7 +236,6 @@ export function buildWhatsAppTools(ctx: ToolContext) {
           work_item_id,
           organization_id: w.organization_id,
           radicado: w.radicado ?? "",
-          workflow_type: w.workflow_type,
           stage: w.current_stage,
           kind,
           provider,

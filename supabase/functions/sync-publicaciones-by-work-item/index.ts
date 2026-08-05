@@ -1803,7 +1803,6 @@ Deno.serve(withSyncTimeline(async (req) => {
             work_item_id,
             organization_id: workItem.organization_id,
             radicado: normalizedRadicado,
-            workflow_type: workItem.workflow_type || 'CGP',
             kind: 'PUB_RETRY',
             provider: 'publicaciones',
             attempt: 1,

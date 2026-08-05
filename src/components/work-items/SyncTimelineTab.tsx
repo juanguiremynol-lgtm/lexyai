@@ -26,7 +26,6 @@ interface TimelineRow {
   finished_at: string;
   started_at: string | null;
   provider: string;
-  workflow_type: string | null;
   operation: string;
   function_name: string | null;
   adapter_version: string | null;
@@ -142,9 +141,6 @@ export function SyncTimelineTab({ workItemId }: Props) {
                     </Badge>
                     <Badge variant="outline">{row.provider}</Badge>
                     <Badge variant="outline">{row.operation}</Badge>
-                    {row.workflow_type && (
-                      <Badge variant="secondary">{row.workflow_type}</Badge>
-                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {format(new Date(row.finished_at), "d MMM yyyy HH:mm:ss", { locale: es })}

@@ -1249,7 +1249,6 @@ async function syncSingleItem(
             work_item_id: item.id,
             organization_id: orgId,
             radicado: item.radicado,
-            workflow_type: item.workflow_type,
             stage: item.stage || null,
             kind: "PUB_RETRY",
             provider: "publicaciones",

@@ -318,7 +318,6 @@ Deno.serve(async (req) => {
                     work_item_id: item.id,
                     organization_id: pendingOrg.organization_id,
                     radicado: item.radicado,
-                    workflow_type: item.workflow_type,
                     kind: decision.kind,
                     provider: syncResult?.scraping_provider || 'cpnu',
                     attempt: 1,
