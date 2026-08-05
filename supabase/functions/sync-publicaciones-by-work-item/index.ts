@@ -997,6 +997,30 @@ async function fetchPublicaciones(
 /**
  * Extract publications from v3 API response
  */
+/**
+ * Iteration 33 — shape-only redaction of a provider body. No party names, no
+ * free text beyond provider-level status strings: enough for the provider team
+ * to tell an empty set apart from an unreadable planilla or an upstream error.
+ */
+function sampleProviderResponse(data: any): Record<string, unknown> {
+  if (data === null || data === undefined) return { body: 'null' };
+  if (Array.isArray(data)) return { body: 'array', length: data.length };
+  if (typeof data !== 'object') return { body: typeof data };
+  const out: Record<string, unknown> = { keys: Object.keys(data).slice(0, 30) };
+  for (const k of ['found', 'totalResultados', 'total_actuaciones_encontradas', 'status',
+                   'estado', 'mensaje', 'message', 'error', 'detail', 'ocr', 'ocr_aplicado',
+                   'planilla_ilegible', 'despacho', 'fecha_consulta', 'scraped_at']) {
+    if (k in data) {
+      const v = (data as any)[k];
+      out[k] = typeof v === 'string' ? v.slice(0, 200) : (typeof v === 'object' ? '[object]' : v);
+    }
+  }
+  for (const k of ['publicaciones', 'actuaciones', 'estados', 'documentos']) {
+    if (Array.isArray((data as any)[k])) out[`${k}_length`] = (data as any)[k].length;
+  }
+  return out;
+}
+
 function extractPublicacionesFromResponse(
   data: any,
   latencyMs: number
@@ -1020,6 +1044,7 @@ function extractPublicacionesFromResponse(
       found: false,
       httpStatus: 200,
       resultCode: 'NO_DATA',
+      rawSample: sampleProviderResponse(data),
     };
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
