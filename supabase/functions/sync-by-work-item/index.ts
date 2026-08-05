@@ -3494,6 +3494,89 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (meta.tutela_code && !workItem.tutela_code) updatePayload.tutela_code = meta.tutela_code;
     }
 
+    // ============= ITER29: CLASE DE PROCESO — PROVIDER CONTRACT =============
+    // The class of a process is a PROVIDER FACT. Three guards apply:
+    //   A — absence of the block never erases a stored class;
+    //   B — an ineligible or disagreeing mapping is a suggestion, never a write;
+    //   C — an unmapped class is logged, never guessed.
+    try {
+      const rawContract = fetchResult.caseMetadata?.clase_proveedor;
+      if (rawContract !== undefined) {
+        const contract = parseClaseProveedor(rawContract);
+
+        const { data: currentRow } = await supabase
+          .from('work_items')
+          .select('clase_proceso, subclase_proceso, workflow_type, workflow_type_source, organization_id')
+          .eq('id', work_item_id)
+          .maybeSingle();
+
+        const { data: mapRows } = await supabase
+          .from('clase_proceso_workflow_map')
+          .select('pattern, workflow_type, label');
+
+        const decision = decideClaseProcesoWrite({
+          contract,
+          current: (currentRow ?? {}) as Record<string, string | null>,
+          map: (mapRows ?? []) as Array<{ pattern: string; workflow_type: string; label: string }>,
+        });
+
+        console.log(`[sync-by-work-item][clase] case=${decision.readCase} ${decision.explanation}`);
+
+        if (decision.readCase !== 'INCONCLUSIVE' && Object.keys(decision.patch).length > 0) {
+          await supabase.from('work_items').update(decision.patch).eq('id', work_item_id);
+        }
+
+        // CAMBIO_CLASE_PROCESO → audit row, which surfaces as a CLASE timeline event.
+        if (decision.readCase === 'PRESENT' && decision.claseChanged) {
+          await supabase.from('work_item_clase_proceso_audit').insert({
+            work_item_id,
+            organization_id: (currentRow as { organization_id?: string | null } | null)?.organization_id ?? null,
+            previous_clase: (currentRow as { clase_proceso?: string | null } | null)?.clase_proceso ?? null,
+            new_clase: contract.clase_proceso,
+            previous_subclase: (currentRow as { subclase_proceso?: string | null } | null)?.subclase_proceso ?? null,
+            new_subclase: contract.subclase_proceso,
+            previous_workflow_type: (currentRow as { workflow_type?: string | null } | null)?.workflow_type ?? null,
+            new_workflow_type:
+              decision.workflow.kind === 'APPLY'
+                ? decision.workflow.workflow
+                : (currentRow as { workflow_type?: string | null } | null)?.workflow_type ?? null,
+            change_source:
+              decision.workflow.kind === 'APPLY' ? 'PROVIDER_CONTRACT' : 'PROVIDER_CONTRACT_SUGGESTION',
+            procedencia: contract.procedencia,
+          });
+        }
+
+        // GUARD B — suggestion only. Nothing procedural moves.
+        if (decision.workflow.kind === 'SUGGEST') {
+          console.log(
+            `[sync-by-work-item][clase] SUGGESTION ${decision.workflow.workflow} (${decision.workflow.label}) — ${decision.workflow.reason}`,
+          );
+          await supabase.from('work_item_clase_proceso_audit').insert({
+            work_item_id,
+            organization_id: (currentRow as { organization_id?: string | null } | null)?.organization_id ?? null,
+            previous_clase: (currentRow as { clase_proceso?: string | null } | null)?.clase_proceso ?? null,
+            new_clase: contract.clase_proceso,
+            previous_workflow_type: (currentRow as { workflow_type?: string | null } | null)?.workflow_type ?? null,
+            new_workflow_type: decision.workflow.workflow,
+            change_source: 'PROVIDER_CLASS_SUGGESTION',
+            procedencia: contract.procedencia,
+          });
+        }
+
+        // GUARD C — grow the catalogue from real data.
+        if (decision.unmappedClase) {
+          await supabase.rpc('log_unmapped_clase_proceso', {
+            p_clase: decision.unmappedClase,
+            p_radicado: workItem.radicado ?? null,
+            p_work_item_id: work_item_id,
+          });
+        }
+      }
+    } catch (claseErr) {
+      // Never let class bookkeeping break a sync.
+      console.warn('[sync-by-work-item][clase] failed:', claseErr);
+    }
+
     // ============= PROVIDER SOURCES TRACKING (TUTELA) =============
     if (workItem.workflow_type === 'TUTELA' && result.provider_attempts.length > 0) {
       const providerSources: Record<string, Record<string, unknown>> = {};
