@@ -5,6 +5,7 @@
  * not have. ARCHIVED without deleted_at is not the papelera.
  */
 import { describe, it, expect } from "vitest";
+import "./helpers/localstorage-polyfill";
 import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 
 describe("deriveLifecycleView", () => {
