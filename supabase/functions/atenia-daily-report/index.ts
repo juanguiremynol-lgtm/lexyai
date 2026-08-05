@@ -627,6 +627,29 @@ function generateTxtReport(
   }
   ln();
 
+  // ─── Coverage: actuaciones sin estados (iteration 33) ──────────────
+  const estCov = results.find(r => r.name === "ESTADOS_COVERAGE");
+  ln("Cobertura de estados (actuaciones sin estados):");
+  if (estCov?.status === "OK") {
+    const c = estCov.output as any;
+    ln(
+      `  evaluados=${c?.total ?? 0}, cubiertos=${c?.cubierto ?? 0}, ` +
+      `estados esperados y ausentes=${c?.estados_esperados_ausentes ?? 0} ` +
+      `(recientes 90d=${c?.estados_ausentes_recientes ?? 0}), ` +
+      `sin fijación conocida=${c?.sin_fijacion_conocida ?? 0}, ` +
+      `sin cobertura declarada=${c?.sin_cobertura_declarada ?? 0}`
+    );
+    for (const a of (c?.anomalias || []).slice(0, 10)) {
+      ln(
+        `  [ANOMALIA] ${a.radicado} (${a.workflow}) — ${String(a.despacho ?? "despacho sin identificar").trim()}: ` +
+        `${a.fijaciones_sin_estado} fijación(es) sin estado, última ${a.ultima_fijacion}`
+      );
+    }
+  } else {
+    ln("  [Estados coverage unavailable]");
+  }
+  ln();
+
   // ─── SECTION 6: ERRORS / ANOMALIES ────────────────────────────────
   ln("───────────────────────────────────────────────────────────────────");
   ln("SECTION 6 — ERRORS / ANOMALIES");
