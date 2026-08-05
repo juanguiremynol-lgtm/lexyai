@@ -122,7 +122,15 @@ const CLASSIFICATION_RULES: PatternRule[] = [
     phase: 10, // PRECLUIDO_ARCHIVADO
     patterns: [
       /preclusion\s+(decretada|aprobada|ordenada)/,
-      /archivo\s+(definitivo|del\s+proceso)/,
+    ],
+    priority: 'CRITICA',
+    confidence: 'HIGH',
+    forcePhase: true,
+  },
+  {
+    phase: 16, // ARCHIVO (terminal outcome branch, distinct from preclusión)
+    patterns: [
+      /archivo\s+(definitivo|del\s+proceso|de\s+(las\s+)?diligencias|de\s+la\s+actuacion)/,
       /cesacion\s+de\s+procedimiento/,
       /extincion\s+de\s+la\s+accion\s+penal/,
       /prescripcion\s+(de\s+la\s+accion|decretada)/,
