@@ -149,6 +149,12 @@ export interface CaseMetadata {
   tutela_code?: string | null;
   corte_status?: string | null;
   sentencia_ref?: string | null;
+  /**
+   * ITER29 — verbatim GCP `claseProveedor` contract block.
+   * `undefined` means the block was NOT located in the response (an
+   * inconclusive read); it must never be confused with "no class".
+   */
+  clase_proveedor?: unknown;
 }
 
 /**
