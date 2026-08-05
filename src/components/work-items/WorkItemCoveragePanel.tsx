@@ -253,6 +253,48 @@ export function WorkItemCoveragePanel({
           </div>
         )}
 
+        {estadosSignal && (
+          <div className="rounded-md border p-3 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">Actuaciones frente a estados</span>
+              <Badge
+                variant="outline"
+                className={`gap-1 text-[10px] ${estadosSignalTone(estadosSignal.signal_class)}`}
+              >
+                {estadosSignal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" ? (
+                  <AlertTriangle className="h-3 w-3" />
+                ) : estadosSignal.signal_class === "CUBIERTO" ? (
+                  <Activity className="h-3 w-3" />
+                ) : (
+                  <Info className="h-3 w-3" />
+                )}
+                {ESTADOS_SIGNAL_LABEL[estadosSignal.signal_class]}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {ESTADOS_SIGNAL_EXPLANATION[estadosSignal.signal_class]}
+            </p>
+            <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+              <span>Actuaciones: {estadosSignal.acts_count}</span>
+              <span>Estados recibidos: {estadosSignal.pubs_count}</span>
+              <span>Fijaciones en actuaciones: {estadosSignal.fijacion_count}</span>
+              {estadosSignal.last_fijacion_date && (
+                <span>Última fijación: {estadosSignal.last_fijacion_date}</span>
+              )}
+            </div>
+            {estadosSignal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" &&
+              (estadosSignal.evidence?.unmatched_fijaciones?.length ?? 0) > 0 && (
+                <ul className="mt-1 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                  {estadosSignal.evidence.unmatched_fijaciones!.slice(0, 5).map((f) => (
+                    <li key={f.act_id}>
+                      Fijación del {f.act_date ?? "fecha no informada"} sin estado publicado
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </div>
+        )}
+
         {monitoringEnabled && (
           <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setOpen(true)}>
             <PauseCircle className="h-3.5 w-3.5" />
