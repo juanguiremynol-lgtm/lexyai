@@ -14,6 +14,19 @@ export interface Penal906Phase {
   color: string;
   isTerminal: boolean;
   severity?: 'info' | 'warning' | 'critical';
+  /**
+   * Canonical display order (Ley 906 accusatory sequence). Decoupled from `id`
+   * so that phases added later keep their stable persisted numeric id while
+   * still rendering in the statutory order.
+   */
+  displayOrder: number;
+  /**
+   * Outcome branch (preclusión / archivo). These are ORDINARY outcomes of a
+   * penal matter, not anomalies — they simply hang off the linear sequence.
+   */
+  isBranch?: boolean;
+  /** Key in the shared WORKFLOW_PHASES.PENAL_906 catalogue. */
+  canonicalKey?: string;
 }
 
 /**
@@ -29,6 +42,7 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     color: 'slate',
     isTerminal: false,
     severity: 'info',
+    displayOrder: 0,
   },
   {
     id: 1,
@@ -38,6 +52,8 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Fase inicial de investigación preliminar por la Fiscalía',
     color: 'amber',
     isTerminal: false,
+    displayOrder: 1,
+    canonicalKey: 'INDAGACION',
   },
   {
     id: 2,
@@ -47,6 +63,8 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Formulación de imputación ante juez de control de garantías',
     color: 'orange',
     isTerminal: false,
+    displayOrder: 2,
+    canonicalKey: 'IMPUTACION',
   },
   {
     id: 3,
@@ -56,16 +74,21 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Solicitud de preclusión pendiente de decisión',
     color: 'cyan',
     isTerminal: false,
+    displayOrder: 11,
+    isBranch: true,
+    canonicalKey: 'PRECLUSION',
   },
   {
     id: 4,
     key: 'ACUSACION',
-    label: 'Acusación',
-    shortLabel: 'Acusación',
-    description: 'Presentación del escrito de acusación ante juez de conocimiento',
+    label: 'Audiencia de formulación de acusación',
+    shortLabel: 'Aud. acusación',
+    description: 'Audiencia de formulación de acusación ante el juez de conocimiento',
     color: 'rose',
     isTerminal: false,
     severity: 'warning',
+    displayOrder: 5,
+    canonicalKey: 'AUDIENCIA_ACUSACION',
   },
   {
     id: 5,
@@ -75,6 +98,8 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Audiencia de preparación del juicio oral',
     color: 'purple',
     isTerminal: false,
+    displayOrder: 6,
+    canonicalKey: 'PREPARATORIA',
   },
   {
     id: 6,
@@ -85,6 +110,8 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     color: 'indigo',
     isTerminal: false,
     severity: 'critical',
+    displayOrder: 7,
+    canonicalKey: 'JUICIO_ORAL',
   },
   {
     id: 7,
@@ -94,15 +121,19 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Pendiente de lectura de fallo o sentencia',
     color: 'violet',
     isTerminal: false,
+    displayOrder: 8,
+    canonicalKey: 'SENTENCIA',
   },
   {
     id: 8,
     key: 'SEGUNDA_INSTANCIA',
-    label: 'Segunda Instancia',
-    shortLabel: '2ª Instancia',
+    label: 'Recursos (segunda instancia)',
+    shortLabel: 'Recursos',
     description: 'Recurso de apelación ante Tribunal Superior',
     color: 'blue',
     isTerminal: false,
+    displayOrder: 9,
+    canonicalKey: 'RECURSOS',
   },
   {
     id: 9,
@@ -112,15 +143,19 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Sentencia en firme, ejecución de la pena',
     color: 'teal',
     isTerminal: false,
+    displayOrder: 10,
   },
   {
     id: 10,
     key: 'PRECLUIDO_ARCHIVADO',
-    label: 'Precluido / Archivado',
-    shortLabel: 'Archivado',
-    description: 'Proceso terminado por preclusión o archivo',
+    label: 'Precluido',
+    shortLabel: 'Precluido',
+    description: 'Proceso terminado por preclusión decretada',
     color: 'stone',
     isTerminal: true,
+    displayOrder: 12,
+    isBranch: true,
+    canonicalKey: 'PRECLUSION',
   },
   {
     id: 11,
@@ -130,6 +165,7 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Sentencia absolutoria en firme',
     color: 'emerald',
     isTerminal: true,
+    displayOrder: 14,
   },
   {
     id: 12,
@@ -139,6 +175,7 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     description: 'Sentencia condenatoria en firme',
     color: 'rose',
     isTerminal: true,
+    displayOrder: 15,
   },
   {
     id: 13,
@@ -149,8 +186,60 @@ export const PENAL_906_PHASES: Penal906Phase[] = [
     color: 'slate',
     isTerminal: false,
     severity: 'warning',
+    displayOrder: 16,
+  },
+  {
+    id: 14,
+    key: 'MEDIDA_ASEGURAMIENTO',
+    label: 'Medida de aseguramiento',
+    shortLabel: 'Medida',
+    description: 'Solicitud, imposición o control de la medida de aseguramiento',
+    color: 'orange',
+    isTerminal: false,
+    displayOrder: 3,
+    canonicalKey: 'MEDIDA_ASEGURAMIENTO',
+  },
+  {
+    id: 15,
+    key: 'ESCRITO_ACUSACION',
+    label: 'Escrito de acusación',
+    shortLabel: 'Escrito acus.',
+    description: 'Radicación del escrito de acusación y su traslado a las partes',
+    color: 'rose',
+    isTerminal: false,
+    displayOrder: 4,
+    canonicalKey: 'ESCRITO_ACUSACION',
+  },
+  {
+    id: 16,
+    key: 'ARCHIVO',
+    label: 'Archivo',
+    shortLabel: 'Archivo',
+    description: 'Archivo de las diligencias o cesación de procedimiento',
+    color: 'stone',
+    isTerminal: true,
+    displayOrder: 13,
+    isBranch: true,
+    canonicalKey: 'ARCHIVO',
   },
 ];
+
+/**
+ * Phases in canonical Ley 906 display order (linear sequence first, then the
+ * preclusión / archivo outcome branches, then administrative states).
+ */
+export const PENAL_906_BOARD_PHASES: Penal906Phase[] = [...PENAL_906_PHASES].sort(
+  (a, b) => a.displayOrder - b.displayOrder,
+);
+
+/** Map a numeric pipeline stage to its key in the shared workflow catalogue. */
+export function canonicalPhaseKey(phaseId: number): string | undefined {
+  return getPhaseById(phaseId)?.canonicalKey;
+}
+
+function orderOf(phaseId: number): number {
+  return getPhaseById(phaseId)?.displayOrder ?? phaseId;
+}
 
 /**
  * Get phase configuration by ID
@@ -221,36 +310,37 @@ export function isValidTransition(
   if (isTerminalPhase(currentPhase) && !isTerminalPhase(newPhase)) {
     return false;
   }
-  
+
+  const from = orderOf(currentPhase);
+  const to = orderOf(newPhase);
+
   // Forward progression is always allowed
-  if (newPhase > currentPhase) {
+  if (to > from) {
     return true;
   }
-  
+
   // Backward movement only allowed with retroceso keyword
-  if (newPhase < currentPhase && hasRetrocesoKeyword) {
+  if (to < from && hasRetrocesoKeyword) {
     return true;
   }
-  
+
   // Same phase is always allowed (no change)
-  if (newPhase === currentPhase) {
-    return true;
-  }
-  
-  return false;
+  return to === from;
 }
 
 /**
  * Get the next logical phase after current
  */
 export function getNextPhase(currentPhase: number): number | null {
-  if (currentPhase >= 9) return null; // Already at or past ejecutoria
   if (isTerminalPhase(currentPhase)) return null;
-  
-  // Skip preclusión trámite (3) in normal progression
-  if (currentPhase === 2) return 4; // Imputación -> Acusación (normal)
-  
-  return currentPhase + 1;
+  const from = orderOf(currentPhase);
+  // Ejecutoria (order 10) is the end of the linear sequence.
+  if (from >= 10) return null;
+  // Next linear phase: skip outcome branches and administrative states.
+  const next = PENAL_906_BOARD_PHASES.find(
+    (p) => p.displayOrder > from && !p.isBranch && !p.isTerminal && p.displayOrder <= 10,
+  );
+  return next?.id ?? null;
 }
 
 /**
@@ -261,13 +351,14 @@ export const PHASE_COLORS: Record<number, string> = Object.fromEntries(
 );
 
 // Export for use in Kanban board
-export const PENAL_906_COLUMNS = PENAL_906_PHASES.map(phase => ({
+export const PENAL_906_COLUMNS = PENAL_906_BOARD_PHASES.map(phase => ({
   id: phase.key,
   numericId: phase.id,
   title: phase.label,
   shortTitle: phase.shortLabel,
   description: phase.description,
-  order: phase.id,
+  order: phase.displayOrder,
   color: phase.color,
   isTerminal: phase.isTerminal,
+  isBranch: phase.isBranch ?? false,
 }));

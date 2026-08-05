@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OrganizationProvider, SubscriptionProvider, ImpersonationProvider } from "@/contexts";
 import { TenantRouteGuard, PlatformRouteGuard } from "@/components/auth";
 import ImportWorkItemsPage from "@/pages/admin/ImportWorkItemsPage";
+import PenalTermRulesPage from "@/pages/admin/PenalTermRulesPage";
 import { TenantLayout } from "@/components/layout/TenantLayout";
 import { PlatformLayout } from "@/components/layout/PlatformLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
@@ -332,6 +333,16 @@ const App = () => (
             element={
               <PlatformRouteGuard>
                 <ErrorBoundary><ImportWorkItemsPage /></ErrorBoundary>
+              </PlatformRouteGuard>
+            }
+          />
+
+          {/* Penal (Ley 906) deadline-rule ratification console. */}
+          <Route
+            path="/admin/penal-term-rules"
+            element={
+              <PlatformRouteGuard>
+                <ErrorBoundary><PenalTermRulesPage /></ErrorBoundary>
               </PlatformRouteGuard>
             }
           />

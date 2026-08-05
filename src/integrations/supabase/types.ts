@@ -10534,6 +10534,81 @@ export type Database = {
           },
         ]
       }
+      penal_deadline_rules: {
+        Row: {
+          anchor_event: string | null
+          anchor_type: string
+          citation: string | null
+          created_at: string
+          day_type: string
+          days_amount: number
+          deadline_type: string
+          description: string | null
+          id: string
+          label: string
+          organization_id: string | null
+          ratified_at: string | null
+          ratified_by: string | null
+          requires_manual_review: boolean
+          status: string
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          anchor_event?: string | null
+          anchor_type: string
+          citation?: string | null
+          created_at?: string
+          day_type?: string
+          days_amount: number
+          deadline_type: string
+          description?: string | null
+          id?: string
+          label: string
+          organization_id?: string | null
+          ratified_at?: string | null
+          ratified_by?: string | null
+          requires_manual_review?: boolean
+          status?: string
+          updated_at?: string
+          workflow_type?: string
+        }
+        Update: {
+          anchor_event?: string | null
+          anchor_type?: string
+          citation?: string | null
+          created_at?: string
+          day_type?: string
+          days_amount?: number
+          deadline_type?: string
+          description?: string | null
+          id?: string
+          label?: string
+          organization_id?: string | null
+          ratified_at?: string | null
+          ratified_by?: string | null
+          requires_manual_review?: boolean
+          status?: string
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "penal_deadline_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "penal_deadline_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peticion_alerts: {
         Row: {
           alert_type: string

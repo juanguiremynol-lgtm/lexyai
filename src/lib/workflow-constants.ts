@@ -260,6 +260,29 @@ export const LABORAL_STAGES = {
 export type LaboralStage = keyof typeof LABORAL_STAGES;
 
 // ============================================
+// PENAL_906 Stages (Ley 906/2004 — sistema acusatorio)
+//
+// Canonical display order. Preclusión and Archivo are terminal OUTCOME
+// BRANCHES, not anomalies: a preclusión hearing is an ordinary event in these
+// matters. They are listed last so the linear sequence renders untouched.
+// ============================================
+export const PENAL_906_STAGES = {
+  INDAGACION: { label: 'Indagación', order: 0 },
+  IMPUTACION: { label: 'Formulación de imputación', order: 1 },
+  MEDIDA_ASEGURAMIENTO: { label: 'Medida de aseguramiento', order: 2 },
+  ESCRITO_ACUSACION: { label: 'Escrito de acusación', order: 3 },
+  AUDIENCIA_ACUSACION: { label: 'Audiencia de formulación de acusación', order: 4 },
+  PREPARATORIA: { label: 'Audiencia preparatoria', order: 5 },
+  JUICIO_ORAL: { label: 'Juicio oral', order: 6 },
+  SENTENCIA: { label: 'Sentencia', order: 7 },
+  RECURSOS: { label: 'Recursos', order: 8 },
+  PRECLUSION: { label: 'Preclusión', order: 9 },
+  ARCHIVO: { label: 'Archivo', order: 10 },
+} as const;
+
+export type Penal906Stage = keyof typeof PENAL_906_STAGES;
+
+// ============================================
 // Helper functions
 // ============================================
 
@@ -280,6 +303,8 @@ export function getStagesForWorkflow(workflowType: WorkflowType, cgpPhase?: CGPP
       return CPACA_STAGES;
     case 'LABORAL':
       return LABORAL_STAGES;
+    case 'PENAL_906':
+      return PENAL_906_STAGES;
     default:
       return {};
   }
