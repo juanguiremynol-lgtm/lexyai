@@ -8,10 +8,12 @@
 // Pipeline configuration
 export {
   PENAL_906_PHASES,
+  PENAL_906_BOARD_PHASES,
   PENAL_906_COLUMNS,
   PHASE_COLORS,
   getPhaseById,
   getPhaseByKey,
+  canonicalPhaseKey,
   phaseName,
   phaseShortName,
   isTerminalPhase,

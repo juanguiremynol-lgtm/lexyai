@@ -19,6 +19,8 @@ import { useWorkItemDeadlines, businessDaysUntil, type WorkItemDeadline } from "
 import { usePendingStageSuggestions } from "@/hooks/use-pending-stage-suggestions";
 import { useStageSuggestion } from "@/hooks/useStageSuggestion";
 import { useSuggestedDeadlineActions } from "@/hooks/use-suggested-deadlines";
+import { usePenalDeadlineRules } from "@/hooks/use-penal-deadline-rules";
+import { penalTermsPendingRatification } from "@/lib/penal906/penal906-terms";
 import { getStageLabel, type WorkflowType, type CGPPhase } from "@/lib/workflow-constants";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
 
@@ -45,6 +47,11 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const { data: suggestions = [] } = usePendingStageSuggestions(workItemId);
   const { apply, dismiss, isApplying, isDismissing } = useStageSuggestion({ workItemId });
   const deadlineActions = useSuggestedDeadlineActions(workItemId);
+  const isPenal = workflowType === "PENAL_906";
+  const { data: penalRules = [] } = usePenalDeadlineRules();
+  // Penal terms are a specification the lawyer owns: until at least one rule is
+  // ratified the engine computes nothing and we say so explicitly.
+  const penalRulesPending = isPenal && penalTermsPendingRatification(penalRules);
 
   const active = deadlines
     .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date)
@@ -70,7 +77,19 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!hasAnything && (
+        {penalRulesPending && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+              Reglas de términos penales pendientes de ratificación
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              No se calcula ningún término hasta que las reglas de la Ley 906 sean ratificadas.
+            </p>
+          </div>
+        )}
+
+        {!hasAnything && !penalRulesPending && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
             Sin acciones pendientes — al día

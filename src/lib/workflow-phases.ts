@@ -68,6 +68,7 @@ export const WORKFLOW_PHASES: Record<WorkflowType, CanonicalPhase[]> = {
     { key: "SENTENCIA", label: "Sentencia" },
     { key: "RECURSOS", label: "Recursos" },
     { key: "PRECLUSION", label: "Preclusión", branch: true },
+    { key: "ARCHIVO", label: "Archivo", branch: true },
   ],
   PETICION: [
     { key: "RADICACION", label: "Radicada" },
@@ -204,10 +205,15 @@ const PENAL_STAGE_TO_PHASE: Record<string, string> = {
   PRECLUSION_TRAMITE: "PRECLUSION",
   PRECLUSION: "PRECLUSION",
   PRECLUIDO_ARCHIVADO: "PRECLUSION",
+  ARCHIVO: "ARCHIVO",
+  ARCHIVADO: "ARCHIVO",
+  ARCHIVO_DEFINITIVO: "ARCHIVO",
+  CESACION_PROCEDIMIENTO: "ARCHIVO",
 };
 
 const PENAL_HEURISTICS: Array<[RegExp, string]> = [
   [/PRECLUS/, "PRECLUSION"],
+  [/ARCHIVO\s*(DEFINITIVO|DE(L)?\s*(LAS?\s*)?DILIGENCIAS|DE(L)?\s*PROCESO)|CESACION\s*DE?\s*PROCEDIMIENTO|EXTINCION\s*DE\s*LA\s*ACCION|PRESCRIPCION\s*DE\s*LA\s*ACCION/, "ARCHIVO"],
   [/MEDIDA\s*DE?\s*ASEGURAMIENTO|DETENCION\s*PREVENTIVA/, "MEDIDA_ASEGURAMIENTO"],
   [/ESCRITO\s*DE?\s*ACUSACION|TRASLADO\s*(DEL?\s*)?ESCRITO\s*DE?\s*ACUSACION/, "ESCRITO_ACUSACION"],
   [/(AUDIENCIA|FORMULACION)[^.]{0,30}ACUSACION|ACUSACION/, "AUDIENCIA_ACUSACION"],

@@ -22,10 +22,11 @@ import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
-import { PENAL_906_PHASES, phaseName } from "@/lib/penal906";
+import { PENAL_906_PHASES, PENAL_906_BOARD_PHASES, phaseName } from "@/lib/penal906";
 
-// Map PENAL_906_PHASES to KanbanStage format using string keys
-const PENAL_STAGES: KanbanStage[] = PENAL_906_PHASES.map((phase) => ({
+// Columns follow the canonical Ley 906 display order (linear sequence first,
+// then the preclusión / archivo outcome branches).
+const PENAL_STAGES: KanbanStage[] = PENAL_906_BOARD_PHASES.map((phase) => ({
   id: phase.key,
   label: phase.label,
   shortLabel: phase.shortLabel,

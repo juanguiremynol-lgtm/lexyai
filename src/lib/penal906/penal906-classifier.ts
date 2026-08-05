@@ -208,12 +208,44 @@ const CLASSIFICATION_RULES: PatternRule[] = [
   {
     phase: 4, // ACUSACION
     patterns: [
-      /escrito\s+de\s+acusacion/,
       /formulacion\s+de\s+acusacion/,
       /audiencia\s+de\s+acusacion/,
       /acusacion\s+(presentada|radicada)/,
-      /traslado\s+.*acusacion/,
       /descubrimiento\s+(probatorio|de\s+evidencia)/,
+    ],
+    priority: 'ALTA',
+    confidence: 'HIGH',
+  },
+  {
+    phase: 15, // ESCRITO_ACUSACION
+    patterns: [
+      /escrito\s+de\s+acusacion/,
+      /traslado\s+.*escrito\s+de\s+acusacion/,
+      /traslado\s+.*acusacion/,
+      /radicacion\s+.*acusacion/,
+    ],
+    priority: 'ALTA',
+    confidence: 'HIGH',
+  },
+  {
+    phase: 14, // MEDIDA_ASEGURAMIENTO
+    patterns: [
+      /medida\s+de\s+aseguramiento/,
+      /imposicion\s+de\s+medida/,
+      /detencion\s+preventiva/,
+      /sustitucion\s+de\s+la\s+medida/,
+      /revocatoria\s+de\s+la\s+medida/,
+    ],
+    priority: 'ALTA',
+    confidence: 'HIGH',
+  },
+  {
+    phase: 16, // ARCHIVO (terminal outcome branch)
+    patterns: [
+      /archivo\s+(definitivo|de\s+(las\s+)?diligencias|de\s+la\s+actuacion)/,
+      /cesacion\s+de\s+procedimiento/,
+      /extincion\s+de\s+la\s+accion\s+penal/,
+      /prescripcion\s+de\s+la\s+accion\s+penal/,
     ],
     priority: 'ALTA',
     confidence: 'HIGH',
@@ -224,8 +256,6 @@ const CLASSIFICATION_RULES: PatternRule[] = [
       /formulacion\s+de\s+imputacion/,
       /audiencia\s+de\s+imputacion/,
       /audiencia\s+(de\s+)?control\s+de\s+garantias/,
-      /medida\s+de\s+aseguramiento/,
-      /detencion\s+preventiva/,
       /libertad\s+condicional/,
       /control\s+de\s+legalidad/,
       /imputacion\s+(formulada|realizada)/,
@@ -353,6 +383,11 @@ export function classifyEventType(textNorm: string): EventTypeNormalized {
  * Categorize event based on phase and type
  */
 export function categorizeEvent(phase: number, eventType: EventTypeNormalized): EventCategory {
+  // Phases added after the original 0-13 numbering keep their statutory bucket.
+  if (phase === 14) return 'INVESTIGATIVO';   // medida de aseguramiento
+  if (phase === 15) return 'DECISION_PREVIA'; // escrito de acusación
+  if (phase === 16) return 'EJECUCION';       // archivo / cesación
+
   // Phases 0-2: Investigativo
   if (phase <= 2) return 'INVESTIGATIVO';
   

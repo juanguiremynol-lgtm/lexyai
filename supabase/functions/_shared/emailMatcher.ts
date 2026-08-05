@@ -976,6 +976,9 @@ export type EvidenceSubtype =
   | "IMPUTACION"
   | "MEDIDA_ASEGURAMIENTO"
   | "ESCRITO_ACUSACION"
+  | "ACUSACION"
+  | "ALLANAMIENTO"
+  | "PREACUERDO"
   | "PRECLUSION"
   | "OTRO_JUDICIAL";
 
@@ -998,6 +1001,16 @@ export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   // Penal (Ley 906). Evaluados antes de AUTO_ADMISORIO / TRASLADO / AUDIENCIA
   // porque comparten vocabulario ("admite", "traslado", "audiencia de…").
   ["PRECLUSION", /preclusi[oó]n|precluye/i],
+  // Terminación anticipada: allanamiento a cargos y preacuerdos. Van antes de
+  // ESCRITO_ACUSACION / ACUSACION porque comparten el vocabulario de acusación.
+  [
+    "ALLANAMIENTO",
+    /allanamiento( +a +(los +)?cargos)?|aceptaci[oó]n +de +(los +)?cargos/i,
+  ],
+  [
+    "PREACUERDO",
+    /preacuerdo|negociaci[oó]n +con +la +fiscal[ií]a|sentencia +anticipada/i,
+  ],
   [
     "MEDIDA_ASEGURAMIENTO",
     /medida +de +aseguramiento|detenci[oó]n +preventiva|imposici[oó]n +de +medida/i,
@@ -1005,6 +1018,11 @@ export const EVIDENCE_SUBTYPE_RULES: Array<[EvidenceSubtype, RegExp]> = [
   [
     "ESCRITO_ACUSACION",
     /escrito +de +acusaci[oó]n|traslado +(del +)?escrito +de +acusaci[oó]n/i,
+  ],
+  // Audiencia de formulación de acusación (acto distinto del escrito).
+  [
+    "ACUSACION",
+    /(audiencia|formulaci[oó]n) +de +acusaci[oó]n|acusaci[oó]n +(formulada|presentada|radicada)/i,
   ],
   [
     "IMPUTACION",
