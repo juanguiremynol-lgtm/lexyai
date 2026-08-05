@@ -5548,34 +5548,46 @@ export type Database = {
       }
       despacho_coverage: {
         Row: {
+          checked_at: string | null
           created_at: string
           despacho_label: string
+          evidence: Json
           id: string
           note: string
           provider_key: string
           publishes: boolean
+          publishes_from: string | null
+          publishes_until: string | null
           radicado_prefix: string
           updated_at: string
           workflow_type: string | null
         }
         Insert: {
+          checked_at?: string | null
           created_at?: string
           despacho_label: string
+          evidence?: Json
           id?: string
           note: string
           provider_key: string
           publishes?: boolean
+          publishes_from?: string | null
+          publishes_until?: string | null
           radicado_prefix: string
           updated_at?: string
           workflow_type?: string | null
         }
         Update: {
+          checked_at?: string | null
           created_at?: string
           despacho_label?: string
+          evidence?: Json
           id?: string
           note?: string
           provider_key?: string
           publishes?: boolean
+          publishes_from?: string | null
+          publishes_until?: string | null
           radicado_prefix?: string
           updated_at?: string
           workflow_type?: string | null
@@ -6942,6 +6954,82 @@ export type Database = {
           work_item_id?: string
         }
         Relationships: []
+      }
+      estado_sin_documento: {
+        Row: {
+          article_id: string | null
+          body_bytes: number | null
+          created_at: string
+          despacho: string | null
+          detected_at: string
+          estado_numero: string | null
+          evidence: Json
+          fecha_fijacion: string
+          http_status: number | null
+          id: string
+          organization_id: string | null
+          provider_key: string
+          radicado: string
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          article_id?: string | null
+          body_bytes?: number | null
+          created_at?: string
+          despacho?: string | null
+          detected_at?: string
+          estado_numero?: string | null
+          evidence?: Json
+          fecha_fijacion: string
+          http_status?: number | null
+          id?: string
+          organization_id?: string | null
+          provider_key?: string
+          radicado: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          article_id?: string | null
+          body_bytes?: number | null
+          created_at?: string
+          despacho?: string | null
+          detected_at?: string
+          estado_numero?: string | null
+          evidence?: Json
+          fecha_fijacion?: string
+          http_status?: number | null
+          id?: string
+          organization_id?: string | null
+          provider_key?: string
+          radicado?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       estados_import_runs: {
         Row: {
@@ -12199,6 +12287,48 @@ export type Database = {
           },
         ]
       }
+      provider_coverage_census: {
+        Row: {
+          created_at: string
+          despacho_code: string
+          despacho_label: string | null
+          fetched_at: string
+          first_publication: string | null
+          id: string
+          last_publication: string | null
+          orphan_count: number
+          raw: Json
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          despacho_code: string
+          despacho_label?: string | null
+          fetched_at?: string
+          first_publication?: string | null
+          id?: string
+          last_publication?: string | null
+          orphan_count?: number
+          raw?: Json
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          despacho_code?: string
+          despacho_label?: string | null
+          fetched_at?: string
+          first_publication?: string | null
+          id?: string
+          last_publication?: string | null
+          orphan_count?: number
+          raw?: Json
+          source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       provider_coverage_overrides: {
         Row: {
           connector_id: string | null
@@ -16141,6 +16271,7 @@ export type Database = {
       work_item_estados_signal: {
         Row: {
           acts_count: number
+          alertable_unmatched_count: number
           computed_at: string
           created_at: string
           despacho: string | null
@@ -16149,10 +16280,12 @@ export type Database = {
           fijacion_count: number
           last_fijacion_date: string | null
           organization_id: string
+          out_of_window_count: number
           pubs_count: number
           radicado: string | null
           recent_unmatched_count: number
           signal_class: string
+          sin_documento_count: number
           unmatched_fijacion_count: number
           updated_at: string
           work_item_id: string
@@ -16160,6 +16293,7 @@ export type Database = {
         }
         Insert: {
           acts_count?: number
+          alertable_unmatched_count?: number
           computed_at?: string
           created_at?: string
           despacho?: string | null
@@ -16168,10 +16302,12 @@ export type Database = {
           fijacion_count?: number
           last_fijacion_date?: string | null
           organization_id: string
+          out_of_window_count?: number
           pubs_count?: number
           radicado?: string | null
           recent_unmatched_count?: number
           signal_class: string
+          sin_documento_count?: number
           unmatched_fijacion_count?: number
           updated_at?: string
           work_item_id: string
@@ -16179,6 +16315,7 @@ export type Database = {
         }
         Update: {
           acts_count?: number
+          alertable_unmatched_count?: number
           computed_at?: string
           created_at?: string
           despacho?: string | null
@@ -16187,10 +16324,12 @@ export type Database = {
           fijacion_count?: number
           last_fijacion_date?: string | null
           organization_id?: string
+          out_of_window_count?: number
           pubs_count?: number
           radicado?: string | null
           recent_unmatched_count?: number
           signal_class?: string
+          sin_documento_count?: number
           unmatched_fijacion_count?: number
           updated_at?: string
           work_item_id?: string
@@ -18930,6 +19069,10 @@ export type Database = {
         Args: { p_provider: string; p_radicado: string; p_workflow: string }
         Returns: string
       }
+      despacho_window_covers: {
+        Args: { p_date: string; p_provider: string; p_radicado: string }
+        Returns: boolean
+      }
       detect_despacho_coverage_recovery: { Args: never; Returns: number }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
@@ -18967,7 +19110,12 @@ export type Database = {
         Args: { p_subject: string; p_subtype: string; p_workflow: string }
         Returns: string
       }
+      estados_coverage_reconciliation: { Args: never; Returns: Json }
       estados_coverage_summary: { Args: never; Returns: Json }
+      estados_provider_for_workflow: {
+        Args: { p_workflow: string }
+        Returns: string
+      }
       estados_signal_norm: { Args: { p_text: string }; Returns: string }
       event_text_indicates_regresion: {
         Args: { p_text: string }
@@ -19280,6 +19428,10 @@ export type Database = {
         Returns: string[]
       }
       provider_scope: { Args: { p_provider: string }; Returns: string }
+      pub_matches_provider: {
+        Args: { p_provider: string; p_source: string }
+        Returns: boolean
+      }
       purge_old_data_access_logs: {
         Args: { p_retention_days?: number }
         Returns: number

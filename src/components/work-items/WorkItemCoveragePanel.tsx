@@ -278,6 +278,14 @@ export function WorkItemCoveragePanel({
               <span>Actuaciones: {estadosSignal.acts_count}</span>
               <span>Estados recibidos: {estadosSignal.pubs_count}</span>
               <span>Fijaciones en actuaciones: {estadosSignal.fijacion_count}</span>
+              {estadosSignal.estados_provider && (
+                <span>
+                  Fuente de estados:{" "}
+                  {estadosSignal.estados_provider === "samai_estados"
+                    ? "Samai Estados"
+                    : "Publicaciones Procesales"}
+                </span>
+              )}
               {estadosSignal.last_fijacion_date && (
                 <span>Última fijación: {estadosSignal.last_fijacion_date}</span>
               )}
@@ -292,6 +300,26 @@ export function WorkItemCoveragePanel({
                   ))}
                 </ul>
               )}
+            {(estadosSignal.evidence?.estados_sin_documento?.length ?? 0) > 0 && (
+              <ul className="mt-1 space-y-0.5 text-[10px] text-indigo-700 dark:text-indigo-400">
+                {estadosSignal.evidence.estados_sin_documento!.slice(0, 5).map((f) => (
+                  <li key={f.act_id}>
+                    Estado del {f.act_date ?? "fecha no informada"} fijado sin documento publicado por
+                    el despacho — el término corre.
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(estadosSignal.evidence?.fuera_de_ventana?.length ?? 0) > 0 && (
+              <ul className="mt-1 space-y-0.5 text-[10px] text-sky-700 dark:text-sky-400">
+                {estadosSignal.evidence.fuera_de_ventana!.slice(0, 5).map((f) => (
+                  <li key={f.act_id}>
+                    Fijación del {f.act_date ?? "fecha no informada"} fuera de la ventana de
+                    publicación conocida del despacho.
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

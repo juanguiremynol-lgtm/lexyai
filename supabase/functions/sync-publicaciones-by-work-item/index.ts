@@ -173,7 +173,7 @@ type FetchResultV3 = {
   latencyMs: number;
   httpStatus?: number;
   found?: boolean;
-  resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR' | 'PROVIDER_NO_DOCUMENT';
   /**
    * Iteration 33 — a redacted shape-only sample of the provider body we got
    * when the estados side answered with nothing. Silence from PP is not
@@ -181,7 +181,50 @@ type FetchResultV3 = {
    * provider team (empty set vs. unreadable planilla vs. error).
    */
   rawSample?: Record<string, unknown>;
+  /**
+   * Iteration 34 — PROVIDER_NO_DOCUMENT: the court registered the estado but
+   * never uploaded the planilla. Legally distinct from a coverage gap: the
+   * estado EXISTS and the term runs from it.
+   */
+  noDocumentEstados?: NoDocumentEstado[];
 };
+
+export type NoDocumentEstado = {
+  fecha: string;              // ISO date of the fijación
+  estadoNumero?: string | null;
+  articleId?: string | null;
+  httpStatus?: number | null;
+  bodyBytes?: number | null;
+};
+
+/**
+ * Iteration 34 — read GCP's PROVIDER_NO_DOCUMENT signal off the provider body.
+ * Accepts both the dedicated array and a top-level result-code marker.
+ */
+function extractNoDocumentEstados(data: any): NoDocumentEstado[] {
+  if (!data || typeof data !== 'object') return [];
+  const rows: any[] = Array.isArray(data.estados_sin_documento)
+    ? data.estados_sin_documento
+    : Array.isArray(data.provider_no_document)
+      ? data.provider_no_document
+      : (String(data.result_code ?? data.resultado ?? '').toUpperCase() === 'PROVIDER_NO_DOCUMENT'
+          ? [data]
+          : []);
+  const out: NoDocumentEstado[] = [];
+  for (const r of rows) {
+    const fechaRaw = r?.fecha_publicacion ?? r?.fecha_fijacion ?? r?.fecha ?? null;
+    const fecha = typeof fechaRaw === 'string' ? fechaRaw.slice(0, 10) : null;
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) continue;
+    out.push({
+      fecha,
+      estadoNumero: r?.estado != null ? String(r.estado) : (r?.estado_numero != null ? String(r.estado_numero) : null),
+      articleId: r?.articleId != null ? String(r.articleId) : (r?.article_id != null ? String(r.article_id) : null),
+      httpStatus: typeof r?.http_status === 'number' ? r.http_status : null,
+      bodyBytes: typeof r?.bytes === 'number' ? r.bytes : (typeof r?.body_bytes === 'number' ? r.body_bytes : null),
+    });
+  }
+  return out;
+}
 
 // ── Fix B (Paso 3) — Re-scrape gate types ──
 type RescrapeDecision = {
@@ -1037,13 +1080,18 @@ function extractPublicacionesFromResponse(
 
   if (rawPublicaciones.length === 0) {
     console.log(`[sync-pub] No publications found for this radicado`);
+    const noDocument = extractNoDocumentEstados(data);
+    if (noDocument.length > 0) {
+      console.log(`[sync-pub] PROVIDER_NO_DOCUMENT: ${noDocument.length} estado(s) fixed by the court with no planilla uploaded`);
+    }
     return { 
       ok: true, 
       publicaciones: [], 
       latencyMs,
       found: false,
       httpStatus: 200,
-      resultCode: 'NO_DATA',
+      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : 'NO_DATA',
+      noDocumentEstados: noDocument,
       rawSample: sampleProviderResponse(data),
     };
     // NOTE: ok=true because the API responded correctly, there are just no publications
@@ -1697,6 +1745,36 @@ Deno.serve(withSyncTimeline(async (req) => {
       );
 
       // ============= COVERAGE GAP DETECTION =============
+      // Iteration 34 — PROVIDER_NO_DOCUMENT is NOT a coverage gap. The court
+      // registered the estado and never uploaded the planilla: the estado
+      // exists and the term runs from it. Persist it as its own class first.
+      const noDocEstados = fetchResult.noDocumentEstados ?? [];
+      if (noDocEstados.length > 0) {
+        result.result_code = 'PROVIDER_NO_DOCUMENT';
+        try {
+          await supabase
+            .from('estado_sin_documento' as any)
+            .upsert(
+              noDocEstados.map((e) => ({
+                work_item_id,
+                organization_id: workItem.organization_id,
+                radicado: normalizedRadicado,
+                provider_key: 'publicaciones',
+                fecha_fijacion: e.fecha,
+                estado_numero: e.estadoNumero ?? null,
+                article_id: e.articleId ?? null,
+                http_status: e.httpStatus ?? null,
+                body_bytes: e.bodyBytes ?? null,
+                evidence: { source: 'GCP', result_code: 'PROVIDER_NO_DOCUMENT' },
+              })) as any,
+              { onConflict: 'work_item_id,provider_key,fecha_fijacion' } as any,
+            );
+          console.log(`[sync-pub] estado_sin_documento persisted (${noDocEstados.length}) for ${work_item_id}`);
+        } catch (ndErr: any) {
+          console.warn('[sync-pub] Failed to persist estado_sin_documento:', ndErr?.message);
+        }
+      }
+
       // Primary provider returned empty — check if any fallback providers return data
       // If not, this is a COVERAGE_GAP: the platform is working correctly but the
       // external provider does not index this court/radicado.
@@ -1707,6 +1785,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Previous impl called a non-existent RPC then did an update with `occurrences: undefined`
       // which nulled the counter; consolidated into one correct upsert here.
       try {
+        if (noDocEstados.length > 0) throw { __skipGap: true };
         const nowIso = new Date().toISOString();
         const responsePayload = {
           found: false,
@@ -1751,7 +1830,11 @@ Deno.serve(withSyncTimeline(async (req) => {
 
         console.log(`[sync-pub] Coverage gap persisted for ${work_item_id}`);
       } catch (gapErr: any) {
-        console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
+        if ((gapErr as any)?.__skipGap) {
+          console.log(`[sync-pub] Coverage gap skipped for ${work_item_id}: estado exists without document`);
+        } else {
+          console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
+        }
       }
 
       // Iteration 33 — alert only the first class.
@@ -1764,21 +1847,33 @@ Deno.serve(withSyncTimeline(async (req) => {
       try {
         let signalClass: string | null = null;
         let recentUnmatched = 0;
+        let alertableUnmatched: number | null = null;
         try {
           const { data: signal } = await supabase.rpc('classify_work_item_estados_signal', {
             p_work_item_id: work_item_id,
           });
           signalClass = (signal as any)?.signal_class ?? null;
           recentUnmatched = Number((signal as any)?.recent_unmatched_count ?? 0);
+          alertableUnmatched = (signal as any)?.alertable_unmatched_count == null
+            ? null
+            : Number((signal as any).alertable_unmatched_count);
         } catch (sigErr: any) {
           console.warn('[sync-pub] estados signal unavailable:', sigErr?.message);
         }
 
-        const shouldAlert = signalClass === 'ESTADOS_ESPERADOS_AUSENTES' && recentUnmatched > 0;
+        // Iteration 34 — the daily path only reaches MONITOREO_MAX_DIAS back, so
+        // an unmatched fijación the daily pipeline cannot possibly resolve is
+        // noise. Alert only on the alertable subset.
+        const shouldAlert =
+          noDocEstados.length === 0 &&
+          signalClass === 'ESTADOS_ESPERADOS_AUSENTES' &&
+          recentUnmatched > 0 &&
+          (alertableUnmatched ?? recentUnmatched) > 0;
         if (!shouldAlert) {
           console.log(
             `[sync-pub] Coverage gap NOT alerted for ${work_item_id}: signal=${signalClass ?? 'unknown'} ` +
-            `recent_unmatched=${recentUnmatched} (inconclusive class, visible but silent)`
+            `recent_unmatched=${recentUnmatched} alertable=${alertableUnmatched ?? 'n/a'} ` +
+            `sin_documento=${noDocEstados.length} (inconclusive or unreachable class, visible but silent)`
           );
           throw { __skipAlert: true };
         }
