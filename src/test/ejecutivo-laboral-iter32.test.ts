@@ -8,7 +8,7 @@ import {
   resolveLaboralRegimen,
   inferPhaseFromText,
 } from "@/lib/workflow-phases";
-import { WORKFLOW_CONFIG, EJECUTIVO_STAGES } from "@/lib/workflow-constants";
+import { WORKFLOW_TYPES, EJECUTIVO_STAGES } from "@/lib/workflow-constants";
 import {
   implicitTrack,
   activeTrack,
@@ -23,13 +23,13 @@ import { classifyEvidenceSubtype } from "../../supabase/functions/_shared/emailM
 
 describe("A — LABORAL dual regime", () => {
   it("routes filings before 2026-04-02 to the 1948 code", () => {
-    expect(resolveLaboralRegimen("2026-03-31")).toBe("CPTSS_1948");
-    expect(resolveLaboralRegimen("2025-01-10")).toBe("CPTSS_1948");
+    expect(resolveLaboralRegimen("2026-03-31")).toBe("LABORAL_CPTSS_1948");
+    expect(resolveLaboralRegimen("2025-01-10")).toBe("LABORAL_CPTSS_1948");
   });
 
   it("routes filings from 2026-04-02 to Ley 2452 de 2025", () => {
-    expect(resolveLaboralRegimen("2026-04-02")).toBe("LEY_2452_2025");
-    expect(resolveLaboralRegimen("2026-09-01")).toBe("LEY_2452_2025");
+    expect(resolveLaboralRegimen("2026-04-02")).toBe("LABORAL_2452");
+    expect(resolveLaboralRegimen("2026-09-01")).toBe("LABORAL_2452");
   });
 
   it("exposes a phase catalogue for the labour workflow", () => {
@@ -40,8 +40,8 @@ describe("A — LABORAL dual regime", () => {
 
 describe("B — EJECUTIVO workflow", () => {
   it("is a registered workflow type with its own label", () => {
-    expect(WORKFLOW_CONFIG.EJECUTIVO).toBeDefined();
-    expect(WORKFLOW_CONFIG.EJECUTIVO.label).toMatch(/ejecutivo/i);
+    expect(WORKFLOW_TYPES.EJECUTIVO).toBeDefined();
+    expect(WORKFLOW_TYPES.EJECUTIVO.label).toMatch(/ejecutivo/i);
   });
 
   it("has the apremio stage sequence including terminal branches", () => {
