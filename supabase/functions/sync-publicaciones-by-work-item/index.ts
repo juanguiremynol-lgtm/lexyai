@@ -174,6 +174,13 @@ type FetchResultV3 = {
   httpStatus?: number;
   found?: boolean;
   resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  /**
+   * Iteration 33 — a redacted shape-only sample of the provider body we got
+   * when the estados side answered with nothing. Silence from PP is not
+   * evidence that no estado exists, so we keep the raw shape to hand to the
+   * provider team (empty set vs. unreadable planilla vs. error).
+   */
+  rawSample?: Record<string, unknown>;
 };
 
 // ── Fix B (Paso 3) — Re-scrape gate types ──
