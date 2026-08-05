@@ -396,6 +396,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
           actuaciones: normalized,
           publicaciones: [],
           metadata: { despacho: despacho || null, departamento: departamento || null, tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null },
+          // ITER29: the contract block is read from the same snapshot payload.
+          // Absent block → CONTRACT_BLOCK_ABSENT sentinel → inconclusive read.
           parties,
           durationMs: Date.now() - startTime,
           httpStatus: snapshotResponse.status,
@@ -438,6 +440,9 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       departamento: departamento || null,
       tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null,
     };
+    // ITER29: forward the provider clase contract verbatim (GUARD A applies
+    // downstream: absence of the block is not absence of the class).
+    metadata.clase_proveedor = extractClaseProveedor(snapshotData);
 
     return {
       provider: PROVIDER_KEY,
