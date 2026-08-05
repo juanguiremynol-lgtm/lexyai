@@ -63,7 +63,10 @@ export function deriveLifecycleView(wi: WorkItemActionInput): LifecycleView {
     if (s === "DELETED") return "DELETED";
     if (s === "PAUSED") return "PAUSED";
     if (s === "CLOSED" || wi.stage === "CLOSED") return "CLOSED";
-    if (s === "ARCHIVED") return "DELETED"; // legacy
+    // ITER30 — ARCHIVED is NOT the trash. Only DELETED is (papelera, with
+    // deleted_at + purge_after). Rendering the trash screen for an archived
+    // matter promised a recovery window that did not exist and trapped the row.
+    if (s === "ARCHIVED") return wi.deleted_at ? "DELETED" : "CLOSED";
     return "ACTIVE";
   }
   if (wi.deleted_at) return "DELETED";
