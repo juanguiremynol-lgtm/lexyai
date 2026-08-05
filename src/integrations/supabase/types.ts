@@ -16138,6 +16138,85 @@ export type Database = {
           },
         ]
       }
+      work_item_estados_signal: {
+        Row: {
+          acts_count: number
+          computed_at: string
+          created_at: string
+          despacho: string | null
+          estados_provider: string | null
+          evidence: Json
+          fijacion_count: number
+          last_fijacion_date: string | null
+          organization_id: string
+          pubs_count: number
+          radicado: string | null
+          signal_class: string
+          unmatched_fijacion_count: number
+          updated_at: string
+          work_item_id: string
+          workflow_type: string | null
+        }
+        Insert: {
+          acts_count?: number
+          computed_at?: string
+          created_at?: string
+          despacho?: string | null
+          estados_provider?: string | null
+          evidence?: Json
+          fijacion_count?: number
+          last_fijacion_date?: string | null
+          organization_id: string
+          pubs_count?: number
+          radicado?: string | null
+          signal_class: string
+          unmatched_fijacion_count?: number
+          updated_at?: string
+          work_item_id: string
+          workflow_type?: string | null
+        }
+        Update: {
+          acts_count?: number
+          computed_at?: string
+          created_at?: string
+          despacho?: string | null
+          estados_provider?: string | null
+          evidence?: Json
+          fijacion_count?: number
+          last_fijacion_date?: string | null
+          organization_id?: string
+          pubs_count?: number
+          radicado?: string | null
+          signal_class?: string
+          unmatched_fijacion_count?: number
+          updated_at?: string
+          work_item_id?: string
+          workflow_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_external_links: {
         Row: {
           created_at: string
@@ -18502,6 +18581,10 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      act_is_fijacion_estado: {
+        Args: { p_act_type: string; p_description: string }
+        Returns: boolean
+      }
       act_is_stage_bearing: { Args: { p_text: string }; Returns: boolean }
       add_business_days_sql: {
         Args: { p_days: number; p_start: string }
@@ -18759,6 +18842,10 @@ export type Database = {
           triggers_deadline: boolean
         }[]
       }
+      classify_work_item_estados_signal: {
+        Args: { p_work_item_id: string }
+        Returns: Json
+      }
       cleanup_old_debug_payloads: {
         Args: { days_to_keep?: number }
         Returns: number
@@ -18877,6 +18964,8 @@ export type Database = {
         Args: { p_subject: string; p_subtype: string; p_workflow: string }
         Returns: string
       }
+      estados_coverage_summary: { Args: never; Returns: Json }
+      estados_signal_norm: { Args: { p_text: string }; Returns: string }
       event_text_indicates_regresion: {
         Args: { p_text: string }
         Returns: boolean
@@ -19027,6 +19116,10 @@ export type Database = {
           status_code: string
           status_label: string
         }[]
+      }
+      get_work_item_estados_signal: {
+        Args: { p_work_item_id: string }
+        Returns: Json
       }
       get_work_item_recipients: {
         Args: { p_work_item_id: string }
@@ -19215,6 +19308,10 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
+      refresh_estados_coverage_signals: {
+        Args: { p_alert?: boolean }
+        Returns: Json
+      }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
       resume_work_item_monitoring: {
         Args: { p_work_item_id: string }
@@ -19296,6 +19393,10 @@ export type Database = {
         Returns: Json
       }
       stage_rank: { Args: { p_stage: string }; Returns: number }
+      sub_business_days_sql: {
+        Args: { p_days: number; p_start: string }
+        Returns: string
+      }
       subsanacion_forward_progress: {
         Args: { p_trigger: string; p_work_item_id: string }
         Returns: Json
