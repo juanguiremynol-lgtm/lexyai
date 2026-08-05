@@ -280,6 +280,8 @@ interface FetchResult {
     guid?: string;
     consultado_en?: string;
     fuente?: string;
+    /** ITER29 — verbatim GCP `claseProveedor` contract block (may be absent). */
+    clase_proveedor?: unknown;
   };
   // SAMAI sujetos for demandantes/demandados extraction
   sujetos?: Array<{
