@@ -173,7 +173,7 @@ type FetchResultV3 = {
   latencyMs: number;
   httpStatus?: number;
   found?: boolean;
-  resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR' | 'PROVIDER_NO_DOCUMENT';
   /**
    * Iteration 33 — a redacted shape-only sample of the provider body we got
    * when the estados side answered with nothing. Silence from PP is not
@@ -181,7 +181,50 @@ type FetchResultV3 = {
    * provider team (empty set vs. unreadable planilla vs. error).
    */
   rawSample?: Record<string, unknown>;
+  /**
+   * Iteration 34 — PROVIDER_NO_DOCUMENT: the court registered the estado but
+   * never uploaded the planilla. Legally distinct from a coverage gap: the
+   * estado EXISTS and the term runs from it.
+   */
+  noDocumentEstados?: NoDocumentEstado[];
 };
+
+export type NoDocumentEstado = {
+  fecha: string;              // ISO date of the fijación
+  estadoNumero?: string | null;
+  articleId?: string | null;
+  httpStatus?: number | null;
+  bodyBytes?: number | null;
+};
+
+/**
+ * Iteration 34 — read GCP's PROVIDER_NO_DOCUMENT signal off the provider body.
+ * Accepts both the dedicated array and a top-level result-code marker.
+ */
+function extractNoDocumentEstados(data: any): NoDocumentEstado[] {
+  if (!data || typeof data !== 'object') return [];
+  const rows: any[] = Array.isArray(data.estados_sin_documento)
+    ? data.estados_sin_documento
+    : Array.isArray(data.provider_no_document)
+      ? data.provider_no_document
+      : (String(data.result_code ?? data.resultado ?? '').toUpperCase() === 'PROVIDER_NO_DOCUMENT'
+          ? [data]
+          : []);
+  const out: NoDocumentEstado[] = [];
+  for (const r of rows) {
+    const fechaRaw = r?.fecha_publicacion ?? r?.fecha_fijacion ?? r?.fecha ?? null;
+    const fecha = typeof fechaRaw === 'string' ? fechaRaw.slice(0, 10) : null;
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) continue;
+    out.push({
+      fecha,
+      estadoNumero: r?.estado != null ? String(r.estado) : (r?.estado_numero != null ? String(r.estado_numero) : null),
+      articleId: r?.articleId != null ? String(r.articleId) : (r?.article_id != null ? String(r.article_id) : null),
+      httpStatus: typeof r?.http_status === 'number' ? r.http_status : null,
+      bodyBytes: typeof r?.bytes === 'number' ? r.bytes : (typeof r?.body_bytes === 'number' ? r.body_bytes : null),
+    });
+  }
+  return out;
+}
 
 // ── Fix B (Paso 3) — Re-scrape gate types ──
 type RescrapeDecision = {
