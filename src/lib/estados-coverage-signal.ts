@@ -74,10 +74,19 @@ export function estadosSignalAlerts(signal: Pick<EstadosSignal, "signal_class" |
   return signal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" && signal.recent_unmatched_count > 0;
 }
 
-const FIJACION_RE = /fijaci[oó]n\s+(en\s+)?estado|fijacion\s+estado|fijado\s+en\s+estado/i;
+/** Mirror of the SQL helper `estados_signal_norm`: lowercase, accent-stripped. */
+export function estadosSignalNorm(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
 
-/** Mirror of the SQL text test used to detect a fijación act. */
-export function actIsFijacionEstado(title?: string | null, description?: string | null): boolean {
-  const text = `${title ?? ""} ${description ?? ""}`;
-  return FIJACION_RE.test(text);
+/**
+ * Mirror of the SQL predicate `act_is_fijacion_estado(description, act_type)`:
+ * the normalised text contains both "fijacion" and "estado".
+ */
+export function actIsFijacionEstado(description?: string | null, actType?: string | null): boolean {
+  const text = estadosSignalNorm(`${description ?? ""} ${actType ?? ""}`);
+  return text.includes("fijacion") && text.includes("estado");
 }
