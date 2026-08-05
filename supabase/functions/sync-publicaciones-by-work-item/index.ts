@@ -174,6 +174,13 @@ type FetchResultV3 = {
   httpStatus?: number;
   found?: boolean;
   resultCode?: 'NO_DATA' | 'SUCCESS' | 'ERROR';
+  /**
+   * Iteration 33 — a redacted shape-only sample of the provider body we got
+   * when the estados side answered with nothing. Silence from PP is not
+   * evidence that no estado exists, so we keep the raw shape to hand to the
+   * provider team (empty set vs. unreadable planilla vs. error).
+   */
+  rawSample?: Record<string, unknown>;
 };
 
 // ── Fix B (Paso 3) — Re-scrape gate types ──
@@ -990,6 +997,30 @@ async function fetchPublicaciones(
 /**
  * Extract publications from v3 API response
  */
+/**
+ * Iteration 33 — shape-only redaction of a provider body. No party names, no
+ * free text beyond provider-level status strings: enough for the provider team
+ * to tell an empty set apart from an unreadable planilla or an upstream error.
+ */
+function sampleProviderResponse(data: any): Record<string, unknown> {
+  if (data === null || data === undefined) return { body: 'null' };
+  if (Array.isArray(data)) return { body: 'array', length: data.length };
+  if (typeof data !== 'object') return { body: typeof data };
+  const out: Record<string, unknown> = { keys: Object.keys(data).slice(0, 30) };
+  for (const k of ['found', 'totalResultados', 'total_actuaciones_encontradas', 'status',
+                   'estado', 'mensaje', 'message', 'error', 'detail', 'ocr', 'ocr_aplicado',
+                   'planilla_ilegible', 'despacho', 'fecha_consulta', 'scraped_at']) {
+    if (k in data) {
+      const v = (data as any)[k];
+      out[k] = typeof v === 'string' ? v.slice(0, 200) : (typeof v === 'object' ? '[object]' : v);
+    }
+  }
+  for (const k of ['publicaciones', 'actuaciones', 'estados', 'documentos']) {
+    if (Array.isArray((data as any)[k])) out[`${k}_length`] = (data as any)[k].length;
+  }
+  return out;
+}
+
 function extractPublicacionesFromResponse(
   data: any,
   latencyMs: number
@@ -1013,6 +1044,7 @@ function extractPublicacionesFromResponse(
       found: false,
       httpStatus: 200,
       resultCode: 'NO_DATA',
+      rawSample: sampleProviderResponse(data),
     };
     // NOTE: ok=true because the API responded correctly, there are just no publications
   }
@@ -1115,7 +1147,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at, demandantes, demandados')
+      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at, demandantes, demandados, authority_name')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -1681,6 +1713,12 @@ Deno.serve(withSyncTimeline(async (req) => {
           totalResultados: 0,
           latency_ms: fetchResult.latencyMs,
           timestamp: nowIso,
+          result_code: fetchResult.resultCode ?? null,
+          http_status: fetchResult.httpStatus ?? null,
+          provider_error: fetchResult.error ?? null,
+          // Iteration 33 — raw shape of what PP actually answered, so an empty
+          // set, an unreadable planilla and an upstream error stay tellable apart.
+          provider_raw_sample: fetchResult.rawSample ?? null,
         };
 
         // Read current occurrences (if any) so we can increment atomically on upsert
@@ -1716,8 +1754,35 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
       }
 
-      // Create idempotent alert for coverage gap
+      // Iteration 33 — alert only the first class.
+      //
+      // An empty estados answer is only anomalous when the acts stream proves an
+      // estado existed (a "Fijación en estado" actuación with no publicación
+      // within ±2 business days). A source that never answers for this despacho,
+      // or a matter with no fijación on record, is inconclusive: it is recorded
+      // and shown in the coverage panel, but it does not raise an alert.
       try {
+        let signalClass: string | null = null;
+        let recentUnmatched = 0;
+        try {
+          const { data: signal } = await supabase.rpc('classify_work_item_estados_signal', {
+            p_work_item_id: work_item_id,
+          });
+          signalClass = (signal as any)?.signal_class ?? null;
+          recentUnmatched = Number((signal as any)?.recent_unmatched_count ?? 0);
+        } catch (sigErr: any) {
+          console.warn('[sync-pub] estados signal unavailable:', sigErr?.message);
+        }
+
+        const shouldAlert = signalClass === 'ESTADOS_ESPERADOS_AUSENTES' && recentUnmatched > 0;
+        if (!shouldAlert) {
+          console.log(
+            `[sync-pub] Coverage gap NOT alerted for ${work_item_id}: signal=${signalClass ?? 'unknown'} ` +
+            `recent_unmatched=${recentUnmatched} (inconclusive class, visible but silent)`
+          );
+          throw { __skipAlert: true };
+        }
+
         const alertFingerprint = `coverage_gap_${work_item_id}_ESTADOS_publicaciones`;
         const { data: existingAlert } = await supabase
           .from('alert_instances')
@@ -1736,8 +1801,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             entity_type: 'WORK_ITEM',
             severity: 'WARNING',
             alert_type: 'BRECHA_COBERTURA_ESTADOS',
-            title: 'Brecha de cobertura: Estados no disponibles',
-            message: `El proveedor Publicaciones Procesales no retornó estados para el radicado ${normalizedRadicado}. Esto puede indicar que el juzgado no publica estados electrónicos en este portal.`,
+            title: `Estados esperados y ausentes: ${workItem.authority_name?.trim() || 'despacho sin identificar'}`,
+            message: `El expediente ${normalizedRadicado} registra ${recentUnmatched} fijación(es) en estado en las actuaciones sin la publicación correspondiente. El proveedor de estados no la entregó. Despacho: ${workItem.authority_name?.trim() || 'sin identificar'}.`,
             status: 'PENDING',
             fingerprint: alertFingerprint,
             payload: {
@@ -1747,12 +1812,16 @@ Deno.serve(withSyncTimeline(async (req) => {
               data_kind: 'ESTADOS',
               outcome: coverageGapOutcome,
               latency_ms: fetchResult.latencyMs,
+              signal_class: signalClass,
+              recent_unmatched_count: recentUnmatched,
             },
           });
           console.log(`[sync-pub] Coverage gap alert created for ${work_item_id}`);
         }
       } catch (alertErr: any) {
-        console.warn(`[sync-pub] Failed to create coverage gap alert:`, alertErr?.message);
+        if (!alertErr?.__skipAlert) {
+          console.warn(`[sync-pub] Failed to create coverage gap alert:`, alertErr?.message);
+        }
       }
 
       // Write trace stage for coverage gap

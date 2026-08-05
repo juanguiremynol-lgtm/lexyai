@@ -26,6 +26,12 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { isProviderMonitoredWorkflow, providerChainFor } from "@/lib/monitoring-matrix";
+import {
+  ESTADOS_SIGNAL_EXPLANATION,
+  ESTADOS_SIGNAL_LABEL,
+  estadosSignalTone,
+  type EstadosSignal,
+} from "@/lib/estados-coverage-signal";
 
 interface CoverageRow {
   provider_key: string;
@@ -91,8 +97,22 @@ export function WorkItemCoveragePanel({
     },
   });
 
+  // Iteration 33 — cross-provider check: actuaciones without estados.
+  const { data: estadosSignal } = useQuery({
+    queryKey: ["work-item-estados-signal", workItemId],
+    enabled: eligible,
+    queryFn: async (): Promise<EstadosSignal | null> => {
+      const { data, error } = await (supabase as any).rpc("classify_work_item_estados_signal", {
+        p_work_item_id: workItemId,
+      });
+      if (error) throw error;
+      return (data ?? null) as EstadosSignal | null;
+    },
+  });
+
   function refresh() {
     qc.invalidateQueries({ queryKey: ["work-item-coverage", workItemId] });
+    qc.invalidateQueries({ queryKey: ["work-item-estados-signal", workItemId] });
     qc.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
     onChanged?.();
   }
@@ -230,6 +250,48 @@ export function WorkItemCoveragePanel({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {estadosSignal && (
+          <div className="rounded-md border p-3 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">Actuaciones frente a estados</span>
+              <Badge
+                variant="outline"
+                className={`gap-1 text-[10px] ${estadosSignalTone(estadosSignal.signal_class)}`}
+              >
+                {estadosSignal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" ? (
+                  <AlertTriangle className="h-3 w-3" />
+                ) : estadosSignal.signal_class === "CUBIERTO" ? (
+                  <Activity className="h-3 w-3" />
+                ) : (
+                  <Info className="h-3 w-3" />
+                )}
+                {ESTADOS_SIGNAL_LABEL[estadosSignal.signal_class]}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {ESTADOS_SIGNAL_EXPLANATION[estadosSignal.signal_class]}
+            </p>
+            <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+              <span>Actuaciones: {estadosSignal.acts_count}</span>
+              <span>Estados recibidos: {estadosSignal.pubs_count}</span>
+              <span>Fijaciones en actuaciones: {estadosSignal.fijacion_count}</span>
+              {estadosSignal.last_fijacion_date && (
+                <span>Última fijación: {estadosSignal.last_fijacion_date}</span>
+              )}
+            </div>
+            {estadosSignal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" &&
+              (estadosSignal.evidence?.unmatched_fijaciones?.length ?? 0) > 0 && (
+                <ul className="mt-1 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                  {estadosSignal.evidence.unmatched_fijaciones!.slice(0, 5).map((f) => (
+                    <li key={f.act_id}>
+                      Fijación del {f.act_date ?? "fecha no informada"} sin estado publicado
+                    </li>
+                  ))}
+                </ul>
+              )}
           </div>
         )}
 
