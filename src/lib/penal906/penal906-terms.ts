@@ -23,7 +23,13 @@ export interface PenalComputedTerm {
   label: string;
   citation: string | null;
   anchor: PenalAnchor;
-  deadlineDate: string;
+  /**
+   * NULL for oral, in-hearing terms (ANCHOR_ORAL_EN_AUDIENCIA / day_type NONE):
+   * there is no written term to count, so there is no date to render.
+   */
+  deadlineDate: string | null;
+  /** True when the term is discharged orally at the anchoring hearing. */
+  oralInHearing: boolean;
   requiresManualReview: boolean;
 }
 
@@ -57,8 +63,11 @@ export function computePenalTerms(
     if (!ruleIsRatified(rule)) continue;
     for (const anchor of anchors) {
       if (!anchorMatchesRule(rule, anchor)) continue;
-      const deadlineDate =
-        rule.day_type === "CALENDAR"
+      const oralInHearing =
+        rule.day_type === "NONE" || rule.anchor_type === "ANCHOR_ORAL_EN_AUDIENCIA";
+      const deadlineDate = oralInHearing
+        ? null
+        : rule.day_type === "CALENDAR"
           ? addCalendarDays(anchor.date, rule.days_amount)
           : addBusinessDays(new Date(`${anchor.date}T00:00:00`), rule.days_amount)
               .toISOString()
@@ -70,6 +79,7 @@ export function computePenalTerms(
         citation: rule.citation,
         anchor,
         deadlineDate,
+        oralInHearing,
         requiresManualReview: rule.requires_manual_review,
       });
     }
