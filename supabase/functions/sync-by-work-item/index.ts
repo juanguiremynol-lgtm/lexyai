@@ -3523,7 +3523,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.log(`[sync-by-work-item][clase] case=${decision.readCase} ${decision.explanation}`);
 
         if (decision.readCase !== 'INCONCLUSIVE' && Object.keys(decision.patch).length > 0) {
-          await supabase.from('work_items').update(decision.patch).eq('id', work_item_id);
+          // Merge into the pending payload so the provider contract is the last
+          // word on these columns within this sync.
+          Object.assign(updatePayload, decision.patch);
         }
 
         // CAMBIO_CLASE_PROCESO → audit row, which surfaces as a CLASE timeline event.
@@ -3565,11 +3567,26 @@ Deno.serve(withSyncTimeline(async (req) => {
 
         // GUARD C — grow the catalogue from real data.
         if (decision.unmappedClase) {
-          await supabase.rpc('log_unmapped_clase_proceso', {
-            p_clase: decision.unmappedClase,
-            p_radicado: workItem.radicado ?? null,
-            p_work_item_id: work_item_id,
-          });
+          const { data: existing } = await supabase
+            .from('clase_proceso_unmapped_log')
+            .select('id, occurrences')
+            .ilike('clase_proceso', decision.unmappedClase)
+            .maybeSingle();
+          if (existing) {
+            await supabase
+              .from('clase_proceso_unmapped_log')
+              .update({
+                occurrences: ((existing as { occurrences: number }).occurrences ?? 0) + 1,
+                last_seen_at: new Date().toISOString(),
+              })
+              .eq('id', (existing as { id: string }).id);
+          } else {
+            await supabase.from('clase_proceso_unmapped_log').insert({
+              clase_proceso: decision.unmappedClase,
+              radicado: workItem.radicado ?? null,
+              work_item_id,
+            });
+          }
         }
       }
     } catch (claseErr) {
