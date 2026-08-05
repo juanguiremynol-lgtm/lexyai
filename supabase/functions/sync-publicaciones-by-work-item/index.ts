@@ -1713,6 +1713,12 @@ Deno.serve(withSyncTimeline(async (req) => {
           totalResultados: 0,
           latency_ms: fetchResult.latencyMs,
           timestamp: nowIso,
+          result_code: fetchResult.resultCode ?? null,
+          http_status: fetchResult.httpStatus ?? null,
+          provider_error: fetchResult.error ?? null,
+          // Iteration 33 — raw shape of what PP actually answered, so an empty
+          // set, an unreadable planilla and an upstream error stay tellable apart.
+          provider_raw_sample: fetchResult.rawSample ?? null,
         };
 
         // Read current occurrences (if any) so we can increment atomically on upsert
@@ -1748,8 +1754,35 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
       }
 
-      // Create idempotent alert for coverage gap
+      // Iteration 33 — alert only the first class.
+      //
+      // An empty estados answer is only anomalous when the acts stream proves an
+      // estado existed (a "Fijación en estado" actuación with no publicación
+      // within ±2 business days). A source that never answers for this despacho,
+      // or a matter with no fijación on record, is inconclusive: it is recorded
+      // and shown in the coverage panel, but it does not raise an alert.
       try {
+        let signalClass: string | null = null;
+        let recentUnmatched = 0;
+        try {
+          const { data: signal } = await supabase.rpc('classify_work_item_estados_signal', {
+            p_work_item_id: work_item_id,
+          });
+          signalClass = (signal as any)?.signal_class ?? null;
+          recentUnmatched = Number((signal as any)?.recent_unmatched_count ?? 0);
+        } catch (sigErr: any) {
+          console.warn('[sync-pub] estados signal unavailable:', sigErr?.message);
+        }
+
+        const shouldAlert = signalClass === 'ESTADOS_ESPERADOS_AUSENTES' && recentUnmatched > 0;
+        if (!shouldAlert) {
+          console.log(
+            `[sync-pub] Coverage gap NOT alerted for ${work_item_id}: signal=${signalClass ?? 'unknown'} ` +
+            `recent_unmatched=${recentUnmatched} (inconclusive class, visible but silent)`
+          );
+          throw { __skipAlert: true };
+        }
+
         const alertFingerprint = `coverage_gap_${work_item_id}_ESTADOS_publicaciones`;
         const { data: existingAlert } = await supabase
           .from('alert_instances')
@@ -1768,8 +1801,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             entity_type: 'WORK_ITEM',
             severity: 'WARNING',
             alert_type: 'BRECHA_COBERTURA_ESTADOS',
-            title: 'Brecha de cobertura: Estados no disponibles',
-            message: `El proveedor Publicaciones Procesales no retornó estados para el radicado ${normalizedRadicado}. Esto puede indicar que el juzgado no publica estados electrónicos en este portal.`,
+            title: `Estados esperados y ausentes: ${workItem.authority_name?.trim() || 'despacho sin identificar'}`,
+            message: `El expediente ${normalizedRadicado} registra ${recentUnmatched} fijación(es) en estado en las actuaciones sin la publicación correspondiente. El proveedor de estados no la entregó. Despacho: ${workItem.authority_name?.trim() || 'sin identificar'}.`,
             status: 'PENDING',
             fingerprint: alertFingerprint,
             payload: {
@@ -1779,12 +1812,16 @@ Deno.serve(withSyncTimeline(async (req) => {
               data_kind: 'ESTADOS',
               outcome: coverageGapOutcome,
               latency_ms: fetchResult.latencyMs,
+              signal_class: signalClass,
+              recent_unmatched_count: recentUnmatched,
             },
           });
           console.log(`[sync-pub] Coverage gap alert created for ${work_item_id}`);
         }
       } catch (alertErr: any) {
-        console.warn(`[sync-pub] Failed to create coverage gap alert:`, alertErr?.message);
+        if (!alertErr?.__skipAlert) {
+          console.warn(`[sync-pub] Failed to create coverage gap alert:`, alertErr?.message);
+        }
       }
 
       // Write trace stage for coverage gap
