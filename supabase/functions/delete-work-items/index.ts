@@ -333,7 +333,14 @@ Deno.serve(async (req) => {
 
         if (deleteError) {
           console.error(`[delete-work-items] Delete error for ${workItemId}:`, deleteError);
-          result.errors.push({ id: workItemId, error: deleteError.message });
+          // ITER30 — deletion must explain itself: carry the real Postgres
+          // cause (constraint, table, hint) instead of an anonymous count.
+          const detail = [
+            deleteError.message,
+            (deleteError as { details?: string }).details,
+            (deleteError as { hint?: string }).hint,
+          ].filter(Boolean).join(" — ");
+          result.errors.push({ id: workItemId, error: detail });
         } else {
           result.deleted_count++;
           result.deleted_ids.push(workItemId);
