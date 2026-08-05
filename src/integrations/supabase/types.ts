@@ -18955,6 +18955,14 @@ export type Database = {
         Returns: boolean
       }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
+      list_expired_trashed_work_items: {
+        Args: never
+        Returns: {
+          purge_after: string
+          radicado: string
+          work_item_id: string
+        }[]
+      }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]
@@ -19069,6 +19077,20 @@ export type Database = {
         Args: { records: Json }
         Returns: Json
       }
+      rpc_work_item_lifecycle_disagreements: {
+        Args: never
+        Returns: {
+          disagreement: string
+          has_deleted_at: boolean
+          has_purge_after: boolean
+          has_soft_delete_row: boolean
+          lifecycle_state: string
+          monitoring_enabled: boolean
+          radicado: string
+          status: string
+          work_item_id: string
+        }[]
+      }
       rpc_workflow_type_drift_summary: {
         Args: never
         Returns: {
@@ -19163,6 +19185,12 @@ export type Database = {
       user_has_accepted_current_terms: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      work_item_status_for_lifecycle: {
+        Args: {
+          p_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
+        }
+        Returns: Database["public"]["Enums"]["item_status"]
       }
     }
     Enums: {
