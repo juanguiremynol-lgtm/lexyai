@@ -96,9 +96,9 @@ describe("B4/B5 — Ley 906 phase catalogue", () => {
   });
 
   it("classifies penal actuación text into the new phases", () => {
-    expect(classifyActuacion("Traslado del escrito de acusación").phase).toBe(15);
-    expect(classifyActuacion("Imposición de medida de aseguramiento").phase).toBe(14);
-    expect(classifyActuacion("Archivo definitivo de las diligencias").phase).toBe(16);
+    expect(classifyActuacion("Traslado del escrito de acusación").phase_inferred).toBe(15);
+    expect(classifyActuacion("Imposición de medida de aseguramiento").phase_inferred).toBe(14);
+    expect(classifyActuacion("Archivo definitivo de las diligencias").phase_inferred).toBe(16);
   });
 });
 
