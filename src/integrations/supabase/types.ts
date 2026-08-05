@@ -16151,6 +16151,7 @@ export type Database = {
           organization_id: string
           pubs_count: number
           radicado: string | null
+          recent_unmatched_count: number
           signal_class: string
           unmatched_fijacion_count: number
           updated_at: string
@@ -16169,6 +16170,7 @@ export type Database = {
           organization_id: string
           pubs_count?: number
           radicado?: string | null
+          recent_unmatched_count?: number
           signal_class: string
           unmatched_fijacion_count?: number
           updated_at?: string
@@ -16187,6 +16189,7 @@ export type Database = {
           organization_id?: string
           pubs_count?: number
           radicado?: string | null
+          recent_unmatched_count?: number
           signal_class?: string
           unmatched_fijacion_count?: number
           updated_at?: string
