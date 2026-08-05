@@ -99,7 +99,15 @@ export function useHardPurgeWorkItems(options?: Options) {
       }
 
       if (result.errors.length > 0) {
-        toast.warning(`${result.errors.length} elemento(s) no pudieron ser eliminados`);
+        // ITER30 — a failed deletion must say WHY, not just how many.
+        const reasons = Array.from(new Set(result.errors.map((e) => e.error))).slice(0, 3);
+        toast.warning(
+          `${result.errors.length} elemento(s) no pudieron ser eliminados`,
+          { description: reasons.join(" · "), duration: 12000 },
+        );
+        result.errors.forEach((e) =>
+          console.error(`[hard-purge] ${e.id} no se pudo eliminar: ${e.error}`),
+        );
       }
 
       options?.onSuccess?.(result);

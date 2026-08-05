@@ -42,6 +42,7 @@ import {
 
 import { parseCpnuSujetos } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
+import { extractClaseProveedor } from '../claseProcesoContract.ts';
 
 import {
   checkSnapshotFreshness,
@@ -395,7 +396,12 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
           status: 'SUCCESS',
           actuaciones: normalized,
           publicaciones: [],
-          metadata: { despacho: despacho || null, departamento: departamento || null, tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null },
+          metadata: {
+            despacho: despacho || null,
+            departamento: departamento || null,
+            tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null,
+            clase_proveedor: extractClaseProveedor(snapshotData),
+          },
           parties,
           durationMs: Date.now() - startTime,
           httpStatus: snapshotResponse.status,
@@ -438,6 +444,9 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       departamento: departamento || null,
       tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null,
     };
+    // ITER29: forward the provider clase contract verbatim (GUARD A applies
+    // downstream: absence of the block is not absence of the class).
+    metadata.clase_proveedor = extractClaseProveedor(snapshotData);
 
     return {
       provider: PROVIDER_KEY,

@@ -192,6 +192,23 @@ async function deleteWorkItemDependents(
     .select("id, source_pdf_path")
     .eq("work_item_id", workItemId);
   if (genDocs && genDocs.length > 0) {
+    const docIds = (genDocs as Array<{ id: string }>).map((g) => g.id);
+    // ITER30 — document_signatures/document_signature_events reference
+    // generated_documents with NO ACTION. They must go first or the purge
+    // fails with an opaque FK violation.
+    const { error: sigEvErr } = await serviceClient
+      .from("document_signature_events")
+      .delete()
+      .in("generated_document_id", docIds);
+    if (sigEvErr) throw new Error(`document_signature_events: ${sigEvErr.message}`);
+    const { error: sigErr } = await serviceClient
+      .from("document_signatures")
+      .delete()
+      .in("generated_document_id", docIds);
+    if (sigErr) throw new Error(`document_signatures: ${sigErr.message}`);
+    await serviceClient.from("document_evidence_proofs").delete().in("generated_document_id", docIds);
+    await serviceClient.from("document_pdf_jobs").delete().in("generated_document_id", docIds);
+
     for (const g of genDocs as Array<{ id: string; source_pdf_path: string | null }>) {
       if (g.source_pdf_path) {
         try {
@@ -202,7 +219,11 @@ async function deleteWorkItemDependents(
         }
       }
     }
-    await serviceClient.from("generated_documents").delete().eq("work_item_id", workItemId);
+    const { error: genErr } = await serviceClient
+      .from("generated_documents")
+      .delete()
+      .eq("work_item_id", workItemId);
+    if (genErr) throw new Error(`generated_documents: ${genErr.message}`);
   }
 
   return { storageFilesDeleted };
@@ -312,7 +333,14 @@ Deno.serve(async (req) => {
 
         if (deleteError) {
           console.error(`[delete-work-items] Delete error for ${workItemId}:`, deleteError);
-          result.errors.push({ id: workItemId, error: deleteError.message });
+          // ITER30 — deletion must explain itself: carry the real Postgres
+          // cause (constraint, table, hint) instead of an anonymous count.
+          const detail = [
+            deleteError.message,
+            (deleteError as { details?: string }).details,
+            (deleteError as { hint?: string }).hint,
+          ].filter(Boolean).join(" — ");
+          result.errors.push({ id: workItemId, error: detail });
         } else {
           result.deleted_count++;
           result.deleted_ids.push(workItemId);

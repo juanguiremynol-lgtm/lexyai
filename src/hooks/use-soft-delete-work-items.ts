@@ -86,7 +86,11 @@ export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) 
 
       // Show partial errors if any
       if (result.errors.length > 0) {
-        toast.warning(`${result.errors.length} elemento(s) no pudieron ser eliminados`);
+        const reasons = Array.from(new Set(result.errors.map((e) => e.error))).slice(0, 3);
+        toast.warning(
+          `${result.errors.length} elemento(s) no pudieron ser eliminados`,
+          { description: reasons.join(" · "), duration: 12000 },
+        );
       }
 
       options?.onSuccess?.(result);

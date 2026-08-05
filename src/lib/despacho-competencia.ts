@@ -96,6 +96,44 @@ export function resolveCompetencia(radicado: string | null | undefined): Compete
  * Patterns are matched as unaccented lowercase substrings; longest match wins.
  */
 export const CLASE_PROCESO_WORKFLOW_MAP: Array<{ pattern: string; workflow: WorkflowType; label: string }> = [
+  { pattern: "ordinario de primera instancia laboral", workflow: "LABORAL", label: "Ordinario de primera instancia laboral" },
+  { pattern: "ordinario de unica instancia laboral", workflow: "LABORAL", label: "Ordinario de única instancia laboral" },
+  { pattern: "ejecutivo con titulo hipotecario", workflow: "CGP", label: "Ejecutivo con título hipotecario" },
+  { pattern: "procesos ordinarios laborales", workflow: "LABORAL", label: "Procesos ordinarios laborales" },
+  { pattern: "ejecutivo singular de mayor", workflow: "CGP", label: "Ejecutivo singular de mayor cuantía" },
+  { pattern: "deslinde y amojonamiento", workflow: "CGP", label: "Deslinde y amojonamiento" },
+  { pattern: "jurisdiccion voluntaria", workflow: "CGP", label: "Jurisdicción voluntaria" },
+  { pattern: "accion de cumplimiento", workflow: "CPACA", label: "Acción de cumplimiento" },
+  { pattern: "ejecutivo contractual", workflow: "CPACA", label: "Ejecutivo contractual" },
+  { pattern: "incidente de desacato", workflow: "TUTELA", label: "Incidente de desacato" },
+  { pattern: "accion de repeticion", workflow: "CPACA", label: "Acción de repetición" },
+  { pattern: "impugnacion de actas", workflow: "CGP", label: "Impugnación de actas" },
+  { pattern: "rendicion de cuentas", workflow: "CGP", label: "Rendición de cuentas" },
+  { pattern: "ejecutivo prendario", workflow: "CGP", label: "Ejecutivo prendario" },
+  { pattern: "declarativo verbal", workflow: "CGP", label: "Declarativo verbal" },
+  { pattern: "ejecutivo de mayor", workflow: "CGP", label: "Ejecutivo de mayor cuantía" },
+  { pattern: "entrega de la cosa", workflow: "CGP", label: "Entrega de la cosa por el tradente al adquirente" },
+  { pattern: "sucesion intestada", workflow: "CGP", label: "Sucesión intestada" },
+  { pattern: "ejecutivo laboral", workflow: "LABORAL", label: "Ejecutivo laboral" },
+  { pattern: "nulidad electoral", workflow: "CPACA", label: "Nulidad electoral" },
+  { pattern: "procesos verbales", workflow: "CGP", label: "Procesos verbales" },
+  { pattern: "accion de grupo", workflow: "CPACA", label: "Acción de grupo" },
+  { pattern: "ejecutivo mixto", workflow: "CGP", label: "Ejecutivo mixto" },
+  { pattern: "verbal de mayor", workflow: "CGP", label: "Verbal de mayor cuantía" },
+  { pattern: "accion popular", workflow: "CPACA", label: "Acción popular" },
+  { pattern: "nulidad simple", workflow: "CPACA", label: "Nulidad simple" },
+  { pattern: "proceso verbal", workflow: "CGP", label: "Proceso verbal" },
+  { pattern: "acoso laboral", workflow: "LABORAL", label: "Acoso laboral" },
+  { pattern: "union marital", workflow: "CGP", label: "Unión marital de hecho" },
+  { pattern: "expropiacion", workflow: "CGP", label: "Expropiación" },
+  { pattern: "insolvencia", workflow: "CGP", label: "Insolvencia de persona natural no comerciante" },
+  { pattern: "liquidacion", workflow: "CGP", label: "Liquidación" },
+  { pattern: "pertenencia", workflow: "CGP", label: "Pertenencia" },
+  { pattern: "alimentos", workflow: "CGP", label: "Alimentos" },
+  { pattern: "filiacion", workflow: "CGP", label: "Filiación" },
+  { pattern: "custodia", workflow: "CGP", label: "Custodia y cuidado personal" },
+  { pattern: "divorcio", workflow: "CGP", label: "Divorcio" },
+  { pattern: "tutela", workflow: "TUTELA", label: "Tutela" },
   { pattern: "ejecutivo singular", workflow: "CGP", label: "Ejecutivo singular" },
   { pattern: "ejecutivo de menor", workflow: "CGP", label: "Ejecutivo de menor cuantía" },
   { pattern: "ejecutivos de menor", workflow: "CGP", label: "Ejecutivos de menor y mínima cuantía" },
@@ -116,6 +154,13 @@ export const CLASE_PROCESO_WORKFLOW_MAP: Array<{ pattern: string; workflow: Work
   { pattern: "controversias contractuales", workflow: "CPACA", label: "Controversias contractuales" },
   { pattern: "accion de tutela", workflow: "TUTELA", label: "Acción de tutela" },
 ];
+
+/**
+ * GUARD B (iteration 29) — workflows a provider class may NEVER auto-assign.
+ * Changing to one of these alters the provider chain and the phase catalogue,
+ * so it is always routed to the "Por clasificar" tray for confirmation.
+ */
+export const INFERENCE_INELIGIBLE_WORKFLOWS: WorkflowType[] = ["LABORAL", "PENAL_906"];
 
 function deaccent(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -183,6 +228,17 @@ export function resolveWorkflowType(input: ResolveWorkflowInput): ResolvedWorkfl
   // 2) PROVIDER_CLASS
   const byClase = workflowFromClaseProceso(input.claseProceso);
   if (byClase) {
+    // GUARD B — ineligible materias are suggestion-only, even when the
+    // organisation has the practice area enabled.
+    if (INFERENCE_INELIGIBLE_WORKFLOWS.includes(byClase.workflow)) {
+      return {
+        ...base,
+        workflow: "INDETERMINADO",
+        source: "INDETERMINADO",
+        suggestion: { workflow: byClase.workflow, source: "PROVIDER_CLASS", confidence: 0.9 },
+        reason: `Clase "${byClase.label}" sugiere ${byClase.workflow}; materia fuera del conjunto inferible, requiere confirmación.`,
+      };
+    }
     if (allowed(byClase.workflow, input.practiceAreas)) {
       return {
         ...base,
