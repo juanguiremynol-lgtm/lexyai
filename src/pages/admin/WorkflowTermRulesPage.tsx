@@ -28,7 +28,7 @@ import {
   usePenalDeadlineRuleActions,
   type PenalAnchorType,
   type PenalDeadlineRule,
-} from "@/hooks/use-penal-deadline-rules";
+} from "@/hooks/use-workflow-deadline-rules";
 
 function RuleEditor({ rule, onClose }: { rule: PenalDeadlineRule; onClose: () => void }) {
   const { update } = usePenalDeadlineRuleActions();
