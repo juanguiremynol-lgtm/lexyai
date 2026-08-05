@@ -1745,6 +1745,36 @@ Deno.serve(withSyncTimeline(async (req) => {
       );
 
       // ============= COVERAGE GAP DETECTION =============
+      // Iteration 34 — PROVIDER_NO_DOCUMENT is NOT a coverage gap. The court
+      // registered the estado and never uploaded the planilla: the estado
+      // exists and the term runs from it. Persist it as its own class first.
+      const noDocEstados = fetchResult.noDocumentEstados ?? [];
+      if (noDocEstados.length > 0) {
+        result.result_code = 'PROVIDER_NO_DOCUMENT';
+        try {
+          await supabase
+            .from('estado_sin_documento' as any)
+            .upsert(
+              noDocEstados.map((e) => ({
+                work_item_id,
+                organization_id: workItem.organization_id,
+                radicado: normalizedRadicado,
+                provider_key: 'publicaciones',
+                fecha_fijacion: e.fecha,
+                estado_numero: e.estadoNumero ?? null,
+                article_id: e.articleId ?? null,
+                http_status: e.httpStatus ?? null,
+                body_bytes: e.bodyBytes ?? null,
+                evidence: { source: 'GCP', result_code: 'PROVIDER_NO_DOCUMENT' },
+              })) as any,
+              { onConflict: 'work_item_id,provider_key,fecha_fijacion' } as any,
+            );
+          console.log(`[sync-pub] estado_sin_documento persisted (${noDocEstados.length}) for ${work_item_id}`);
+        } catch (ndErr: any) {
+          console.warn('[sync-pub] Failed to persist estado_sin_documento:', ndErr?.message);
+        }
+      }
+
       // Primary provider returned empty — check if any fallback providers return data
       // If not, this is a COVERAGE_GAP: the platform is working correctly but the
       // external provider does not index this court/radicado.
@@ -1755,6 +1785,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Previous impl called a non-existent RPC then did an update with `occurrences: undefined`
       // which nulled the counter; consolidated into one correct upsert here.
       try {
+        if (noDocEstados.length > 0) throw { __skipGap: true };
         const nowIso = new Date().toISOString();
         const responsePayload = {
           found: false,
@@ -1799,7 +1830,11 @@ Deno.serve(withSyncTimeline(async (req) => {
 
         console.log(`[sync-pub] Coverage gap persisted for ${work_item_id}`);
       } catch (gapErr: any) {
-        console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
+        if ((gapErr as any)?.__skipGap) {
+          console.log(`[sync-pub] Coverage gap skipped for ${work_item_id}: estado exists without document`);
+        } else {
+          console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
+        }
       }
 
       // Iteration 33 — alert only the first class.
