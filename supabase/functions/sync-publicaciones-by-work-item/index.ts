@@ -1847,21 +1847,33 @@ Deno.serve(withSyncTimeline(async (req) => {
       try {
         let signalClass: string | null = null;
         let recentUnmatched = 0;
+        let alertableUnmatched: number | null = null;
         try {
           const { data: signal } = await supabase.rpc('classify_work_item_estados_signal', {
             p_work_item_id: work_item_id,
           });
           signalClass = (signal as any)?.signal_class ?? null;
           recentUnmatched = Number((signal as any)?.recent_unmatched_count ?? 0);
+          alertableUnmatched = (signal as any)?.alertable_unmatched_count == null
+            ? null
+            : Number((signal as any).alertable_unmatched_count);
         } catch (sigErr: any) {
           console.warn('[sync-pub] estados signal unavailable:', sigErr?.message);
         }
 
-        const shouldAlert = signalClass === 'ESTADOS_ESPERADOS_AUSENTES' && recentUnmatched > 0;
+        // Iteration 34 — the daily path only reaches MONITOREO_MAX_DIAS back, so
+        // an unmatched fijación the daily pipeline cannot possibly resolve is
+        // noise. Alert only on the alertable subset.
+        const shouldAlert =
+          noDocEstados.length === 0 &&
+          signalClass === 'ESTADOS_ESPERADOS_AUSENTES' &&
+          recentUnmatched > 0 &&
+          (alertableUnmatched ?? recentUnmatched) > 0;
         if (!shouldAlert) {
           console.log(
             `[sync-pub] Coverage gap NOT alerted for ${work_item_id}: signal=${signalClass ?? 'unknown'} ` +
-            `recent_unmatched=${recentUnmatched} (inconclusive class, visible but silent)`
+            `recent_unmatched=${recentUnmatched} alertable=${alertableUnmatched ?? 'n/a'} ` +
+            `sin_documento=${noDocEstados.length} (inconclusive or unreachable class, visible but silent)`
           );
           throw { __skipAlert: true };
         }
