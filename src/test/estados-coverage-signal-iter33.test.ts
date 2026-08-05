@@ -11,7 +11,7 @@ import {
   ESTADOS_SIGNAL_EXPLANATION,
   type EstadosSignalClass,
 } from "@/lib/estados-coverage-signal";
-import { resolveProviders } from "@/lib/monitoring-matrix";
+import { providerChainFor } from "@/lib/monitoring-matrix";
 
 const CLASSES: EstadosSignalClass[] = [
   "CUBIERTO",
@@ -77,11 +77,12 @@ describe("estados signal — every monitored workflow has an estados provider", 
   it.each(["CGP", "CPACA", "TUTELA", "LABORAL", "PENAL_906", "EJECUTIVO"])(
     "%s routes to at least one estados provider",
     (wf) => {
-      expect(resolveProviders(wf).estados.length).toBeGreaterThan(0);
+      const chain = providerChainFor(wf);
+      expect(chain.some((p) => p === "publicaciones" || p === "samai_estados")).toBe(true);
     },
   );
 
   it("TUTELA queries both estados providers (union)", () => {
-    expect(resolveProviders("TUTELA").estados).toEqual(expect.arrayContaining(["PP", "SAMAI_ESTADOS"]));
+    expect(providerChainFor("TUTELA")).toEqual(expect.arrayContaining(["publicaciones", "samai_estados"]));
   });
 });
