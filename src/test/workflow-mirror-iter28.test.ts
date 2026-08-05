@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import "@/test/helpers/localstorage-polyfill";
 import { PRACTICE_AREA_OPTIONS } from "@/hooks/use-practice-areas";
 import { providerChainFor } from "@/lib/monitoring-matrix";
 import { LABORAL_STAGES, getOrderedLaboralStages } from "@/lib/laboral-stages";
