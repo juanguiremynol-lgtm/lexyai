@@ -19,6 +19,7 @@ export const CHAIN: Record<string, string[]> = {
   EJECUTIVO: ["cpnu", "publicaciones"],
   PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
+  // Fan-out until classified (iteration 18); mirrors provider_chain_for_workflow.
   INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],
   TUTELA: ["cpnu", "samai", "publicaciones", "samai_estados"],
 };

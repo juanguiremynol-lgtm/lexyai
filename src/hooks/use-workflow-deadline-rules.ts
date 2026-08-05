@@ -17,9 +17,18 @@ export type DeadlineAnchorType =
   | "ANCHOR_AUDIENCIA"
   | "ANCHOR_ACTO"
   | "ANCHOR_NOTIFICACION"
-  | "ANCHOR_EJECUTORIA";
+  | "ANCHOR_EJECUTORIA"
+  /**
+   * Oral, in-hearing moment (CPTSS art. 66): the remedy is lodged and sustained
+   * orally at the very act of notification in the hearing. There is no written
+   * term, so the engine computes no date.
+   */
+  | "ANCHOR_ORAL_EN_AUDIENCIA";
 /** @deprecated use DeadlineAnchorType */
 export type PenalAnchorType = DeadlineAnchorType;
+
+/** NONE = no written term (oral, in-hearing). */
+export type DeadlineDayType = "BUSINESS" | "CALENDAR" | "NONE";
 
 export type DeadlineRuleStatus = "DRAFT" | "RATIFIED" | "RETIRED";
 /** @deprecated use DeadlineRuleStatus */
@@ -39,7 +48,7 @@ export interface WorkflowDeadlineRule {
   anchor_type: DeadlineAnchorType;
   anchor_event: string | null;
   days_amount: number;
-  day_type: "BUSINESS" | "CALENDAR";
+  day_type: DeadlineDayType;
   description: string | null;
   research_notes: string | null;
   sources: unknown;
@@ -56,6 +65,7 @@ export const ANCHOR_LABELS: Record<DeadlineAnchorType, string> = {
   ANCHOR_ACTO: "Fecha de acto procesal",
   ANCHOR_NOTIFICACION: "Fecha de notificación",
   ANCHOR_EJECUTORIA: "Ejecutoria de la providencia",
+  ANCHOR_ORAL_EN_AUDIENCIA: "Momento oral en audiencia (sin término escrito)",
 };
 /** @deprecated use ANCHOR_LABELS */
 export const PENAL_ANCHOR_LABELS = ANCHOR_LABELS;
