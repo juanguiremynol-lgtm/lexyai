@@ -45,6 +45,7 @@ describe("PENAL_906 phase catalog (Ley 906/2004)", () => {
       "SENTENCIA",
       "RECURSOS",
       "PRECLUSION",
+      "ARCHIVO",
     ]);
     expect(getWorkflowPhases("PENAL_906").find((p) => p.key === "PRECLUSION")?.branch).toBe(true);
   });
