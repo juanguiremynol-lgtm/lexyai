@@ -324,6 +324,16 @@ async function toolWorkItemFreshness(sb: any): Promise<Record<string, unknown>> 
   return { stale_items: stale.length, total_monitored: (data || []).length, oldest: (data || []).slice(0, 5) };
 }
 
+/**
+ * Iteration 33 — actuaciones without estados. Belongs to the coverage section:
+ * it is a statement about a source, not a legal deadline for the lawyer.
+ */
+async function toolEstadosCoverage(sb: any): Promise<Record<string, unknown>> {
+  const { data, error } = await sb.rpc("estados_coverage_summary");
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as Record<string, unknown>;
+}
+
 // ─── Tool registry ───────────────────────────────────────────────────
 
 /**
@@ -404,6 +414,7 @@ function getTools(): ToolDef[] {
     { name: "INCIDENTS", label: "Open Incidents", fn: toolIncidents },
     { name: "RECENT_ACTIONS", label: "Recent AI Actions", fn: toolRecentActions },
     { name: "WORK_ITEM_FRESHNESS", label: "Work Item Freshness", fn: toolWorkItemFreshness },
+    { name: "ESTADOS_COVERAGE", label: "Estados Coverage (actuaciones sin estados)", fn: toolEstadosCoverage },
   ];
 }
 
