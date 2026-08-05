@@ -1147,7 +1147,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at, demandantes, demandados')
+      .select('id, owner_id, organization_id, workflow_type, radicado, last_synced_at, monitoring_enabled, deleted_at, demandantes, demandados, authority_name')
       .eq('id', work_item_id)
       .maybeSingle();
 
