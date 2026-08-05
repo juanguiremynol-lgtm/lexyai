@@ -13687,7 +13687,6 @@ export type Database = {
           stage: string | null
           updated_at: string
           work_item_id: string
-          workflow_type: string
         }
         Insert: {
           attempt?: number
@@ -13706,7 +13705,6 @@ export type Database = {
           stage?: string | null
           updated_at?: string
           work_item_id: string
-          workflow_type: string
         }
         Update: {
           attempt?: number
@@ -13725,7 +13723,6 @@ export type Database = {
           stage?: string | null
           updated_at?: string
           work_item_id?: string
-          workflow_type?: string
         }
         Relationships: [
           {
@@ -17291,7 +17288,6 @@ export type Database = {
           status: string
           sync_run_id: string | null
           work_item_id: string
-          workflow_type: string | null
         }
         Insert: {
           adapter_version?: string | null
@@ -17313,7 +17309,6 @@ export type Database = {
           status: string
           sync_run_id?: string | null
           work_item_id: string
-          workflow_type?: string | null
         }
         Update: {
           adapter_version?: string | null
@@ -17335,7 +17330,6 @@ export type Database = {
           status?: string
           sync_run_id?: string | null
           work_item_id?: string
-          workflow_type?: string | null
         }
         Relationships: [
           {
@@ -18992,6 +18986,14 @@ export type Database = {
       rpc_upsert_work_item_publicaciones: {
         Args: { records: Json }
         Returns: Json
+      }
+      rpc_workflow_type_drift_summary: {
+        Args: never
+        Returns: {
+          drift_rows: number
+          mirror_table: string
+          sample_work_item_id: string
+        }[]
       }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
       search_work_items_normalized: {

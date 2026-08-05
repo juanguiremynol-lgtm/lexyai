@@ -28,7 +28,6 @@ export interface SyncTimelineEvent {
   organization_id?: string | null;
   sync_run_id?: string | null;
   provider: string;
-  workflow_type?: string | null;
   operation: string;
   function_name?: string | null;
   adapter_version?: string | null;
@@ -58,7 +57,6 @@ export async function recordSyncTimelineEvent(
       organization_id: event.organization_id ?? null,
       sync_run_id: event.sync_run_id ?? null,
       provider: event.provider,
-      workflow_type: event.workflow_type ?? null,
       operation: event.operation,
       function_name: event.function_name ?? null,
       adapter_version: event.adapter_version ?? null,
@@ -143,10 +141,6 @@ export function withSyncTimeline(
       strOr(parsed?.provider_used) ??
       strOr(parsed?.provider) ??
       "unknown";
-    const workflowType =
-      strOr(parsed?.workflow_type) ??
-      strOr(parsed?.workflow) ??
-      null;
     const errorCode = strOr(parsed?.error_code ?? parsed?.code);
     const errorMsg = strOr(parsed?.error_message ?? parsed?.error);
 
@@ -160,7 +154,6 @@ export function withSyncTimeline(
     recordSyncTimelineEvent({
       work_item_id: workItemId,
       provider,
-      workflow_type: workflowType,
       operation: opts.default_operation,
       function_name: opts.function_name,
       adapter_version: opts.adapter_version ?? null,
