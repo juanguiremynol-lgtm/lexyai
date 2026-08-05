@@ -27,6 +27,7 @@ import {
   usePenalDeadlineRules,
   usePenalDeadlineRuleActions,
   type PenalAnchorType,
+  type DeadlineDayType,
   type PenalDeadlineRule,
 } from "@/hooks/use-workflow-deadline-rules";
 
@@ -77,11 +78,12 @@ function RuleEditor({ rule, onClose }: { rule: PenalDeadlineRule; onClose: () =>
         </div>
         <div className="space-y-1">
           <Label>Tipo de días</Label>
-          <Select value={dayType} onValueChange={(v) => setDayType(v as "BUSINESS" | "CALENDAR")}>
+          <Select value={dayType} onValueChange={(v) => setDayType(v as DeadlineDayType)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="BUSINESS">Hábiles</SelectItem>
               <SelectItem value="CALENDAR">Calendario</SelectItem>
+              <SelectItem value="NONE">Sin término escrito (oral en audiencia)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -188,8 +190,10 @@ export default function PenalTermRulesPage() {
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   {PENAL_ANCHOR_LABELS[rule.anchor_type]}
-                  {rule.anchor_event ? ` · ${rule.anchor_event}` : ""} · {rule.days_amount} días{" "}
-                  {rule.day_type === "BUSINESS" ? "hábiles" : "calendario"}
+                  {rule.anchor_event ? ` · ${rule.anchor_event}` : ""} ·{" "}
+                  {rule.day_type === "NONE"
+                    ? "sin término escrito: se surte en la audiencia"
+                    : `${rule.days_amount} días ${rule.day_type === "BUSINESS" ? "hábiles" : "calendario"}`}
                 </p>
                 {rule.description && <p className="text-sm">{rule.description}</p>}
 
