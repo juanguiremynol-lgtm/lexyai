@@ -18,7 +18,7 @@ import {
 import { getWorkflowPhases, mapStageToCanonicalPhase, inferPhaseFromText } from "@/lib/workflow-phases";
 import { PENAL_906_STAGES, getStagesForWorkflow, WORKFLOW_TYPES } from "@/lib/workflow-constants";
 import { computePenalTerms, penalTermsPendingRatification, type PenalAnchor } from "@/lib/penal906/penal906-terms";
-import type { PenalDeadlineRule } from "@/hooks/use-penal-deadline-rules";
+import type { PenalDeadlineRule } from "@/hooks/use-workflow-deadline-rules";
 import { validateCgpRadicado, normalizeRadicado, formatRadicadoWithLabels } from "@/lib/radicado-utils";
 import { classifyEvidenceSubtype } from "../../supabase/functions/_shared/emailMatcher";
 
@@ -29,6 +29,10 @@ function draftRule(over: Partial<PenalDeadlineRule> = {}): PenalDeadlineRule {
     id: "r1",
     organization_id: null,
     workflow_type: "PENAL_906",
+    regimen: null,
+    track_kind: null,
+    research_notes: null,
+    sources: [],
     deadline_type: "PENAL_APELACION_SENTENCIA",
     label: "Apelación contra sentencia",
     citation: "Ley 906/2004, art. 179",

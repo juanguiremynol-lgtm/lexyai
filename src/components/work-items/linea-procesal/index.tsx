@@ -9,6 +9,9 @@ import { Route } from "lucide-react";
 import { PhaseStepper, type PhaseReach } from "./PhaseStepper";
 import { AccionRequerida } from "./AccionRequerida";
 import { TimelineFeed } from "./TimelineFeed";
+import { TracksPanel } from "./TracksPanel";
+import { useResolvedTracks } from "@/hooks/use-work-item-tracks";
+import { activeTrack } from "@/lib/tracks/procedural-tracks";
 import { inferPhaseFromText, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
@@ -26,6 +29,12 @@ function sourceOf(changeSource: string | null): PhaseReach["source"] {
 }
 
 export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase }: LineaProcesalProps) {
+  // C1/C5 — the stepper and the stage suggestions follow the ACTIVE track's
+  // catalogue. A track change is not a regression: the executive track
+  // legitimately starts at its own beginning.
+  const { tracks } = useResolvedTracks(workItemId, workflowType, currentStage);
+  const current = activeTrack(tracks);
+  const trackWorkflowType = current?.workflow_type ?? workflowType;
   const { data: auditReaches = [] } = useQuery({
     queryKey: ["work-item-phase-reaches", workItemId, workflowType],
     queryFn: async (): Promise<PhaseReach[]> => {
@@ -59,7 +68,12 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
   /** Event-derived reaches: every completed phase must show the date it was reached. */
   const { data: events } = useQuery({
     queryKey: ["work-item-phase-events", workItemId, workflowType],
-    queryFn: async (): Promise<{ reaches: PhaseReach[]; inferred: string | null }> => {
+    queryFn: async (): Promise<{
+      reaches: PhaseReach[];
+      inferred: string | null;
+      latestActText: string | null;
+      latestActDate: string | null;
+    }> => {
       const [acts, pubs] = await Promise.all([
         supabase
           .from("work_item_acts")
@@ -103,7 +117,13 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
           first.set(phaseKey, { phaseKey, reachedAt: ev.at, source: ev.source });
         }
       }
-      return { reaches: [...first.values()], inferred: latestPhase };
+      const latestActEvent = [...evs].reverse().find((e) => e.source === "ACTUACION") ?? null;
+      return {
+        reaches: [...first.values()],
+        inferred: latestPhase,
+        latestActText: latestActEvent?.text ?? null,
+        latestActDate: latestActEvent?.at ?? null,
+      };
     },
     enabled: !!workItemId,
     staleTime: 60_000,
@@ -120,19 +140,28 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
     return [...merged.values()];
   })();
 
+  const latestAct = events?.latestActText ?? null;
+
   return (
     <section className="space-y-4" aria-labelledby="linea-procesal-heading">
       <h2 id="linea-procesal-heading" className="flex items-center gap-2 text-lg font-semibold">
         <Route className="h-5 w-5 text-primary" aria-hidden />
         Línea procesal
       </h2>
-      <PhaseStepper
+      <TracksPanel
+        workItemId={workItemId}
         workflowType={workflowType}
         currentStage={currentStage}
+        latestActText={latestAct}
+        latestActDate={events?.latestActDate ?? null}
+      />
+      <PhaseStepper
+        workflowType={trackWorkflowType}
+        currentStage={current?.current_phase ?? currentStage}
         reaches={reaches}
         inferredPhase={events?.inferred ?? null}
       />
-      <AccionRequerida workItemId={workItemId} workflowType={workflowType} cgpPhase={cgpPhase} />
+      <AccionRequerida workItemId={workItemId} workflowType={trackWorkflowType} cgpPhase={cgpPhase} />
       <TimelineFeed workItemId={workItemId} />
     </section>
   );

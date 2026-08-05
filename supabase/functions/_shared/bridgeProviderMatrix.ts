@@ -16,6 +16,7 @@ export const CHAIN: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
   LABORAL: ["cpnu", "publicaciones"],
   PENAL_906: ["cpnu", "publicaciones"],
+  EJECUTIVO: ["cpnu", "publicaciones"],
   PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
   INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],

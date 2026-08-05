@@ -4,7 +4,7 @@
  */
 
 // Workflow type enum matching database
-export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC' | 'INDETERMINADO';
+export type WorkflowType = 'CGP' | 'EJECUTIVO' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC' | 'INDETERMINADO';
 
 // Item source enum matching database
 export type ItemSource = 'ICARUS_IMPORT' | 'SCRAPE_API' | 'MANUAL' | 'EMAIL_IMPORT' | 'MIGRATION';
@@ -29,6 +29,8 @@ export const WORKFLOW_TYPE_ALIASES: Record<string, WorkflowType> = {
   'LEY_906': 'PENAL_906',
   PROC_ADMIN: 'GOV_PROCEDURE',
   GOV_PROC: 'GOV_PROCEDURE',
+  EJECUTIVO: 'EJECUTIVO',
+  EJECUTIVO_CGP: 'EJECUTIVO',
 };
 
 export function normalizeWorkflowType(raw: string | null | undefined): WorkflowType | null {
@@ -61,6 +63,14 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
     description: 'Procesos judiciales laborales bajo Código Procesal del Trabajo (CPTSS)',
     color: 'rose',
     icon: 'Briefcase',
+    hasPhases: false,
+  },
+  EJECUTIVO: {
+    label: 'Ejecutivo (CGP)',
+    shortLabel: 'Ejecutivo',
+    description: 'Procesos ejecutivos bajo el Código General del Proceso (mandamiento de pago, excepciones, remate)',
+    color: 'amber',
+    icon: 'Banknote',
     hasPhases: false,
   },
   PETICION: {
@@ -124,6 +134,7 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
 // Ordered list of workflow types for UI rendering
 export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
   'CGP',
+  'EJECUTIVO',
   'LABORAL',
   'PETICION',
   'TUTELA',
@@ -283,6 +294,29 @@ export const PENAL_906_STAGES = {
 export type Penal906Stage = keyof typeof PENAL_906_STAGES;
 
 // ============================================
+// EJECUTIVO Stages (proceso ejecutivo — CGP, Ley 1564 de 2012)
+//
+// Terminación por pago total and desistimiento are terminal OUTCOME BRANCHES,
+// listed last so the linear sequence renders untouched.
+// ============================================
+export const EJECUTIVO_STAGES = {
+  PREPARACION: { label: 'Preparación', order: 0 },
+  RADICACION: { label: 'Radicación de la demanda ejecutiva', order: 1 },
+  SUBSANACION: { label: 'Inadmisión / Subsanación', order: 2 },
+  MANDAMIENTO_PAGO: { label: 'Auto que libra mandamiento de pago', order: 3 },
+  NOTIFICACION_MANDAMIENTO: { label: 'Notificación del mandamiento', order: 4 },
+  EXCEPCIONES_MERITO: { label: 'Excepciones de mérito', order: 5 },
+  TRASLADO_EXCEPCIONES: { label: 'Traslado de excepciones', order: 6 },
+  SEGUIR_ADELANTE: { label: 'Seguir adelante la ejecución', order: 7 },
+  LIQUIDACION_CREDITO: { label: 'Liquidación del crédito y costas', order: 8 },
+  AVALUO_REMATE: { label: 'Avalúo y remate', order: 9 },
+  TERMINACION_PAGO: { label: 'Terminación por pago', order: 10 },
+  DESISTIMIENTO: { label: 'Desistimiento', order: 11 },
+} as const;
+
+export type EjecutivoStage = keyof typeof EJECUTIVO_STAGES;
+
+// ============================================
 // Helper functions
 // ============================================
 
@@ -305,6 +339,8 @@ export function getStagesForWorkflow(workflowType: WorkflowType, cgpPhase?: CGPP
       return LABORAL_STAGES;
     case 'PENAL_906':
       return PENAL_906_STAGES;
+    case 'EJECUTIVO':
+      return EJECUTIVO_STAGES;
     default:
       return {};
   }

@@ -57,6 +57,20 @@ export const WORKFLOW_PHASES: Record<WorkflowType, CanonicalPhase[]> = {
     { key: "SENTENCIA", label: "Sentencia" },
     { key: "RECURSOS", label: "Recursos" },
   ],
+  EJECUTIVO: [
+    { key: "PREPARACION", label: "Preparación" },
+    { key: "RADICACION", label: "Radicación de la demanda ejecutiva" },
+    { key: "SUBSANACION", label: "Inadmisión / Subsanación" },
+    { key: "MANDAMIENTO_PAGO", label: "Auto que libra mandamiento de pago" },
+    { key: "NOTIFICACION_MANDAMIENTO", label: "Notificación del mandamiento" },
+    { key: "EXCEPCIONES_MERITO", label: "Excepciones de mérito" },
+    { key: "TRASLADO_EXCEPCIONES", label: "Traslado de excepciones" },
+    { key: "SEGUIR_ADELANTE", label: "Seguir adelante la ejecución" },
+    { key: "LIQUIDACION_CREDITO", label: "Liquidación del crédito y costas" },
+    { key: "AVALUO_REMATE", label: "Avalúo y remate" },
+    { key: "TERMINACION_PAGO", label: "Terminación por pago", branch: true },
+    { key: "DESISTIMIENTO", label: "Desistimiento", branch: true },
+  ],
   PENAL_906: [
     { key: "INDAGACION", label: "Indagación" },
     { key: "IMPUTACION", label: "Formulación de imputación" },
@@ -225,6 +239,116 @@ const PENAL_HEURISTICS: Array<[RegExp, string]> = [
   [/APEL|RECURSO|CASACION|SEGUNDA\s*INSTANCIA/, "RECURSOS"],
 ];
 
+/**
+ * Proceso ejecutivo (CGP, Ley 1564 de 2012). Its vocabulary overlaps the
+ * declarative one ("notificación", "excepciones"), so it needs its own map and
+ * heuristics, evaluated before the generic ones.
+ */
+const EJECUTIVO_STAGE_TO_PHASE: Record<string, string> = {
+  DRAFTED: "PREPARACION",
+  BORRADOR: "PREPARACION",
+  PREPARACION: "PREPARACION",
+  DEMANDA_POR_RADICAR: "PREPARACION",
+  RADICADO: "RADICACION",
+  RADICACION: "RADICACION",
+  DEMANDA_RADICADA: "RADICACION",
+  RADICADO_CONFIRMED: "RADICACION",
+  INADMISION: "SUBSANACION",
+  SUBSANACION: "SUBSANACION",
+  MANDAMIENTO_PAGO: "MANDAMIENTO_PAGO",
+  MANDAMIENTO_DE_PAGO: "MANDAMIENTO_PAGO",
+  AUTO_MANDAMIENTO_PAGO: "MANDAMIENTO_PAGO",
+  NOTIFICACION_MANDAMIENTO: "NOTIFICACION_MANDAMIENTO",
+  NOTIFICACION_PERSONAL: "NOTIFICACION_MANDAMIENTO",
+  NOTIFICACION_AVISO: "NOTIFICACION_MANDAMIENTO",
+  EXCEPCIONES_MERITO: "EXCEPCIONES_MERITO",
+  EXCEPCIONES: "EXCEPCIONES_MERITO",
+  TRASLADO_EXCEPCIONES: "TRASLADO_EXCEPCIONES",
+  SEGUIR_ADELANTE: "SEGUIR_ADELANTE",
+  SEGUIR_ADELANTE_EJECUCION: "SEGUIR_ADELANTE",
+  SENTENCIA: "SEGUIR_ADELANTE",
+  LIQUIDACION_CREDITO: "LIQUIDACION_CREDITO",
+  LIQUIDACION: "LIQUIDACION_CREDITO",
+  AVALUO: "AVALUO_REMATE",
+  REMATE: "AVALUO_REMATE",
+  AVALUO_REMATE: "AVALUO_REMATE",
+  TERMINACION_PAGO: "TERMINACION_PAGO",
+  PAGO_TOTAL: "TERMINACION_PAGO",
+  DESISTIMIENTO: "DESISTIMIENTO",
+};
+
+const EJECUTIVO_HEURISTICS: Array<[RegExp, string]> = [
+  [/DESISTIMIENTO/, "DESISTIMIENTO"],
+  [/(TERMINACION|TERMINA)[^.]{0,30}PAGO|PAGO\s*TOTAL/, "TERMINACION_PAGO"],
+  [/REMATE|AVALUO|SECUESTRE?O?\s*Y\s*AVALUO/, "AVALUO_REMATE"],
+  [/LIQUIDACION\s*(DEL?\s*)?(CREDITO|COSTAS)|LIQUIDACION/, "LIQUIDACION_CREDITO"],
+  [/SEGUIR\s*ADELANTE/, "SEGUIR_ADELANTE"],
+  [/TRASLADO[^.]{0,30}EXCEPCION/, "TRASLADO_EXCEPCIONES"],
+  [/EXCEPCION/, "EXCEPCIONES_MERITO"],
+  [/NOTIFIC|EMPLAZ|CURADOR/, "NOTIFICACION_MANDAMIENTO"],
+  [/MANDAMIENTO(\s*(EJECUTIVO|DE)?\s*PAGO)?|LIBRA\s*MANDAMIENTO/, "MANDAMIENTO_PAGO"],
+  [/INADMIT|SUBSAN/, "SUBSANACION"],
+  [/RADICA/, "RADICACION"],
+];
+
+/**
+ * LABOUR REGIMES (A1/A2).
+ *
+ * Ley 2452 de 2025 enacted a new CPTSS and repealed Decreto Ley 2158/1948,
+ * Ley 712/2001 and Ley 1149/2007, in force from 2 April 2026; its transitional
+ * rule keeps processes FILED BEFORE that date under the prior regime, so both
+ * coexist. The kanban is ONE board (workflow LABORAL); only the phase detail
+ * and the deadline rules differ by `regimen`.
+ */
+export type LaboralRegimen = "LABORAL_CPTSS_1948" | "LABORAL_2452";
+
+/** Entry into force of Ley 2452 de 2025 (nuevo CPTSS). */
+export const LEY_2452_VIGENCIA = "2026-04-02";
+
+/**
+ * Regime selector. Returns null when the filing date is unknown — the matter
+ * must be flagged for the user to state it. We never guess.
+ */
+export function resolveLaboralRegimen(
+  filingDate: string | null | undefined,
+): LaboralRegimen | null {
+  if (!filingDate) return null;
+  const iso = filingDate.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  return iso >= LEY_2452_VIGENCIA ? "LABORAL_2452" : "LABORAL_CPTSS_1948";
+}
+
+export const LABORAL_REGIMEN_LABELS: Record<LaboralRegimen, string> = {
+  LABORAL_CPTSS_1948: "CPTSS 1948 (procesos radicados antes del 2-abr-2026)",
+  LABORAL_2452: "Ley 2452 de 2025 (procesos radicados desde el 2-abr-2026)",
+};
+
+/** Detailed phase catalogue per labour regime (display only). */
+export const LABORAL_PHASES_BY_REGIMEN: Record<LaboralRegimen, CanonicalPhase[]> = {
+  LABORAL_CPTSS_1948: [
+    { key: "PREPARACION", label: "Preparación" },
+    { key: "RADICACION", label: "Demanda" },
+    { key: "ADMISION", label: "Admisión" },
+    { key: "NOTIFICACION", label: "Notificación" },
+    { key: "CONTESTACION", label: "Contestación (art. 31)" },
+    { key: "AUDIENCIAS", label: "Audiencia obligatoria de conciliación, excepciones previas, saneamiento y fijación del litigio (art. 77)" },
+    { key: "AUDIENCIAS", label: "Audiencia de trámite y juzgamiento (art. 80)" },
+    { key: "SENTENCIA", label: "Sentencia" },
+    { key: "RECURSOS", label: "Apelación / Casación" },
+  ],
+  LABORAL_2452: [
+    { key: "PREPARACION", label: "Preparación" },
+    { key: "RADICACION", label: "Demanda" },
+    { key: "ADMISION", label: "Admisión" },
+    { key: "NOTIFICACION", label: "Notificación" },
+    { key: "CONTESTACION", label: "Contestación" },
+    { key: "AUDIENCIAS", label: "Audiencia inicial" },
+    { key: "AUDIENCIAS", label: "Audiencia de instrucción y juzgamiento" },
+    { key: "SENTENCIA", label: "Sentencia" },
+    { key: "RECURSOS", label: "Apelación / Casación" },
+  ],
+};
+
 export function mapStageToCanonicalPhase(
   workflowType: WorkflowType,
   stage: string | null | undefined,
@@ -238,6 +362,16 @@ export function mapStageToCanonicalPhase(
     const penal = PENAL_STAGE_TO_PHASE[raw];
     if (penal && keys.has(penal)) return penal;
     for (const [re, key] of PENAL_HEURISTICS) {
+      if (re.test(raw) && keys.has(key)) return key;
+    }
+    return null;
+  }
+
+  if (workflowType === "EJECUTIVO") {
+    const exec = EJECUTIVO_STAGE_TO_PHASE[raw];
+    if (exec && keys.has(exec)) return exec;
+    if (keys.has(raw)) return raw;
+    for (const [re, key] of EJECUTIVO_HEURISTICS) {
       if (re.test(raw) && keys.has(key)) return key;
     }
     return null;
@@ -272,7 +406,12 @@ export function inferPhaseFromText(
     .toUpperCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  const rules = workflowType === "PENAL_906" ? PENAL_HEURISTICS : PHASE_HEURISTICS;
+  const rules =
+    workflowType === "PENAL_906"
+      ? PENAL_HEURISTICS
+      : workflowType === "EJECUTIVO"
+        ? EJECUTIVO_HEURISTICS
+        : PHASE_HEURISTICS;
   for (const [re, key] of rules) {
     if (re.test(raw) && keys.has(key)) return key;
   }

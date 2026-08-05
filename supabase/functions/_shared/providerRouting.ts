@@ -75,6 +75,8 @@ const ROUTING_TABLE: Record<string, ProviderRouting> = {
   CGP:       { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "CGP_ROUTE" },
   LABORAL:   { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "LABORAL_ROUTE" },
   PENAL_906: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "PENAL_906_ROUTE" },
+  // EJECUTIVO — ordinary civil jurisdiction, same chain as CGP (iteration 32).
+  EJECUTIVO: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "EJECUTIVO_ROUTE" },
   // TUTELA — constitutional jurisdiction: UNION of all providers.
   // Every provider is queried on every sync; results are deduped by
   // hash_fingerprint. Order in the array is informational only (used for
