@@ -396,8 +396,7 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
           actuaciones: normalized,
           publicaciones: [],
           metadata: { despacho: despacho || null, departamento: departamento || null, tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | null || null },
-          // ITER29: the contract block is read from the same snapshot payload.
-          // Absent block → CONTRACT_BLOCK_ABSENT sentinel → inconclusive read.
+          claseProveedorContract: extractClaseProveedor(snapshotData),
           parties,
           durationMs: Date.now() - startTime,
           httpStatus: snapshotResponse.status,
