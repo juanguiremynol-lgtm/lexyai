@@ -15645,6 +15645,73 @@ export type Database = {
           },
         ]
       }
+      work_item_clase_proceso_audit: {
+        Row: {
+          change_source: string
+          created_at: string
+          id: string
+          new_clase: string | null
+          new_subclase: string | null
+          new_workflow_type: string | null
+          organization_id: string | null
+          previous_clase: string | null
+          previous_subclase: string | null
+          previous_workflow_type: string | null
+          procedencia: Json | null
+          work_item_id: string
+        }
+        Insert: {
+          change_source?: string
+          created_at?: string
+          id?: string
+          new_clase?: string | null
+          new_subclase?: string | null
+          new_workflow_type?: string | null
+          organization_id?: string | null
+          previous_clase?: string | null
+          previous_subclase?: string | null
+          previous_workflow_type?: string | null
+          procedencia?: Json | null
+          work_item_id: string
+        }
+        Update: {
+          change_source?: string
+          created_at?: string
+          id?: string
+          new_clase?: string | null
+          new_subclase?: string | null
+          new_workflow_type?: string | null
+          organization_id?: string | null
+          previous_clase?: string | null
+          previous_subclase?: string | null
+          previous_workflow_type?: string | null
+          procedencia?: Json | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_coverage_gaps: {
         Row: {
           created_at: string
@@ -17519,6 +17586,11 @@ export type Database = {
             | null
           cgp_variant: string | null
           clase_proceso: string | null
+          clase_proceso_disponible: boolean | null
+          clase_proceso_motivo_ausencia: string | null
+          clase_proceso_observed_at: string | null
+          clase_proceso_procedencia: Json | null
+          clase_proveedor: Json | null
           client_id: string | null
           consecutive_404_count: number | null
           consecutive_failures: number
@@ -17701,6 +17773,11 @@ export type Database = {
             | null
           cgp_variant?: string | null
           clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
           client_id?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
@@ -17883,6 +17960,11 @@ export type Database = {
             | null
           cgp_variant?: string | null
           clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
           client_id?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
