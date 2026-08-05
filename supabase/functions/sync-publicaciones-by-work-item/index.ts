@@ -1037,13 +1037,18 @@ function extractPublicacionesFromResponse(
 
   if (rawPublicaciones.length === 0) {
     console.log(`[sync-pub] No publications found for this radicado`);
+    const noDocument = extractNoDocumentEstados(data);
+    if (noDocument.length > 0) {
+      console.log(`[sync-pub] PROVIDER_NO_DOCUMENT: ${noDocument.length} estado(s) fixed by the court with no planilla uploaded`);
+    }
     return { 
       ok: true, 
       publicaciones: [], 
       latencyMs,
       found: false,
       httpStatus: 200,
-      resultCode: 'NO_DATA',
+      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : 'NO_DATA',
+      noDocumentEstados: noDocument,
       rawSample: sampleProviderResponse(data),
     };
     // NOTE: ok=true because the API responded correctly, there are just no publications
