@@ -73,6 +73,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
       inferred: string | null;
       latestActText: string | null;
       latestActDate: string | null;
+      recentActs: { text: string | null; at: string | null }[];
     }> => {
       const [acts, pubs] = await Promise.all([
         supabase
