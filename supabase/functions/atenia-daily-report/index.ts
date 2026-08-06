@@ -633,12 +633,12 @@ function generateTxtReport(
   if (estCov?.status === "OK") {
     const c = estCov.output as any;
     ln(
-      `  evaluados=${c?.total ?? 0}, cubiertos=${c?.cubierto ?? 0}, ` +
-      `estados esperados y ausentes=${c?.estados_esperados_ausentes ?? 0} ` +
-      `(recientes 90d=${c?.estados_ausentes_recientes ?? 0}), ` +
-      `sin fijación conocida=${c?.sin_fijacion_conocida ?? 0}, ` +
-      `sin cobertura declarada=${c?.sin_cobertura_declarada ?? 0}`
+      `  PORTAFOLIO (solo radicados activos monitoreados): huérfanos=${c?.huerfanos_totales ?? 0}, ` +
+      `bordes censurados=${c?.censored_edge_orphans ?? 0}, ventanas genuinas=${c?.genuine_window_orphans ?? 0}, ` +
+      `remisiones=${c?.remision_orphans ?? 0}, sin explicar=${c?.unexplained_orphans ?? 0}, ` +
+      `alertables=${c?.alertable_unexplained_orphans ?? 0}`
     );
+    ln(`  CENSO GCP (despacho completo): huérfanos=${c?.provider_census_orphans ?? 0}; no se exige paridad global entre alcances.`);
     for (const a of (c?.anomalias || []).slice(0, 10)) {
       ln(
         `  [ANOMALIA] ${a.radicado} (${a.workflow}) — ${String(a.despacho ?? "despacho sin identificar").trim()}: ` +

@@ -11,6 +11,7 @@ import {
   type CoverageWindow,
 } from "@/lib/estados-coverage-signal";
 import { DOCTRINE_TYPE_LABELS } from "@/lib/alerts/doctrine";
+import { readFileSync } from "node:fs";
 
 const ALL: EstadosSignalClass[] = [
   "CUBIERTO",
@@ -65,10 +66,16 @@ describe("iter35 · coverage edge confidence", () => {
       publishes_until: "2026-01-01",
       from_confidence: "GENUINE",
       until_confidence: "GENUINE",
-      monthly_presence: { "2025-03": 12, "2025-05": 4 },
+      monthly_presence: { "2025-03": 12, "2025-04": 0, "2025-05": 4 },
     };
     expect(isWithinCoverageWindow("2025-03-10", w)).toBe(true);
     expect(isWithinCoverageWindow("2025-04-10", w)).toBe(false);
+  });
+
+  it("does not infer zero for a month omitted by the authoritative census", () => {
+    expect(isWithinCoverageWindow("2025-04-10", {
+      monthly_presence: { "2025-03": 12, "2025-05": 4 },
+    })).toBe(true);
   });
 });
 
@@ -78,6 +85,8 @@ describe("iter35 · remisión detector", () => {
     expect(actIsRemisionExpediente("Salida Finalizando Instancia - EN LA FECHA SE REMITE DEMANDA RECHAZADA")).toBe(true);
     expect(actIsRemisionExpediente("Envio A Superior Por Interpuestos Sin Finalizacion")).toBe(true);
     expect(actIsRemisionExpediente("No reponer el auto atacado - Disponer la remisión de copia al superior")).toBe(true);
+    expect(actIsRemisionExpediente("ENVÍO A OTROS DESPACHOS")).toBe(true);
+    expect(actIsRemisionExpediente("Remisión expediente")).toBe(true);
   });
 
   it("does not fire on ordinary acts", () => {
@@ -115,5 +124,14 @@ describe("iter35 · signal taxonomy", () => {
 
   it("registers the remisión alert type so it is never silently dropped", () => {
     expect(DOCTRINE_TYPE_LABELS.REMISION_EXPEDIENTE).toBe("Remisión de expediente");
+  });
+});
+
+describe("iter36 · reporting scopes", () => {
+  it("keeps portfolio and despacho-wide census explicitly separate", () => {
+    const report = readFileSync("supabase/functions/atenia-daily-report/index.ts", "utf8");
+    expect(report).toContain("PORTAFOLIO (solo radicados activos monitoreados)");
+    expect(report).toContain("CENSO GCP (despacho completo)");
+    expect(report).toContain("no se exige paridad global entre alcances");
   });
 });

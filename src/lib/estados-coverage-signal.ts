@@ -177,8 +177,10 @@ export function isWithinCoverageWindow(
   if (window.publishes_until && date > window.publishes_until && until === "GENUINE") return false;
   const presence = window.monthly_presence;
   if (presence && Object.keys(presence).length > 0) {
-    // Interior silence: the source published nothing at all that month.
-    if (!(presence[date.slice(0, 7)] ?? 0)) return false;
+    // Sparse census: only an explicitly measured zero is evidence. An absent
+    // key means GCP did not supply that month, never "zero publications".
+    const month = date.slice(0, 7);
+    if (Object.prototype.hasOwnProperty.call(presence, month) && presence[month] === 0) return false;
   }
   return true;
 }
@@ -215,13 +217,16 @@ export function actIsFijacionEstado(description?: string | null, actType?: strin
 export function actIsRemisionExpediente(description?: string | null, actType?: string | null): boolean {
   const t = estadosSignalNorm(`${description ?? ""} ${actType ?? ""}`);
   if (t.includes("envio a superior")) return true;
+  if (t.includes("envio a otro despacho") || t.includes("envio a otros despachos")) return true;
   if (t.includes("salida finalizando instancia")) return true;
+  if (t.includes("remision expediente")) return true;
   return (
     t.includes("remi") &&
     (t.includes("superior") ||
       t.includes("competencia") ||
       t.includes("incompeten") ||
       t.includes("otro despacho") ||
+      t.includes("otros despachos") ||
       t.includes("otro juzgado"))
   );
 }

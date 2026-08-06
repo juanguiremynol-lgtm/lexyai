@@ -35,6 +35,11 @@ type CensusRow = {
   orphan_count: number;
   first_publication: string | null;
   last_publication: string | null;
+  portal_alias: string | null;
+  annual_volumes: Record<string, number>;
+  monthly_presence: Record<string, number>;
+  from_confidence: string | null;
+  until_confidence: string | null;
   raw: Record<string, unknown>;
 };
 
@@ -85,6 +90,15 @@ export function normaliseRows(payload: any): CensusRow[] {
       last_publication: typeof r?.last_publication === "string"
         ? r.last_publication.slice(0, 10)
         : (typeof r?.ultima_publicacion === "string" ? r.ultima_publicacion.slice(0, 10) : null),
+      portal_alias: typeof r?.portal_alias === "string" ? r.portal_alias.replace(/\D/g, "") : null,
+      annual_volumes: typeof r?.annual_volumes === "object" && r.annual_volumes !== null
+        ? r.annual_volumes
+        : (typeof r?.volumen_por_ano === "object" && r.volumen_por_ano !== null ? r.volumen_por_ano : {}),
+      monthly_presence: typeof r?.monthly_presence === "object" && r.monthly_presence !== null
+        ? r.monthly_presence
+        : (typeof r?.presencia_mensual === "object" && r.presencia_mensual !== null ? r.presencia_mensual : {}),
+      from_confidence: typeof r?.from_confidence === "string" ? r.from_confidence.toUpperCase() : null,
+      until_confidence: typeof r?.until_confidence === "string" ? r.until_confidence.toUpperCase() : null,
       raw: {
         ...(typeof r === "object" && r !== null ? r : {}),
         _counters: counters,
@@ -134,11 +148,49 @@ Deno.serve(async (req) => {
     const { error } = await supabase
       .from("provider_coverage_census")
       .upsert(
-        rows.map((r) => ({ source: "PP_COVERAGE", ...r, fetched_at: fetchedAt })),
+        rows.map((r) => ({
+          source: "PP_COVERAGE",
+          despacho_code: r.despacho_code,
+          despacho_label: r.despacho_label,
+          orphan_count: r.orphan_count,
+          first_publication: r.first_publication,
+          last_publication: r.last_publication,
+          raw: r.raw,
+          fetched_at: fetchedAt,
+        })),
         { onConflict: "source,despacho_code" },
       );
     if (error) {
       return json({ ok: false, status: "persist_error", error: error.message, rows: rows.length });
+    }
+
+    // The live health endpoint currently exposes orphan counters only. Update
+    // coverage windows solely when GCP supplies the measured contract; never
+    // turn absent fields into null dates, empty months, or inferred aliases.
+    const measured = rows.filter((r) =>
+      r.from_confidence === "NEVER_PUBLISHED" ||
+      (r.first_publication && r.last_publication && r.from_confidence && r.until_confidence)
+    );
+    if (measured.length > 0) {
+      const { error: coverageError } = await supabase.from("despacho_coverage").upsert(
+        measured.map((r) => ({
+          radicado_prefix: r.despacho_code,
+          provider_key: "publicaciones",
+          publishes: r.from_confidence !== "NEVER_PUBLISHED",
+          publishes_from: r.first_publication,
+          publishes_until: r.last_publication,
+          from_confidence: r.from_confidence,
+          until_confidence: r.until_confidence,
+          portal_alias: r.portal_alias,
+          alias_status: r.portal_alias ? "CONFIRMED" : "UNANSWERED",
+          annual_volumes: r.annual_volumes,
+          monthly_presence: r.monthly_presence,
+          census_source: "PP_COVERAGE",
+          checked_at: fetchedAt,
+        })),
+        { onConflict: "radicado_prefix,provider_key" },
+      );
+      if (coverageError) return json({ ok: false, status: "coverage_persist_error", error: coverageError.message });
     }
   }
 
