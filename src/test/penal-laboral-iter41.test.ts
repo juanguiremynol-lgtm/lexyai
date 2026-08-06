@@ -1,3 +1,4 @@
+import "@/test/helpers/localstorage-polyfill";
 /**
  * iteration 41 — UNSPECIFIED day type and antinomia modelling.
  *
