@@ -45,9 +45,19 @@ function fmt(value?: string | null) {
 
 /** Outlook mailbox: read-only metadata linking, per subscriber. */
 function OutlookConnectionCard() {
-  const { connection, isLoading, connect, disconnect, sync, needsReconnectForSend } =
-    useEmailConnection();
+  const {
+    connection,
+    isLoading,
+    connect,
+    disconnect,
+    sync,
+    needsReconnectForSend,
+    failureCode,
+    requestAdminConsent,
+  } = useEmailConnection();
   const connected = connection?.status === "CONNECTED";
+  const failure = presentFailure(failureCode);
+  const adminUrl = requestAdminConsent.data ?? connection?.admin_consent_url ?? null;
 
   return (
     <Card>
