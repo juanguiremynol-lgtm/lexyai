@@ -9,6 +9,13 @@ import { addBusinessDays, isBusinessDay } from "@/lib/colombian-holidays";
 import type { PenalAnchorType, PenalDeadlineRule } from "@/hooks/use-workflow-deadline-rules";
 
 /**
+ * Note shown for a rule whose day type the statute does not fix (iteration 41).
+ * Lives here, not in the hook, so pure logic never pulls in the data client.
+ */
+export const UNSPECIFIED_DAY_TYPE_NOTE =
+  "tipo de día no especificado en la norma — pendiente de definición";
+
+/**
  * Window during which the term does NOT run (Ley 2452 de 2025, art. 324: terms
  * do not run while the file is "al despacho"). `until` is null while the file
  * is still al despacho — the term stays suspended with no computable date.
@@ -102,6 +109,14 @@ export function ruleIsRatified(rule: PenalDeadlineRule): boolean {
   return rule.status === "RATIFIED" && !!rule.ratified_at;
 }
 
+/**
+ * A rule whose day type the statute does not specify computes NOTHING
+ * (iteration 41). Defence in depth: such rules cannot be ratified either.
+ */
+export function ruleComputesDate(rule: PenalDeadlineRule): boolean {
+  return rule.day_type !== "UNSPECIFIED";
+}
+
 export function anchorMatchesRule(rule: PenalDeadlineRule, anchor: PenalAnchor): boolean {
   if (rule.anchor_type !== anchor.type) return false;
   if (!rule.anchor_event) return true;
@@ -121,6 +136,7 @@ export function computePenalTerms(
   const out: PenalComputedTerm[] = [];
   for (const rule of rules) {
     if (!ruleIsRatified(rule)) continue;
+    if (!ruleComputesDate(rule)) continue;
     for (const anchor of anchors) {
       if (!anchorMatchesRule(rule, anchor)) continue;
       const oralInHearing =
