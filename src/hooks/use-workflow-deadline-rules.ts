@@ -17,6 +17,13 @@ export type DeadlineAnchorType =
   | "ANCHOR_AUDIENCIA"
   | "ANCHOR_ACTO"
   | "ANCHOR_NOTIFICACION"
+  /**
+   * Electronic personal notification (Ley 2452 de 2025, arts. 208/209). Two
+   * stages: the notification is DEEMED effected two business days after the
+   * message is sent, and the term runs from the day following the moment the
+   * initiator receives, acknowledges or can otherwise verify delivery.
+   */
+  | "ANCHOR_NOTIFICACION_TIC"
   | "ANCHOR_EJECUTORIA"
   /**
    * Oral, in-hearing moment (CPTSS art. 66): the remedy is lodged and sustained
@@ -28,7 +35,13 @@ export type DeadlineAnchorType =
 export type PenalAnchorType = DeadlineAnchorType;
 
 /** NONE = no written term (oral, in-hearing). */
-export type DeadlineDayType = "BUSINESS" | "CALENDAR" | "NONE";
+export type DeadlineDayType = "BUSINESS" | "CALENDAR" | "MONTHS" | "YEARS" | "NONE";
+
+/** How well the rule's text was checked against a primary source. */
+export type RuleVerificationState =
+  | "VERIFICADA_FUENTE_PRIMARIA"
+  | "PENDIENTE_FUENTE_PRIMARIA"
+  | "NO_VERIFICADA";
 
 export type DeadlineRuleStatus = "DRAFT" | "RATIFIED" | "RETIRED";
 /** @deprecated use DeadlineRuleStatus */
@@ -50,6 +63,13 @@ export interface WorkflowDeadlineRule {
   days_amount: number;
   day_type: DeadlineDayType;
   description: string | null;
+  /** Who the term binds (party or the judge). */
+  bound_party: string | null;
+  /** What happens when the term lapses (desierto, preclusión, ...). */
+  consequence: string | null;
+  /** True when the term is the court's own internal deadline. */
+  is_judge_side: boolean;
+  verification_state: RuleVerificationState;
   research_notes: string | null;
   sources: unknown;
   requires_manual_review: boolean;
@@ -64,6 +84,7 @@ export const ANCHOR_LABELS: Record<DeadlineAnchorType, string> = {
   ANCHOR_AUDIENCIA: "Fecha de audiencia",
   ANCHOR_ACTO: "Fecha de acto procesal",
   ANCHOR_NOTIFICACION: "Fecha de notificación",
+  ANCHOR_NOTIFICACION_TIC: "Notificación electrónica (TIC)",
   ANCHOR_EJECUTORIA: "Ejecutoria de la providencia",
   ANCHOR_ORAL_EN_AUDIENCIA: "Momento oral en audiencia (sin término escrito)",
 };
