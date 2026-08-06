@@ -5548,47 +5548,62 @@ export type Database = {
       }
       despacho_coverage: {
         Row: {
+          census_source: string | null
           checked_at: string | null
           created_at: string
           despacho_label: string
           evidence: Json
+          from_confidence: string
           id: string
+          monthly_presence: Json
           note: string
+          portal_alias: string | null
           provider_key: string
           publishes: boolean
           publishes_from: string | null
           publishes_until: string | null
           radicado_prefix: string
+          until_confidence: string
           updated_at: string
           workflow_type: string | null
         }
         Insert: {
+          census_source?: string | null
           checked_at?: string | null
           created_at?: string
           despacho_label: string
           evidence?: Json
+          from_confidence?: string
           id?: string
+          monthly_presence?: Json
           note: string
+          portal_alias?: string | null
           provider_key: string
           publishes?: boolean
           publishes_from?: string | null
           publishes_until?: string | null
           radicado_prefix: string
+          until_confidence?: string
           updated_at?: string
           workflow_type?: string | null
         }
         Update: {
+          census_source?: string | null
           checked_at?: string | null
           created_at?: string
           despacho_label?: string
           evidence?: Json
+          from_confidence?: string
           id?: string
+          monthly_presence?: Json
           note?: string
+          portal_alias?: string | null
           provider_key?: string
           publishes?: boolean
           publishes_from?: string | null
           publishes_until?: string | null
           radicado_prefix?: string
+          until_confidence?: string
           updated_at?: string
           workflow_type?: string | null
         }
@@ -16284,6 +16299,8 @@ export type Database = {
           pubs_count: number
           radicado: string | null
           recent_unmatched_count: number
+          remision_date: string | null
+          remitido_count: number
           signal_class: string
           sin_documento_count: number
           unmatched_fijacion_count: number
@@ -16306,6 +16323,8 @@ export type Database = {
           pubs_count?: number
           radicado?: string | null
           recent_unmatched_count?: number
+          remision_date?: string | null
+          remitido_count?: number
           signal_class: string
           sin_documento_count?: number
           unmatched_fijacion_count?: number
@@ -16328,6 +16347,8 @@ export type Database = {
           pubs_count?: number
           radicado?: string | null
           recent_unmatched_count?: number
+          remision_date?: string | null
+          remitido_count?: number
           signal_class?: string
           sin_documento_count?: number
           unmatched_fijacion_count?: number
@@ -18727,6 +18748,10 @@ export type Database = {
         Args: { p_act_type: string; p_description: string }
         Returns: boolean
       }
+      act_is_remision_expediente: {
+        Args: { p_act_type?: string; p_description: string }
+        Returns: boolean
+      }
       act_is_stage_bearing: { Args: { p_text: string }; Returns: boolean }
       add_business_days_sql: {
         Args: { p_days: number; p_start: string }
@@ -19518,6 +19543,7 @@ export type Database = {
         }[]
       }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
+      samai_zero_actuaciones_report: { Args: never; Returns: Json }
       search_work_items_normalized: {
         Args: { p_limit?: number; p_query: string }
         Returns: {
