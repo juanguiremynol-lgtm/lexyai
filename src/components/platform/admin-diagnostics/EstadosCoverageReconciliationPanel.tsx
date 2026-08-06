@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 interface ReconciliationRow {
   despacho: string | null;
+  derivado?: string | null;
   etiqueta: string | null;
   andromeda: number;
   proveedor: number | null;
@@ -33,13 +34,19 @@ export function EstadosCoverageReconciliationPanel() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["estados-coverage-reconciliation"],
     queryFn: async () => {
-      const [rec, sum] = await Promise.all([
+      const [rec, sum, samai] = await Promise.all([
         supabase.rpc("estados_coverage_reconciliation" as never),
         supabase.rpc("estados_coverage_summary" as never),
+        supabase.rpc("samai_zero_actuaciones_report" as never),
       ]);
       return {
         reconciliation: (rec.data ?? null) as unknown as Reconciliation | null,
         summary: (sum.data ?? null) as unknown as Record<string, number | string | null> | null,
+        samai: (samai.data ?? null) as unknown as {
+          cpaca_monitoreados?: number;
+          ciegos?: number;
+          detalle?: Array<{ radicado: string | null; despacho: string | null; corridas_30d: number }>;
+        } | null,
       };
     },
   });
@@ -90,8 +97,20 @@ export function EstadosCoverageReconciliationPanel() {
             <Badge variant="outline" className="border-indigo-500/50 text-indigo-600">
               Estado sin documento: {String(data.summary.estado_sin_documento ?? 0)}
             </Badge>
+            <Badge variant="outline" className="border-violet-500/50 text-violet-600">
+              Remitidos: {String(data.summary.remitido_a_superior ?? 0)}
+            </Badge>
             <Badge variant="outline">Huérfanos totales: {String(data.summary.huerfanos_totales ?? 0)}</Badge>
           </div>
+        )}
+
+        {data?.samai && (
+          <p className="text-xs text-muted-foreground">
+            CPACA monitoreados: {data.samai.cpaca_monitoreados ?? 0} · sin actuaciones ni estados (posible
+            ceguera de la fuente): <span className={(data.samai.ciegos ?? 0) > 0 ? "text-amber-600" : ""}>
+              {data.samai.ciegos ?? 0}
+            </span>
+          </p>
         )}
 
         {isLoading ? (
@@ -126,6 +145,7 @@ export function EstadosCoverageReconciliationPanel() {
               <thead className="text-muted-foreground">
                 <tr className="border-b">
                   <th className="py-1 text-left font-medium">Despacho</th>
+                  <th className="py-1 text-left font-medium">Derivado</th>
                   <th className="py-1 text-right font-medium">Andromeda</th>
                   <th className="py-1 text-right font-medium">Proveedor</th>
                   <th className="py-1 text-right font-medium">Estado</th>
@@ -135,6 +155,9 @@ export function EstadosCoverageReconciliationPanel() {
                 {filas.slice(0, 25).map((f) => (
                   <tr key={f.despacho ?? Math.random()} className="border-b last:border-0">
                     <td className="py-1">{f.etiqueta || f.despacho || "sin identificar"}</td>
+                    <td className="py-1 text-muted-foreground tabular-nums">
+                      {f.derivado && f.derivado !== f.despacho ? `${f.derivado} → ${f.despacho}` : (f.despacho ?? "—")}
+                    </td>
                     <td className="py-1 text-right tabular-nums">{f.andromeda}</td>
                     <td className="py-1 text-right tabular-nums">
                       {f.proveedor == null ? "—" : f.proveedor}

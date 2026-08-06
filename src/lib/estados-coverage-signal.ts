@@ -19,7 +19,26 @@ export type EstadosSignalClass =
   | "ESTADOS_SIN_FIJACION_CONOCIDA"
   | "SIN_COBERTURA_DECLARADA"
   | "SIN_COBERTURA_EN_ESA_FECHA"
-  | "ESTADO_SIN_DOCUMENTO";
+  | "ESTADO_SIN_DOCUMENTO"
+  | "REMITIDO_A_SUPERIOR";
+
+/**
+ * Iteration 35 — how much a coverage-window edge is worth as evidence.
+ *
+ * The source only retains ~120 days, so the first and last dates we observe
+ * are usually artefacts of that retention, not of the despacho's behaviour.
+ * Only a GENUINE edge (or NEVER_PUBLISHED) may silence a missing estado.
+ */
+export type CoverageEdgeConfidence = "GENUINE" | "CENSORED" | "NEVER_PUBLISHED" | "OPEN";
+
+export interface CoverageWindow {
+  publishes_from?: string | null;
+  publishes_until?: string | null;
+  from_confidence?: CoverageEdgeConfidence | null;
+  until_confidence?: CoverageEdgeConfidence | null;
+  /** {"YYYY-MM": n} observed publications per month, when known. */
+  monthly_presence?: Record<string, number> | null;
+}
 
 /**
  * Iteration 34 — the estados provider a matter may be judged against.
@@ -63,12 +82,15 @@ export interface EstadosSignal {
   recent_unmatched_count: number;
   out_of_window_count?: number;
   sin_documento_count?: number;
+  remitido_count?: number;
+  remision_date?: string | null;
   alertable_unmatched_count?: number;
   last_fijacion_date: string | null;
   evidence: {
     unmatched_fijaciones?: Array<{ act_id: string; act_date: string | null; title?: string | null }>;
     fuera_de_ventana?: Array<{ act_id: string; act_date: string | null; description?: string | null }>;
     estados_sin_documento?: Array<{ act_id: string; act_date: string | null; description?: string | null }>;
+    remitidas?: Array<{ act_id: string; act_date: string | null; description?: string | null; remision_date?: string | null }>;
   };
   computed_at: string;
 }
@@ -80,6 +102,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   SIN_COBERTURA_DECLARADA: "Silencio esperado",
   SIN_COBERTURA_EN_ESA_FECHA: "Fuera de la cobertura de la fuente",
   ESTADO_SIN_DOCUMENTO: "Estado sin documento",
+  REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
 };
 
 export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
@@ -95,6 +118,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "La fijación es anterior a la primera publicación conocida del despacho en la fuente, o posterior a la última. No es una anomalía: está fuera de la cobertura temporal de la fuente.",
   ESTADO_SIN_DOCUMENTO:
     "Estado fijado sin documento publicado por el despacho — el término corre. El estado existe y sirve como anclaje del término, pero el despacho nunca cargó la planilla.",
+  REMITIDO_A_SUPERIOR:
+    "El expediente salió del despacho de origen (remisión al superior o por competencia). Las fijaciones posteriores corresponden al despacho receptor: la ausencia de estados en el despacho de origen es correcta, no una falla del proveedor.",
 };
 
 export function estadosSignalTone(cls: EstadosSignalClass): string {
@@ -111,6 +136,8 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
       return "border-sky-500/50 text-sky-600";
     case "ESTADO_SIN_DOCUMENTO":
       return "border-indigo-500/50 text-indigo-600";
+    case "REMITIDO_A_SUPERIOR":
+      return "border-violet-500/50 text-violet-600";
     default:
       return "border-muted-foreground/40 text-muted-foreground";
   }
@@ -131,14 +158,28 @@ export function estadosSignalAlerts(
   return (signal.alertable_unmatched_count ?? signal.recent_unmatched_count) > 0;
 }
 
-/** Mirror of the SQL helper `despacho_window_covers` for a known window. */
+/**
+ * Mirror of the SQL helper `despacho_window_covers` (iteration 35).
+ *
+ * Window membership is not proof that an estado is missing, and a window edge
+ * is only evidence when it is GENUINE. A CENSORED edge is an artefact of the
+ * source's 120-day retention and must never silence an orphan fijación.
+ */
 export function isWithinCoverageWindow(
   date: string | null | undefined,
-  window: { publishes_from?: string | null; publishes_until?: string | null } | null | undefined,
+  window: CoverageWindow | null | undefined,
 ): boolean {
   if (!date || !window) return true;
-  if (window.publishes_from && date < window.publishes_from) return false;
-  if (window.publishes_until && date > window.publishes_until) return false;
+  const from = window.from_confidence ?? "OPEN";
+  const until = window.until_confidence ?? "OPEN";
+  if (from === "NEVER_PUBLISHED" || until === "NEVER_PUBLISHED") return false;
+  if (window.publishes_from && date < window.publishes_from && from === "GENUINE") return false;
+  if (window.publishes_until && date > window.publishes_until && until === "GENUINE") return false;
+  const presence = window.monthly_presence;
+  if (presence && Object.keys(presence).length > 0) {
+    // Interior silence: the source published nothing at all that month.
+    if (!(presence[date.slice(0, 7)] ?? 0)) return false;
+  }
   return true;
 }
 
@@ -165,4 +206,22 @@ export function estadosSignalNorm(text: string): string {
 export function actIsFijacionEstado(description?: string | null, actType?: string | null): boolean {
   const text = estadosSignalNorm(`${description ?? ""} ${actType ?? ""}`);
   return text.includes("fijacion") && text.includes("estado");
+}
+
+/**
+ * Mirror of the SQL predicate `act_is_remision_expediente`: the file leaving
+ * the despacho, whether to the superior or to another judge by competence.
+ */
+export function actIsRemisionExpediente(description?: string | null, actType?: string | null): boolean {
+  const t = estadosSignalNorm(`${description ?? ""} ${actType ?? ""}`);
+  if (t.includes("envio a superior")) return true;
+  if (t.includes("salida finalizando instancia")) return true;
+  return (
+    t.includes("remi") &&
+    (t.includes("superior") ||
+      t.includes("competencia") ||
+      t.includes("incompeten") ||
+      t.includes("otro despacho") ||
+      t.includes("otro juzgado"))
+  );
 }

@@ -1,14 +1,26 @@
 /**
- * ingest-pp-coverage-census — Iteration 34, item 6.
+ * ingest-pp-coverage-census — Iteration 35 (supersedes iteration 34).
  *
- * GCP publishes per-despacho orphan counts under source='PP_COVERAGE' at
- * GET /salud/radicados?source=PP_COVERAGE. We ingest them into
- * `provider_coverage_census` and reconcile them against our own detector.
- * The two detectors must agree on the same number; a divergence is itself the
- * finding and is reported, never silently smoothed over.
+ * The per-despacho orphan census is published by the Andromeda read API under
+ * `GET /salud/radicados?source=PP_COVERAGE`, NOT by the Publicaciones
+ * Procesales API (which 404s on that path — that was the iteration-34 bug).
+ *
+ * The payload is a `salud[]` array whose `radicado` field carries the despacho
+ * code and whose `last_run_status` carries the counters:
+ *   "ORPHAN_FIJACIONES=5 sin_publicacion=5 radicado_ausente=0 sin_fecha=0"
+ *
+ * We ingest every row verbatim. Rows with `workflow_type: null` or
+ * `activo: null` are NOT filtered out — the census is a source-level artefact
+ * and carries no workflow attribution by design.
+ *
+ * The two detectors (ours and the provider's) must agree on the same number;
+ * a divergence is itself the finding and is reported, never smoothed over.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+
+const ANDROMEDA_API_BASE =
+  "https://andromeda-read-api-11974381924.us-central1.run.app";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -26,29 +38,57 @@ type CensusRow = {
   raw: Record<string, unknown>;
 };
 
-function normaliseRows(payload: any): CensusRow[] {
+/** Parse "ORPHAN_FIJACIONES=5 sin_publicacion=5 radicado_ausente=0 sin_fecha=0". */
+export function parseCensusStatus(status: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof status !== "string") return out;
+  for (const m of status.matchAll(/([A-Za-z_]+)\s*=\s*(-?\d+)/g)) {
+    out[m[1].toLowerCase()] = Number(m[2]);
+  }
+  return out;
+}
+
+export function normaliseRows(payload: any): CensusRow[] {
   const rows: any[] = Array.isArray(payload)
     ? payload
-    : Array.isArray(payload?.radicados)
-      ? payload.radicados
-      : Array.isArray(payload?.despachos)
-        ? payload.despachos
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
+    : Array.isArray(payload?.salud)
+      ? payload.salud
+      : Array.isArray(payload?.radicados)
+        ? payload.radicados
+        : Array.isArray(payload?.despachos)
+          ? payload.despachos
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
   const out: CensusRow[] = [];
   for (const r of rows) {
-    const code = String(r?.despacho_code ?? r?.despacho ?? r?.codigo_despacho ?? "").replace(/\D/g, "");
+    const code = String(
+      r?.despacho_code ?? r?.radicado ?? r?.despacho ?? r?.codigo_despacho ?? "",
+    ).replace(/\D/g, "");
     if (!code) continue;
+    const counters = parseCensusStatus(r?.last_run_status);
+    const orphan =
+      Number(
+        r?.orphan_count ??
+          r?.huerfanos ??
+          r?.orphans ??
+          counters.orphan_fijaciones ??
+          0,
+      ) || 0;
     out.push({
       despacho_code: code,
       despacho_label: r?.despacho_label ?? r?.nombre ?? r?.label ?? null,
-      orphan_count: Number(r?.orphan_count ?? r?.huerfanos ?? r?.orphans ?? 0) || 0,
-      first_publication: typeof r?.first_publication === "string" ? r.first_publication.slice(0, 10)
+      orphan_count: orphan,
+      first_publication: typeof r?.first_publication === "string"
+        ? r.first_publication.slice(0, 10)
         : (typeof r?.primera_publicacion === "string" ? r.primera_publicacion.slice(0, 10) : null),
-      last_publication: typeof r?.last_publication === "string" ? r.last_publication.slice(0, 10)
+      last_publication: typeof r?.last_publication === "string"
+        ? r.last_publication.slice(0, 10)
         : (typeof r?.ultima_publicacion === "string" ? r.ultima_publicacion.slice(0, 10) : null),
-      raw: typeof r === "object" && r !== null ? r : {},
+      raw: {
+        ...(typeof r === "object" && r !== null ? r : {}),
+        _counters: counters,
+      },
     });
   }
   return out;
@@ -62,13 +102,9 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const baseUrl = Deno.env.get("PUBLICACIONES_BASE_URL");
-  const apiKey = Deno.env.get("PUBLICACIONES_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
-  if (!baseUrl) {
-    return json({ ok: false, status: "configuration_error", reason: "missing_base_url" });
-  }
+  const apiKey = Deno.env.get("ANDROMEDA_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY") || "";
+  const url = `${ANDROMEDA_API_BASE}/salud/radicados?source=PP_COVERAGE`;
 
-  const url = `${baseUrl.replace(/\/+$/, "")}/salud/radicados?source=PP_COVERAGE`;
   let payload: any = null;
   let httpStatus: number | null = null;
   try {
@@ -77,8 +113,6 @@ Deno.serve(async (req) => {
     });
     httpStatus = res.status;
     if (!res.ok) {
-      // The endpoint is not live yet on the provider side; report cleanly so the
-      // panel can distinguish "not published yet" from "we disagree".
       const reconciliation = await supabase.rpc("estados_coverage_reconciliation");
       return json({
         ok: false,
@@ -115,10 +149,10 @@ Deno.serve(async (req) => {
     ok: true,
     http_status: httpStatus,
     ingested: rows.length,
+    total_huerfanos_proveedor: rows.reduce((a, r) => a + r.orphan_count, 0),
     fetched_at: fetchedAt,
     reconciliation,
     divergencias: divergent,
-    // A divergence between the two detectors is itself the finding.
     detectores_coinciden: divergent.length === 0,
   });
 });
