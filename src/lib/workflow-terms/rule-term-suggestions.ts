@@ -7,7 +7,13 @@
  * "awaiting the anchor date" — never computed from a guess.
  */
 import { addBusinessDays } from "@/lib/colombian-holidays";
-import { computePenalTerms, ruleIsRatified, type PenalAnchor, type PenalComputedTerm } from "@/lib/penal906/penal906-terms";
+import {
+  computePenalTerms,
+  ruleIsRatified,
+  type PenalAnchor,
+  type PenalComputedTerm,
+  type SuspensionWindow,
+} from "@/lib/penal906/penal906-terms";
 import type { WorkflowDeadlineRule } from "@/hooks/use-workflow-deadline-rules";
 
 export interface TermEvent {
@@ -112,10 +118,18 @@ export function buildRuleTermSuggestions(
    * rest of the catalogue stays silent instead of flooding the card.
    */
   awaitingAnchorEvents: string[] = [],
+  /**
+   * Extra anchors the caller resolved elsewhere (e.g. the two-stage TIC
+   * notification) and windows during which terms do not run (al despacho).
+   */
+  extra: { anchors?: (PenalAnchor & { basis?: string })[]; suspensions?: SuspensionWindow[] } = {},
 ): RuleTermSuggestions {
   const ratified = rules.filter(ruleIsRatified);
-  const anchors = resolveAnchorsFromEvents(events);
-  const computed = computePenalTerms(ratified, anchors);
+  const anchors: ResolvedAnchor[] = [
+    ...resolveAnchorsFromEvents(events),
+    ...(extra.anchors ?? []).map((a) => ({ ...a, basis: a.basis ?? "" })),
+  ];
+  const computed = computePenalTerms(ratified, anchors, extra.suspensions ?? []);
 
   const suggested: SuggestedRuleTerm[] = computed.map((term) => ({
     ...term,

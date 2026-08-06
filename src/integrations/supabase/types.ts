@@ -18532,13 +18532,16 @@ export type Database = {
         Row: {
           anchor_event: string | null
           anchor_type: string
+          bound_party: string | null
           citation: string | null
+          consequence: string | null
           created_at: string
           day_type: string
           days_amount: number
           deadline_type: string
           description: string | null
           id: string
+          is_judge_side: boolean
           label: string
           organization_id: string | null
           ratified_at: string | null
@@ -18550,18 +18553,22 @@ export type Database = {
           status: string
           track_kind: string | null
           updated_at: string
+          verification_state: string
           workflow_type: string
         }
         Insert: {
           anchor_event?: string | null
           anchor_type: string
+          bound_party?: string | null
           citation?: string | null
+          consequence?: string | null
           created_at?: string
           day_type?: string
           days_amount: number
           deadline_type: string
           description?: string | null
           id?: string
+          is_judge_side?: boolean
           label: string
           organization_id?: string | null
           ratified_at?: string | null
@@ -18573,18 +18580,22 @@ export type Database = {
           status?: string
           track_kind?: string | null
           updated_at?: string
+          verification_state?: string
           workflow_type: string
         }
         Update: {
           anchor_event?: string | null
           anchor_type?: string
+          bound_party?: string | null
           citation?: string | null
+          consequence?: string | null
           created_at?: string
           day_type?: string
           days_amount?: number
           deadline_type?: string
           description?: string | null
           id?: string
+          is_judge_side?: boolean
           label?: string
           organization_id?: string | null
           ratified_at?: string | null
@@ -18596,6 +18607,7 @@ export type Database = {
           status?: string
           track_kind?: string | null
           updated_at?: string
+          verification_state?: string
           workflow_type?: string
         }
         Relationships: [
@@ -18614,6 +18626,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      workflow_missing_rules: {
+        Row: {
+          created_at: string
+          deadline_type: string
+          expected_citation: string | null
+          id: string
+          kind: string
+          label: string
+          notes: string | null
+          reason: string
+          regimen: string | null
+          retired_guess: Json | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          deadline_type: string
+          expected_citation?: string | null
+          id?: string
+          kind?: string
+          label: string
+          notes?: string | null
+          reason: string
+          regimen?: string | null
+          retired_guess?: Json | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          deadline_type?: string
+          expected_citation?: string | null
+          id?: string
+          kind?: string
+          label?: string
+          notes?: string | null
+          reason?: string
+          regimen?: string | null
+          retired_guess?: Json | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
       }
     }
     Views: {
