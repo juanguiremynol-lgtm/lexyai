@@ -102,6 +102,14 @@ export function ruleIsRatified(rule: PenalDeadlineRule): boolean {
   return rule.status === "RATIFIED" && !!rule.ratified_at;
 }
 
+/**
+ * A rule whose day type the statute does not specify computes NOTHING
+ * (iteration 41). Defence in depth: such rules cannot be ratified either.
+ */
+export function ruleComputesDate(rule: PenalDeadlineRule): boolean {
+  return rule.day_type !== "UNSPECIFIED";
+}
+
 export function anchorMatchesRule(rule: PenalDeadlineRule, anchor: PenalAnchor): boolean {
   if (rule.anchor_type !== anchor.type) return false;
   if (!rule.anchor_event) return true;
@@ -121,6 +129,7 @@ export function computePenalTerms(
   const out: PenalComputedTerm[] = [];
   for (const rule of rules) {
     if (!ruleIsRatified(rule)) continue;
+    if (!ruleComputesDate(rule)) continue;
     for (const anchor of anchors) {
       if (!anchorMatchesRule(rule, anchor)) continue;
       const oralInHearing =
