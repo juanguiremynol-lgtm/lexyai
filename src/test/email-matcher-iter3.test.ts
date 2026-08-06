@@ -30,7 +30,12 @@ const wi = (id: string, over: Partial<PortfolioItem> = {}): PortfolioItem => ({
   ...over,
 });
 
-const owner = buildOwnerIdentity({ names: ["Juan Guillermo Restrepo Maya"], emails: ["gr@lexetlit.com"] });
+// Iteración 39: la identidad del titular ya no está codificada en el motor;
+// llega completa desde el perfil y el buzón conectado del inquilino.
+const owner = buildOwnerIdentity({
+  names: ["Juan Guillermo Restrepo Maya", "Lex et Litterae", "Lex et Lit"],
+  emails: ["gr@lexetlit.com"],
+});
 
 describe("FIX 1 — owner identity blocklist", () => {
   it("blocks the owner full name and normalizations", () => {
