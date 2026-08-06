@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
+import { presentFailure } from "@/lib/email-connection-failures";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
 
