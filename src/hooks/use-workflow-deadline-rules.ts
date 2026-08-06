@@ -12,6 +12,9 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { UNSPECIFIED_DAY_TYPE_NOTE } from "@/lib/penal906/penal906-terms";
+
+export { UNSPECIFIED_DAY_TYPE_NOTE };
 
 export type DeadlineAnchorType =
   | "ANCHOR_AUDIENCIA"
@@ -48,9 +51,6 @@ export type DeadlineDayType =
   | "YEARS"
   | "NONE"
   | "UNSPECIFIED";
-
-export const UNSPECIFIED_DAY_TYPE_NOTE =
-  "tipo de día no especificado en la norma — pendiente de definición";
 
 export type RuleConfidence = "ALTA" | "MEDIA" | "BAJA";
 
