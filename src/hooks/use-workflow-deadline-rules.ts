@@ -64,12 +64,12 @@ export interface WorkflowDeadlineRule {
   day_type: DeadlineDayType;
   description: string | null;
   /** Who the term binds (party or the judge). */
-  bound_party: string | null;
+  bound_party?: string | null;
   /** What happens when the term lapses (desierto, preclusión, ...). */
-  consequence: string | null;
+  consequence?: string | null;
   /** True when the term is the court's own internal deadline. */
-  is_judge_side: boolean;
-  verification_state: RuleVerificationState;
+  is_judge_side?: boolean;
+  verification_state?: RuleVerificationState;
   research_notes: string | null;
   sources: unknown;
   requires_manual_review: boolean;
