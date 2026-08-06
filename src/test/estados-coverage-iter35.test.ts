@@ -66,7 +66,7 @@ describe("iter35 · coverage edge confidence", () => {
       publishes_until: "2026-01-01",
       from_confidence: "GENUINE",
       until_confidence: "GENUINE",
-      monthly_presence: { "2025-03": 12, "2025-05": 4 },
+      monthly_presence: { "2025-03": 12, "2025-04": 0, "2025-05": 4 },
     };
     expect(isWithinCoverageWindow("2025-03-10", w)).toBe(true);
     expect(isWithinCoverageWindow("2025-04-10", w)).toBe(false);
