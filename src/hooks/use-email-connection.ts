@@ -124,9 +124,18 @@ export function useEmailConnection() {
       const { data, error } = await supabase.functions.invoke("outlook-disconnect", { body: {} });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      return data as { revoked_on_microsoft?: boolean; microsoft_consent_url?: string };
     },
-    onSuccess: () => {
-      toast.success("Outlook desconectado");
+    onSuccess: (data) => {
+      // Honest about the half we cannot always complete: when Microsoft does
+      // not let the app delete its own grant, the user finishes it there.
+      if (data?.revoked_on_microsoft) {
+        toast.success("Outlook desconectado y permiso revocado en Microsoft");
+      } else {
+        toast.success(
+          "Outlook desconectado. Para retirar el permiso también en Microsoft, ábralo en «Mis aplicaciones».",
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
     },
     onError: (e: Error) => toast.error(e.message),
