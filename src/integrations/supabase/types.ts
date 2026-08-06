@@ -14788,20 +14788,28 @@ export type Database = {
         Row: {
           access_token_cipher: string | null
           access_token_nonce: string | null
+          admin_consent_url: string | null
           can_send: boolean
           connected_at: string | null
           created_at: string
           delta_token_inbox: string | null
           delta_token_sent: string | null
+          failure_code: string | null
+          failure_detail: string | null
           id: string
           last_error: string | null
+          last_refresh_at: string | null
           last_sync_at: string | null
           ms_account_email: string | null
           ms_tenant_id: string | null
           organization_id: string | null
+          pending_scopes: string[] | null
+          pkce_verifier_cipher: string | null
+          pkce_verifier_nonce: string | null
           provider: string
           refresh_token_cipher: string | null
           refresh_token_nonce: string | null
+          revoked_at: string | null
           scopes: string[]
           status: string
           token_expires_at: string | null
@@ -14811,20 +14819,28 @@ export type Database = {
         Insert: {
           access_token_cipher?: string | null
           access_token_nonce?: string | null
+          admin_consent_url?: string | null
           can_send?: boolean
           connected_at?: string | null
           created_at?: string
           delta_token_inbox?: string | null
           delta_token_sent?: string | null
+          failure_code?: string | null
+          failure_detail?: string | null
           id?: string
           last_error?: string | null
+          last_refresh_at?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null
           organization_id?: string | null
+          pending_scopes?: string[] | null
+          pkce_verifier_cipher?: string | null
+          pkce_verifier_nonce?: string | null
           provider?: string
           refresh_token_cipher?: string | null
           refresh_token_nonce?: string | null
+          revoked_at?: string | null
           scopes?: string[]
           status?: string
           token_expires_at?: string | null
@@ -14834,20 +14850,28 @@ export type Database = {
         Update: {
           access_token_cipher?: string | null
           access_token_nonce?: string | null
+          admin_consent_url?: string | null
           can_send?: boolean
           connected_at?: string | null
           created_at?: string
           delta_token_inbox?: string | null
           delta_token_sent?: string | null
+          failure_code?: string | null
+          failure_detail?: string | null
           id?: string
           last_error?: string | null
+          last_refresh_at?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null
           organization_id?: string | null
+          pending_scopes?: string[] | null
+          pkce_verifier_cipher?: string | null
+          pkce_verifier_nonce?: string | null
           provider?: string
           refresh_token_cipher?: string | null
           refresh_token_nonce?: string | null
+          revoked_at?: string | null
           scopes?: string[]
           status?: string
           token_expires_at?: string | null

@@ -31,7 +31,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 const CONNECTION_COLUMNS =
-  "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at";
+  "id, user_id, organization_id, ms_account_email, scopes, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at";
 
 const DEFAULT_BATCH = 25;
 const MAX_BATCH = 50;

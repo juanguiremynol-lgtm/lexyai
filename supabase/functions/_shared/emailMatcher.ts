@@ -112,30 +112,33 @@ export const EXCLUDED_SENDERS = ["monitoreo@andromeda.legal"];
 /**
  * Identidad del titular del buzón. El abogado firma TODOS sus correos: su
  * propio nombre (o el de la firma) no aporta ninguna señal y produce fan-out
- * masivo por el matcher de nombres. Se deriva del perfil/conexión; estos
- * valores son solo el respaldo cuando el perfil viene vacío.
+ * masivo por el matcher de nombres.
+ *
+ * MULTI-INQUILINO (iteración 39): se deriva EXCLUSIVAMENTE del buzón conectado
+ * y del perfil de ese usuario. No existe ningún nombre ni correo codificado:
+ * un valor fijo bloquearía la identidad equivocada en la firma de otro cliente
+ * y dejaría de bloquear la suya.
  */
 export interface OwnerIdentity {
   names: string[];
   emails: string[];
 }
 
-export const FALLBACK_OWNER_IDENTITY: OwnerIdentity = {
-  names: ["JUAN GUILLERMO RESTREPO MAYA", "LEX ET LITTERAE", "LEX ET LIT"],
-  emails: ["gr@lexetlit.com"],
-};
+/** Vacío a propósito: ninguna identidad de inquilino se codifica en el motor. */
+export const FALLBACK_OWNER_IDENTITY: OwnerIdentity = { names: [], emails: [] };
 
-/** Une la identidad derivada del perfil con el respaldo codificado. */
+/** Construye la identidad del titular a partir del buzón y del perfil. */
 export function buildOwnerIdentity(partial?: Partial<OwnerIdentity>): OwnerIdentity {
+  const emails = (partial?.emails ?? [])
+    .filter(Boolean)
+    .map((e) => e.toLowerCase().trim())
+    .filter(Boolean);
   return {
-    names: [
-      ...FALLBACK_OWNER_IDENTITY.names,
-      ...(partial?.names ?? []).filter(Boolean),
-    ].map((n) => norm(n)).filter((n) => n.length >= 4),
-    emails: [
-      ...FALLBACK_OWNER_IDENTITY.emails,
-      ...(partial?.emails ?? []).filter(Boolean),
-    ].map((e) => e.toLowerCase().trim()).filter(Boolean),
+    names: (partial?.names ?? [])
+      .filter(Boolean)
+      .map((n) => norm(n))
+      .filter((n) => n.length >= 4),
+    emails: [...new Set(emails)],
   };
 }
 
@@ -143,8 +146,8 @@ const OWNER_STOPWORDS = new Set(["DE", "DEL", "LA", "LAS", "LOS", "Y", "S", "SAS
 
 /**
  * ¿El valor matcheado corresponde al titular del buzón? Se compara por tokens
- * para cubrir normalizaciones y subcadenas ("RESTREPO MAYA",
- * "JUAN RESTREPO MAYA", "LEX ET LIT").
+ * para cubrir normalizaciones y subcadenas: el nombre del abogado, el de su
+ * firma y las variantes abreviadas de ambos, tal como vengan del perfil.
  */
 export function isOwnerIdentityValue(value: string, owner: OwnerIdentity): boolean {
   const v = norm(value);

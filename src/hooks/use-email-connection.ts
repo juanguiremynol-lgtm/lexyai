@@ -19,6 +19,12 @@ export interface EmailConnection {
   connected_at: string | null;
   last_sync_at: string | null;
   can_send: boolean;
+  /** Classified Microsoft failure (see lib/email-connection-failures). */
+  failure_code: string | null;
+  failure_detail: string | null;
+  /** Tenant-wide consent URL to hand to the firm's IT administrator. */
+  admin_consent_url: string | null;
+  revoked_at: string | null;
 }
 
 /**
@@ -73,7 +79,7 @@ export function useEmailConnection() {
     queryFn: async (): Promise<EmailConnection | null> => {
       const { data, error } = await supabase
         .from("user_email_connections")
-        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send")
+        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at")
         .eq("provider", "outlook")
         .maybeSingle();
       if (error) throw error;
@@ -118,9 +124,18 @@ export function useEmailConnection() {
       const { data, error } = await supabase.functions.invoke("outlook-disconnect", { body: {} });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      return data as { revoked_on_microsoft?: boolean; microsoft_consent_url?: string };
     },
-    onSuccess: () => {
-      toast.success("Outlook desconectado");
+    onSuccess: (data) => {
+      // Honest about the half we cannot always complete: when Microsoft does
+      // not let the app delete its own grant, the user finishes it there.
+      if (data?.revoked_on_microsoft) {
+        toast.success("Outlook desconectado y permiso revocado en Microsoft");
+      } else {
+        toast.success(
+          "Outlook desconectado. Para retirar el permiso también en Microsoft, ábralo en «Mis aplicaciones».",
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -160,6 +175,27 @@ export function useEmailConnection() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  /**
+   * Asks the backend for the tenant-wide admin-consent URL. Kept as an explicit
+   * action so the URL is only minted when the user actually needs to escalate
+   * to their administrator.
+   */
+  const requestAdminConsent = useMutation({
+    mutationFn: async (): Promise<string> => {
+      const { data, error } = await supabase.functions.invoke("outlook-admin-consent", {
+        body: {},
+      });
+      if (error) throw error;
+      const url = (data as { admin_consent_url?: string } | null)?.admin_consent_url;
+      if (!url) throw new Error("No se pudo generar el enlace de autorización.");
+      return url;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["email-connection"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const connection = query.data ?? null;
   const isConnected = connection?.status === "CONNECTED";
   return {
@@ -172,9 +208,12 @@ export function useEmailConnection() {
     needsReconnectForSend: Boolean(
       OUTLOOK_SEND_ENABLED && isConnected && !connection?.can_send,
     ),
+    /** A classified failure the user must act on (admin consent, reconnect…). */
+    failureCode: connection && connection.status !== "CONNECTED" ? connection.failure_code : null,
     connect,
     disconnect,
     sync,
+    requestAdminConsent,
   };
 }
 

@@ -3,13 +3,23 @@
  * integration.
  *
  * Design invariants (ratified, non-negotiable):
- *   1. Multi-user: every subscriber connects their OWN mailbox.
+ *   1. Multi-tenant: ONE Andromeda-owned Azure app registration; every
+ *      subscriber connects their OWN mailbox from their OWN directory and
+ *      never supplies a client id or secret.
  *   2. Inference, not mirroring: Andromeda never persists full message bodies.
  *   3. Mail.ReadWrite is never requested — Andromeda never modifies or deletes
- *      anything in the mailbox. Mail.Send is requested so the user can send
- *      from their own account, always through an explicit in-app confirmation
- *      and always recorded in the append-only outlook_send_audit_log.
+ *      anything in the mailbox. Mail.Send is NOT requested at connection time
+ *      either: it is asked for incrementally, the first time the user sends.
  */
+import {
+  CONNECT_SCOPES,
+  SEND_SCOPES,
+  authorityTenant,
+  classifyMsError,
+  scopesFor,
+} from "./msOAuth.ts";
+
+export { CONNECT_SCOPES, SEND_SCOPES, scopesFor };
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,8 +33,11 @@ export const corsHeaders = {
  */
 export const OUTLOOK_SEND_ENABLED = true;
 
-/** Consent: read + send. Mail.ReadWrite is deliberately NOT requested. */
-export const GRAPH_SCOPES = ["Mail.Read", "Mail.Send", "offline_access", "User.Read"] as const;
+/**
+ * Back-compat alias. Connection-time consent is read-only; Mail.Send arrives
+ * through incremental consent (see SEND_SCOPES).
+ */
+export const GRAPH_SCOPES = CONNECT_SCOPES;
 
 /** Parses the space-delimited scope string Microsoft returns with the token. */
 export function parseScopes(scope: string | undefined | null): string[] {
@@ -42,7 +55,9 @@ export function grantsSend(scopes: string[]): boolean {
 export function msConfig() {
   const clientId = Deno.env.get("MS_CLIENT_ID");
   const clientSecret = Deno.env.get("MS_CLIENT_SECRET");
-  const tenant = Deno.env.get("MS_TENANT_ID") || "common";
+  // Multi-tenant authority. MS_TENANT_ID (the owner's own directory) is kept
+  // only for reference; it must never pin the authority for other customers.
+  const tenant = authorityTenant();
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const redirectUri = Deno.env.get("MS_REDIRECT_URI") ||
     `${supabaseUrl}/functions/v1/outlook-callback`;
@@ -175,7 +190,8 @@ async function tokenRequest(form: Record<string, string>): Promise<TokenResponse
   return JSON.parse(text) as TokenResponse;
 }
 
-export function exchangeCode(code: string) {
+/** Authorization-code exchange with PKCE. The verifier never leaves the server. */
+export function exchangeCode(code: string, codeVerifier: string | null, scopes: string[]) {
   const { clientId, clientSecret, redirectUri } = msConfig();
   return tokenRequest({
     client_id: clientId!,
@@ -183,11 +199,12 @@ export function exchangeCode(code: string) {
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
-    scope: GRAPH_SCOPES.join(" "),
+    scope: scopes.join(" "),
+    ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
   });
 }
 
-export function refreshTokens(refreshToken: string) {
+export function refreshTokens(refreshToken: string, scopes: string[] = [...CONNECT_SCOPES]) {
   const { clientId, clientSecret, redirectUri } = msConfig();
   return tokenRequest({
     client_id: clientId!,
@@ -195,7 +212,7 @@ export function refreshTokens(refreshToken: string) {
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     redirect_uri: redirectUri,
-    scope: GRAPH_SCOPES.join(" "),
+    scope: scopes.join(" "),
   });
 }
 
@@ -242,11 +259,25 @@ export interface StoredConnection {
   refresh_token_cipher: string | null;
   refresh_token_nonce: string | null;
   token_expires_at: string | null;
+  scopes?: string[] | null;
+}
+
+/** Thrown when the grant is dead: the caller must stop retrying. */
+export class ConnectionRevokedError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "ConnectionRevokedError";
+  }
 }
 
 /**
  * Returns a valid access token for the connection, refreshing and re-persisting
  * it when the stored one is expired or about to expire.
+ *
+ * A refresh failure is classified: when Microsoft says the consent is gone
+ * (revoked, password changed, token expired) the row is marked REVOKED with a
+ * plain-Spanish reason and the caller stops — a connection that no longer works
+ * must never keep reporting as connected.
  */
 export async function ensureAccessToken(
   admin: { from: (t: string) => any },
@@ -260,7 +291,37 @@ export async function ensureAccessToken(
   const refresh = await decryptToken(conn.refresh_token_cipher, conn.refresh_token_nonce);
   if (!refresh) throw new Error("La conexión no tiene refresh token. Vuelve a conectar Outlook.");
 
-  const tokens = await refreshTokens(refresh);
+  const requested = (conn.scopes ?? []).some((s) => s.toLowerCase() === "mail.send")
+    ? [...SEND_SCOPES]
+    : [...CONNECT_SCOPES];
+
+  let tokens: TokenResponse;
+  try {
+    tokens = await refreshTokens(refresh, requested);
+  } catch (e) {
+    const failure = classifyMsError(e);
+    await admin
+      .from("user_email_connections")
+      .update({
+        status: failure.terminal ? "REVOKED" : "ERROR",
+        failure_code: failure.code,
+        failure_detail: e instanceof Error ? e.message.slice(0, 800) : String(e).slice(0, 800),
+        last_error: failure.message,
+        ...(failure.terminal
+          ? {
+              revoked_at: new Date().toISOString(),
+              access_token_cipher: null,
+              access_token_nonce: null,
+              refresh_token_cipher: null,
+              refresh_token_nonce: null,
+              token_expires_at: null,
+            }
+          : {}),
+      })
+      .eq("id", conn.id);
+    throw new ConnectionRevokedError(failure.code, failure.message);
+  }
+
   const access = await encryptToken(tokens.access_token);
   const scopes = parseScopes(tokens.scope);
   const patch: Record<string, unknown> = {
@@ -269,6 +330,10 @@ export async function ensureAccessToken(
     token_expires_at: new Date(Date.now() + (tokens.expires_in - 60) * 1000).toISOString(),
     status: "CONNECTED",
     last_error: null,
+    failure_code: null,
+    failure_detail: null,
+    revoked_at: null,
+    last_refresh_at: new Date().toISOString(),
   };
   if (scopes.length > 0) {
     patch.scopes = scopes;
@@ -279,6 +344,10 @@ export async function ensureAccessToken(
     patch.refresh_token_cipher = nr.cipherHex;
     patch.refresh_token_nonce = nr.nonceHex;
   }
-  await admin.from("user_email_connections").update(patch).eq("id", conn.id);
+  // Rotation is atomic: the write only lands if nobody else rotated first.
+  const guarded = admin.from("user_email_connections").update(patch).eq("id", conn.id);
+  await (conn.refresh_token_cipher
+    ? guarded.eq("refresh_token_cipher", conn.refresh_token_cipher)
+    : guarded);
   return tokens.access_token;
 }
