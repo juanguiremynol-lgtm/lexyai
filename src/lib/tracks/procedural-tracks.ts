@@ -124,17 +124,30 @@ export function suggestEjecutivoAContinuacion(params: {
   tracks: ProceduralTrack[];
   latestActText?: string | null;
   latestActDate?: string | null;
+  /**
+   * ITER37 — the mandamiento must be searched across the recent acts, not only
+   * the latest one: a "Fijación Estado" the day after would otherwise mask it
+   * and the whole executive path becomes unreachable. Oldest→newest.
+   */
+  recentActs?: { text: string | null; at: string | null }[];
   /** True when the user recorded that the art. 306 request was filed. */
   art306RequestFiled?: boolean;
 }): TrackTransitionSuggestion | null {
-  const { workflowType, tracks, latestActText, latestActDate, art306RequestFiled } = params;
+  const { workflowType, tracks, latestActText, latestActDate, recentActs, art306RequestFiled } =
+    params;
   // Only inside a declarative matter; an autonomous executive matter is already
   // an executive workflow and needs no track.
   if (workflowType === "EJECUTIVO") return null;
   if (tracks.some((t) => t.track_kind === "EJECUTIVO_A_CONTINUACION")) return null;
 
-  const text = latestActText ? normalize(latestActText) : "";
-  const hasMandamiento = !!text && MANDAMIENTO_RE.test(text);
+  const candidates = [
+    ...(recentActs ?? []),
+    { text: latestActText ?? null, at: latestActDate ?? null },
+  ].filter((c) => !!c.text);
+  // Most recent mandamiento wins as the trigger.
+  const trigger =
+    [...candidates].reverse().find((c) => MANDAMIENTO_RE.test(normalize(c.text as string))) ?? null;
+  const hasMandamiento = !!trigger;
   if (!hasMandamiento && !art306RequestFiled) return null;
 
   return {
@@ -144,8 +157,8 @@ export function suggestEjecutivoAContinuacion(params: {
       ? "Se detectó auto que libra mandamiento de pago en un proceso declarativo; ¿abrir seguimiento como ejecutivo a continuación?"
       : "Registró la solicitud de ejecución a continuación (art. 306 CGP); ¿abrir el tramo ejecutivo en este mismo expediente?",
     citation: "CGP, art. 306",
-    triggerText: latestActText ?? null,
-    triggerDate: latestActDate ?? null,
+    triggerText: trigger?.text ?? latestActText ?? null,
+    triggerDate: trigger?.at ?? latestActDate ?? null,
   };
 }
 
