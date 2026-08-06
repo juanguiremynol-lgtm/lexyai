@@ -70,6 +70,12 @@ describe("iter35 · coverage edge confidence", () => {
     expect(isWithinCoverageWindow("2025-03-10", w)).toBe(true);
     expect(isWithinCoverageWindow("2025-04-10", w)).toBe(false);
   });
+
+  it("does not infer zero for a month omitted by the authoritative census", () => {
+    expect(isWithinCoverageWindow("2025-04-10", {
+      monthly_presence: { "2025-03": 12, "2025-05": 4 },
+    })).toBe(true);
+  });
 });
 
 describe("iter35 · remisión detector", () => {
@@ -78,6 +84,8 @@ describe("iter35 · remisión detector", () => {
     expect(actIsRemisionExpediente("Salida Finalizando Instancia - EN LA FECHA SE REMITE DEMANDA RECHAZADA")).toBe(true);
     expect(actIsRemisionExpediente("Envio A Superior Por Interpuestos Sin Finalizacion")).toBe(true);
     expect(actIsRemisionExpediente("No reponer el auto atacado - Disponer la remisión de copia al superior")).toBe(true);
+    expect(actIsRemisionExpediente("ENVÍO A OTROS DESPACHOS")).toBe(true);
+    expect(actIsRemisionExpediente("Remisión expediente")).toBe(true);
   });
 
   it("does not fire on ordinary acts", () => {

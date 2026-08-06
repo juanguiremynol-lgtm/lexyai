@@ -28,6 +28,17 @@ interface Reconciliation {
   filas: ReconciliationRow[];
 }
 
+interface CoverageSummary extends Record<string, number | string | null> {
+  scope_portfolio?: string;
+  scope_provider_census?: string;
+  provider_census_orphans?: number;
+  censored_edge_orphans?: number;
+  genuine_window_orphans?: number;
+  remision_orphans?: number;
+  unexplained_orphans?: number;
+  alertable_unexplained_orphans?: number;
+}
+
 export function EstadosCoverageReconciliationPanel() {
   const [ingesting, setIngesting] = useState(false);
 
@@ -41,7 +52,7 @@ export function EstadosCoverageReconciliationPanel() {
       ]);
       return {
         reconciliation: (rec.data ?? null) as unknown as Reconciliation | null,
-        summary: (sum.data ?? null) as unknown as Record<string, number | string | null> | null,
+        summary: (sum.data ?? null) as unknown as CoverageSummary | null,
         samai: (samai.data ?? null) as unknown as {
           cpaca_monitoreados?: number;
           ciegos?: number;
@@ -85,22 +96,20 @@ export function EstadosCoverageReconciliationPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         {data?.summary && (
-          <div className="flex flex-wrap gap-2 text-xs">
-            <Badge variant="outline">Cubiertos: {String(data.summary.cubierto ?? 0)}</Badge>
-            <Badge variant="outline" className="border-amber-500/60 text-amber-600">
-              Estados ausentes: {String(data.summary.estados_esperados_ausentes ?? 0)} (accionables{" "}
-              {String(data.summary.estados_ausentes_accionables ?? 0)})
-            </Badge>
-            <Badge variant="outline" className="border-sky-500/50 text-sky-600">
-              Fuera de ventana: {String(data.summary.sin_cobertura_en_esa_fecha ?? 0)}
-            </Badge>
-            <Badge variant="outline" className="border-indigo-500/50 text-indigo-600">
-              Estado sin documento: {String(data.summary.estado_sin_documento ?? 0)}
-            </Badge>
-            <Badge variant="outline" className="border-violet-500/50 text-violet-600">
-              Remitidos: {String(data.summary.remitido_a_superior ?? 0)}
-            </Badge>
-            <Badge variant="outline">Huérfanos totales: {String(data.summary.huerfanos_totales ?? 0)}</Badge>
+          <div className="space-y-2 text-xs">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Portafolio · huérfanos: {String(data.summary.huerfanos_totales ?? 0)}</Badge>
+              <Badge variant="outline">Censo despacho completo · huérfanos: {String(data.summary.provider_census_orphans ?? 0)}</Badge>
+            </div>
+            <p className="text-muted-foreground">
+              Son alcances distintos: Andromeda cuenta únicamente radicados activos monitoreados; el censo cubre todo el despacho.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Bordes censurados: {String(data.summary.censored_edge_orphans ?? 0)}</Badge>
+              <Badge variant="outline" className="border-sky-500/50 text-sky-600">Ventana genuina: {String(data.summary.genuine_window_orphans ?? 0)}</Badge>
+              <Badge variant="outline" className="border-violet-500/50 text-violet-600">Remisiones: {String(data.summary.remision_orphans ?? 0)}</Badge>
+              <Badge variant="outline" className="border-amber-500/60 text-amber-600">Sin explicar: {String(data.summary.unexplained_orphans ?? 0)} · alertables {String(data.summary.alertable_unexplained_orphans ?? 0)}</Badge>
+            </div>
           </div>
         )}
 
@@ -146,8 +155,8 @@ export function EstadosCoverageReconciliationPanel() {
                 <tr className="border-b">
                   <th className="py-1 text-left font-medium">Despacho</th>
                   <th className="py-1 text-left font-medium">Derivado</th>
-                  <th className="py-1 text-right font-medium">Andromeda</th>
-                  <th className="py-1 text-right font-medium">Proveedor</th>
+                  <th className="py-1 text-right font-medium">Portafolio</th>
+                  <th className="py-1 text-right font-medium">Despacho completo</th>
                   <th className="py-1 text-right font-medium">Estado</th>
                 </tr>
               </thead>
