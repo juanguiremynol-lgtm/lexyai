@@ -126,14 +126,58 @@ function OutlookConnectionCard() {
           </div>
         ) : (
           <div className="space-y-3">
-            {connection?.status === "ERROR" && connection.last_error && (
+            {failure && (
+              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">{failure.title}</p>
+                <p className="text-muted-foreground">{connection?.failure_detail || failure.detail}</p>
+                {failure.action === "ADMIN_CONSENT" && (
+                  <div className="space-y-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        requestAdminConsent.mutate(undefined, {
+                          onSuccess: (url) => {
+                            void navigator.clipboard.writeText(url);
+                            toast.success("Enlace copiado. Envíelo a quien administra su correo.");
+                          },
+                        });
+                      }}
+                      disabled={requestAdminConsent.isPending}
+                    >
+                      <ShieldCheck className="mr-2 h-4 w-4" aria-hidden />
+                      {requestAdminConsent.isPending ? "Generando…" : failure.actionLabel}
+                    </Button>
+                    {adminUrl && (
+                      <p className="break-all rounded bg-muted p-2 text-xs text-muted-foreground">
+                        {adminUrl}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {!failure && connection?.status === "ERROR" && connection.last_error && (
               <p className="text-sm text-destructive">
                 La última sincronización falló: {connection.last_error}
               </p>
             )}
+            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">Qué autoriza al conectar</p>
+              <ul className="list-disc space-y-0.5 pl-4">
+                <li>Lectura de los correos de su buzón para vincularlos a sus expedientes.</li>
+                <li>Lectura de su nombre y dirección de correo para identificar la cuenta.</li>
+                <li>Andromeda no envía correos con esta autorización ni modifica su buzón.</li>
+                <li>Puede desconectar el buzón cuando quiera, desde esta misma pantalla.</li>
+              </ul>
+            </div>
             <Button size="sm" onClick={() => connect.mutate()} disabled={connect.isPending}>
               <Mail className="mr-2 h-4 w-4" aria-hidden />
-              {connect.isPending ? "Abriendo Microsoft…" : "Conectar Outlook"}
+              {connect.isPending
+                ? "Abriendo Microsoft…"
+                : failure?.action === "RECONNECT"
+                  ? failure.actionLabel
+                  : "Conectar Outlook"}
             </Button>
           </div>
         )}
