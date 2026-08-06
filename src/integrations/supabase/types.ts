@@ -5548,6 +5548,8 @@ export type Database = {
       }
       despacho_coverage: {
         Row: {
+          alias_status: string
+          annual_volumes: Json
           census_source: string | null
           checked_at: string | null
           created_at: string
@@ -5568,6 +5570,8 @@ export type Database = {
           workflow_type: string | null
         }
         Insert: {
+          alias_status?: string
+          annual_volumes?: Json
           census_source?: string | null
           checked_at?: string | null
           created_at?: string
@@ -5588,6 +5592,8 @@ export type Database = {
           workflow_type?: string | null
         }
         Update: {
+          alias_status?: string
+          annual_volumes?: Json
           census_source?: string | null
           checked_at?: string | null
           created_at?: string
