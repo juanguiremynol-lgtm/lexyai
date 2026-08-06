@@ -49,6 +49,7 @@ export const DOCTRINE_TYPE_LABELS: Record<string, string> = {
   INGESTA_MASIVA: 'Ingesta masiva',
   LEXY_DAILY: 'Resumen diario de Lexy',
   BRECHA_COBERTURA_ESTADOS: 'Brecha de cobertura',
+  REMISION_EXPEDIENTE: 'Remisión de expediente',
   [FALLBACK_ALERT_TYPE]: 'Sin clasificar',
 };
 
