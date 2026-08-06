@@ -190,7 +190,8 @@ async function tokenRequest(form: Record<string, string>): Promise<TokenResponse
   return JSON.parse(text) as TokenResponse;
 }
 
-export function exchangeCode(code: string) {
+/** Authorization-code exchange with PKCE. The verifier never leaves the server. */
+export function exchangeCode(code: string, codeVerifier: string | null, scopes: string[]) {
   const { clientId, clientSecret, redirectUri } = msConfig();
   return tokenRequest({
     client_id: clientId!,
@@ -198,11 +199,12 @@ export function exchangeCode(code: string) {
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
-    scope: GRAPH_SCOPES.join(" "),
+    scope: scopes.join(" "),
+    ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
   });
 }
 
-export function refreshTokens(refreshToken: string) {
+export function refreshTokens(refreshToken: string, scopes: string[] = [...CONNECT_SCOPES]) {
   const { clientId, clientSecret, redirectUri } = msConfig();
   return tokenRequest({
     client_id: clientId!,
@@ -210,7 +212,7 @@ export function refreshTokens(refreshToken: string) {
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     redirect_uri: redirectUri,
-    scope: GRAPH_SCOPES.join(" "),
+    scope: scopes.join(" "),
   });
 }
 
