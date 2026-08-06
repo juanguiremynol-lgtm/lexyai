@@ -34,6 +34,8 @@ interface TerminosDeReglaProps {
    */
   includeArt306Only?: boolean;
   events: TermEvent[];
+  /** Anchor events to list as "awaiting the anchor date" when unresolved. */
+  awaitingAnchorEvents?: string[];
 }
 
 export function TerminosDeRegla({
@@ -41,6 +43,7 @@ export function TerminosDeRegla({
   ruleWorkflowType,
   includeArt306Only,
   events,
+  awaitingAnchorEvents = [],
 }: TerminosDeReglaProps) {
   const workflowForRules = includeArt306Only ? "EJECUTIVO" : ruleWorkflowType;
   const { data: rules = [] } = useWorkflowDeadlineRules(workflowForRules);
@@ -55,8 +58,8 @@ export function TerminosDeRegla({
   );
 
   const { suggested, awaiting } = useMemo(
-    () => buildRuleTermSuggestions(scoped, events),
-    [scoped, events],
+    () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents),
+    [scoped, events, awaitingAnchorEvents],
   );
 
   const confirm = useMutation({

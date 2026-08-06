@@ -106,6 +106,12 @@ export interface RuleTermSuggestions {
 export function buildRuleTermSuggestions(
   rules: WorkflowDeadlineRule[],
   events: TermEvent[],
+  /**
+   * Anchor events the caller considers relevant for this matter. Ratified rules
+   * with one of these anchors and no known date are listed as "awaiting"; the
+   * rest of the catalogue stays silent instead of flooding the card.
+   */
+  awaitingAnchorEvents: string[] = [],
 ): RuleTermSuggestions {
   const ratified = rules.filter(ruleIsRatified);
   const anchors = resolveAnchorsFromEvents(events);
@@ -119,6 +125,7 @@ export function buildRuleTermSuggestions(
   const resolvedRuleIds = new Set(suggested.map((t) => t.ruleId));
   const awaiting: AwaitingAnchor[] = ratified
     .filter((r) => !resolvedRuleIds.has(r.id))
+    .filter((r) => !!r.anchor_event && awaitingAnchorEvents.includes(r.anchor_event))
     .map((r) => ({
       ruleId: r.id,
       deadlineType: r.deadline_type,
