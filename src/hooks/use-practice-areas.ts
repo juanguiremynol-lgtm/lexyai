@@ -16,6 +16,7 @@ import type { WorkflowType } from "@/lib/workflow-constants";
 /** Areas that are boards, in display order. INDETERMINADO is not an area. */
 export const PRACTICE_AREA_OPTIONS: WorkflowType[] = [
   "CGP",
+  "EJECUTIVO",
   "LABORAL",
   "PENAL_906",
   "CPACA",

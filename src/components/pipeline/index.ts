@@ -13,6 +13,7 @@ export { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 export { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
 export { LaboralPipeline } from "./LaboralPipeline";
 export { UnclassifiedTray } from "./UnclassifiedTray";
+export { WorkflowPhaseBoard } from "./WorkflowPhaseBoard";
 export type { UnifiedItem } from "./UnifiedPipelineCard";
 export type { StageConfig, StageType } from "./UnifiedPipelineColumn";
 export type { WorkItemPipelineItem } from "./WorkItemPipelineCard";
