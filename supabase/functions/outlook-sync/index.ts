@@ -14,6 +14,7 @@ import {
   corsHeaders,
   graphGet,
   ensureAccessToken,
+  ConnectionRevokedError,
 } from "../_shared/outlookGraph.ts";
 import { resolveCaller } from "../_shared/callerIdentity.ts";
 import {
@@ -1116,7 +1117,7 @@ Deno.serve(async (req) => {
 
     let connections: Connection[] = [];
     const columns =
-      "id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
+      "id, user_id, organization_id, ms_account_email, scopes, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, delta_token_inbox, delta_token_sent";
 
     // ---- Reanudación de un tramo: solo la propia función (service role) puede
     // encadenar. No hay usuario detrás de esta invocación.
@@ -1223,10 +1224,14 @@ Deno.serve(async (req) => {
             })
             .eq("id", sweep.runId);
         }
-        await admin
-          .from("user_email_connections")
-          .update({ status: "ERROR", last_error: message.slice(0, 500) })
-          .eq("id", conn.id);
+        // A revoked grant is already marked REVOKED with its Spanish reason by
+        // ensureAccessToken; never downgrade it back to a retryable ERROR.
+        if (!(e instanceof ConnectionRevokedError)) {
+          await admin
+            .from("user_email_connections")
+            .update({ status: "ERROR", last_error: message.slice(0, 500) })
+            .eq("id", conn.id);
+        }
         results.push({ connection_id: conn.id, error: message });
       }
     }
