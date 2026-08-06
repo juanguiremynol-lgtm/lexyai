@@ -4,6 +4,8 @@
  */
 
 // Workflow type enum matching database
+import { WORKFLOW_PHASES } from './workflow-phases';
+
 export type WorkflowType = 'CGP' | 'EJECUTIVO' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906' | 'GENERIC' | 'INDETERMINADO';
 
 // Item source enum matching database
