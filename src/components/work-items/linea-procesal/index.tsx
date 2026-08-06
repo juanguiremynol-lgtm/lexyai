@@ -10,6 +10,8 @@ import { PhaseStepper, type PhaseReach } from "./PhaseStepper";
 import { AccionRequerida } from "./AccionRequerida";
 import { TimelineFeed } from "./TimelineFeed";
 import { TracksPanel } from "./TracksPanel";
+import { TerminosDeRegla } from "./TerminosDeRegla";
+import type { TermEvent } from "@/lib/workflow-terms/rule-term-suggestions";
 import { useResolvedTracks } from "@/hooks/use-work-item-tracks";
 import { activeTrack } from "@/lib/tracks/procedural-tracks";
 import { inferPhaseFromText, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
@@ -74,6 +76,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
       latestActText: string | null;
       latestActDate: string | null;
       recentActs: { text: string | null; at: string | null }[];
+      termEvents: TermEvent[];
     }> => {
       const [acts, pubs] = await Promise.all([
         supabase
@@ -127,6 +130,13 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         latestActDate: latestActEvent?.at ?? null,
         // ITER37 — full recent act window; a later act must not mask the mandamiento.
         recentActs: actEvents.slice(-40).map((e) => ({ text: e.text, at: e.at })),
+        // ITER38 — acts AND estados: the mandamiento's notification anchor needs
+        // the fijación en estado that follows the auto.
+        termEvents: evs.slice(-120).map((e) => ({
+          at: e.at,
+          text: e.text,
+          source: e.source === "ESTADO" ? ("ESTADO" as const) : ("ACTUACION" as const),
+        })),
       };
     },
     enabled: !!workItemId,
@@ -167,6 +177,13 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         inferredPhase={events?.inferred ?? null}
       />
       <AccionRequerida workItemId={workItemId} workflowType={trackWorkflowType} cgpPhase={cgpPhase} />
+      <TerminosDeRegla
+        workItemId={workItemId}
+        ruleWorkflowType={trackWorkflowType}
+        includeArt306Only={trackWorkflowType !== "EJECUTIVO" && currentStage === "SENTENCIA"}
+        events={events?.termEvents ?? []}
+        awaitingAnchorEvents={["EJECUTORIA_SENTENCIA", "NOTIFICACION_MANDAMIENTO_PAGO"]}
+      />
       <TimelineFeed workItemId={workItemId} />
     </section>
   );
