@@ -10,14 +10,12 @@ import { addBusinessDays } from "@/lib/colombian-holidays";
 import {
   computePenalTerms,
   ruleIsRatified,
+  UNSPECIFIED_DAY_TYPE_NOTE,
   type PenalAnchor,
   type PenalComputedTerm,
   type SuspensionWindow,
 } from "@/lib/penal906/penal906-terms";
-import {
-  UNSPECIFIED_DAY_TYPE_NOTE,
-  type WorkflowDeadlineRule,
-} from "@/hooks/use-workflow-deadline-rules";
+import type { WorkflowDeadlineRule } from "@/hooks/use-workflow-deadline-rules";
 
 export interface TermEvent {
   at: string;
