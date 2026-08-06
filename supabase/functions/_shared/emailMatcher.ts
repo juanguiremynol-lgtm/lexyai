@@ -146,8 +146,8 @@ const OWNER_STOPWORDS = new Set(["DE", "DEL", "LA", "LAS", "LOS", "Y", "S", "SAS
 
 /**
  * ¿El valor matcheado corresponde al titular del buzón? Se compara por tokens
- * para cubrir normalizaciones y subcadenas ("RESTREPO MAYA",
- * "JUAN RESTREPO MAYA", "LEX ET LIT").
+ * para cubrir normalizaciones y subcadenas: el nombre del abogado, el de su
+ * firma y las variantes abreviadas de ambos, tal como vengan del perfil.
  */
 export function isOwnerIdentityValue(value: string, owner: OwnerIdentity): boolean {
   const v = norm(value);
