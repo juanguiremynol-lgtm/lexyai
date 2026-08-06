@@ -11,6 +11,7 @@ import {
   type CoverageWindow,
 } from "@/lib/estados-coverage-signal";
 import { DOCTRINE_TYPE_LABELS } from "@/lib/alerts/doctrine";
+import { readFileSync } from "node:fs";
 
 const ALL: EstadosSignalClass[] = [
   "CUBIERTO",
@@ -123,5 +124,14 @@ describe("iter35 · signal taxonomy", () => {
 
   it("registers the remisión alert type so it is never silently dropped", () => {
     expect(DOCTRINE_TYPE_LABELS.REMISION_EXPEDIENTE).toBe("Remisión de expediente");
+  });
+});
+
+describe("iter36 · reporting scopes", () => {
+  it("keeps portfolio and despacho-wide census explicitly separate", () => {
+    const report = readFileSync("supabase/functions/atenia-daily-report/index.ts", "utf8");
+    expect(report).toContain("PORTAFOLIO (solo radicados activos monitoreados)");
+    expect(report).toContain("CENSO GCP (despacho completo)");
+    expect(report).toContain("no se exige paridad global entre alcances");
   });
 });
