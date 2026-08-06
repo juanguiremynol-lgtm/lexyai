@@ -73,6 +73,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
       inferred: string | null;
       latestActText: string | null;
       latestActDate: string | null;
+      recentActs: { text: string | null; at: string | null }[];
     }> => {
       const [acts, pubs] = await Promise.all([
         supabase
@@ -117,12 +118,15 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
           first.set(phaseKey, { phaseKey, reachedAt: ev.at, source: ev.source });
         }
       }
-      const latestActEvent = [...evs].reverse().find((e) => e.source === "ACTUACION") ?? null;
+      const actEvents = evs.filter((e) => e.source === "ACTUACION");
+      const latestActEvent = actEvents.length ? actEvents[actEvents.length - 1] : null;
       return {
         reaches: [...first.values()],
         inferred: latestPhase,
         latestActText: latestActEvent?.text ?? null,
         latestActDate: latestActEvent?.at ?? null,
+        // ITER37 — full recent act window; a later act must not mask the mandamiento.
+        recentActs: actEvents.slice(-40).map((e) => ({ text: e.text, at: e.at })),
       };
     },
     enabled: !!workItemId,
@@ -154,6 +158,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         currentStage={currentStage}
         latestActText={latestAct}
         latestActDate={events?.latestActDate ?? null}
+        recentActs={events?.recentActs ?? []}
       />
       <PhaseStepper
         workflowType={trackWorkflowType}

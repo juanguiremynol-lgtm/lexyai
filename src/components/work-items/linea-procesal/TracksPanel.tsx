@@ -27,6 +27,8 @@ interface TracksPanelProps {
   /** Text of the most recent actuación — used to detect the mandamiento de pago. */
   latestActText?: string | null;
   latestActDate?: string | null;
+  /** Recent actuaciones (oldest→newest) so a newer act cannot mask the mandamiento. */
+  recentActs?: { text: string | null; at: string | null }[];
 }
 
 export function TracksPanel({
@@ -35,6 +37,7 @@ export function TracksPanel({
   currentStage,
   latestActText,
   latestActDate,
+  recentActs,
 }: TracksPanelProps) {
   const { tracks } = useResolvedTracks(workItemId, workflowType, currentStage);
   const openTrack = useOpenTrack(workItemId);
@@ -45,6 +48,7 @@ export function TracksPanel({
     tracks,
     latestActText,
     latestActDate,
+    recentActs,
   });
   const current = activeTrack(tracks);
   const hasMultiple = tracks.length > 1;

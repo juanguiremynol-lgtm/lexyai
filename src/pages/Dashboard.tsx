@@ -5,7 +5,9 @@ import { Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray } from "@/components/pipeline";
+import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard } from "@/components/pipeline";
+import { UNCLASSIFIED_TAB, visibleBoards } from "@/lib/dashboard-boards";
+import type { WorkflowType } from "@/lib/workflow-constants";
 import { usePracticeAreas } from "@/hooks/use-practice-areas";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
@@ -35,23 +37,12 @@ export default function Dashboard() {
   // Dashboard tab persistence via URL
   const { isPracticed } = usePracticeAreas();
 
-  // Tabs hidden by practice areas must not be reachable by URL either.
-  const TAB_AREA: Record<string, "CGP" | "LABORAL" | "PENAL_906" | "CPACA" | "GOV_PROCEDURE" | "PETICION" | "TUTELA" | null> = {
-    cgp: "CGP",
-    laboral: "LABORAL",
-    penal: "PENAL_906",
-    cpaca: "CPACA",
-    administrativos: "GOV_PROCEDURE",
-    peticiones: "PETICION",
-    tutelas: "TUTELA",
-    "por-clasificar": null,
-  };
-  const VALID_TABS = Object.keys(TAB_AREA).filter((t) => {
-    const area = TAB_AREA[t];
-    return area === null || isPracticed(area);
-  });
+  // ITER37 — boards are DERIVED: practice_areas ∩ workflows with a phase
+  // catalogue. Adding an area is sufficient; no per-workflow code change.
+  const boards = visibleBoards(isPracticed);
+  const VALID_TABS = [...boards.map((b) => b.tab), UNCLASSIFIED_TAB];
   const urlTab = searchParams.get("tab");
-  const activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : VALID_TABS[0] ?? "por-clasificar";
+  const activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : VALID_TABS[0] ?? UNCLASSIFIED_TAB;
 
   const handleTabChange = useCallback((value: string) => {
     setSearchParams({ tab: value }, { replace: true });
@@ -179,69 +170,23 @@ export default function Dashboard() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <div className="overflow-x-auto -mx-1 px-1">
           <TabsList className="inline-flex whitespace-nowrap">
-            {isPracticed("CGP") && <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>}
-            {isPracticed("LABORAL") && <TabsTrigger value="laboral">Laborales</TabsTrigger>}
-            {isPracticed("PENAL_906") && <TabsTrigger value="penal">Penal</TabsTrigger>}
-            {isPracticed("CPACA") && <TabsTrigger value="cpaca">CPACA</TabsTrigger>}
-            {isPracticed("GOV_PROCEDURE") && (
-              <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
-            )}
-            {isPracticed("PETICION") && <TabsTrigger value="peticiones">Peticiones</TabsTrigger>}
-            {isPracticed("TUTELA") && <TabsTrigger value="tutelas">Tutelas</TabsTrigger>}
-            <TabsTrigger value="por-clasificar">Por clasificar</TabsTrigger>
+            {boards.map((b) => (
+              <TabsTrigger key={b.tab} value={b.tab}>
+                {b.label}
+              </TabsTrigger>
+            ))}
+            <TabsTrigger value={UNCLASSIFIED_TAB}>Por clasificar</TabsTrigger>
           </TabsList>
         </div>
-        
-        <TabsContent value="cgp" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Radicaciones y procesos bajo Código General del Proceso (civil, comercial, familia). Arrastra entre etapas para reclasificar.
-          </p>
-          <WorkItemPipeline />
-        </TabsContent>
 
-        <TabsContent value="laboral" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Procesos laborales bajo Código Procesal del Trabajo (CPTSS). Audiencia única de conciliación, juzgamiento y fallo.
-          </p>
-          <LaboralPipeline />
-        </TabsContent>
+        {boards.map((b) => (
+          <TabsContent key={b.tab} value={b.tab} className="space-y-4">
+            <p className="text-sm readable-muted">{b.description}</p>
+            <BoardBody workflow={b.workflow} />
+          </TabsContent>
+        ))}
 
-        <TabsContent value="penal" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Procesos penales bajo Ley 906 de 2004 (Sistema Penal Acusatorio). 14 etapas desde indagación hasta ejecutoria.
-          </p>
-          <PenalPipeline />
-        </TabsContent>
-
-        <TabsContent value="cpaca" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Procesos ordinarios contencioso administrativos (CPACA). Cálculo automático de términos según Art. 199.
-          </p>
-          <CpacaPipeline />
-        </TabsContent>
-
-        <TabsContent value="administrativos" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Procesos ante autoridades administrativas (inspecciones, superintendencias, tránsito, disciplinarios). Arrastra entre fases.
-          </p>
-          <AdminPipeline />
-        </TabsContent>
-        
-        <TabsContent value="peticiones" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
-          </p>
-          <PeticionesPipeline />
-        </TabsContent>
-
-        <TabsContent value="tutelas" className="space-y-4">
-          <p className="text-sm readable-muted">
-            Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
-          </p>
-          <TutelasPipeline />
-        </TabsContent>
-
-        <TabsContent value="por-clasificar" className="space-y-4">
+        <TabsContent value={UNCLASSIFIED_TAB} className="space-y-4">
           <p className="text-sm readable-muted">
             Asuntos en despachos de competencia mixta o sin clase de proceso conocida. La materia
             no se deduce del radicado: defínela manualmente. El monitoreo continúa activo.
@@ -258,4 +203,29 @@ export default function Dashboard() {
       />
     </div>
   );
+}
+
+/**
+ * Bespoke pipelines where they exist; the generic phase board otherwise, so a
+ * newly enabled practice area always renders.
+ */
+function BoardBody({ workflow }: { workflow: WorkflowType }) {
+  switch (workflow) {
+    case "CGP":
+      return <WorkItemPipeline />;
+    case "LABORAL":
+      return <LaboralPipeline />;
+    case "PENAL_906":
+      return <PenalPipeline />;
+    case "CPACA":
+      return <CpacaPipeline />;
+    case "GOV_PROCEDURE":
+      return <AdminPipeline />;
+    case "PETICION":
+      return <PeticionesPipeline />;
+    case "TUTELA":
+      return <TutelasPipeline />;
+    default:
+      return <WorkflowPhaseBoard workflowType={workflow} />;
+  }
 }
