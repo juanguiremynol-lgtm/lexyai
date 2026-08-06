@@ -133,16 +133,12 @@ export function buildOwnerIdentity(partial?: Partial<OwnerIdentity>): OwnerIdent
     .filter(Boolean)
     .map((e) => e.toLowerCase().trim())
     .filter(Boolean);
-  // El dominio del buzón conectado identifica a la firma sin codificar nada.
-  const domains = emails
-    .map((e) => e.split("@")[1])
-    .filter((d): d is string => Boolean(d));
   return {
     names: (partial?.names ?? [])
       .filter(Boolean)
       .map((n) => norm(n))
       .filter((n) => n.length >= 4),
-    emails: [...new Set([...emails, ...domains])],
+    emails: [...new Set(emails)],
   };
 }
 
