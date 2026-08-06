@@ -148,7 +148,16 @@ Deno.serve(async (req) => {
     const { error } = await supabase
       .from("provider_coverage_census")
       .upsert(
-        rows.map((r) => ({ source: "PP_COVERAGE", ...r, fetched_at: fetchedAt })),
+        rows.map((r) => ({
+          source: "PP_COVERAGE",
+          despacho_code: r.despacho_code,
+          despacho_label: r.despacho_label,
+          orphan_count: r.orphan_count,
+          first_publication: r.first_publication,
+          last_publication: r.last_publication,
+          raw: r.raw,
+          fetched_at: fetchedAt,
+        })),
         { onConflict: "source,despacho_code" },
       );
     if (error) {
