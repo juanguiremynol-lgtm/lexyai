@@ -11,13 +11,25 @@ import { useMemo } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarClock, Check, Clock, Gavel, HelpCircle, PauseCircle, Scale } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  Clock,
+  Gavel,
+  HelpCircle,
+  PauseCircle,
+  Scale,
+} from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { useWorkflowDeadlineRules } from "@/hooks/use-workflow-deadline-rules";
+import {
+  useAntinomiaDesignation,
+  useWorkflowDeadlineRules,
+} from "@/hooks/use-workflow-deadline-rules";
 import { useMissingRules } from "@/hooks/use-missing-rules";
 import {
   deriveAlDespachoSuspensions,
@@ -42,6 +54,11 @@ interface TerminosDeReglaProps {
   events: TermEvent[];
   /** Anchor events to list as "awaiting the anchor date" when unresolved. */
   awaitingAnchorEvents?: string[];
+  /**
+   * Procedure variant of the matter (e.g. ABREVIADO). Rules gated to another
+   * variant are not shown; ungated rules always are.
+   */
+  procedureVariant?: string | null;
 }
 
 export function TerminosDeRegla({
@@ -50,6 +67,7 @@ export function TerminosDeRegla({
   includeArt306Only,
   events,
   awaitingAnchorEvents = [],
+  procedureVariant = null,
 }: TerminosDeReglaProps) {
   const workflowForRules = includeArt306Only ? "EJECUTIVO" : ruleWorkflowType;
   const { data: rules = [] } = useWorkflowDeadlineRules(workflowForRules);
@@ -85,21 +103,24 @@ export function TerminosDeRegla({
   );
 
   const scoped = useMemo(
-    () =>
-      includeArt306Only
+    () => {
+      const base = includeArt306Only
         ? rules.filter((r) => r.track_kind === "EJECUTIVO_A_CONTINUACION")
         : isLaboral
           ? filterRulesToRegimen(rules, regimenInfo?.regimen ?? null)
-          : rules,
-    [rules, includeArt306Only, isLaboral, regimenInfo?.regimen],
+          : rules;
+      return base.filter((r) => !r.procedure_variant || r.procedure_variant === procedureVariant);
+    },
+    [rules, includeArt306Only, isLaboral, regimenInfo?.regimen, procedureVariant],
   );
 
   const suspensions = useMemo(() => deriveAlDespachoSuspensions(events), [events]);
 
-  const { suggested, awaiting } = useMemo(
+  const { suggested, awaiting, unspecified, antinomias } = useMemo(
     () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents, { suspensions }),
     [scoped, events, awaitingAnchorEvents, suspensions],
   );
+  const designate = useAntinomiaDesignation();
 
   const confirm = useMutation({
     mutationFn: async (term: SuggestedRuleTerm) => {
@@ -134,7 +155,15 @@ export function TerminosDeRegla({
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "No se pudo registrar"),
   });
 
-  if (!suggested.length && !awaiting.length && !missingRules.length && !regimenInfo) return null;
+  if (
+    !suggested.length &&
+    !awaiting.length &&
+    !unspecified.length &&
+    !antinomias.length &&
+    !missingRules.length &&
+    !regimenInfo
+  )
+    return null;
 
   return (
     <Card>
@@ -210,6 +239,87 @@ export function TerminosDeRegla({
               )}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{a.reason}</p>
+          </div>
+        ))}
+
+        {antinomias.map((conf) => (
+          <div key={conf.group} className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+              Dos normas en conflicto (antinomia)
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {conf.designatedRuleId
+                ? "Norma designada por el titular; la designación queda registrada."
+                : "Mientras no se designe la norma que gobierna, rige el término más corto por prudencia."}
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {conf.members.map((m) => (
+                <li key={m.ruleId} className="text-xs">
+                  <span className="font-medium">{m.label}</span>
+                  {m.citation && (
+                    <Badge variant="outline" className="ml-1 text-[10px]">
+                      {m.citation}
+                    </Badge>
+                  )}
+                  <span className="ml-1 text-muted-foreground">
+                    {m.daysAmountMax
+                      ? `${m.daysAmount} a ${m.daysAmountMax} días`
+                      : `${m.daysAmount} días`}
+                    {m.deadlineDate
+                      ? ` · vencería el ${format(new Date(`${m.deadlineDate}T00:00:00`), "d 'de' MMMM yyyy", { locale: es })}`
+                      : " · sin fecha calculada"}
+                  </span>
+                  {m.isOperative && (
+                    <Badge className="ml-1 text-[10px]">
+                      {m.isDesignated ? "Designada" : "Operativo (más corto)"}
+                    </Badge>
+                  )}
+                  {!m.isDesignated && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-2 h-6 px-2 text-[11px]"
+                      disabled={designate.isPending}
+                      onClick={() =>
+                        designate.mutate(
+                          { group: conf.group, ruleId: m.ruleId },
+                          {
+                            onSuccess: () => toast.success("Norma designada"),
+                            onError: (e: unknown) =>
+                              toast.error(e instanceof Error ? e.message : "No se pudo designar"),
+                          },
+                        )}
+                    >
+                      Designar esta norma
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+
+        {unspecified.map((u) => (
+          <div key={u.ruleId} className="rounded-md border border-dashed p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              {u.label}
+              {u.citation && (
+                <Badge variant="outline" className="ml-1 text-[10px]">
+                  {u.citation}
+                </Badge>
+              )}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {u.daysAmountMax ? `${u.daysAmount} a ${u.daysAmountMax} días` : `${u.daysAmount} días`}
+              {u.variantDaysAmount ? ` (${u.variantDaysAmount} días: ${u.variantCondition})` : ""}
+              {u.anchorEvent ? ` · ancla: ${u.anchorEvent}` : ""}
+            </p>
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">{u.note}</p>
+            {u.conservativeNote && (
+              <p className="mt-1 text-[11px] text-muted-foreground">{u.conservativeNote}</p>
+            )}
           </div>
         ))}
 

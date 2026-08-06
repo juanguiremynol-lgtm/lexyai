@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/select";
 import {
   PENAL_ANCHOR_LABELS,
+  DAY_TYPE_LABELS,
+  canRatifyRule,
   usePenalDeadlineRules,
   usePenalDeadlineRuleActions,
   type PenalAnchorType,
@@ -83,6 +85,7 @@ function RuleEditor({ rule, onClose }: { rule: PenalDeadlineRule; onClose: () =>
             <SelectContent>
               <SelectItem value="BUSINESS">Hábiles</SelectItem>
               <SelectItem value="CALENDAR">Calendario</SelectItem>
+              <SelectItem value="UNSPECIFIED">No especificado en la norma</SelectItem>
               <SelectItem value="NONE">Sin término escrito (oral en audiencia)</SelectItem>
             </SelectContent>
           </Select>
@@ -193,8 +196,20 @@ export default function PenalTermRulesPage() {
                   {rule.anchor_event ? ` · ${rule.anchor_event}` : ""} ·{" "}
                   {rule.day_type === "NONE"
                     ? "sin término escrito: se surte en la audiencia"
-                    : `${rule.days_amount} días ${rule.day_type === "BUSINESS" ? "hábiles" : "calendario"}`}
+                    : `${rule.days_amount} días ${DAY_TYPE_LABELS[rule.day_type]}`}
                 </p>
+                {rule.day_type === "UNSPECIFIED" && (
+                  <p className="text-xs text-amber-700 dark:text-amber-500">
+                    Tipo de día no especificado en la norma — pendiente de definición. Esta regla no
+                    calcula ninguna fecha y no puede ratificarse.
+                  </p>
+                )}
+                {rule.antinomia_group && (
+                  <p className="text-xs text-amber-700 dark:text-amber-500">
+                    Antinomia: dos normas fijan términos distintos para el mismo acto. Rige el más
+                    corto mientras no se designe la norma que gobierna.
+                  </p>
+                )}
                 {rule.description && <p className="text-sm">{rule.description}</p>}
 
                 {editing === rule.id ? (
@@ -207,7 +222,8 @@ export default function PenalTermRulesPage() {
                     {section.draft ? (
                       <Button
                         size="sm"
-                        disabled={ratify.isPending}
+                        disabled={ratify.isPending || !canRatifyRule(rule).ok}
+                        title={canRatifyRule(rule).reason}
                         onClick={() =>
                           ratify.mutate(rule.id, {
                             onSuccess: () => toast.success("Regla ratificada"),
