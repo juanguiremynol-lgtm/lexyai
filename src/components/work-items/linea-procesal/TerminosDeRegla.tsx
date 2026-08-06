@@ -11,13 +11,19 @@ import { useMemo } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarClock, Check, Clock, Scale } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { CalendarClock, Check, Clock, Gavel, HelpCircle, PauseCircle, Scale } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkflowDeadlineRules } from "@/hooks/use-workflow-deadline-rules";
+import { useMissingRules } from "@/hooks/use-missing-rules";
+import {
+  deriveAlDespachoSuspensions,
+  filterRulesToRegimen,
+  resolveLaboralRegimenForMatter,
+} from "@/lib/laboral/laboral-terms";
 import {
   buildRuleTermSuggestions,
   type SuggestedRuleTerm,
@@ -49,17 +55,50 @@ export function TerminosDeRegla({
   const { data: rules = [] } = useWorkflowDeadlineRules(workflowForRules);
   const queryClient = useQueryClient();
 
+  const isLaboral = workflowForRules === "LABORAL";
+
+  // Labour matters resolve their regime from the FILING DATE only, and never
+  // mix regimes (CSJ STL9085-2026).
+  const { data: filingDate = null } = useQuery({
+    queryKey: ["work-item-filing-date", workItemId],
+    enabled: isLaboral,
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from("work_items")
+        .select("filing_date, fecha_presenta_demanda, fecha_radicado")
+        .eq("id", workItemId)
+        .maybeSingle();
+      if (error) throw error;
+      const row = data as { filing_date?: string | null; fecha_presenta_demanda?: string | null; fecha_radicado?: string | null } | null;
+      return row?.filing_date ?? row?.fecha_presenta_demanda ?? row?.fecha_radicado ?? null;
+    },
+  });
+
+  const regimenInfo = useMemo(
+    () => (isLaboral ? resolveLaboralRegimenForMatter(filingDate) : null),
+    [isLaboral, filingDate],
+  );
+
+  const { data: missingRules = [] } = useMissingRules(
+    isLaboral ? "LABORAL" : undefined,
+    regimenInfo?.regimen ?? null,
+  );
+
   const scoped = useMemo(
     () =>
       includeArt306Only
         ? rules.filter((r) => r.track_kind === "EJECUTIVO_A_CONTINUACION")
-        : rules,
-    [rules, includeArt306Only],
+        : isLaboral
+          ? filterRulesToRegimen(rules, regimenInfo?.regimen ?? null)
+          : rules,
+    [rules, includeArt306Only, isLaboral, regimenInfo?.regimen],
   );
 
+  const suspensions = useMemo(() => deriveAlDespachoSuspensions(events), [events]);
+
   const { suggested, awaiting } = useMemo(
-    () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents),
-    [scoped, events, awaitingAnchorEvents],
+    () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents, { suspensions }),
+    [scoped, events, awaitingAnchorEvents, suspensions],
   );
 
   const confirm = useMutation({
@@ -95,7 +134,7 @@ export function TerminosDeRegla({
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "No se pudo registrar"),
   });
 
-  if (!suggested.length && !awaiting.length) return null;
+  if (!suggested.length && !awaiting.length && !missingRules.length && !regimenInfo) return null;
 
   return (
     <Card>
@@ -106,6 +145,12 @@ export function TerminosDeRegla({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {regimenInfo && (
+          <p className="text-xs text-muted-foreground">
+            <Gavel className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+            {regimenInfo.basis}
+          </p>
+        )}
         {suggested.map((term) => (
           <div key={term.ruleId} className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium">
@@ -125,6 +170,17 @@ export function TerminosDeRegla({
                   })}`}
             </p>
             {term.basis && <p className="mt-1 text-xs text-muted-foreground">{term.basis}</p>}
+            {term.suspendedOpenEnded && (
+              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                <PauseCircle className="h-3.5 w-3.5" aria-hidden />
+                Término suspendido: el expediente está al despacho (art. 324).
+              </p>
+            )}
+            {!term.suspendedOpenEnded && !!term.suspendedDays && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Se descontaron {term.suspendedDays} día(s) hábil(es) con el expediente al despacho (art. 324).
+              </p>
+            )}
             <p className="mt-1 text-[11px] text-muted-foreground">
               Sugerencia — no se aplica automáticamente.
             </p>
@@ -154,6 +210,23 @@ export function TerminosDeRegla({
               )}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{a.reason}</p>
+          </div>
+        ))}
+
+        {missingRules.map((m) => (
+          <div key={m.id} className="rounded-md border border-dashed p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              {m.label}
+              {m.expected_citation && (
+                <Badge variant="outline" className="ml-1 text-[10px]">
+                  {m.expected_citation}
+                </Badge>
+              )}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Término no modelado — pendiente de verificación normativa. {m.reason}
+            </p>
           </div>
         ))}
       </CardContent>
