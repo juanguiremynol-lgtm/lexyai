@@ -3,13 +3,23 @@
  * integration.
  *
  * Design invariants (ratified, non-negotiable):
- *   1. Multi-user: every subscriber connects their OWN mailbox.
+ *   1. Multi-tenant: ONE Andromeda-owned Azure app registration; every
+ *      subscriber connects their OWN mailbox from their OWN directory and
+ *      never supplies a client id or secret.
  *   2. Inference, not mirroring: Andromeda never persists full message bodies.
  *   3. Mail.ReadWrite is never requested — Andromeda never modifies or deletes
- *      anything in the mailbox. Mail.Send is requested so the user can send
- *      from their own account, always through an explicit in-app confirmation
- *      and always recorded in the append-only outlook_send_audit_log.
+ *      anything in the mailbox. Mail.Send is NOT requested at connection time
+ *      either: it is asked for incrementally, the first time the user sends.
  */
+import {
+  CONNECT_SCOPES,
+  SEND_SCOPES,
+  authorityTenant,
+  classifyMsError,
+  scopesFor,
+} from "./msOAuth.ts";
+
+export { CONNECT_SCOPES, SEND_SCOPES, scopesFor };
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,8 +33,11 @@ export const corsHeaders = {
  */
 export const OUTLOOK_SEND_ENABLED = true;
 
-/** Consent: read + send. Mail.ReadWrite is deliberately NOT requested. */
-export const GRAPH_SCOPES = ["Mail.Read", "Mail.Send", "offline_access", "User.Read"] as const;
+/**
+ * Back-compat alias. Connection-time consent is read-only; Mail.Send arrives
+ * through incremental consent (see SEND_SCOPES).
+ */
+export const GRAPH_SCOPES = CONNECT_SCOPES;
 
 /** Parses the space-delimited scope string Microsoft returns with the token. */
 export function parseScopes(scope: string | undefined | null): string[] {
@@ -42,7 +55,9 @@ export function grantsSend(scopes: string[]): boolean {
 export function msConfig() {
   const clientId = Deno.env.get("MS_CLIENT_ID");
   const clientSecret = Deno.env.get("MS_CLIENT_SECRET");
-  const tenant = Deno.env.get("MS_TENANT_ID") || "common";
+  // Multi-tenant authority. MS_TENANT_ID (the owner's own directory) is kept
+  // only for reference; it must never pin the authority for other customers.
+  const tenant = authorityTenant();
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const redirectUri = Deno.env.get("MS_REDIRECT_URI") ||
     `${supabaseUrl}/functions/v1/outlook-callback`;
