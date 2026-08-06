@@ -299,22 +299,14 @@ export type Penal906Stage = keyof typeof PENAL_906_STAGES;
 // Terminación por pago total and desistimiento are terminal OUTCOME BRANCHES,
 // listed last so the linear sequence renders untouched.
 // ============================================
-export const EJECUTIVO_STAGES = {
-  PREPARACION: { label: 'Preparación', order: 0 },
-  RADICACION: { label: 'Radicación de la demanda ejecutiva', order: 1 },
-  SUBSANACION: { label: 'Inadmisión / Subsanación', order: 2 },
-  MANDAMIENTO_PAGO: { label: 'Auto que libra mandamiento de pago', order: 3 },
-  NOTIFICACION_MANDAMIENTO: { label: 'Notificación del mandamiento', order: 4 },
-  EXCEPCIONES_MERITO: { label: 'Excepciones de mérito', order: 5 },
-  TRASLADO_EXCEPCIONES: { label: 'Traslado de excepciones', order: 6 },
-  SEGUIR_ADELANTE: { label: 'Seguir adelante la ejecución', order: 7 },
-  LIQUIDACION_CREDITO: { label: 'Liquidación del crédito y costas', order: 8 },
-  AVALUO_REMATE: { label: 'Avalúo y remate', order: 9 },
-  TERMINACION_PAGO: { label: 'Terminación por pago', order: 10 },
-  DESISTIMIENTO: { label: 'Desistimiento', order: 11 },
-} as const;
+// ITER37 — DERIVED from the single catalogue in workflow-phases.ts. A phase
+// catalogue defined in two places is the fingerprint defect family again.
+export const EJECUTIVO_STAGES: Record<string, { label: string; order: number }> =
+  Object.fromEntries(
+    WORKFLOW_PHASES.EJECUTIVO.map((p, i) => [p.key, { label: p.label, order: i }]),
+  );
 
-export type EjecutivoStage = keyof typeof EJECUTIVO_STAGES;
+export type EjecutivoStage = string;
 
 // ============================================
 // Helper functions
