@@ -69,8 +69,8 @@ describe("UNSPECIFIED day type", () => {
 });
 
 describe("antinomia groups", () => {
-  const long = rule({ id: "a", days_amount: 15, citation: "art. 93", antinomia_group: "G" });
-  const short = rule({ id: "b", days_amount: 10, citation: "art. 94", antinomia_group: "G" });
+  const long = rule({ id: "a", anchor_type: "ANCHOR_EJECUTORIA", days_amount: 15, citation: "art. 93", antinomia_group: "G" });
+  const short = rule({ id: "b", anchor_type: "ANCHOR_EJECUTORIA", days_amount: 10, citation: "art. 94", antinomia_group: "G" });
 
   it("keeps the shorter term as the operative suggestion", () => {
     const out = buildRuleTermSuggestions([long, short], [
