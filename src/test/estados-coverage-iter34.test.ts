@@ -45,7 +45,15 @@ describe("iter34 · provider attribution", () => {
 });
 
 describe("iter34 · coverage is time-bounded", () => {
-  const laCeja = { publishes_from: "2024-05-15", publishes_until: "2026-04-30" };
+  // Iteration 35 supersedes the bare window: an edge only silences when it is
+  // GENUINE. The La Ceja window itself was retracted (its edges were censored),
+  // so this fixture keeps the time-bounding rule under a confirmed window.
+  const laCeja = {
+    publishes_from: "2024-05-15",
+    publishes_until: "2026-04-30",
+    from_confidence: "GENUINE" as const,
+    until_confidence: "GENUINE" as const,
+  };
 
   it("treats a fijación before the first known publication as out of window", () => {
     expect(isWithinCoverageWindow("2022-11-03", laCeja)).toBe(false);
