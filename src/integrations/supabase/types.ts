@@ -18532,18 +18532,25 @@ export type Database = {
         Row: {
           anchor_event: string | null
           anchor_type: string
+          antinomia_designated_at: string | null
+          antinomia_designated_by: string | null
+          antinomia_designated_rule_id: string | null
+          antinomia_group: string | null
           bound_party: string | null
           citation: string | null
+          confidence: string | null
           consequence: string | null
           created_at: string
           day_type: string
           days_amount: number
+          days_amount_max: number | null
           deadline_type: string
           description: string | null
           id: string
           is_judge_side: boolean
           label: string
           organization_id: string | null
+          procedure_variant: string | null
           ratified_at: string | null
           ratified_by: string | null
           regimen: string | null
@@ -18553,24 +18560,33 @@ export type Database = {
           status: string
           track_kind: string | null
           updated_at: string
+          variant_condition: string | null
+          variant_days_amount: number | null
           verification_state: string
           workflow_type: string
         }
         Insert: {
           anchor_event?: string | null
           anchor_type: string
+          antinomia_designated_at?: string | null
+          antinomia_designated_by?: string | null
+          antinomia_designated_rule_id?: string | null
+          antinomia_group?: string | null
           bound_party?: string | null
           citation?: string | null
+          confidence?: string | null
           consequence?: string | null
           created_at?: string
           day_type?: string
           days_amount: number
+          days_amount_max?: number | null
           deadline_type: string
           description?: string | null
           id?: string
           is_judge_side?: boolean
           label: string
           organization_id?: string | null
+          procedure_variant?: string | null
           ratified_at?: string | null
           ratified_by?: string | null
           regimen?: string | null
@@ -18580,24 +18596,33 @@ export type Database = {
           status?: string
           track_kind?: string | null
           updated_at?: string
+          variant_condition?: string | null
+          variant_days_amount?: number | null
           verification_state?: string
           workflow_type: string
         }
         Update: {
           anchor_event?: string | null
           anchor_type?: string
+          antinomia_designated_at?: string | null
+          antinomia_designated_by?: string | null
+          antinomia_designated_rule_id?: string | null
+          antinomia_group?: string | null
           bound_party?: string | null
           citation?: string | null
+          confidence?: string | null
           consequence?: string | null
           created_at?: string
           day_type?: string
           days_amount?: number
+          days_amount_max?: number | null
           deadline_type?: string
           description?: string | null
           id?: string
           is_judge_side?: boolean
           label?: string
           organization_id?: string | null
+          procedure_variant?: string | null
           ratified_at?: string | null
           ratified_by?: string | null
           regimen?: string | null
@@ -18607,6 +18632,8 @@ export type Database = {
           status?: string
           track_kind?: string | null
           updated_at?: string
+          variant_condition?: string | null
+          variant_days_amount?: number | null
           verification_state?: string
           workflow_type?: string
         }
@@ -18623,6 +18650,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_deadline_rules_antinomia_designated_rule_id_fkey"
+            columns: ["antinomia_designated_rule_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_deadline_rules"
             referencedColumns: ["id"]
           },
         ]
