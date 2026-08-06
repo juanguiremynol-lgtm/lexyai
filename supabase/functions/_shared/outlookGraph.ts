@@ -259,11 +259,25 @@ export interface StoredConnection {
   refresh_token_cipher: string | null;
   refresh_token_nonce: string | null;
   token_expires_at: string | null;
+  scopes?: string[] | null;
+}
+
+/** Thrown when the grant is dead: the caller must stop retrying. */
+export class ConnectionRevokedError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "ConnectionRevokedError";
+  }
 }
 
 /**
  * Returns a valid access token for the connection, refreshing and re-persisting
  * it when the stored one is expired or about to expire.
+ *
+ * A refresh failure is classified: when Microsoft says the consent is gone
+ * (revoked, password changed, token expired) the row is marked REVOKED with a
+ * plain-Spanish reason and the caller stops — a connection that no longer works
+ * must never keep reporting as connected.
  */
 export async function ensureAccessToken(
   admin: { from: (t: string) => any },
@@ -277,7 +291,37 @@ export async function ensureAccessToken(
   const refresh = await decryptToken(conn.refresh_token_cipher, conn.refresh_token_nonce);
   if (!refresh) throw new Error("La conexión no tiene refresh token. Vuelve a conectar Outlook.");
 
-  const tokens = await refreshTokens(refresh);
+  const requested = (conn.scopes ?? []).some((s) => s.toLowerCase() === "mail.send")
+    ? [...SEND_SCOPES]
+    : [...CONNECT_SCOPES];
+
+  let tokens: TokenResponse;
+  try {
+    tokens = await refreshTokens(refresh, requested);
+  } catch (e) {
+    const failure = classifyMsError(e);
+    await admin
+      .from("user_email_connections")
+      .update({
+        status: failure.terminal ? "REVOKED" : "ERROR",
+        failure_code: failure.code,
+        failure_detail: e instanceof Error ? e.message.slice(0, 800) : String(e).slice(0, 800),
+        last_error: failure.message,
+        ...(failure.terminal
+          ? {
+              revoked_at: new Date().toISOString(),
+              access_token_cipher: null,
+              access_token_nonce: null,
+              refresh_token_cipher: null,
+              refresh_token_nonce: null,
+              token_expires_at: null,
+            }
+          : {}),
+      })
+      .eq("id", conn.id);
+    throw new ConnectionRevokedError(failure.code, failure.message);
+  }
+
   const access = await encryptToken(tokens.access_token);
   const scopes = parseScopes(tokens.scope);
   const patch: Record<string, unknown> = {
@@ -286,6 +330,10 @@ export async function ensureAccessToken(
     token_expires_at: new Date(Date.now() + (tokens.expires_in - 60) * 1000).toISOString(),
     status: "CONNECTED",
     last_error: null,
+    failure_code: null,
+    failure_detail: null,
+    revoked_at: null,
+    last_refresh_at: new Date().toISOString(),
   };
   if (scopes.length > 0) {
     patch.scopes = scopes;
@@ -296,6 +344,10 @@ export async function ensureAccessToken(
     patch.refresh_token_cipher = nr.cipherHex;
     patch.refresh_token_nonce = nr.nonceHex;
   }
-  await admin.from("user_email_connections").update(patch).eq("id", conn.id);
+  // Rotation is atomic: the write only lands if nobody else rotated first.
+  const guarded = admin.from("user_email_connections").update(patch).eq("id", conn.id);
+  await (conn.refresh_token_cipher
+    ? guarded.eq("refresh_token_cipher", conn.refresh_token_cipher)
+    : guarded);
   return tokens.access_token;
 }
