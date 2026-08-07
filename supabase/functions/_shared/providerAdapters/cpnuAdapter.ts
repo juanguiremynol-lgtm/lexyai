@@ -42,7 +42,7 @@ import {
 
 import { parseCpnuSujetos } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
-import { extractClaseProveedor } from '../claseProcesoContract.ts';
+import { extractClaseProveedor, type ClaseProcesoContract } from '../claseProcesoContract.ts';
 
 import {
   checkSnapshotFreshness,
