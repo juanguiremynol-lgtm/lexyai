@@ -489,7 +489,10 @@ async function handleScrapingFallback(
   headers: Record<string, string>,
   options: AdapterOptions,
   startTime: number,
+  /** ITER42 — clase contract already read from /snapshot, carried through. */
+  carriedClase?: ClaseProcesoContract,
 ): Promise<ProviderAdapterResult> {
+  const carry = (r: ProviderAdapterResult) => withClase(r, carriedClase);
   // Trigger /buscar
   const buscarUrl = joinUrl(baseUrl, pathPrefix, `/buscar?numero_radicacion=${radicado}`);
   try {
@@ -497,14 +500,14 @@ async function handleScrapingFallback(
     const buscarResp = await fetch(buscarUrl, { method: 'GET', headers: buscarHeaders });
 
     if (!buscarResp.ok) {
-      return makeEmptyResult('Scraping trigger failed', startTime, buscarResp.status);
+      return carry(makeEmptyResult('Scraping trigger failed', startTime, buscarResp.status));
     }
 
     const buscarData = await buscarResp.json();
     const jobId = String(buscarData.jobId || buscarData.job_id || buscarData.id || '');
 
     if (!jobId) {
-      return makeEmptyResult('RECORD_NOT_FOUND', startTime, 404);
+      return carry(makeEmptyResult('RECORD_NOT_FOUND', startTime, 404));
     }
 
     // Build absolute poll URL
@@ -519,11 +522,13 @@ async function handleScrapingFallback(
     if (pollResult.ok && pollResult.data) {
       const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
       const nestedResultData = (resultData.data || {}) as Record<string, unknown>;
+      // A freshly scraped payload may itself carry the block; prefer it.
+      const polledClase = preferPresent(extractClaseProveedor(resultData), carriedClase);
       let polledActs = (resultData.actuaciones || nestedResultData.actuaciones || []) as Record<string, unknown>[];
       const polledSujetos = (resultData.sujetos || nestedResultData.sujetos || []) as Record<string, unknown>[];
 
       if (polledActs.length === 0) {
-        return makeEmptyResult('Scraping completed but no actuaciones', startTime, 200);
+        return withClase(makeEmptyResult('Scraping completed but no actuaciones', startTime, 200), polledClase);
       }
 
       const despacho = String(resultData.despacho || nestedResultData.despacho || '');
@@ -572,6 +577,7 @@ async function handleScrapingFallback(
         metadata: {
           despacho: despacho || null,
           tipo_proceso: (resultData.tipoProceso as string) || null,
+          clase_proveedor: polledClase,
         },
         parties,
         durationMs: Date.now() - startTime,
@@ -599,7 +605,10 @@ async function handleScrapingFallback(
               crossProviderDedup: options.crossProviderDedup,
             }),
             publicaciones: [],
-            metadata: { despacho: despacho || null },
+            metadata: {
+              despacho: despacho || null,
+              clase_proveedor: preferPresent(extractClaseProveedor(retryData), carriedClase),
+            },
             parties: null,
             durationMs: Date.now() - startTime,
             httpStatus: 200,
@@ -608,7 +617,7 @@ async function handleScrapingFallback(
       }
     } catch { /* fall through */ }
 
-    return {
+    return carry({
       provider: PROVIDER_KEY,
       status: 'SCRAPING_INITIATED',
       actuaciones: [],
@@ -619,10 +628,10 @@ async function handleScrapingFallback(
       errorMessage: `Scraping job ${jobId} did not complete within polling timeout`,
       scrapingJobId: jobId,
       scrapingPollUrl: pollUrl,
-    };
+    });
 
   } catch (err) {
-    return makeEmptyResult('RECORD_NOT_FOUND', startTime, 404);
+    return carry(makeEmptyResult('RECORD_NOT_FOUND', startTime, 404));
   }
 }
 
@@ -794,6 +803,33 @@ function makeEmptyResult(errorMessage: string, startTime: number, httpStatus?: n
     errorMessage,
     httpStatus,
   };
+}
+
+/**
+ * ITER42 — attach the provider clase contract to any result, including the
+ * empty/error ones. A read that happened must be reported as a read: the three
+ * legitimate outcomes are PRESENT, DECLINED and INCONCLUSIVE, and "never read"
+ * must not survive as a silent fourth.
+ */
+function withClase(
+  result: ProviderAdapterResult,
+  contract: ClaseProcesoContract | undefined,
+): ProviderAdapterResult {
+  if (!contract) return result;
+  return {
+    ...result,
+    metadata: { ...(result.metadata ?? {}), clase_proveedor: contract } as CaseMetadata,
+  };
+}
+
+/** Prefer a block the provider actually filled over a merely-absent one. */
+function preferPresent(
+  candidate: ClaseProcesoContract,
+  fallback: ClaseProcesoContract | undefined,
+): ClaseProcesoContract {
+  if (candidate.disponible) return candidate;
+  if (fallback?.disponible) return fallback;
+  return candidate.raw ? candidate : (fallback ?? candidate);
 }
 
 // ═══════════════════════════════════════════
