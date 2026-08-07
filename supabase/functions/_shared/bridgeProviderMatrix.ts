@@ -11,13 +11,13 @@
  * lockstep. This module must stay dependency-free (no Deno, no npm imports).
  */
 
-/** Provider chain per workflow type. `PENAL` is a legacy in-memory alias. */
+/** ITER44 — canonical enum members only; the legacy `PENAL` alias is resolved
+ *  by normalizeWorkflowType and never duplicated into a routing table. */
 export const CHAIN: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
   LABORAL: ["cpnu", "publicaciones"],
   PENAL_906: ["cpnu", "publicaciones"],
   EJECUTIVO: ["cpnu", "publicaciones"],
-  PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
   // Fan-out until classified (iteration 18); mirrors provider_chain_for_workflow.
   INDETERMINADO: ["cpnu", "publicaciones", "samai", "samai_estados"],

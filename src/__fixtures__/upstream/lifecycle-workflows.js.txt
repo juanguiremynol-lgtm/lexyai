@@ -1,4 +1,5 @@
-// Verbatim transcription — andromeda-read-api/index.js:565 (audited 2026-08-07).
+// Verbatim transcription — andromeda-read-api/index.js:565, revision
+// andromeda-read-api-00021-cvm (audited 2026-08-07, ITER44: EJECUTIVO added).
 // Update this fixture ONLY by copying the upstream line again; the drift test
 // compares it against UPSTREAM_LIFECYCLE_WORKFLOWS.
-const LIFECYCLE_WORKFLOWS = new Set(["CGP","CPACA","LABORAL","PENAL_906","TUTELA"]);
+const LIFECYCLE_WORKFLOWS = new Set(["CGP","CPACA","LABORAL","PENAL_906","TUTELA","EJECUTIVO"]);
