@@ -17,7 +17,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
 import { WorkItemPipelineCard, type WorkItemPipelineItem } from "./WorkItemPipelineCard";
-import { WorkflowSuggestionsPanel } from "./WorkflowSuggestionsPanel";
 import { getWorkflowPhases, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
 import { phaseColor } from "@/lib/phase-palette";
 import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";

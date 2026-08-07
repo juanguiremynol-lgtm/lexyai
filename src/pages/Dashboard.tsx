@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard } from "@/components/pipeline";
 import { UNCLASSIFIED_TAB, visibleBoards } from "@/lib/dashboard-boards";
+import { WorkflowSuggestionsPanel } from "@/components/pipeline/WorkflowSuggestionsPanel";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { usePracticeAreas } from "@/hooks/use-practice-areas";
 import { PeticionesPipeline } from "@/components/peticiones";
