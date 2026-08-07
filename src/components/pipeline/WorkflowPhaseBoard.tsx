@@ -149,8 +149,6 @@ export function WorkflowPhaseBoard({ workflowType }: WorkflowPhaseBoardProps) {
         </Button>
       </div>
 
-      <WorkflowSuggestionsPanel suggestedWorkflow={workflowType} />
-
       {total === 0 && (
         <Alert>
           <Info className="h-4 w-4" />
