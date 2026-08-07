@@ -127,6 +127,21 @@ export function extractClaseProveedor(response: unknown): ClaseProcesoContract {
 }
 
 /** True when the juridical class identity changed between two observations. */
+/**
+ * ITER42 — accept either a raw provider block or an already-parsed contract
+ * (adapters forward the parsed shape). Re-parsing a parsed contract would nest
+ * `raw` inside itself; this keeps the verbatim block verbatim.
+ */
+export function coerceClaseContract(value: unknown): ClaseProcesoContract {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const v = value as Record<string, unknown>;
+    if ('raw' in v && 'disponible' in v && 'motivo_ausencia' in v) {
+      return value as ClaseProcesoContract;
+    }
+  }
+  return parseClaseProveedor(value);
+}
+
 export function claseProcesoChanged(
   prev: { clase_proceso?: string | null; subclase_proceso?: string | null },
   next: ClaseProcesoContract,

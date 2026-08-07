@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
 import { WorkItemPipelineCard, type WorkItemPipelineItem } from "./WorkItemPipelineCard";
 import { getWorkflowPhases, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
+import { phaseColor } from "@/lib/phase-palette";
 import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";
 
 interface WorkflowPhaseBoardProps {
@@ -31,14 +32,16 @@ export function WorkflowPhaseBoard({ workflowType }: WorkflowPhaseBoardProps) {
   const phases = useMemo(() => getWorkflowPhases(workflowType), [workflowType]);
   const stages: KanbanStage[] = useMemo(
     () =>
-      phases.map((p) => ({
+      phases.map((p, i) => ({
         id: p.key,
         label: p.label,
         shortLabel: p.label,
-        color: p.branch ? "slate" : WORKFLOW_TYPES[workflowType]?.color ?? "slate",
+        // ITER42 — colour comes from the canonical phase, exactly like the
+        // bespoke CGP board, so every board reads as the same object.
+        color: phaseColor(p.key, i, { branch: p.branch }),
         description: p.branch ? "Terminación" : undefined,
       })),
-    [phases, workflowType],
+    [phases],
   );
 
   const queryKey = ["work-items-phase-board", workflowType];

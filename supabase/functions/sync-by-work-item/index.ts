@@ -21,7 +21,7 @@ import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
-import { parseClaseProveedor } from "../_shared/claseProcesoContract.ts";
+import { coerceClaseContract } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
@@ -3503,8 +3503,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     //   C — an unmapped class is logged, never guessed.
     try {
       const rawContract = fetchResult.caseMetadata?.clase_proveedor;
-      if (rawContract !== undefined) {
-        const contract = parseClaseProveedor(rawContract);
+      {
+        const contract = coerceClaseContract(rawContract);
 
         const { data: currentRow } = await supabase
           .from('work_items')
@@ -3523,6 +3523,12 @@ Deno.serve(withSyncTimeline(async (req) => {
         });
 
         console.log(`[sync-by-work-item][clase] case=${decision.readCase} ${decision.explanation}`);
+
+        // ITER42 — the attempt itself is always recorded, whatever the outcome.
+        // GUARD A (iii) still forbids touching the class on INCONCLUSIVE; these
+        // two columns describe the READ, not the class, so no doctrine is bent.
+        updatePayload.clase_proceso_last_read_case = decision.readCase;
+        updatePayload.clase_proceso_last_attempt_at = new Date().toISOString();
 
         if (decision.readCase !== 'INCONCLUSIVE' && Object.keys(decision.patch).length > 0) {
           // Merge into the pending payload so the provider contract is the last
@@ -3565,6 +3571,33 @@ Deno.serve(withSyncTimeline(async (req) => {
             change_source: 'PROVIDER_CLASS_SUGGESTION',
             procedencia: contract.procedencia,
           });
+
+          // ITER42 — a log is not an offer. The disagreement also becomes a
+          // PENDING suggestion the lawyer can accept, which is the only path
+          // that ever rewrites workflow_type (as MANUAL).
+          const { data: existingSuggestion } = await supabase
+            .from('work_item_workflow_suggestions')
+            .select('id')
+            .eq('work_item_id', work_item_id)
+            .eq('suggested_workflow_type', decision.workflow.workflow)
+            .eq('status', 'PENDING')
+            .maybeSingle();
+
+          if (!existingSuggestion) {
+            await supabase.from('work_item_workflow_suggestions').insert({
+              work_item_id,
+              organization_id:
+                (currentRow as { organization_id?: string | null } | null)?.organization_id ?? null,
+              current_workflow_type:
+                (currentRow as { workflow_type?: string | null } | null)?.workflow_type ?? null,
+              suggested_workflow_type: decision.workflow.workflow,
+              clase_proceso: contract.clase_proceso,
+              label: decision.workflow.label,
+              reason: decision.workflow.reason,
+              procedencia: contract.procedencia,
+              status: 'PENDING',
+            });
+          }
         }
 
         // GUARD C — grow the catalogue from real data.

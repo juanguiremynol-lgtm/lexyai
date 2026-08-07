@@ -17914,6 +17914,79 @@ export type Database = {
           },
         ]
       }
+      work_item_workflow_suggestions: {
+        Row: {
+          clase_proceso: string | null
+          created_at: string
+          current_workflow_type: string | null
+          id: string
+          label: string | null
+          organization_id: string | null
+          procedencia: Json | null
+          reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          suggested_workflow_type: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          clase_proceso?: string | null
+          created_at?: string
+          current_workflow_type?: string | null
+          id?: string
+          label?: string | null
+          organization_id?: string | null
+          procedencia?: Json | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          suggested_workflow_type: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          clase_proceso?: string | null
+          created_at?: string
+          current_workflow_type?: string | null
+          id?: string
+          label?: string | null
+          organization_id?: string | null
+          procedencia?: Json | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          suggested_workflow_type?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_items: {
         Row: {
           acta_radicacion_url: string | null
@@ -17938,6 +18011,8 @@ export type Database = {
           cgp_variant: string | null
           clase_proceso: string | null
           clase_proceso_disponible: boolean | null
+          clase_proceso_last_attempt_at: string | null
+          clase_proceso_last_read_case: string | null
           clase_proceso_motivo_ausencia: string | null
           clase_proceso_observed_at: string | null
           clase_proceso_procedencia: Json | null
@@ -18125,6 +18200,8 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
           clase_proceso_motivo_ausencia?: string | null
           clase_proceso_observed_at?: string | null
           clase_proceso_procedencia?: Json | null
@@ -18312,6 +18389,8 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
           clase_proceso_motivo_ausencia?: string | null
           clase_proceso_observed_at?: string | null
           clase_proceso_procedencia?: Json | null
@@ -18861,6 +18940,10 @@ export type Database = {
       }
     }
     Functions: {
+      accept_workflow_suggestion: {
+        Args: { _suggestion_id: string }
+        Returns: undefined
+      }
       acquire_daily_sync_lock: {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json

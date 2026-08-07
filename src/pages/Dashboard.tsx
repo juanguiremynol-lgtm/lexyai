@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard } from "@/components/pipeline";
 import { UNCLASSIFIED_TAB, visibleBoards } from "@/lib/dashboard-boards";
+import { WorkflowSuggestionsPanel } from "@/components/pipeline/WorkflowSuggestionsPanel";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { usePracticeAreas } from "@/hooks/use-practice-areas";
 import { PeticionesPipeline } from "@/components/peticiones";
@@ -165,6 +166,9 @@ export default function Dashboard() {
 
       {/* Today's Alerts Panel */}
       <TodayAlertsPanel />
+
+      {/* Provider clase de proceso disagreeing with the filed área (ITER42) */}
+      <WorkflowSuggestionsPanel />
 
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
