@@ -106,7 +106,8 @@ describe("iter42 — the engine follows the área once the offer is accepted", (
       [{ type: "ANCHOR_NOTIFICACION", event: "NOTIFICACION_MANDAMIENTO_PAGO", date: "2026-08-03" }],
     );
     expect(term.ruleId).toBe("eje");
-    expect(term.deadlineDate).toBe("2026-08-18");
+    // 2026-08-07 (Boyacá) and 2026-08-17 (Asunción) are Colombian holidays.
+    expect(term.deadlineDate).toBe("2026-08-19");
   });
 
   it("a CGP-only catalogue produces nothing for an executive anchor", () => {
