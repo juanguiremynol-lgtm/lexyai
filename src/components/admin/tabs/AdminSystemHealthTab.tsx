@@ -9,6 +9,7 @@ import { NeverSyncedItemsPanel } from "@/components/platform/admin-diagnostics/N
 import { DeadLetterQueuePanel } from "@/components/platform/admin-diagnostics/DeadLetterQueuePanel";
 import { BridgeIntegrityPanel } from "@/components/platform/admin-diagnostics/BridgeIntegrityPanel";
 import { EstadosCoverageReconciliationPanel } from "@/components/platform/admin-diagnostics/EstadosCoverageReconciliationPanel";
+import { ReservaSumarialPanel } from "@/components/platform/admin-diagnostics/ReservaSumarialPanel";
 
 export function AdminSystemHealthTab() {
   return (
@@ -16,6 +17,7 @@ export function AdminSystemHealthTab() {
       <SystemHealthDashboard />
       <BridgeIntegrityPanel />
       <EstadosCoverageReconciliationPanel />
+      <ReservaSumarialPanel />
       <NeverSyncedItemsPanel />
       <DeadLetterQueuePanel />
       <CronGovernancePanel />
