@@ -17938,6 +17938,8 @@ export type Database = {
           cgp_variant: string | null
           clase_proceso: string | null
           clase_proceso_disponible: boolean | null
+          clase_proceso_last_attempt_at: string | null
+          clase_proceso_last_read_case: string | null
           clase_proceso_motivo_ausencia: string | null
           clase_proceso_observed_at: string | null
           clase_proceso_procedencia: Json | null
@@ -18125,6 +18127,8 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
           clase_proceso_motivo_ausencia?: string | null
           clase_proceso_observed_at?: string | null
           clase_proceso_procedencia?: Json | null
@@ -18312,6 +18316,8 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
           clase_proceso_motivo_ausencia?: string | null
           clase_proceso_observed_at?: string | null
           clase_proceso_procedencia?: Json | null
