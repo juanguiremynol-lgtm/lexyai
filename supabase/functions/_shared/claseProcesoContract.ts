@@ -46,6 +46,29 @@ export interface ClaseProcesoContract {
 export const MOTIVO_BLOQUE_AUSENTE = 'CONTRACT_BLOCK_ABSENT';
 /** Block present but the provider could not reach /Proceso/Detalle. */
 export const MOTIVO_NO_DISPONIBLE = 'PROVIDER_UNAVAILABLE';
+/**
+ * ITER43 — reserva sumarial. The provider reaches the matter, validates it and
+ * lawfully publishes nothing: `esPrivado: true`, class null, zero actuaciones.
+ * This is a LAWFUL EMPTY, never a provider failure, and it is expected to be
+ * the norm for Ley 906 rather than the exception.
+ */
+export const MOTIVO_PROCESO_PRIVADO = 'PROCESO_PRIVADO';
+
+/**
+ * Does the provider declare this matter reserved? Read from the contract's
+ * stated reason or from the verbatim `esPrivado` flag — never inferred from a
+ * count of zero, which is also what a genuine failure looks like.
+ */
+export function isProcesoPrivado(
+  contract: Pick<ClaseProcesoContract, 'motivo_ausencia' | 'raw'> | null | undefined,
+  rawPayload?: Record<string, unknown> | null,
+): boolean {
+  if (!contract) return false;
+  if ((contract.motivo_ausencia ?? '').toUpperCase() === MOTIVO_PROCESO_PRIVADO) return true;
+  const flag = (contract.raw?.esPrivado ?? contract.raw?.es_privado
+    ?? rawPayload?.esPrivado ?? rawPayload?.es_privado);
+  return flag === true;
+}
 
 export const CLASE_PROCESO_UNAVAILABLE: ClaseProcesoContract = {
   disponible: false,

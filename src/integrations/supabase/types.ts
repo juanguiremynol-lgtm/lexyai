@@ -14709,6 +14709,36 @@ export type Database = {
         }
         Relationships: []
       }
+      upstream_workflow_capability: {
+        Row: {
+          lifecycle_enrollable: boolean
+          note: string | null
+          observed_at: string
+          term_detection: boolean
+          updated_at: string
+          upstream_ref: string | null
+          workflow_type: string
+        }
+        Insert: {
+          lifecycle_enrollable?: boolean
+          note?: string | null
+          observed_at?: string
+          term_detection?: boolean
+          updated_at?: string
+          upstream_ref?: string | null
+          workflow_type: string
+        }
+        Update: {
+          lifecycle_enrollable?: boolean
+          note?: string | null
+          observed_at?: string
+          term_detection?: boolean
+          updated_at?: string
+          upstream_ref?: string | null
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       user_data_alerts: {
         Row: {
           alert_type: string
@@ -18126,6 +18156,9 @@ export type Database = {
           pp_id: number | null
           pp_novedades_pendientes: number | null
           pp_ultima_sync: string | null
+          provider_privacy_observed_at: string | null
+          provider_privacy_reason: string | null
+          provider_privacy_state: string
           provider_reachable: boolean | null
           provider_sources: Json | null
           pubs_initial_sync_completed_at: string | null
@@ -18315,6 +18348,9 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
+          provider_privacy_observed_at?: string | null
+          provider_privacy_reason?: string | null
+          provider_privacy_state?: string
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -18504,6 +18540,9 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
+          provider_privacy_observed_at?: string | null
+          provider_privacy_reason?: string | null
+          provider_privacy_state?: string
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -18941,8 +18980,12 @@ export type Database = {
     }
     Functions: {
       accept_workflow_suggestion: {
-        Args: { _suggestion_id: string }
-        Returns: undefined
+        Args: {
+          _suggestion_id: string
+          _upstream_enrolled?: boolean
+          _upstream_evidence?: Json
+        }
+        Returns: Json
       }
       acquire_daily_sync_lock: {
         Args: { p_organization_id: string; p_run_id?: string }
@@ -19777,6 +19820,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_work_item_provider_privacy: {
+        Args: { p_motivo?: string; p_privado: boolean; p_work_item_id: string }
+        Returns: Json
+      }
       stage_rank: { Args: { p_stage: string }; Returns: number }
       sub_business_days_sql: {
         Args: { p_days: number; p_start: string }
@@ -19838,11 +19885,19 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      work_item_reserva_activa: {
+        Args: { p_work_item_id: string }
+        Returns: boolean
+      }
       work_item_status_for_lifecycle: {
         Args: {
           p_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
         }
         Returns: Database["public"]["Enums"]["item_status"]
+      }
+      workflow_is_upstream_enrollable: {
+        Args: { _workflow_type: string }
+        Returns: boolean
       }
     }
     Enums: {

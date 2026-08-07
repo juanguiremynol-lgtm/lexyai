@@ -1,0 +1,2 @@
+-- Verbatim transcription — andromeda-sync-job/main.py:66 (audited 2026-08-07).
+AND n.workflow_type IN ('CGP','CPACA')
