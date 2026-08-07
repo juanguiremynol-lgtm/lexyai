@@ -1,2 +1,5 @@
--- Verbatim transcription — andromeda-sync-job/main.py:66 (audited 2026-08-07).
-AND n.workflow_type IN ('CGP','CPACA')
+-- ITER44 — andromeda-sync-job/main.py:66 still carries this filter, but GCP
+-- confirmed `terminos_procesales` is EMPTY for every área: detectar_termino()
+-- never wrote a row. Upstream term detection is a permanent absence, not a
+-- pending feature, so the mirrored set is empty by design.
+AND n.workflow_type IN ()

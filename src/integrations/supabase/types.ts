@@ -3988,6 +3988,33 @@ export type Database = {
           },
         ]
       }
+      clase_motivo_catalogo: {
+        Row: {
+          accionable: boolean
+          created_at: string
+          descripcion_es: string | null
+          label_es: string
+          motivo: string
+          updated_at: string
+        }
+        Insert: {
+          accionable?: boolean
+          created_at?: string
+          descripcion_es?: string | null
+          label_es: string
+          motivo: string
+          updated_at?: string
+        }
+        Update: {
+          accionable?: boolean
+          created_at?: string
+          descripcion_es?: string | null
+          label_es?: string
+          motivo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       clase_proceso_unmapped_log: {
         Row: {
           clase_proceso: string
@@ -14715,6 +14742,7 @@ export type Database = {
           note: string | null
           observed_at: string
           term_detection: boolean
+          term_detection_status: string
           updated_at: string
           upstream_ref: string | null
           workflow_type: string
@@ -14724,6 +14752,7 @@ export type Database = {
           note?: string | null
           observed_at?: string
           term_detection?: boolean
+          term_detection_status?: string
           updated_at?: string
           upstream_ref?: string | null
           workflow_type: string
@@ -14733,6 +14762,7 @@ export type Database = {
           note?: string | null
           observed_at?: string
           term_detection?: boolean
+          term_detection_status?: string
           updated_at?: string
           upstream_ref?: string | null
           workflow_type?: string
@@ -17127,6 +17157,67 @@ export type Database = {
           },
         ]
       }
+      work_item_reserva_historial: {
+        Row: {
+          created_at: string
+          evento: string
+          id: string
+          motivo: string | null
+          ocurrido_en: string
+          organization_id: string | null
+          procedencia: Json
+          radicado: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          evento: string
+          id?: string
+          motivo?: string | null
+          ocurrido_en?: string
+          organization_id?: string | null
+          procedencia?: Json
+          radicado?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          evento?: string
+          id?: string
+          motivo?: string | null
+          ocurrido_en?: string
+          organization_id?: string | null
+          procedencia?: Json
+          radicado?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_scrape_jobs: {
         Row: {
           created_at: string | null
@@ -18156,9 +18247,12 @@ export type Database = {
           pp_id: number | null
           pp_novedades_pendientes: number | null
           pp_ultima_sync: string | null
+          provider_privacy_desde: string | null
           provider_privacy_observed_at: string | null
           provider_privacy_reason: string | null
           provider_privacy_state: string
+          provider_privacy_ttl_days: number
+          provider_privacy_ultima_verificacion: string | null
           provider_reachable: boolean | null
           provider_sources: Json | null
           pubs_initial_sync_completed_at: string | null
@@ -18348,9 +18442,12 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
+          provider_privacy_desde?: string | null
           provider_privacy_observed_at?: string | null
           provider_privacy_reason?: string | null
           provider_privacy_state?: string
+          provider_privacy_ttl_days?: number
+          provider_privacy_ultima_verificacion?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -18540,9 +18637,12 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
+          provider_privacy_desde?: string | null
           provider_privacy_observed_at?: string | null
           provider_privacy_reason?: string | null
           provider_privacy_state?: string
+          provider_privacy_ttl_days?: number
+          provider_privacy_ultima_verificacion?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -19042,6 +19142,18 @@ export type Database = {
       }
       apply_rechazo_presunto_rule: {
         Args: { p_work_item_id?: string }
+        Returns: Json
+      }
+      apply_reserva_estado: {
+        Args: {
+          p_desde?: string
+          p_motivo?: string
+          p_privado: boolean
+          p_procedencia?: Json
+          p_ttl_days?: number
+          p_ultima_verificacion?: string
+          p_work_item_id: string
+        }
         Returns: Json
       }
       atenia_ai_claim_queue: {
@@ -19637,6 +19749,7 @@ export type Database = {
         Returns: boolean
       }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
+      lifecycle_rejections_report: { Args: never; Returns: Json }
       list_expired_trashed_work_items: {
         Args: never
         Returns: {
@@ -19740,6 +19853,7 @@ export type Database = {
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
+      reserva_estado_report: { Args: never; Returns: Json }
       resume_work_item_monitoring: {
         Args: { p_work_item_id: string }
         Returns: Json

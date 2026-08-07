@@ -37,8 +37,8 @@ describe("upstream lifecycle allow-list parity", () => {
 });
 
 describe("capability gate fails closed", () => {
-  it("blocks EJECUTIVO until upstream enrols it", () => {
-    expect(isUpstreamEnrollable("EJECUTIVO")).toBe(false);
+  it("admits EJECUTIVO now that upstream enrols it (ITER44)", () => {
+    expect(isUpstreamEnrollable("EJECUTIVO")).toBe(true);
   });
 
   it("allows the áreas upstream accepts", () => {
@@ -55,22 +55,20 @@ describe("capability gate fails closed", () => {
 
   it("honours a live register that widens the set", () => {
     const live = [
-      { workflow_type: "EJECUTIVO", lifecycle_enrollable: true, term_detection: false },
+      { workflow_type: "NUEVA_AREA", lifecycle_enrollable: true, term_detection: false },
     ];
-    expect(isUpstreamEnrollable("EJECUTIVO", live)).toBe(true);
+    expect(isUpstreamEnrollable("NUEVA_AREA", live)).toBe(true);
   });
 
-  it("reports missing upstream term detection for the newer áreas", () => {
-    expect(hasUpstreamTermDetection("CGP")).toBe(true);
-    expect(hasUpstreamTermDetection("EJECUTIVO")).toBe(false);
-    expect(hasUpstreamTermDetection("PENAL_906")).toBe(false);
-    expect(hasUpstreamTermDetection("LABORAL")).toBe(false);
-    expect(hasUpstreamTermDetection("TUTELA")).toBe(false);
+  it("reports upstream term detection as a permanent absence for every área", () => {
+    for (const wf of ["CGP", "CPACA", "EJECUTIVO", "PENAL_906", "LABORAL", "TUTELA"]) {
+      expect(hasUpstreamTermDetection(wf)).toBe(false);
+    }
   });
 
   it("covers every mirrored área in the fallback register", () => {
     const rows = fallbackCapabilities();
-    expect(rows.find((r) => r.workflow_type === "EJECUTIVO")?.lifecycle_enrollable).toBe(false);
+    expect(rows.find((r) => r.workflow_type === "EJECUTIVO")?.lifecycle_enrollable).toBe(true);
     expect(rows.every((r) => typeof r.term_detection === "boolean")).toBe(true);
   });
 });

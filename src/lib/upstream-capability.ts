@@ -15,8 +15,9 @@
  * is `public.upstream_workflow_capability`, which this constant seeds and which
  * `src/test/upstream-capability-iter43.test.ts` asserts against for drift.
  *
- * Release procedure: when GCP confirms EJECUTIVO is enrolled, flip the flag
- * here AND in the table (a row update, not a migration of doctrine).
+ * ITER44 — revision andromeda-read-api-00021-cvm admits EJECUTIVO, so the
+ * guard is lifted. The mechanism stays: the next área we model will be blocked
+ * by the same check until upstream accepts it.
  */
 
 /** Verbatim transcription of the upstream allow-list, audited 2026-08-07. */
@@ -26,14 +27,21 @@ export const UPSTREAM_LIFECYCLE_WORKFLOWS = [
   "LABORAL",
   "PENAL_906",
   "TUTELA",
+  "EJECUTIVO",
 ] as const;
 
 /**
- * andromeda-sync-job/main.py:66 — detectar_termino() is filtered with
- * `AND n.workflow_type IN ('CGP','CPACA')`. Upstream term detection therefore
- * does not run for the other áreas; our own engine covers them downstream.
+ * ITER44 — PERMANENT ABSENCE, not a gap. `andromeda-sync-job/main.py:66` still
+ * filters detectar_termino() by workflow_type, but GCP verified that
+ * `terminos_procesales` has never held a row for ANY área: the upstream
+ * detector produces nothing. Our downstream engine (workflow_deadline_rules +
+ * rule-term-suggestions) is therefore the sole source of procedural terms, and
+ * nothing in our pipeline may wait for an upstream term that will never come.
  */
-export const UPSTREAM_TERM_DETECTION_WORKFLOWS = ["CGP", "CPACA"] as const;
+export const UPSTREAM_TERM_DETECTION_WORKFLOWS = [] as const;
+
+/** Upstream revision the mirrors above were audited against. */
+export const UPSTREAM_AUDITED_REVISION = "andromeda-read-api-00021-cvm";
 
 export const UPSTREAM_ENROLMENT_BLOCKED_REASON =
   "Pendiente de habilitación en el proveedor — al aplicar, el expediente dejaría de monitorearse";

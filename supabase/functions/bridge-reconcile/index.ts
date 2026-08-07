@@ -241,10 +241,9 @@ async function invokeSyncFunction(
   return { ok: false, detail: last };
 }
 
-/** `PENAL` is a legacy in-memory alias (iteration 15 normalized it to
- *  PENAL_906) and is NOT a member of the `workflow_type` enum — filtering the
- *  portfolio query by it made Postgres reject the whole sweep. */
-const QUERYABLE_WORKFLOWS = Object.keys(CHAIN).filter((w) => w !== "PENAL");
+/** ITER44 — the matrix now holds only canonical enum members (the legacy
+ *  `PENAL` alias was removed at the source), so every key is queryable. */
+const QUERYABLE_WORKFLOWS = Object.keys(CHAIN);
 
 type TransferState =
   | "IN_SYNC" | "GAP" | "PROVIDER_NO_ROWS" | "TRANSFER_FAILED" | "PROVIDER_UNAVAILABLE"

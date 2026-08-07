@@ -46,6 +46,34 @@ export interface ClaseProcesoContract {
 export const MOTIVO_BLOQUE_AUSENTE = 'CONTRACT_BLOCK_ABSENT';
 /** Block present but the provider could not reach /Proceso/Detalle. */
 export const MOTIVO_NO_DISPONIBLE = 'PROVIDER_UNAVAILABLE';
+
+/**
+ * ITER44 — the provider now distinguishes WHY a class is absent. The four
+ * values below are its closed vocabulary; the two legacy sentinels above are
+ * kept because rows written before this iteration still carry them.
+ *
+ * Only `accionable` motives may be retried. "No existe en el proveedor" and
+ * "reserva sumarial" are conclusions, not failures: retrying them forever is
+ * how a silent absence turns into a fake incident.
+ */
+export const MOTIVO_NO_ENCONTRADO = 'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR';
+export const MOTIVO_NO_CONSULTADO_AUN = 'NO_CONSULTADO_AUN';
+export const MOTIVO_LECTURA_FALLIDA = 'LECTURA_FALLIDA';
+export const MOTIVO_DETALLE_NO_DISPONIBLE = 'DETALLE_NO_DISPONIBLE';
+
+/** Motives a retry can plausibly change. Mirrors public.clase_motivo_catalogo. */
+export const MOTIVOS_ACCIONABLES = new Set<string>([
+  MOTIVO_NO_CONSULTADO_AUN,
+  MOTIVO_LECTURA_FALLIDA,
+  MOTIVO_DETALLE_NO_DISPONIBLE,
+  MOTIVO_NO_DISPONIBLE,
+  MOTIVO_BLOQUE_AUSENTE,
+]);
+
+export function isMotivoAccionable(motivo: string | null | undefined): boolean {
+  if (!motivo) return false;
+  return MOTIVOS_ACCIONABLES.has(motivo.trim().toUpperCase());
+}
 /**
  * ITER43 — reserva sumarial. The provider reaches the matter, validates it and
  * lawfully publishes nothing: `esPrivado: true`, class null, zero actuaciones.
@@ -53,6 +81,31 @@ export const MOTIVO_NO_DISPONIBLE = 'PROVIDER_UNAVAILABLE';
  * the norm for Ley 906 rather than the exception.
  */
 export const MOTIVO_PROCESO_PRIVADO = 'PROCESO_PRIVADO';
+
+/**
+ * ITER44 — freshness authority. `clase_provider_observed_at` is when the
+ * PROVIDER read the class; our own write time only says when we copied it.
+ * A stale class is a fact about the provider, so the provider timestamp wins
+ * whenever it is present.
+ */
+export function claseProviderObservedAt(
+  contract: Pick<ClaseProcesoContract, 'procedencia' | 'raw'> | null | undefined,
+): string | null {
+  if (!contract) return null;
+  const p = contract.procedencia as Record<string, unknown> | null;
+  const candidates = [
+    p?.clase_provider_observed_at,
+    p?.provider_observed_at,
+    (contract.raw as Record<string, unknown> | null)?.clase_provider_observed_at,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) {
+      const t = Date.parse(c);
+      if (!Number.isNaN(t)) return new Date(t).toISOString();
+    }
+  }
+  return null;
+}
 
 /**
  * Does the provider declare this matter reserved? Read from the contract's

@@ -5,14 +5,13 @@
  * Monitoring is derived from the workflow type, never asked of the user.
  */
 
+import { normalizeWorkflowType } from "./workflow-constants";
+
 export const PROVIDER_CHAIN_BY_WORKFLOW: Record<string, string[]> = {
   CGP: ["cpnu", "publicaciones"],
   LABORAL: ["cpnu", "publicaciones"],
   PENAL_906: ["cpnu", "publicaciones"],
   EJECUTIVO: ["cpnu", "publicaciones"],
-  // Defensive alias only — 'PENAL' is not a workflow_type enum value and is
-  // never emitted by Andromeda; canonical value is PENAL_906.
-  PENAL: ["cpnu", "publicaciones"],
   CPACA: ["samai", "samai_estados"],
   // Subject matter unknown (mixed-competence court): fan out to every provider
   // until the matter is classified (iteration 18). Mirrors the DB function.
@@ -22,7 +21,10 @@ export const PROVIDER_CHAIN_BY_WORKFLOW: Record<string, string[]> = {
 
 export function providerChainFor(workflowType?: string | null): string[] {
   if (!workflowType) return [];
-  return PROVIDER_CHAIN_BY_WORKFLOW[workflowType.toUpperCase()] ?? [];
+  // ITER44 — aliases are resolved in exactly one place (normalizeWorkflowType);
+  // the matrix itself only ever holds canonical enum members.
+  const key = normalizeWorkflowType(workflowType) ?? workflowType.toUpperCase();
+  return PROVIDER_CHAIN_BY_WORKFLOW[key] ?? [];
 }
 
 export function isProviderMonitoredWorkflow(workflowType?: string | null): boolean {
