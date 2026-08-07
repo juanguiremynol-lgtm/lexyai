@@ -6,6 +6,12 @@
  * pending suggestion the lawyer accepts or rejects. Nothing here writes
  * workflow_type directly — acceptance goes through accept_workflow_suggestion,
  * which stamps the change as MANUAL and audits it.
+ *
+ * ITER43: acceptance no longer calls the RPC from the browser. Upstream keys
+ * monitoring by workflow_type and rejects áreas outside its allow-list with a
+ * 400, so a reclassification that is not confirmed upstream would silently
+ * unsubscribe the matter. The accept-workflow-suggestion edge function re-enrols
+ * first, verifies, and only then commits — rolling back if the commit fails.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -66,10 +72,16 @@ export function useResolveWorkflowSuggestion() {
 
   const accept = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("accept_workflow_suggestion", {
-        _suggestion_id: id,
-      });
-      if (error) throw error;
+      const { data, error } = await supabase.functions.invoke(
+        "accept-workflow-suggestion",
+        { body: { suggestion_id: id } },
+      );
+      if (error) {
+        const payload = (data ?? null) as { error?: string } | null;
+        throw new Error(payload?.error || error.message);
+      }
+      const result = data as { ok?: boolean; error?: string } | null;
+      if (!result?.ok) throw new Error(result?.error || "No se pudo aplicar la sugerencia");
     },
     onSuccess: () => {
       toast.success("Área actualizada");
