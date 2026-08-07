@@ -166,6 +166,9 @@ export default function Dashboard() {
       {/* Today's Alerts Panel */}
       <TodayAlertsPanel />
 
+      {/* Provider clase de proceso disagreeing with the filed área (ITER42) */}
+      <WorkflowSuggestionsPanel />
+
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <div className="overflow-x-auto -mx-1 px-1">
