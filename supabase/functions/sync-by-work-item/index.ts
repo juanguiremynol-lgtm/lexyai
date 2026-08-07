@@ -3503,7 +3503,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     //   C — an unmapped class is logged, never guessed.
     try {
       const rawContract = fetchResult.caseMetadata?.clase_proveedor;
-      if (rawContract !== undefined) {
+      {
         const contract = parseClaseProveedor(rawContract);
 
         const { data: currentRow } = await supabase
@@ -3523,6 +3523,12 @@ Deno.serve(withSyncTimeline(async (req) => {
         });
 
         console.log(`[sync-by-work-item][clase] case=${decision.readCase} ${decision.explanation}`);
+
+        // ITER42 — the attempt itself is always recorded, whatever the outcome.
+        // GUARD A (iii) still forbids touching the class on INCONCLUSIVE; these
+        // two columns describe the READ, not the class, so no doctrine is bent.
+        updatePayload.clase_proceso_last_read_case = decision.readCase;
+        updatePayload.clase_proceso_last_attempt_at = new Date().toISOString();
 
         if (decision.readCase !== 'INCONCLUSIVE' && Object.keys(decision.patch).length > 0) {
           // Merge into the pending payload so the provider contract is the last
