@@ -23,6 +23,7 @@
 import {
   type ClaseProcesoContract,
   MOTIVO_BLOQUE_AUSENTE,
+  claseProviderObservedAt,
 } from "./claseProcesoContract.ts";
 
 /** Guard A cases. */
@@ -33,7 +34,12 @@ export type ClaseReadCase = "PRESENT" | "DECLINED" | "INCONCLUSIVE";
  * class. LABORAL alters the provider chain and the phase catalogue, so it is
  * suggestion-only (iteration 18 practice-area doctrine).
  */
-export const INFERENCE_INELIGIBLE_WORKFLOWS = new Set(["LABORAL", "PENAL_906", "PENAL"]);
+/**
+ * ITER44 — the legacy `PENAL` spelling was removed here: aliasing belongs to
+ * `normalizeWorkflowType()` alone, and a second copy of it is exactly the
+ * duplicated-identity defect family.
+ */
+export const INFERENCE_INELIGIBLE_WORKFLOWS = new Set(["LABORAL", "PENAL_906"]);
 
 export interface ClaseMapEntry {
   pattern: string;
@@ -98,7 +104,8 @@ export function decideClaseProcesoWrite(args: {
 }): ClaseWriteDecision {
   const { contract, current, map } = args;
   const readCase = classifyRead(contract);
-  const now = args.observedAt ?? new Date().toISOString();
+  // ITER44 — freshness authority: the provider's own observation timestamp.
+  const now = claseProviderObservedAt(contract) ?? args.observedAt ?? new Date().toISOString();
 
   // ── GUARD A (iii): inconclusive read. Touch NOTHING. ──
   if (readCase === "INCONCLUSIVE") {
