@@ -21,7 +21,7 @@ import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
-import { parseClaseProveedor } from "../_shared/claseProcesoContract.ts";
+import { coerceClaseContract } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
@@ -3504,7 +3504,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     try {
       const rawContract = fetchResult.caseMetadata?.clase_proveedor;
       {
-        const contract = parseClaseProveedor(rawContract);
+        const contract = coerceClaseContract(rawContract);
 
         const { data: currentRow } = await supabase
           .from('work_items')
