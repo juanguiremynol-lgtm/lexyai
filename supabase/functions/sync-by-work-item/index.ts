@@ -3575,8 +3575,16 @@ Deno.serve(withSyncTimeline(async (req) => {
           // ITER42 — a log is not an offer. The disagreement also becomes a
           // PENDING suggestion the lawyer can accept, which is the only path
           // that ever rewrites workflow_type (as MANUAL).
-          await supabase.from('work_item_workflow_suggestions').upsert(
-            {
+          const { data: existingSuggestion } = await supabase
+            .from('work_item_workflow_suggestions')
+            .select('id')
+            .eq('work_item_id', work_item_id)
+            .eq('suggested_workflow_type', decision.workflow.workflow)
+            .eq('status', 'PENDING')
+            .maybeSingle();
+
+          if (!existingSuggestion) {
+            await supabase.from('work_item_workflow_suggestions').insert({
               work_item_id,
               organization_id:
                 (currentRow as { organization_id?: string | null } | null)?.organization_id ?? null,
@@ -3588,9 +3596,8 @@ Deno.serve(withSyncTimeline(async (req) => {
               reason: decision.workflow.reason,
               procedencia: contract.procedencia,
               status: 'PENDING',
-            },
-            { onConflict: 'work_item_id,suggested_workflow_type', ignoreDuplicates: true },
-          );
+            });
+          }
         }
 
         // GUARD C — grow the catalogue from real data.
