@@ -9,14 +9,8 @@
  *  3. `/lifecycle` requires {work_item_id, radicado, new_state, occurred_at}.
  */
 import { describe, it, expect } from "vitest";
-import {
-  parsePrivateRegistry,
-  readingFor,
-} from "../../supabase/functions/sync-detalle-exposicion/index.ts";
-import {
-  deriveSourceHealth,
-  normalizeStreak,
-} from "../../supabase/functions/ingest-source-health/index.ts";
+import { parsePrivateRegistry, readingFor } from "../lib/upstream/private-registry";
+import { deriveSourceHealth, normalizeStreak } from "../lib/upstream/source-health";
 import { classifyProbe, UPSTREAM_ENDPOINTS } from "../../supabase/functions/_shared/upstreamEndpoints.ts";
 
 /** Verbatim shape returned by the live probe. */
