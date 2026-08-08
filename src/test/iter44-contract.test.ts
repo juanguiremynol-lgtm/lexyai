@@ -69,8 +69,10 @@ describe("absence vocabulary distinguishes conclusions from interruptions", () =
     expect(claseMotivoLabel("MOTIVO_INVENTADO")).toBe("MOTIVO_INVENTADO");
   });
 
-  it("labels reserva in Spanish", () => {
-    expect(claseMotivoLabel("PROCESO_PRIVADO")).toBe("Detalle no expuesto por el proveedor");
+  it("uses the provider's own term, attributed", () => {
+    expect(claseMotivoLabel("PROCESO_PRIVADO")).toBe(
+      "Marcado como proceso privado por el proveedor",
+    );
   });
 });
 
