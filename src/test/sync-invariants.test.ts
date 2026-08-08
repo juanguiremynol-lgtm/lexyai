@@ -171,13 +171,13 @@ describe("4A: last_synced_at conditional update", () => {
 
 describe("4B: Provider result accountability", () => {
   it("detects missing provider results in TUTELA fan-out", () => {
-    const expected = ['cpnu', 'tutelas-api'];
+    const expected = ['cpnu', 'samai'];
     const results: Record<string, ProviderResult | undefined> = {
       'cpnu': { called: true, statusCode: 200, recordsReceived: 3, recordsUpserted: 3, status: 'SUCCESS' },
-      // tutelas-api is MISSING — adapter bug
+      // samai is MISSING — adapter bug
     };
     const missing = findMissingProviderResults(expected, results);
-    expect(missing).toEqual(['tutelas-api']);
+    expect(missing).toEqual(['samai']);
   });
 
   it("returns empty when all providers have results", () => {
@@ -236,7 +236,7 @@ describe("4E: Routing completeness", () => {
   const EXPECTED_PRIMARY: Record<string, string> = {
     CGP: 'cpnu',
     CPACA: 'samai',
-    TUTELA: 'tutelas-api',
+    TUTELA: 'cpnu',
     LABORAL: 'cpnu',
     PENAL_906: 'cpnu',
   };
@@ -259,10 +259,10 @@ describe("4F: Multi-provider sync integrity", () => {
   it("partial success (one ok, one failed) allows marking synced", () => {
     const result = validateSyncIntegrity({
       workItemId: 'test-456',
-      providersAttempted: ['cpnu', 'tutelas-api'],
+      providersAttempted: ['cpnu', 'samai'],
       providerResults: {
         cpnu: { called: true, statusCode: 200, recordsReceived: 5, recordsUpserted: 5, status: 'SUCCESS' },
-        'tutelas-api': { called: true, statusCode: 500, recordsReceived: 0, recordsUpserted: 0, status: 'ERROR', error: 'Server error' },
+        'samai': { called: true, statusCode: 500, recordsReceived: 0, recordsUpserted: 0, status: 'ERROR', error: 'Server error' },
       }
     });
     expect(result.canMarkSynced).toBe(true);

@@ -13,7 +13,6 @@
  * - CPNU (actuaciones + basic metadata)
  * - SAMAI (actuaciones + basic metadata)
  * - Publicaciones Procesales (estados)
- * - Tutelas API (actuaciones + estados + metadata)
  * - SAMAI Estados (estados)
  * 
  * Adding a new provider: add an entry to DEMO_PROVIDER_REGISTRY. It will
@@ -33,7 +32,6 @@ import {
   fetchFromCpnu as sharedFetchCpnu,
   fetchFromSamai as sharedFetchSamai,
   fetchFromPublicaciones as sharedFetchPublicaciones,
-  fetchFromTutelas as sharedFetchTutelas,
   fetchFromSamaiEstados as sharedFetchSamaiEstados,
   toDemoResult,
   type DemoProviderResult,
@@ -210,12 +208,15 @@ function parseSujetosString(raw: unknown): { demandante: string | null; demandad
 // PROVIDER DEFINITIONS — uses shared adapters
 // ═══════════════════════════════════════════
 
-/** All 5 built-in providers with their display labels and fetch functions */
+/**
+ * ITER48 — the four built-in providers. `Tutelas` was removed: GCP confirmed no
+ * tutelas service exists (404 for /expediente and POST /search on all eight
+ * services with valid keys). Tutelas are the union of these four sources.
+ */
 const DEMO_PROVIDERS = [
   { name: "CPNU",          label: "Consulta Nacional de Procesos",   provides: ["actuaciones", "metadata"] as const, fetchFn: fetchCpnu },
   { name: "SAMAI",         label: "Sistema de Gestión SAMAI",        provides: ["actuaciones", "metadata"] as const, fetchFn: fetchSamai },
   { name: "Publicaciones", label: "Publicaciones Procesales",        provides: ["estados"] as const,                 fetchFn: fetchPublicaciones },
-  { name: "Tutelas",       label: "API de Tutelas",                  provides: ["actuaciones", "estados", "metadata"] as const, fetchFn: fetchTutelas },
   { name: "SAMAI Estados", label: "SAMAI Estados Electrónicos",      provides: ["estados"] as const,                 fetchFn: fetchSamaiEstados },
 ] as const;
 
@@ -285,25 +286,6 @@ async function fetchPublicaciones(radicado: string, baseUrl: string, apiKey: str
   }
 }
 
-async function fetchTutelas(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
-  if (!baseUrl || !apiKey) {
-    return { provider: "Tutelas", outcome: "skipped", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Not configured" };
-  }
-  try {
-    const result = await sharedFetchTutelas({
-      radicado,
-      mode: 'discovery',
-      timeoutMs: 20000,
-      includeParties: true,
-      redactPII: true,
-    });
-    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
-    return demo as unknown as ProviderResult;
-  } catch (err) {
-    const isTimeout = err instanceof DOMException && err.name === "AbortError";
-    return { provider: "Tutelas", outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
-  }
-}
 
 async function fetchSamaiEstados(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
   if (!baseUrl || !apiKey) {
@@ -333,25 +315,15 @@ function inferCategory(results: ProviderResult[], radicado: string): CategoryInf
   const caveats: string[] = [];
   const scores: Record<string, number> = { CGP: 0, CPACA: 0, TUTELA: 0, LABORAL: 0, PENAL_906: 0 };
 
-  // Track which domain-specific providers returned data
-  const tutelasResult = results.find(r => r.provider === "Tutelas");
   const samaiResult = results.find(r => r.provider === "SAMAI");
   const samaiEstadosResult = results.find(r => r.provider === "SAMAI Estados");
   const cpnuResult = results.find(r => r.provider === "CPNU");
 
-  const tutelasHit = tutelasResult?.outcome === "success" && tutelasResult.found_status !== "NOT_FOUND";
   const samaiHit = samaiResult?.outcome === "success" && samaiResult.found_status !== "NOT_FOUND";
   const samaiEstadosHit = samaiEstadosResult?.outcome === "success" && samaiEstadosResult.found_status !== "NOT_FOUND";
   const cpnuHit = cpnuResult?.outcome === "success" && cpnuResult.found_status !== "NOT_FOUND";
 
   // ── Provider dominance weights ──
-  // Tutelas provider hit = very strong TUTELA signal
-  if (tutelasHit) {
-    const weight = tutelasResult!.found_status === "FOUND_COMPLETE" ? 2 : 1;
-    scores.TUTELA += 5 * weight;
-    signals.push("API de Tutelas confirmó datos (señal fuerte de tutela)");
-  }
-
   // SAMAI / SAMAI Estados hit = strong CPACA signal
   if (samaiEstadosHit) {
     const weight = samaiEstadosResult!.found_status === "FOUND_COMPLETE" ? 2 : 1;
@@ -464,11 +436,11 @@ function inferCategory(results: ProviderResult[], radicado: string): CategoryInf
     caveats.push("Las fuentes especializadas en lo Contencioso Administrativo (SAMAI) no confirmaron datos para este radicado. Mostramos lo encontrado en otras fuentes.");
   }
 
-  // TUTELA inferred but Tutelas provider didn't confirm
-  if (topCat === "TUTELA" && !tutelasHit) {
+  // ITER48 — TUTELA is no longer cross-validated against a dedicated provider,
+  // because none exists. The signal is the keyword/despacho evidence itself.
+  if (topCat === "TUTELA" && !tutelaKeywordFound) {
     if (confidence === "HIGH") confidence = "MEDIUM";
-    if (confidence === "MEDIUM" && !tutelaKeywordFound) confidence = "LOW";
-    caveats.push("La fuente especializada en tutelas no retornó datos para este radicado. La clasificación se basa en señales del despacho y las actuaciones.");
+    caveats.push("La clasificación como tutela se basa en señales del despacho y las actuaciones; las tutelas no tienen una fuente dedicada, son la unión de las fuentes existentes.");
   }
 
   // If score is very close between top two → uncertain
@@ -895,7 +867,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Critical estados providers that get retries
-    const ESTADOS_CRITICAL_PROVIDERS = new Set(["Publicaciones", "SAMAI Estados", "Tutelas"]);
+    const ESTADOS_CRITICAL_PROVIDERS = new Set(["Publicaciones", "SAMAI Estados"]);
     const isRetryEstados = body?.action === "retry_estados";
 
     // If we have cached data (fresh or stale), skip retries — we already have fallback content.

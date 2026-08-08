@@ -27,10 +27,6 @@ import { computeSamaiFingerprint } from "../../supabase/functions/_shared/provid
 import { computeSamaiEstadosFingerprint } from "../../supabase/functions/_shared/providerAdapters/samaiEstadosAdapter.ts";
 import { computePublicacionFingerprint } from "../../supabase/functions/_shared/providerAdapters/publicacionesAdapter.ts";
 import {
-  computeTutelasFingerprint,
-  computeTutelasEstadoFingerprint,
-} from "../../supabase/functions/_shared/providerAdapters/tutelasAdapter.ts";
-import {
   CHAIN,
   PROVIDER_ROW_KINDS,
   PROVIDER_LOCAL_SOURCES,
@@ -189,16 +185,6 @@ describe("iter26 · 2 — adapter identity == persistence identity", () => {
     ));
   });
 
-  it("tutelas: acts use the ACT helper and estados use the PUB helper", () => {
-    const raw = { fecha: "2026-04-05", actuacion: "Fallo de tutela", parte: "Accionante" };
-    expect(computeTutelasFingerprint(raw.fecha, raw.actuacion, "", WI, false, resolvePartyHint(raw)))
-      .toBe(canonicalActIdentityFromRow(
-        { act_date: raw.fecha, description: raw.actuacion, raw_data: raw } as any, WI));
-    const estadoFp = computeTutelasEstadoFingerprint(raw.fecha, raw.actuacion, WI, resolvePartyHint(raw));
-    expect(estadoFp.startsWith("pub_")).toBe(true);
-    expect(estadoFp).toBe(canonicalPubIdentityFromRow(
-      { fecha_fijacion: raw.fecha, tipo_publicacion: raw.actuacion, title: raw.actuacion, raw_data: raw } as any, WI));
-  });
 });
 
 // ────────────────────────────────────────────────────────────
@@ -266,8 +252,7 @@ describe("iter26 · 5 — provider matrix lockstep", () => {
 
   it("no orphan entries in either map", () => {
     const providers = new Set(chainProviders());
-    // tutelas is reachable through the CPNU+TUTELAS union route.
-    providers.add("tutelas");
+    // ITER48 — no phantom providers: every map key must be in CHAIN.
     for (const k of Object.keys(PROVIDER_ROW_KINDS)) expect(providers.has(k)).toBe(true);
     for (const k of Object.keys(PROVIDER_LOCAL_SOURCES)) expect(providers.has(k)).toBe(true);
   });

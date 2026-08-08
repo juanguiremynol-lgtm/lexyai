@@ -28,16 +28,16 @@ export const CHAIN: Record<string, string[]> = {
 export const PROVIDER_ROW_KINDS: Record<string, Array<"ACT" | "PUB">> = {
   cpnu: ["ACT"],
   samai: ["ACT"],
-  tutelas: ["ACT"],
   publicaciones: ["PUB"],
   samai_estados: ["PUB"],
 };
 
 /** Local `source` values attributable to each provider (lowercase). */
 export const PROVIDER_LOCAL_SOURCES: Record<string, string[]> = {
-  cpnu: ["cpnu", "cpnu+tutelas"],
+  // ITER48 — `tutelas` / `cpnu+tutelas` are LEGACY strings for CPNU-origin rows;
+  // the tutelas provider never existed, so its rows belong to cpnu.
+  cpnu: ["cpnu", "cpnu+tutelas", "tutelas"],
   samai: ["samai"],
-  tutelas: ["tutelas", "cpnu+tutelas"],
   publicaciones: ["publicaciones", "pp"],
   samai_estados: ["samai_estados"],
 };

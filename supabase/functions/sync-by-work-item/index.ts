@@ -7,7 +7,7 @@
  * - Multi-tenant safe: validates user is member of work_item's organization
  * - CPNU primary + SAMAI fallback for radicado workflows
  * - TUTELAS API for TUTELA workflows (tutela_code-based)
- * - All external URLs from env vars: CPNU_BASE_URL, SAMAI_BASE_URL, TUTELAS_BASE_URL, EXTERNAL_X_API_KEY
+ * - All external URLs come from the pinned upstream registry (ITER48: SAMAI/TUTELAS overrides deleted)
  * - Idempotent: uses hash_fingerprint to prevent duplicates
  * - **NEW**: Detailed trace logging via sync_traces table for debugging
  * 
@@ -54,8 +54,6 @@ import {
 import {
   fetchFromCpnu as sharedFetchFromCpnu,
   fetchFromSamai as sharedFetchFromSamai,
-  fetchFromTutelas as sharedFetchFromTutelas,
-  mapCorteStatus as sharedMapCorteStatus,
   type ProviderAdapterResult,
 } from '../_shared/providerAdapters/index.ts';
 import { toOrchestratorResult, type OrchestratorFetchResult } from '../_shared/providerAdapters/bridge.ts';
@@ -375,7 +373,7 @@ async function logTrace(
 type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
 
 interface ProviderOrderConfig {
-  primary: 'cpnu' | 'samai' | 'tutelas' | 'publicaciones';
+  primary: 'cpnu' | 'samai' | 'publicaciones';
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
   usePublicacionesAsPrimary?: boolean; // For PENAL_906: Publicaciones is the PRIMARY sync source
@@ -393,10 +391,9 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
   const fallbackProvider = actCoverage.providers.find(p => p.role === "FALLBACK");
   
   // Map uppercase matrix keys to lowercase provider keys used by inline fetch functions
-  const keyMap: Record<string, 'cpnu' | 'samai' | 'tutelas' | 'publicaciones'> = {
+  const keyMap: Record<string, 'cpnu' | 'samai' | 'publicaciones'> = {
     'CPNU': 'cpnu',
     'SAMAI': 'samai',
-    'TUTELAS': 'tutelas',
     'PUBLICACIONES': 'publicaciones',
     'SAMAI_ESTADOS': 'samai',
   };
@@ -475,7 +472,7 @@ function classifyActuacionType(description: string): string {
  * Lower court actuaciones: CPNU > SAMAI
  * Corte Constitucional: TUTELAS is authoritative
  */
-const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai', 'tutelas'];
+const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai'];
 
 /**
  * Merge TUTELA metadata from multiple providers using "best available" strategy.
@@ -509,17 +506,15 @@ function mergeTutelaMetadata(
     }
   }
 
-  // Stage: TUTELAS (Corte Constitucional) always overrides
-  if ((source === 'tutelas' || source === 'tutelas-api') && incoming.stage) {
-    merged.stage = incoming.stage;
-  } else if (!merged.stage && incoming.stage) {
+  // ITER48 — no provider outranks another for stage; first non-empty wins.
+  if (!merged.stage && incoming.stage) {
     merged.stage = incoming.stage;
   }
 
   // Additive/authoritative fields — take from whoever provides them
   const additive = ['tutela_code', 'corte_status', 'sentencia_ref'];
   for (const key of additive) {
-    if (incoming[key]) merged[key] = incoming[key]; // Last provider with data wins (TUTELAS is last)
+    if (incoming[key]) merged[key] = incoming[key]; // Last provider with data wins
   }
 
   // total_actuaciones: sum across providers (before dedup)
@@ -1017,23 +1012,6 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
   return sharedResultToFetchResult(result);
 }
 
-async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_code' | 'radicado' = 'tutela_code'): Promise<FetchResult> {
-  const result = await sharedFetchFromTutelas({
-    radicado: identifier,
-    mode: 'monitoring',
-    includeParties: true,
-  });
-  return sharedResultToFetchResult(result);
-}
-
-/**
- * Map raw Corte Constitucional status to canonical status.
- * Delegates to shared adapter.
- */
-function mapCorteStatus(estado: string): string {
-  return sharedMapCorteStatus(estado);
-}
-
 /**
  * Extract tutela_code (T-XXXXXXX) from CPNU/SAMAI actuaciones text
  * Sometimes CPNU mentions "Expediente T-1234567" in actuación annotations
@@ -1052,7 +1030,7 @@ function extractTutelaCodeFromActuaciones(actuaciones: ActuacionRaw[]): string |
 // ============= PUBLICACIONES =============
 // NOTE: Publicaciones sync is now handled by a separate edge function:
 // sync-publicaciones-by-work-item
-// This function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
+// This function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI.
 
 // ============= ORCHESTRATOR EXECUTION PATH =============
 // When USE_ORCHESTRATOR_SYNC=true, this function handles provider sequencing
@@ -1113,18 +1091,6 @@ async function executeViaOrchestrator(
       key: "SAMAI",
       fetchFn: createLegacyAdapter(
         (radicado: string) => fetchFromSamai(radicado),
-      ),
-    },
-    {
-      key: "TUTELAS",
-      fetchFn: createLegacyAdapter(
-        (identifier: string) => {
-          // Use tutela_code if available, otherwise radicado
-          if (hasTutelaCode) {
-            return fetchFromTutelasApi(workItem.tutela_code!, "tutela_code");
-          }
-          return fetchFromTutelasApi(identifier, "radicado");
-        },
       ),
     },
     // Note: PUBLICACIONES is handled by sync-publicaciones-by-work-item
@@ -1753,15 +1719,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         providerPromises.push(fetchFromSamai(normalizedRadicado));
         providerLabels.push('samai');
       }
-      if (hasTutelaCode) {
-        // T-code available: use direct /expediente lookup
-        providerPromises.push(fetchFromTutelasApi(workItem.tutela_code!, 'tutela_code'));
-        providerLabels.push('tutelas');
-      } else if (hasRadicado) {
-        // No T-code: try TUTELAS with radicado-based /search
-        providerPromises.push(fetchFromTutelasApi(normalizedRadicado, 'radicado'));
-        providerLabels.push('tutelas');
-      }
+      // ITER48 — there is no tutelas provider to call. A tutela is the UNION of
+      // the four real sources; CPNU + SAMAI above already cover actuaciones and
+      // the estados providers cover publicaciones.
       
       const settledResults = await Promise.allSettled(providerPromises);
       
@@ -1873,7 +1833,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           radicado: workItem.radicado || '',
           workflowType: workItem.workflow_type,
           stage: (workItem as any).stage || null,
-          provider: scrapingResult.provider === 'tutelas-api' ? 'tutelas' : (scrapingResult.provider || 'tutelas'),
+          provider: scrapingResult.provider || 'cpnu',
           kind: 'ACT_SCRAPE_RETRY',
           scrapingJobId: scrapingResult.scrapingJobId,
           errorCode: 'SCRAPING_TIMEOUT',
@@ -3017,7 +2977,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Canonical lowercase labels — legacy uppercase ('CPNU','SAMAI','TUTELAS')
       // was normalized to lowercase across the pipeline (see 2026-07-13 sweep).
       const sourcePlatformMap: Record<string, string> = {
-        'cpnu': 'cpnu', 'samai': 'samai', 'tutelas': 'tutelas', 'tutelas-api': 'tutelas',
+        'cpnu': 'cpnu', 'samai': 'samai', 'tutelas': 'cpnu', 'tutelas-api': 'cpnu',
       };
 
       // ── Upsert via RPC with explicit sources[] array merge ──
@@ -3660,11 +3620,12 @@ Deno.serve(withSyncTimeline(async (req) => {
         };
       }
       
-      // If TUTELAS returned corte_status, include it in provider_sources
+      // ITER48 — corte_status now arrives from whichever real source reported it.
       const meta = fetchResult.caseMetadata || {};
-      if (meta.corte_status && (providerSources['tutelas'] || providerSources['tutelas-api'])) {
-        const tutelaSources = (providerSources['tutelas'] || providerSources['tutelas-api']) as Record<string, unknown>;
-        tutelaSources.corte_status = meta.corte_status;
+      if (meta.corte_status) {
+        for (const src of Object.values(providerSources)) {
+          if (src && typeof src === 'object') (src as Record<string, unknown>).corte_status = meta.corte_status;
+        }
       }
       
       updatePayload.provider_sources = providerSources;
@@ -3689,7 +3650,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // ============= PUBLICACIONES SYNC =============
     // NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
-    // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
+    // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI.
     // The UI should call sync-publicaciones-by-work-item separately for deadline tracking.
     if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
       console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync is handled by sync-publicaciones-by-work-item (call separately)`);

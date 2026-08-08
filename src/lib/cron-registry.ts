@@ -57,7 +57,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     wiring: {
       orchestrator_phase: "DAILY_ENQUEUE",
       is_orchestrator_job: true,
-      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados", "tutelas"],
+      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados"],
       downstream: ["auto_sync_daily_ledger", "external_sync_runs", "sync-by-work-item"],
     },
   },
@@ -73,7 +73,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     wiring: {
       orchestrator_phase: "DAILY_ENQUEUE",
       is_orchestrator_job: true,
-      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados", "tutelas"],
+      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados"],
       downstream: ["auto_sync_daily_ledger", "external_sync_runs", "sync-by-work-item"],
     },
   },
@@ -89,7 +89,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     wiring: {
       orchestrator_phase: "DAILY_ENQUEUE",
       is_orchestrator_job: true,
-      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados", "tutelas"],
+      providers_impacted: ["cpnu", "samai", "publicaciones", "samai_estados"],
       downstream: ["auto_sync_daily_ledger", "external_sync_runs", "sync-by-work-item"],
     },
   },

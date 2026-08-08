@@ -40,7 +40,6 @@ import {
 import {
   fetchFromCpnu,
   fetchFromSamai,
-  fetchFromTutelas,
   fetchFromPublicaciones,
   fetchFromSamaiEstados,
 } from "../_shared/providerAdapters/index.ts";
@@ -206,7 +205,6 @@ Deno.serve(async (req) => {
     // ── Build fetch registry with all providers ──
     const cpnuBaseUrl = Deno.env.get("CPNU_BASE_URL") || "";
     const samaiBaseUrl = Deno.env.get("SAMAI_BASE_URL") || "";
-    const tutelasBaseUrl = Deno.env.get("TUTELAS_BASE_URL") || "";
     const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL") || "";
     const samaiEstadosBaseUrl = Deno.env.get("SAMAI_ESTADOS_BASE_URL") || "";
     const externalApiKey = Deno.env.get("EXTERNAL_X_API_KEY") || "";
@@ -233,19 +231,6 @@ Deno.serve(async (req) => {
           const result = await fetchFromSamai({
             radicado: rad,
             baseUrl: samaiBaseUrl,
-            apiKey: externalApiKey,
-            workItemId,
-            mode: "monitoring",
-          });
-          return toOrchestratorResult(result) as any;
-        }),
-      },
-      {
-        key: "TUTELAS",
-        fetchFn: createLegacyAdapter(async (rad: string) => {
-          const result = await fetchFromTutelas({
-            radicado: rad,
-            baseUrl: tutelasBaseUrl,
             apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",

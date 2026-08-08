@@ -28,14 +28,19 @@ export type UpstreamHostKey =
   | "samai_read"
   | "samai_estados"
   | "publicaciones"
-  | "tutelas"
   | "andromeda_read";
 
 interface HostSpec {
   readonly key: UpstreamHostKey;
   readonly label: string;
-  /** Env override, checked first. */
-  readonly envVar: string;
+  /**
+   * Env override, checked first. ITER48 — a host whose default is VERIFICADO
+   * declares `envVar: null`: an override can only make a verified default
+   * wrong, and that is exactly how SAMAI broke (the override pointed expediente
+   * reads at samai-estados-api, a DIFFERENT CONTRACT whose /snapshot is
+   * POST-only, so every read returned 405).
+   */
+  readonly envVar: string | null;
   /** Known-good default. Public Cloud Run URLs — not secrets. */
   readonly defaultBaseUrl: string;
   /** API key env vars, in precedence order. */
@@ -81,13 +86,14 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
   samai_read: {
     key: "samai_read",
     label: "SAMAI Read API",
-    envVar: "SAMAI_BASE_URL",
+    // ITER48 — override DELETED. The default was always correct.
+    envVar: null,
     defaultBaseUrl: "https://samai-read-api-11974381924.us-central1.run.app",
     keyEnvVars: ["SAMAI_X_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
     hostState: "VERIFICADO",
     hostEvidence:
-      "GET /health -> 200 {ok:true, service:samai-read-api} (probado 2026-08-08). El host por defecto es CORRECTO: si SAMAI falla, lo que sobra es el override de entorno, no el default.",
+      "GET /snapshot?radicado= -> 200 con 63 actuaciones y `fuentes`: 'expediente' / 'expediente+estados' (GCP, 2026-08-08). Acepta `numero_radicacion` como alias con el mismo cuerpo. El default es CORRECTO; SAMAI_BASE_URL fue ELIMINADO en ITER48 porque apuntaba a samai-estados-api, que es OTRO CONTRATO (su /snapshot es POST-only, de ahi los 405).",
   },
   samai_estados: {
     key: "samai_estados",
@@ -111,17 +117,12 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     hostEvidence:
       "GET /health -> 200; las rutas de datos responden 401 (guardadas), lo que prueba que existen (probado 2026-08-08).",
   },
-  tutelas: {
-    key: "tutelas",
-    label: "Tutelas API",
-    envVar: "TUTELAS_BASE_URL",
-    defaultBaseUrl: "https://tutelas-api-11974381924.us-central1.run.app",
-    keyEnvVars: ["TUTELAS_X_API_KEY", "EXTERNAL_X_API_KEY"],
-    keyHeader: "X-API-Key",
-    hostState: "INEXISTENTE",
-    hostEvidence:
-      "Toda ruta (/, /health, /radicados) devuelve el HTML 404 propio de Google Frontend, SIN respuesta de la aplicacion: no hay servicio Cloud Run desplegado con este nombre. No podemos suministrar un valor correcto; debe darlo GCP (probado 2026-08-08).",
-  },
+  // ITER48 — el host `tutelas` fue ELIMINADO del registro. GCP probo
+  // GET /expediente y POST /search contra los ocho servicios con API keys
+  // validas (ningun 401 pudo ocultar una ruta viva) y obtuvo 404 en los ocho.
+  // No existe servicio de tutelas en ninguna region y nunca existio: es una
+  // decision de diseno, no una implementacion pendiente. Las tutelas son la
+  // UNION de las cuatro fuentes reales.
   andromeda_read: {
     key: "andromeda_read",
     label: "Andromeda Read API",
@@ -148,7 +149,11 @@ export function upstreamBaseUrl(host: UpstreamHostKey): string {
   // Read through a guard: this registry is also imported by the app-side tests,
   // where `Deno` does not exist.
   const spec = UPSTREAM_HOSTS[host];
-  const fromEnv = (readEnv(spec.envVar) ?? "").trim().replace(/\/+$/, "");
+  // ITER48 — a host with `envVar: null` is pinned to its verified default and
+  // cannot be overridden; an override can only make a verified host wrong.
+  const fromEnv = spec.envVar
+    ? (readEnv(spec.envVar) ?? "").trim().replace(/\/+$/, "")
+    : "";
   return fromEnv || spec.defaultBaseUrl;
 }
 
@@ -331,20 +336,30 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
   },
   {
     /**
-     * ITER47 — staged by GCP and DEFECTIVE at the provider. Probed live:
-     *   GET /novedades/hoy -> 500 {"ok":false,"error":"column w.status does not exist"}
-     * The route exists and the host is right, so this is UPSTREAM_ROTO. We keep
-     * it registered precisely so it is reported as the provider's broken
-     * deployment instead of quietly disappearing as an "unavailable feature".
+     * ITER48 — CORREGIDA Y DESPLEGADA por GCP (revision cpnu-read-api-00011-2vh,
+     * 100% del trafico): responde 200 con 641 novedades. La expectativa vuelve a
+     * ser exito, no UPSTREAM_ROTO.
+     *
+     * Vale registrar por que la correccion anterior no cargaba, porque nuestro
+     * diagnostico fue erroneo y la leccion de metodo es la parte util: la
+     * columna `work_items.cpnu_status` SI existe. Lo que mato el fix fue una
+     * comilla invertida dentro de un comentario SQL anidado en un template
+     * literal de JavaScript, que cerro la cadena a mitad de consulta: el modulo
+     * nunca parseo y el contenedor murio antes de escuchar. Verificar el SQL en
+     * psql no prueba nada sobre si el JavaScript que lo contiene parsea.
      */
     key: "cpnu.novedades_hoy",
     host: "cpnu_read",
     method: "GET",
     path: "/novedades/hoy",
-    purpose:
-      "Novedades del día (ITER47 — ROTA AGUAS ARRIBA: responde 500 por una columna inexistente en el esquema del proveedor)",
-    resolvesOn: [...ROUTE_EXISTS, 500],
-    assertSuccess: (b) => (isUpstreamDefect(b) ? false : envelopeOk(b)),
+    purpose: "Novedades del día (ITER48 — corregida y desplegada; 200 con novedades)",
+    resolvesOn: ROUTE_EXISTS,
+    assertSuccess: (b) => {
+      if (isUpstreamDefect(b)) return false;
+      const r = b as Record<string, unknown> | null;
+      if (r && (Array.isArray(r.novedades) || typeof r.total === "number")) return true;
+      return envelopeOk(b);
+    },
   },
   {
     key: "samai.health",
