@@ -35,9 +35,36 @@ if (fns.length === 0) {
  * 400/401/403 are WELL-FORMED answers: the module parsed, the server listened
  * and the handler ran — which is exactly what this smoke asserts.
  */
+async function hit(name, method, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(`${BASE}/${name}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: KEY,
+        Authorization: `Bearer ${KEY}`,
+      },
+      body: method === "POST" ? JSON.stringify({ smoke: true }) : undefined,
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function smoke(name) {
   const started = Date.now();
   try {
+    // The CORS preflight is answered by the handler itself, so a 2xx proves the
+    // module parsed, the container booted and the server is listening — without
+    // waiting on functions whose real work takes minutes (probes, reconcilers).
+    const pre = await hit(name, "OPTIONS", 15_000).catch(() => null);
+    if (pre && pre.ok) {
+      await pre.text().catch(() => "");
+      return { name, status: pre.status, ms: Date.now() - started, ok: true, detail: "preflight" };
+    }
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 25_000);
     const res = await fetch(`${BASE}/${name}`, {
