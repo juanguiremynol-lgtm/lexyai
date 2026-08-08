@@ -53,15 +53,54 @@ Deno.serve(async (req) => {
   // Use a real matter as sample so id-bearing routes get a fair probe.
   let radicado = body.radicado ?? null;
   let workItemId = body.work_item_id ?? null;
+  let sampleHasClase = false;
+  let sampleSource = body.work_item_id ? "REQUEST" : "NINGUNA";
   if (!radicado || !workItemId) {
-    const { data: sample } = await supabase
-      .from("work_items")
-      .select("id, radicado")
-      .is("deleted_at", null)
-      .not("radicado", "is", null)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(1)
-      .maybeSingle();
+    // ITER49 — `/work-items/{id}/clase-proceso` is keyed on the PROVIDER's own
+    // work_item registry, not on ours: every one of our UUIDs answers
+    // `work_item no encontrado`, so the route was being probed with an id it
+    // could never resolve. The sample now comes from the provider's own
+    // `/work-items` listing, preferring an entry whose radicado we also hold.
+    let sample: { id: string; radicado: string | null } | null = null;
+    try {
+      const listRes = await fetch(`${upstreamBaseUrl("cpnu_read")}/work-items?limit=100`, {
+        headers: upstreamHeaders("cpnu_read"),
+      });
+      if (listRes.ok) {
+        const listed = await listRes.json().catch(() => null);
+        const items: Array<Record<string, unknown>> = Array.isArray(listed?.items) ? listed.items : [];
+        const withClase = items.filter((i) => !!i.clase_proceso);
+        const pool = withClase.length > 0 ? withClase : items;
+        if (pool.length > 0) {
+          const radicados = pool.map((i) => String(i.radicado ?? "")).filter(Boolean);
+          const { data: ours } = await supabase
+            .from("work_items")
+            .select("radicado")
+            .is("deleted_at", null)
+            .in("radicado", radicados)
+            .limit(1);
+          const preferred = ours?.[0]?.radicado
+            ? pool.find((i) => String(i.radicado) === ours[0].radicado)
+            : undefined;
+          const chosen = preferred ?? pool[0];
+          sample = { id: String(chosen.id), radicado: String(chosen.radicado ?? "") || null };
+          sampleHasClase = !!chosen.clase_proceso;
+          sampleSource = preferred ? "PROVEEDOR_COINCIDE_CARTERA" : "PROVEEDOR";
+        }
+      }
+    } catch { /* fall through to the local sample */ }
+    if (!sample) {
+      const { data: fallback } = await supabase
+        .from("work_items")
+        .select("id, radicado")
+        .is("deleted_at", null)
+        .not("radicado", "is", null)
+        .order("last_synced_at", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      sample = (fallback as typeof sample) ?? null;
+      if (sample) sampleSource = "CARTERA_LOCAL";
+    }
     radicado = radicado ?? (sample?.radicado ?? null);
     workItemId = workItemId ?? (sample?.id ?? null);
   }
@@ -119,10 +158,20 @@ Deno.serve(async (req) => {
       probed_at: new Date().toISOString(),
     };
     results.push(row);
-    const { error: persistError } = await supabase
-      .from("upstream_endpoint_probes")
-      .upsert(row, { onConflict: "endpoint_key" });
-    if (persistError) persistErrors.push({ endpoint_key: ep.key, error: persistError.message });
+    // ITER49 — a throw here (network blip on the DB call) used to escape the
+    // loop and abort the whole probe with a 500 that reported nothing. Every
+    // persistence failure, returned OR thrown, lands in persist_errors.
+    try {
+      const { error: persistError } = await supabase
+        .from("upstream_endpoint_probes")
+        .upsert(row, { onConflict: "endpoint_key" });
+      if (persistError) persistErrors.push({ endpoint_key: ep.key, error: persistError.message });
+    } catch (err) {
+      persistErrors.push({
+        endpoint_key: ep.key,
+        error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+      });
+    }
   }
 
   const missing = results.filter((r) => r.outcome === "NO_EXISTE");
@@ -135,6 +184,8 @@ Deno.serve(async (req) => {
     ok: persistErrors.length === 0,
     persist_errors: persistErrors,
     sample: { radicado, work_item_id: workItemId },
+    sample_clase_disponible: sampleHasClase,
+    sample_origen: sampleSource,
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,
     resuelven: results.filter((r) => r.outcome === "RESUELVE").length,
