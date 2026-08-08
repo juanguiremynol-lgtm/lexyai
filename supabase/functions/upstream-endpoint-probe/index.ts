@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
   // Use a real matter as sample so id-bearing routes get a fair probe.
   let radicado = body.radicado ?? null;
   let workItemId = body.work_item_id ?? null;
+  let sampleHasClase = false;
   if (!radicado || !workItemId) {
     // ITER49 — /clase-proceso needs a matter the provider actually knows and
     // has answered a clase for; the previous "most recently synced" sample
@@ -69,6 +70,7 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
     sample = (classified as typeof sample) ?? null;
+    sampleHasClase = !!sample;
     if (!sample) {
       const { data: fallback } = await supabase
         .from("work_items")
@@ -163,7 +165,7 @@ Deno.serve(async (req) => {
     ok: persistErrors.length === 0,
     persist_errors: persistErrors,
     sample: { radicado, work_item_id: workItemId },
-    sample_has_clase: !!workItemId,
+    sample_clase_disponible: sampleHasClase,
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,
     resuelven: results.filter((r) => r.outcome === "RESUELVE").length,
