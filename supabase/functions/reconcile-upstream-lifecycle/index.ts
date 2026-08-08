@@ -107,7 +107,14 @@ Deno.serve(async (req) => {
       resolved_at: resolution === "REENROLADO_UPSTREAM" ? new Date().toISOString() : null,
     };
     divergences.push(row);
-    await supabase.from("upstream_lifecycle_divergences").upsert(row, { onConflict: "work_item_id" });
+    // One OPEN divergence per matter: clear then record (the partial unique
+    // index makes ON CONFLICT unusable here).
+    await supabase
+      .from("upstream_lifecycle_divergences")
+      .delete()
+      .eq("work_item_id", wi.id)
+      .is("resolved_at", null);
+    await supabase.from("upstream_lifecycle_divergences").insert(row);
   }
 
   return json({
