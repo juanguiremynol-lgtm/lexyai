@@ -11,6 +11,14 @@
  *  · VOCABULARY (iter46). We record the provider's own term, PROCESO_PRIVADO,
  *    and attribute it. We do not assert *why*: the provider never declares a
  *    cause, and "reserva sumarial" was our interpretation, not its statement.
+ *  · SHAPE (iter46, probed live). `/reserva/estado` does NOT answer a per-item
+ *    lookup: probing it with one radicado came back with a DIFFERENT one. It
+ *    returns the REGISTRY of currently-private matters,
+ *    `{success, total, radicados:[{radicado, en_reserva, desde, ...}]}`.
+ *    So we read it ONCE and treat it as a set: membership means PROCESO_PRIVADO,
+ *    and absence from a registry that was read successfully is positive
+ *    evidence of exposure. Querying it per item would have made every matter
+ *    look private.
  *
  * An unreachable endpoint asserts nothing: a failed read never becomes a
  * statement about the matter.
@@ -35,31 +43,59 @@ export interface ExposicionReading {
   raw: Record<string, unknown> | null;
 }
 
-/** Parse the provider's exposure block. Absence is never read as "expuesto". */
-export function parseExposicion(payload: unknown): ExposicionReading {
-  const empty: ExposicionReading = {
-    expuesto: null, motivo: null, desde: null,
-    ultima_verificacion: null, ttl_days: null, raw: null,
-  };
+export interface PrivateRegistry {
+  /** Keyed by digits-only radicado. Only matters the provider marks private. */
+  entries: Map<string, ExposicionReading>;
+  /** False when the read failed; then the registry asserts nothing at all. */
+  conclusive: boolean;
+}
+
+const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/**
+ * Parse the registry of private matters. A payload we cannot understand is
+ * NON-CONCLUSIVE, never an empty registry: an empty registry would silently
+ * declare the whole portfolio exposed.
+ */
+export function parsePrivateRegistry(payload: unknown): PrivateRegistry {
+  const empty: PrivateRegistry = { entries: new Map(), conclusive: false };
   if (!payload || typeof payload !== "object") return empty;
   const root = payload as Record<string, unknown>;
-  const b = (root.reserva ?? root.exposicion ?? root.estado ?? root.data ?? root) as Record<string, unknown>;
-  if (!b || typeof b !== "object") return empty;
+  const list = root.radicados ?? root.data ?? root.items;
+  if (!Array.isArray(list)) return empty;
 
-  const flag = b.es_privado ?? b.esPrivado ?? b.privado ?? b.en_reserva ?? b.detalle_no_expuesto;
-  // The provider states NON-exposure; we store the positive form.
-  const expuesto = typeof flag === "boolean" ? !flag : null;
-  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-  const ttlRaw = b.ttl_days ?? b.ttlDias ?? b.ttl;
+  const entries = new Map<string, ExposicionReading>();
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const b = raw as Record<string, unknown>;
+    const key = String(b.radicado ?? b.numero_radicacion ?? "").replace(/\D/g, "");
+    if (!key) continue;
 
+    const flag = b.en_reserva ?? b.es_privado ?? b.privado;
+    // The registry only lists private matters; an absent flag still means listed.
+    if (flag === false) continue;
+
+    const ttlRaw = b.ttl_days ?? b.ttlDias ?? b.ttl;
+    entries.set(key, {
+      expuesto: false,
+      motivo: str(b.motivo) ?? "PROCESO_PRIVADO",
+      desde: str(b.desde) ?? str(b.inicio),
+      ultima_verificacion: str(b.ultima_verificacion) ?? str(b.ultimaVerificacion),
+      ttl_days: typeof ttlRaw === "number" && Number.isFinite(ttlRaw) ? ttlRaw : null,
+      raw: b,
+    });
+  }
+  return { entries, conclusive: true };
+}
+
+/** Reading for one matter, given a registry that was read successfully. */
+export function readingFor(registry: PrivateRegistry, radicado: string): ExposicionReading {
+  const key = String(radicado ?? "").replace(/\D/g, "");
+  const hit = registry.entries.get(key);
+  if (hit) return hit;
   return {
-    expuesto,
-    motivo: str(b.motivo) ?? str(b.motivo_ausencia) ?? (expuesto === false ? "PROCESO_PRIVADO" : null),
-    desde: str(b.desde) ?? str(b.reserva_desde) ?? str(b.inicio),
-    ultima_verificacion:
-      str(b.ultima_verificacion) ?? str(b.ultimaVerificacion) ?? str(b.verificado_en),
-    ttl_days: typeof ttlRaw === "number" && Number.isFinite(ttlRaw) ? ttlRaw : null,
-    raw: b as Record<string, unknown>,
+    expuesto: registry.conclusive ? true : null,
+    motivo: null, desde: null, ultima_verificacion: null, ttl_days: null, raw: null,
   };
 }
 
@@ -74,8 +110,33 @@ Deno.serve(async (req) => {
   let body: { work_item_id?: string } = {};
   try { body = await req.json(); } catch { /* portfolio pass */ }
 
+  const base = upstreamBaseUrl("cpnu_jobs");
+  const headers = upstreamHeaders("cpnu_jobs");
+
+  // ONE read of the registry, not one per matter.
+  let registry: PrivateRegistry = { entries: new Map(), conclusive: false };
+  let httpStatus: number | null = null;
+  try {
+    const res = await fetch(`${base}/reserva/estado`, { headers });
+    httpStatus = res.status;
+    if (res.ok) registry = parsePrivateRegistry(await res.json());
+  } catch {
+    httpStatus = null;
+  }
+
+  if (!registry.conclusive) {
+    // A failed read asserts nothing. Touching no matter is the correct outcome.
+    return json({
+      ok: false,
+      host: base,
+      http_status: httpStatus,
+      error: "registro_no_concluyente",
+      nota: "No se pudo leer el registro de procesos privados; no se modificó ningún expediente.",
+    }, 502);
+  }
+
   // ITER45 — exposure is not a penal concept: any matter can have its detail
-  // withheld, so the portfolio pass is no longer restricted by workflow.
+  // withheld, so the portfolio pass is not restricted by workflow.
   let query = supabase
     .from("work_items")
     .select("id, radicado, workflow_type, provider_detail_exposure")
@@ -83,34 +144,16 @@ Deno.serve(async (req) => {
     .not("radicado", "is", null);
   if (body.work_item_id) query = query.eq("id", body.work_item_id);
 
-  const { data: items, error } = await query.limit(200);
+  const { data: items, error } = await query.limit(1000);
   if (error) return json({ ok: false, error: error.message }, 500);
 
-  const base = upstreamBaseUrl("cpnu_jobs");
-  const headers = upstreamHeaders("cpnu_jobs");
   const results: Array<Record<string, unknown>> = [];
 
   for (const wi of items ?? []) {
     const radicado = String(wi.radicado ?? "").replace(/\D/g, "");
     if (!radicado) continue;
-
-    let reading: ExposicionReading | null = null;
-    let httpStatus: number | null = null;
-    try {
-      const res = await fetch(
-        `${base}/reserva/estado?numero_radicacion=${radicado}`,
-        { headers },
-      );
-      httpStatus = res.status;
-      if (res.ok) reading = parseExposicion(await res.json());
-    } catch {
-      httpStatus = null;
-    }
-
-    if (!reading || reading.expuesto === null) {
-      results.push({ work_item_id: wi.id, radicado, estado: "LECTURA_FALLIDA", http_status: httpStatus });
-      continue;
-    }
+    const reading = readingFor(registry, radicado);
+    if (reading.expuesto === null) continue;
 
     const { data: applied, error: rpcErr } = await supabase.rpc("apply_detalle_exposicion", {
       p_work_item_id: wi.id,
@@ -134,9 +177,10 @@ Deno.serve(async (req) => {
   return json({
     ok: true,
     host: base,
+    registro_privados: registry.entries.size,
     evaluados: results.length,
+    privados: results.filter((r) => r.estado === "PROCESO_PRIVADO").length,
     cambios: results.filter((r) => r.cambio).length,
-    lecturas_fallidas: results.filter((r) => r.estado === "LECTURA_FALLIDA").length,
-    resultados: results,
+    resultados: results.filter((r) => r.cambio || r.estado === "PROCESO_PRIVADO"),
   });
 });
