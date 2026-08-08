@@ -179,6 +179,20 @@ function envelopeOk(body: unknown): boolean | null {
   return null;
 }
 
+/**
+ * ITER47 — an error envelope that names an INTERNAL failure of the provider
+ * (a SQL error, a stack trace, a missing column) rather than a complaint about
+ * our request. `/novedades/hoy` answers 500 with
+ * `{"ok":false,"error":"column w.status does not exist"}` — the staged fix
+ * references a column their own schema lacks.
+ */
+export function isUpstreamDefect(body: unknown): boolean {
+  const err = (body as Record<string, unknown> | null)?.error;
+  if (typeof err !== "string") return false;
+  return /column .* does not exist|relation .* does not exist|undefined column|syntax error at or near|internal server error|traceback|NullPointer|ECONNREFUSED/i
+    .test(err);
+}
+
 /** ITER46 — a probe outcome that distinguishes "answered well" from "answered". */
 export type ProbeOutcome =
   | "RESUELVE"
@@ -187,7 +201,14 @@ export type ProbeOutcome =
   | "RESPONDE_CON_ERROR"
   | "NO_EXISTE"
   | "INDETERMINADO"
-  | "INALCANZABLE";
+  | "INALCANZABLE"
+  /**
+   * ITER47 — the route exists, we reached the right host, and the UPSTREAM
+   * itself is defective. This must never be reported as "missing endpoint" or
+   * as our misconfiguration: the fix belongs to the provider, and reporting it
+   * as absence is what caused us to re-guess hosts twice before.
+   */
+  | "UPSTREAM_ROTO";
 
 export function classifyProbe(
   ep: UpstreamEndpoint,
@@ -202,6 +223,10 @@ export function classifyProbe(
       : "NO_EXISTE";
   }
   if (isGuardedResponse(status)) return "RESUELVE_GUARDADO";
+  // ITER47 — a 5xx, or a 200 carrying an internal error, is the provider's own
+  // defect on a route that demonstrably exists.
+  if (status >= 500) return "UPSTREAM_ROTO";
+  if (isUpstreamDefect(body)) return "UPSTREAM_ROTO";
   if (!endpointResolves(ep, status)) return "INALCANZABLE";
 
   const asserted = ep.assertSuccess ? ep.assertSuccess(body, status) : envelopeOk(body);
@@ -271,6 +296,23 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     purpose: "Revalidación diaria de la marca PROCESO_PRIVADO (es mutable: puede cambiar de un día para otro)",
     resolvesOn: ROUTE_EXISTS,
     probeBody: { numeros_radicacion: [] },
+  },
+  {
+    /**
+     * ITER47 — staged by GCP and DEFECTIVE at the provider. Probed live:
+     *   GET /novedades/hoy -> 500 {"ok":false,"error":"column w.status does not exist"}
+     * The route exists and the host is right, so this is UPSTREAM_ROTO. We keep
+     * it registered precisely so it is reported as the provider's broken
+     * deployment instead of quietly disappearing as an "unavailable feature".
+     */
+    key: "cpnu.novedades_hoy",
+    host: "cpnu_read",
+    method: "GET",
+    path: "/novedades/hoy",
+    purpose:
+      "Novedades del día (ITER47 — ROTA AGUAS ARRIBA: responde 500 por una columna inexistente en el esquema del proveedor)",
+    resolvesOn: [...ROUTE_EXISTS, 500],
+    assertSuccess: (b) => (isUpstreamDefect(b) ? false : envelopeOk(b)),
   },
   {
     key: "samai.health",
