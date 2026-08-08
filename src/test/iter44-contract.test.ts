@@ -14,7 +14,7 @@ import { PROVIDER_CHAIN_BY_WORKFLOW, providerChainFor } from "@/lib/monitoring-m
 import {
   claseMotivoLabel,
   isClaseMotivoAccionable,
-  isReservaVencida,
+  isRevalidacionVencida,
 } from "@/lib/clase-motivo";
 import { derivePenalRouting, cuiEspecialidad, isPenalCui } from "@/lib/penal-routing";
 
@@ -70,20 +70,20 @@ describe("absence vocabulary distinguishes conclusions from interruptions", () =
   });
 
   it("labels reserva in Spanish", () => {
-    expect(claseMotivoLabel("PROCESO_PRIVADO")).toBe("Proceso con reserva sumarial");
+    expect(claseMotivoLabel("PROCESO_PRIVADO")).toBe("Detalle no expuesto por el proveedor");
   });
 });
 
 describe("reserva TTL", () => {
   const now = new Date("2026-08-10T00:00:00Z");
   it("flags a reserva never revalidated", () => {
-    expect(isReservaVencida(null, 7, now)).toBe(true);
+    expect(isRevalidacionVencida(null, 7, now)).toBe(true);
   });
   it("flags a reserva older than its TTL", () => {
-    expect(isReservaVencida("2026-08-01T00:00:00Z", 7, now)).toBe(true);
+    expect(isRevalidacionVencida("2026-08-01T00:00:00Z", 7, now)).toBe(true);
   });
   it("accepts a fresh revalidation", () => {
-    expect(isReservaVencida("2026-08-08T00:00:00Z", 7, now)).toBe(false);
+    expect(isRevalidacionVencida("2026-08-08T00:00:00Z", 7, now)).toBe(false);
   });
 });
 
