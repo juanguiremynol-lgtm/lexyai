@@ -310,6 +310,9 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
       "Único escritor de `radicados.activo` upstream. ITER46 — el payload obligatorio es {work_item_id, radicado, new_state, occurred_at}, verificado contra el 400 del propio endpoint.",
     resolvesOn: ROUTE_EXISTS,
     probeBody: {},
+    // A validation 400 is PROOF the route exists and is enforcing its contract.
+    assertSuccess: (b, status) =>
+      status === 400 ? true : envelopeOk(b),
   },
 ];
 
