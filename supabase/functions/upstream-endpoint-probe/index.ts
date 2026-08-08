@@ -54,14 +54,32 @@ Deno.serve(async (req) => {
   let radicado = body.radicado ?? null;
   let workItemId = body.work_item_id ?? null;
   if (!radicado || !workItemId) {
-    const { data: sample } = await supabase
+    // ITER49 — /clase-proceso needs a matter the provider actually knows and
+    // has answered a clase for; the previous "most recently synced" sample
+    // could be any matter, so the route was probed with an id upstream had
+    // never classified and the outcome said nothing about the route.
+    let sample: { id: string; radicado: string | null } | null = null;
+    const { data: classified } = await supabase
       .from("work_items")
       .select("id, radicado")
       .is("deleted_at", null)
       .not("radicado", "is", null)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
+      .eq("clase_proceso_disponible", true)
+      .order("clase_proceso_observed_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
+    sample = (classified as typeof sample) ?? null;
+    if (!sample) {
+      const { data: fallback } = await supabase
+        .from("work_items")
+        .select("id, radicado")
+        .is("deleted_at", null)
+        .not("radicado", "is", null)
+        .order("last_synced_at", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      sample = (fallback as typeof sample) ?? null;
+    }
     radicado = radicado ?? (sample?.radicado ?? null);
     workItemId = workItemId ?? (sample?.id ?? null);
   }
@@ -119,10 +137,20 @@ Deno.serve(async (req) => {
       probed_at: new Date().toISOString(),
     };
     results.push(row);
-    const { error: persistError } = await supabase
-      .from("upstream_endpoint_probes")
-      .upsert(row, { onConflict: "endpoint_key" });
-    if (persistError) persistErrors.push({ endpoint_key: ep.key, error: persistError.message });
+    // ITER49 — a throw here (network blip on the DB call) used to escape the
+    // loop and abort the whole probe with a 500 that reported nothing. Every
+    // persistence failure, returned OR thrown, lands in persist_errors.
+    try {
+      const { error: persistError } = await supabase
+        .from("upstream_endpoint_probes")
+        .upsert(row, { onConflict: "endpoint_key" });
+      if (persistError) persistErrors.push({ endpoint_key: ep.key, error: persistError.message });
+    } catch (err) {
+      persistErrors.push({
+        endpoint_key: ep.key,
+        error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+      });
+    }
   }
 
   const missing = results.filter((r) => r.outcome === "NO_EXISTE");
@@ -135,6 +163,7 @@ Deno.serve(async (req) => {
     ok: persistErrors.length === 0,
     persist_errors: persistErrors,
     sample: { radicado, work_item_id: workItemId },
+    sample_has_clase: !!workItemId,
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,
     resuelven: results.filter((r) => r.outcome === "RESUELVE").length,
