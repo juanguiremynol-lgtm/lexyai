@@ -1,19 +1,21 @@
 /**
- * clase-motivo.ts — ITERATION 45.
+ * clase-motivo.ts — ITERATION 46.
  *
  * Frontend mirror of `public.clase_motivo_catalogo`. The provider says WHY a
  * clase de proceso is absent, and the distinction that matters to the user is
  * not the wording but whether a retry can change the answer:
  *
- *   · "no existe en el proveedor" and "detalle no expuesto" are CONCLUSIONS —
+ *   · "no existe en el proveedor" and "proceso privado" are CONCLUSIONS —
  *     retrying them forever manufactures a fake incident;
  *   · "aún no consultado", "lectura fallida" and "detalle no disponible" are
  *     INTERRUPTIONS — a retry is legitimate and is offered.
  *
- * ITER45: what the provider reports is that the detail is NOT EXPOSED. Calling
- * that "reserva sumarial" attributes a legal cause we cannot verify — reserva
- * is one possible cause among several (a restricted matter, a portal ACL, a
- * partial publication). We report the observation, not the interpretation.
+ * ITER46: the neutral coinage "detalle no expuesto" was ours, and it invented a
+ * vocabulary the user cannot match against the portal. The provider names the
+ * condition itself — "--- [ PROCESO PRIVADO ] ---" in search results, and a 404
+ * "No se puede ver el detalle de un proceso privado" on the detail endpoint. We
+ * adopt the provider's term verbatim and ATTRIBUTE it, which reports the fact
+ * without adopting a legal cause the provider never declared.
  */
 
 export interface ClaseMotivoInfo {
@@ -24,9 +26,9 @@ export interface ClaseMotivoInfo {
 
 export const CLASE_MOTIVO_CATALOGO: Record<string, ClaseMotivoInfo> = {
   PROCESO_PRIVADO: {
-    label: "Detalle no expuesto por el proveedor",
+    label: "Marcado como proceso privado por el proveedor",
     descripcion:
-      "El proveedor alcanza el proceso y valida el radicado, pero no expone el detalle. La causa no está declarada: puede ser una restricción legal, una configuración del portal o una publicación parcial. No es una falla del sistema.",
+      "La Rama Judicial marca este proceso como privado y no expone su detalle. El radicado existe y es válido; lo que no se publica es el contenido. El proveedor no declara la causa de la marca y nosotros no la interpretamos. No es una falla del sistema.",
     accionable: false,
   },
   PROCESO_NO_ENCONTRADO_EN_PROVEEDOR: {
@@ -76,7 +78,7 @@ export function isClaseMotivoAccionable(motivo: string | null | undefined): bool
 }
 
 /**
- * A non-exposed detail whose revalidation is older than its TTL is itself a
+ * A PROCESO_PRIVADO mark whose revalidation is older than its TTL is itself a
  * warning: an unrefreshed observation is indistinguishable from a matter we
  * simply stopped reading.
  *
