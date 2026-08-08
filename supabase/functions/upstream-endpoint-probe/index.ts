@@ -185,6 +185,7 @@ Deno.serve(async (req) => {
     persist_errors: persistErrors,
     sample: { radicado, work_item_id: workItemId },
     sample_clase_disponible: sampleHasClase,
+    sample_origen: sampleSource,
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,
     resuelven: results.filter((r) => r.outcome === "RESUELVE").length,
