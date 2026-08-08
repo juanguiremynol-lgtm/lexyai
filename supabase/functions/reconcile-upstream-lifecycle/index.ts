@@ -57,7 +57,11 @@ Deno.serve(async (req) => {
   const upstreamByRadicado = new Map<string, boolean>();
   for (const r of inventory) {
     const rad = String(r.numero_radicacion ?? r.radicado ?? "").replace(/\D/g, "");
-    if (rad) upstreamByRadicado.set(rad, r.activo === true);
+    // Only a BOOLEAN `activo` is an assertion. An inventory row that omits the
+    // flag would otherwise be read as "deactivated upstream" and manufacture a
+    // divergence for every matter — the exact false alarm this runner exists
+    // to prevent.
+    if (rad && typeof r.activo === "boolean") upstreamByRadicado.set(rad, r.activo);
   }
 
   const { data: items } = await supabase
@@ -86,7 +90,14 @@ Deno.serve(async (req) => {
         const res = await fetch(`${base}/lifecycle`, {
           method: "POST",
           headers: { ...upstreamHeaders("andromeda_read"), "Content-Type": "application/json" },
-          body: JSON.stringify({ numero_radicacion: rad, activo: true }),
+          // Contract verified live (iter46): the endpoint rejects anything
+          // without all four of these fields.
+          body: JSON.stringify({
+            work_item_id: wi.id,
+            radicado: rad,
+            new_state: "ACTIVE",
+            occurred_at: new Date().toISOString(),
+          }),
         });
         if (res.ok) { resolution = "REENROLADO_UPSTREAM"; repaired++; }
         else resolution = `REENROLE_FALLIDO_${res.status}`;
@@ -120,6 +131,7 @@ Deno.serve(async (req) => {
   return json({
     ok: true,
     inventario_upstream: upstreamByRadicado.size,
+    inventario_sin_bandera: inventory.length - upstreamByRadicado.size,
     cartera_evaluada: items?.length ?? 0,
     divergencias: divergences.length,
     reenrolados: repaired,
