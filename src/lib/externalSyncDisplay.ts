@@ -13,6 +13,7 @@ export const ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
   "LABORAL",
   "PENAL_906",
   "TUTELA",
+  "EJECUTIVO",
 ] as const;
 
 export type ExternalDisplayMode = "estados" | "publicaciones" | "none";

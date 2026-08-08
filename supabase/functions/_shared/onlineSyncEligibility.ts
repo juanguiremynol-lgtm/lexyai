@@ -3,7 +3,7 @@
  * categories can be dispatched to external Cloud Run judicial APIs.
  *
  * Eligible (online sync via external orchestrator):
- *   - CGP, CPACA, LABORAL, PENAL_906, TUTELA
+ *   - CGP, CPACA, LABORAL, PENAL_906, TUTELA, EJECUTIVO
  *
  * NOT eligible (internal-only app state; never enqueue for external sync,
  * never include in 24h sync invariant, never dispatch to Cloud Run):
@@ -22,6 +22,7 @@ export const ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
   "LABORAL",
   "PENAL_906",
   "TUTELA",
+  "EJECUTIVO",
 ] as const;
 
 export type OnlineSyncEligibleWorkflow =
@@ -68,7 +69,7 @@ export function isKnownNonOnlineSync(
 
 /**
  * Sync purpose per category. Publicaciones vs Estados routes differ.
- *   - "publicaciones": Rama Judicial publications flow (CGP, LABORAL, TUTELA, PENAL_906)
+ *   - "publicaciones": Rama Judicial publications flow (CGP, LABORAL, TUTELA, PENAL_906, EJECUTIVO)
  *   - "estados":       SAMAI/CPACA estados electrónicos flow
  *   - "none":          not online-sync eligible
  */
