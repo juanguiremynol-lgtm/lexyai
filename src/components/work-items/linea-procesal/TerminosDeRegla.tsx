@@ -223,9 +223,11 @@ export function TerminosDeRegla({
                 Se descontaron {term.suspendedDays} día(s) hábil(es) con el expediente al despacho (art. 324).
               </p>
             )}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Sugerencia — no se aplica automáticamente.
-            </p>
+            {!registeredTypes.has(term.deadlineType) && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Sugerencia — no se aplica automáticamente.
+              </p>
+            )}
             {term.deadlineDate && registeredTypes.has(term.deadlineType) && (
               <p className="mt-2 flex items-center gap-1 text-xs font-medium text-primary">
                 <Check className="h-3.5 w-3.5" aria-hidden />
