@@ -67,6 +67,10 @@ Deno.serve(async (req) => {
   }
 
   const results: Array<Record<string, unknown>> = [];
+  // ITER48 — the upsert used to be fire-and-forget, so a missing unique index
+  // on endpoint_key kept the table empty while this function reported ok:true.
+  // Persistence failures are now surfaced, never swallowed.
+  const persistErrors: Array<{ endpoint_key: string; error: string }> = [];
 
   for (const ep of UPSTREAM_ENDPOINTS) {
     const url = buildEndpointUrl(ep, {
@@ -115,7 +119,10 @@ Deno.serve(async (req) => {
       probed_at: new Date().toISOString(),
     };
     results.push(row);
-    await supabase.from("upstream_endpoint_probes").upsert(row, { onConflict: "endpoint_key" });
+    const { error: persistError } = await supabase
+      .from("upstream_endpoint_probes")
+      .upsert(row, { onConflict: "endpoint_key" });
+    if (persistError) persistErrors.push({ endpoint_key: ep.key, error: persistError.message });
   }
 
   const missing = results.filter((r) => r.outcome === "NO_EXISTE");
@@ -125,7 +132,8 @@ Deno.serve(async (req) => {
   const indeterminate = results.filter((r) => r.outcome === "INDETERMINADO");
 
   return json({
-    ok: true,
+    ok: persistErrors.length === 0,
+    persist_errors: persistErrors,
     sample: { radicado, work_item_id: workItemId },
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,

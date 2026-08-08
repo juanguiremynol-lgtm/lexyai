@@ -154,7 +154,7 @@ describe('Workflow-aware provider selection', () => {
       case 'CPACA':
         return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
       case 'TUTELA':
-        return { primary: 'cpnu', fallback: 'tutelas-api', fallbackEnabled: true };
+        return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
       case 'PENAL_906':
         return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
       case 'CGP':
@@ -186,10 +186,10 @@ describe('Workflow-aware provider selection', () => {
     expect(order.fallbackEnabled).toBe(false);
   });
 
-  it('TUTELA: CPNU primary, TUTELAS-API fallback enabled', () => {
+  it('TUTELA: CPNU primary, SAMAI fallback enabled (ITER48 — no tutelas provider)', () => {
     const order = getProviderOrder('TUTELA');
     expect(order.primary).toBe('cpnu');
-    expect(order.fallback).toBe('tutelas-api');
+    expect(order.fallback).toBe('samai');
     expect(order.fallbackEnabled).toBe(true);
   });
 
@@ -463,7 +463,7 @@ describe('Tutela identifier validation', () => {
 // ============= 10. PROVIDER SOURCE PRIORITY =============
 
 describe('TUTELA source priority ordering', () => {
-  const TUTELA_SOURCE_PRIORITY = ['cpnu', 'samai', 'tutelas-api'];
+  const TUTELA_SOURCE_PRIORITY = ['cpnu', 'samai'];
 
   it('CPNU is highest priority', () => {
     expect(TUTELA_SOURCE_PRIORITY[0]).toBe('cpnu');
@@ -473,8 +473,8 @@ describe('TUTELA source priority ordering', () => {
     expect(TUTELA_SOURCE_PRIORITY[1]).toBe('samai');
   });
 
-  it('TUTELAS-API is third (Corte Constitucional is authoritative for stage)', () => {
-    expect(TUTELA_SOURCE_PRIORITY[2]).toBe('tutelas-api');
+  it('ITER48 — there is no third source; tutelas is the union of the real ones', () => {
+    expect(TUTELA_SOURCE_PRIORITY).toHaveLength(2);
   });
 });
 

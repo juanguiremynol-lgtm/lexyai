@@ -5,12 +5,11 @@ import {
   fetchFromSamai,
   fetchFromSamaiEstados,
   fetchFromPublicaciones,
-  fetchFromTutelas,
 } from '../_shared/providerAdapters/index.ts';
 
 // Admin-gated diagnostic: run one provider adapter for one radicado.
 // Returns adapter result (status, counts, http status, error) for verification.
-// Body: { provider: 'cpnu'|'samai'|'samai_estados'|'publicaciones'|'tutelas', radicado: string }
+// Body: { provider: 'cpnu'|'samai'|'samai_estados'|'publicaciones', radicado: string }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -53,7 +52,6 @@ Deno.serve(async (req) => {
       case 'samai': result = await fetchFromSamai(opts); break;
       case 'samai_estados': result = await fetchFromSamaiEstados(opts); break;
       case 'publicaciones': result = await fetchFromPublicaciones(opts); break;
-      case 'tutelas': result = await fetchFromTutelas(opts); break;
       default:
         return new Response(JSON.stringify({ error: `unknown provider: ${provider}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }

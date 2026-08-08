@@ -5,7 +5,7 @@
  * 
  * Features:
  * - Platform admins or org admins only
- * - Calls CPNU, SAMAI, TUTELAS, or PUBLICACIONES providers
+ * - Calls CPNU, SAMAI, or PUBLICACIONES providers
  * - Returns status, latency, summary, and raw response
  * - Truncates large arrays to safe limits (200 items)
  * - Never exposes secrets in logs or responses
@@ -16,6 +16,7 @@
  * Output: { provider_used, status, latencyMs, summary, raw, truncated, limits, error_code?, retried, attempts }
  */
 
+import { upstreamBaseUrl } from '../_shared/upstreamEndpoints.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -47,11 +48,6 @@ const SAMAI_ROUTE_CANDIDATES = [
   '/buscar?numero_radicacion={id}',
 ];
 
-const TUTELAS_ROUTE_CANDIDATES = [
-  '/expediente/{id}',
-  '/api/expediente/{id}',
-];
-
 // PUBLICACIONES v3: Synchronous API (no job queues, no polling)
 // GET /snapshot/{radicado} → synchronous scraping, returns results directly
 // GET /search/{radicado} → legacy compatibility endpoint
@@ -63,7 +59,8 @@ const PUBLICACIONES_ROUTE_CANDIDATES = [
 
 // ============= TYPES =============
 
-type ProviderName = 'cpnu' | 'samai' | 'tutelas' | 'publicaciones';
+// ITER48 — 'tutelas' removed: no tutelas service exists upstream.
+type ProviderName = 'cpnu' | 'samai' | 'publicaciones';
 
 interface DebugRequest {
   provider: ProviderName;
@@ -104,7 +101,7 @@ interface RouteAttempt {
 // Auth diagnostics (safe to expose - no secrets)
 interface AuthDiagnostics {
   auth_header_used: string;
-  api_key_source: 'CPNU_X_API_KEY' | 'SAMAI_X_API_KEY' | 'TUTELAS_X_API_KEY' | 'PUBLICACIONES_X_API_KEY' | 'EXTERNAL_X_API_KEY' | 'MISSING';
+  api_key_source: 'CPNU_X_API_KEY' | 'SAMAI_X_API_KEY' | 'PUBLICACIONES_X_API_KEY' | 'EXTERNAL_X_API_KEY' | 'MISSING';
   api_key_present: boolean;
   api_key_fingerprint: string | null; // First 8 chars of sha256 hash (safe)
 }
@@ -211,7 +208,6 @@ function maskHost(provider: ProviderName): string {
   const masks: Record<ProviderName, string> = {
     cpnu: '<CPNU>',
     samai: '<SAMAI>',
-    tutelas: '<TUTELAS>',
     publicaciones: '<PUBLICACIONES>',
   };
   return masks[provider] || '<PROVIDER>';
@@ -469,14 +465,12 @@ async function getApiKeyForProvider(provider: ProviderName): Promise<ApiKeyInfo>
   const providerKeyMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_X_API_KEY',
     samai: 'SAMAI_X_API_KEY',
-    tutelas: 'TUTELAS_X_API_KEY',
     publicaciones: 'PUBLICACIONES_X_API_KEY',
   };
 
   const sourceNameMap: Record<ProviderName, AuthDiagnostics['api_key_source']> = {
     cpnu: 'CPNU_X_API_KEY',
     samai: 'SAMAI_X_API_KEY',
-    tutelas: 'TUTELAS_X_API_KEY',
     publicaciones: 'PUBLICACIONES_X_API_KEY',
   };
 
@@ -514,7 +508,6 @@ function getRouteCandidates(provider: ProviderName): string[] {
   switch (provider) {
     case 'cpnu': return CPNU_ROUTE_CANDIDATES;
     case 'samai': return SAMAI_ROUTE_CANDIDATES;
-    case 'tutelas': return TUTELAS_ROUTE_CANDIDATES;
     case 'publicaciones': return PUBLICACIONES_ROUTE_CANDIDATES;
   }
 }
@@ -537,8 +530,7 @@ async function callProviderWithProbing(
 }> {
   const envMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_BASE_URL',
-    samai: 'SAMAI_BASE_URL',
-    tutelas: 'TUTELAS_BASE_URL',
+    samai: '',
     publicaciones: 'PUBLICACIONES_BASE_URL',
   };
   
@@ -548,11 +540,11 @@ async function callProviderWithProbing(
   const prefixEnvMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_PATH_PREFIX',
     samai: 'SAMAI_PATH_PREFIX',
-    tutelas: 'TUTELAS_PATH_PREFIX',
     publicaciones: 'PUBLICACIONES_PATH_PREFIX',
   };
 
-  const baseUrl = Deno.env.get(envMap[provider]);
+  // ITER48 — samai has no override any more; it is pinned to its verified host.
+  const baseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
   const pathPrefix = Deno.env.get(prefixEnvMap[provider]) || ''; // Default to empty
   
   // Get API key with provider-specific selection
@@ -889,16 +881,6 @@ function buildSummary(provider: ProviderName, data: unknown): DebugSummary {
         tipoProceso: (proceso?.tipo || obj.tipo_proceso) as string | undefined,
       };
     }
-    case 'tutelas': {
-      const actuaciones = obj.actuaciones || [];
-      return {
-        found: !!obj.expediente_url || (Array.isArray(actuaciones) && actuaciones.length > 0),
-        actuacionesCount: Array.isArray(actuaciones) ? actuaciones.length : 0,
-        hasExpediente: !!obj.expediente_url,
-        despacho: obj.despacho as string | undefined,
-        tipoProceso: 'TUTELA',
-      };
-    }
     case 'publicaciones': {
       const publicaciones = obj.publicaciones || obj.estados || obj.documents || [];
       return {
@@ -982,7 +964,7 @@ Deno.serve(async (req) => {
     const { provider, identifier, mode = 'lookup' } = payload;
 
     // Validate provider
-    const validProviders: ProviderName[] = ['cpnu', 'samai', 'tutelas', 'publicaciones'];
+    const validProviders: ProviderName[] = ['cpnu', 'samai', 'publicaciones'];
     if (!validProviders.includes(provider)) {
       return errorResponse(
         'INVALID_PROVIDER', 
@@ -996,10 +978,10 @@ Deno.serve(async (req) => {
     // Discover available API endpoints for any provider
     if (mode === 'probe_routes') {
       const envMap: Record<ProviderName, string> = {
-        cpnu: 'CPNU_BASE_URL', samai: 'SAMAI_BASE_URL',
-        tutelas: 'TUTELAS_BASE_URL', publicaciones: 'PUBLICACIONES_BASE_URL',
+        cpnu: 'CPNU_BASE_URL', samai: '',
+        publicaciones: 'PUBLICACIONES_BASE_URL',
       };
-      const providerBaseUrl = Deno.env.get(envMap[provider]);
+      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
       const apiKeyInfo = await getApiKeyForProvider(provider);
       
       if (!providerBaseUrl) {
@@ -1122,20 +1104,7 @@ Deno.serve(async (req) => {
       );
     }
     
-    if (provider === 'tutelas') {
-      if (identifier.tutela_code && isValidTutelaCode(identifier.tutela_code)) {
-        resolvedIdentifier = identifier.tutela_code.toUpperCase();
-      } else if (identifier.radicado && isValidRadicado(identifier.radicado)) {
-        resolvedIdentifier = normalizeRadicado(identifier.radicado);
-      } else {
-        return errorResponse(
-          'INVALID_IDENTIFIER', 
-          'TUTELAS requires tutela_code (T + 6-10 digits) or valid 23-digit radicado', 
-          400,
-          Date.now() - startTime
-        );
-      }
-    } else {
+    {
       if (!identifier.radicado || !isValidRadicado(identifier.radicado)) {
         return errorResponse(
           'INVALID_RADICADO', 

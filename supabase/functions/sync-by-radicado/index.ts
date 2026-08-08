@@ -4,7 +4,7 @@
  * REFACTORED: Multi-provider lookup based on workflow_type:
  * - CGP/LABORAL: CPNU only (no fallback - civil/labor processes only exist in CPNU)
  * - CPACA: SAMAI primary (administrative litigation)
- * - TUTELA: CPNU primary, TUTELAS API fallback
+ * - TUTELA (ITER48): union of the existing sources (CPNU + SAMAI); no tutelas provider exists
  * - PENAL_906: CPNU primary
  * 
  * Modes:
@@ -17,7 +17,6 @@ import { extractPartiesFromProviderResult, canonicalizeRole } from "../_shared/p
 import {
   fetchFromCpnu as sharedFetchCpnu,
   fetchFromSamai as sharedFetchSamai,
-  fetchFromTutelas as sharedFetchTutelas,
   toWizardResult,
 } from "../_shared/providerAdapters/index.ts";
 
@@ -147,8 +146,6 @@ async function invokeProvider(
       return fetchFromCpnu(radicado, supabaseUrl, authHeader);
     case "SAMAI":
       return fetchFromSamai(radicado);
-    case "TUTELAS":
-      return fetchFromTutelas(radicado);
     case "PUBLICACIONES":
       // Publicaciones doesn't have a lookup endpoint in the wizard path,
       // return not-found gracefully (estados are fetched post-creation)
@@ -536,29 +533,6 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   }
 }
 
-/**
- * Fetch from TUTELAS via shared adapter (discovery mode).
- */
-async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
-  try {
-    const result = await sharedFetchTutelas({
-      radicado,
-      mode: 'discovery',
-      timeoutMs: 20000,
-      includeParties: true,
-    });
-    return toWizardResult(result);
-  } catch (err) {
-    return {
-      ok: false,
-      found: false,
-      source: 'TUTELAS',
-      processData: {},
-      latency_ms: 0,
-      error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
-    };
-  }
-}
 
 /**
  * Lightweight PP preflight — GET /lookup/{radicado} on the pp-scraper API.
@@ -859,7 +833,7 @@ Deno.serve(async (req) => {
         .eq("data_kind", "ACTUACIONES");
 
       if (overrides && overrides.length > 0) {
-        const builtinKeys = new Set(["CPNU", "SAMAI", "TUTELAS", "PUBLICACIONES", "SAMAI_ESTADOS"]);
+        const builtinKeys = new Set(["CPNU", "SAMAI", "PUBLICACIONES", "SAMAI_ESTADOS"]);
         for (const o of overrides) {
           if (!builtinKeys.has(o.provider_key.toUpperCase())) {
             dynamicProviderKeys.push(o.provider_key);
@@ -886,8 +860,8 @@ Deno.serve(async (req) => {
 
     // ============= Helper: invoke providers in parallel and collect results =============
     async function invokeProviders(keys: ProviderKey[], includeDynamic = false): Promise<{ results: ProviderResult[]; found: ProviderResult[] }> {
-      // Only invoke actuaciones-capable providers (CPNU, SAMAI, TUTELAS)
-      const actuacionesKeys = keys.filter(k => ["CPNU", "SAMAI", "TUTELAS"].includes(k));
+      // Only invoke actuaciones-capable providers (CPNU, SAMAI)
+      const actuacionesKeys = keys.filter(k => ["CPNU", "SAMAI"].includes(k));
 
       // Built-in provider promises
       const builtinPromises = actuacionesKeys.map(k => invokeProvider(k, radicado, supabaseUrl, authHeader));
@@ -1064,19 +1038,20 @@ Deno.serve(async (req) => {
       if (allFound.length > 0) {
         foundInSource = true;
         
-        const priorityOrder = ['CPNU', 'SAMAI', 'TUTELAS'];
+        const priorityOrder = ['CPNU', 'SAMAI'];
         processData = mergeProviderResults(allFound, priorityOrder);
         
         for (const r of allFound) sourcesFound.push(r.source);
         sourceUsed = sourcesFound.join('+');
         
-        // TUTELA-specific: Corte Constitucional overrides from TUTELAS
+        // ITER48 — Corte metadata is taken from whichever real source reports it.
+        // There is no dedicated TUTELAS provider to privilege.
         for (const r of allFound) {
-          if (r.source === 'TUTELAS' && r.processData.corte_status) {
+          if (r.processData.corte_status) {
             processData.corte_status = r.processData.corte_status;
-            processData.sentencia_ref = r.processData.sentencia_ref;
-            processData.tutela_code = r.processData.tutela_code;
-            processData.ponente = r.processData.ponente;
+            if (r.processData.sentencia_ref) processData.sentencia_ref = r.processData.sentencia_ref;
+            if (r.processData.tutela_code) processData.tutela_code = r.processData.tutela_code;
+            if (r.processData.ponente) processData.ponente = r.processData.ponente;
           } else {
             if (!processData.ponente && r.processData.ponente) processData.ponente = r.processData.ponente;
             if (!processData.tutela_code && r.processData.tutela_code) processData.tutela_code = r.processData.tutela_code;

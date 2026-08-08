@@ -23,7 +23,6 @@ Deno.test("exactly 5 canonical providers exist", () => {
   assert(ALL_PROVIDER_KEYS.includes("samai"));
   assert(ALL_PROVIDER_KEYS.includes("publicaciones"));
   assert(ALL_PROVIDER_KEYS.includes("samai_estados"));
-  assert(ALL_PROVIDER_KEYS.includes("tutelas"));
 });
 
 Deno.test("every category has at least one actuaciones provider", () => {
@@ -45,10 +44,9 @@ Deno.test("CPACA includes samai_estados", () => {
   assert(estados.includes("samai_estados"));
 });
 
-Deno.test("TUTELA fan-out includes cpnu, tutelas, and samai", () => {
+Deno.test("TUTELA fan-out is the union of the real sources", () => {
   const { actuaciones } = getProvidersForCategory("TUTELA");
   assert(actuaciones.includes("cpnu"));
-  assert(actuaciones.includes("tutelas"));
   assert(actuaciones.includes("samai"));
 });
 
@@ -72,10 +70,11 @@ Deno.test("normalizeProviderKey handles all known aliases", () => {
   assertEquals(normalizeProviderKey("samai"), "samai");
   assertEquals(normalizeProviderKey("publicaciones"), "publicaciones");
   assertEquals(normalizeProviderKey("samai_estados"), "samai_estados");
-  assertEquals(normalizeProviderKey("tutelas"), "tutelas");
+  // ITER48 — legacy tutelas keys normalise onto cpnu; no tutelas provider exists.
+  assertEquals(normalizeProviderKey("tutelas"), "cpnu");
 
   // Legacy aliases
-  assertEquals(normalizeProviderKey("tutelas-api"), "tutelas");
+  assertEquals(normalizeProviderKey("tutelas-api"), "cpnu");
   assertEquals(normalizeProviderKey("Rama Judicial"), "cpnu");
   assertEquals(normalizeProviderKey("RAMA_JUDICIAL"), "cpnu");
   assertEquals(normalizeProviderKey("publicaciones_v3"), "publicaciones");
@@ -99,7 +98,7 @@ Deno.test("normalizeSources handles scalar, array, null", () => {
 
 Deno.test("isValidProviderKey accepts only canonical keys", () => {
   assert(isValidProviderKey("cpnu"));
-  assert(isValidProviderKey("tutelas"));
+  assert(!isValidProviderKey("tutelas"));
   assert(!isValidProviderKey("tutelas-api"));
   assert(!isValidProviderKey("Rama Judicial"));
   assert(!isValidProviderKey(""));

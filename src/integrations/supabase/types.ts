@@ -14840,6 +14840,7 @@ export type Database = {
           outcome: string
           path: string
           probed_at: string
+          purpose: string | null
           resolves: boolean
           updated_at: string
         }
@@ -14856,6 +14857,7 @@ export type Database = {
           outcome: string
           path: string
           probed_at?: string
+          purpose?: string | null
           resolves?: boolean
           updated_at?: string
         }
@@ -14872,6 +14874,7 @@ export type Database = {
           outcome?: string
           path?: string
           probed_at?: string
+          purpose?: string | null
           resolves?: boolean
           updated_at?: string
         }

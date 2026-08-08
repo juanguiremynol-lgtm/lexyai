@@ -19,6 +19,7 @@
  *   - Exponential backoff for retries
  */
 
+import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   bogotaDayBoundsUtc,
@@ -785,11 +786,13 @@ async function detectAndEscalateDegradation(
 async function quickHealthCheck(provider: string): Promise<boolean> {
   const envMap: Record<string, string> = {
     cpnu: "CPNU_BASE_URL",
-    samai: "SAMAI_BASE_URL",
-    tutelas: "TUTELAS_BASE_URL",
+    samai: "",
     publicaciones: "PUBLICACIONES_BASE_URL",
   };
-  const baseUrl = Deno.env.get(envMap[provider] || "");
+  // ITER48 — samai is pinned to its verified default; tutelas does not exist.
+  const baseUrl = provider === "samai"
+    ? upstreamBaseUrl("samai_read")
+    : Deno.env.get(envMap[provider] || "");
   if (!baseUrl) return false;
 
   try {

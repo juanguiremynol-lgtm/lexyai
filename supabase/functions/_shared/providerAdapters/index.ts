@@ -31,8 +31,6 @@ export { fetchFromPublicaciones, normalizePublicacionesResponse, computePublicac
 // Re-export SAMAI Estados adapter
 export { fetchFromSamaiEstados, normalizeSamaiEstadosResponse, formatRadicadoForSamai, computeSamaiEstadosFingerprint } from './samaiEstadosAdapter.ts';
 
-// Re-export Tutelas adapter
-export { fetchFromTutelas, normalizeTutelasActuaciones, normalizeTutelasEstados, extractTutelasMetadata, extractTutelasParties, computeTutelasFingerprint, mapCorteStatus } from './tutelasAdapter.ts';
 
 // Re-export bridge converters
 export { toDemoResult, toWizardResult, toOrchestratorResult } from './bridge.ts';

@@ -4,8 +4,14 @@
  * This is a CLIENT-SIDE copy of supabase/functions/_shared/providerRegistry.ts.
  * Both files MUST stay in sync. The edge function version is the source of truth.
  *
- * POLICY: Exactly 5 providers. No more, no less. See the edge function version
- * for the full policy documentation.
+ * POLICY (ITER48): Exactly 4 providers. No more, no less. See the edge function
+ * version for the full policy documentation.
+ *
+ * ITER48 — the `tutelas` provider was RETIRED. GCP confirmed no tutelas service
+ * exists in any region and never did (ADAPTER_CONTRACT_SPEC.md §5, 2026-07-13:
+ * "NO BACKEND EXISTS"). Tutelas are the UNION of the four real sources, not a
+ * fifth source. Legacy `tutelas*` strings normalise to `cpnu`, which is where
+ * the data actually came from.
  */
 
 export type ProviderScope = "ACTUACIONES" | "ESTADOS";
@@ -42,18 +48,12 @@ export const CANONICAL_PROVIDERS = {
     scope: "ESTADOS" as const,
     targetTable: "work_item_publicaciones" as const,
   },
-  tutelas: {
-    key: "tutelas" as const,
-    displayName: "Tutelas API",
-    scope: "ACTUACIONES" as const,
-    targetTable: "work_item_acts" as const,
-  },
 } as const;
 
 export type ProviderKey = keyof typeof CANONICAL_PROVIDERS;
 
 export const ALL_PROVIDER_KEYS: ProviderKey[] = Object.keys(CANONICAL_PROVIDERS) as ProviderKey[];
-export const ACTUACIONES_PROVIDERS: ProviderKey[] = ["cpnu", "samai", "tutelas"];
+export const ACTUACIONES_PROVIDERS: ProviderKey[] = ["cpnu", "samai"];
 export const ESTADOS_PROVIDERS: ProviderKey[] = ["publicaciones", "samai_estados"];
 
 export function getProvidersForCategory(category: string): {
@@ -63,7 +63,8 @@ export function getProvidersForCategory(category: string): {
   switch (category) {
     case "CGP":       return { actuaciones: ["cpnu"], estados: ["publicaciones"] };
     case "CPACA":     return { actuaciones: ["samai"], estados: ["publicaciones", "samai_estados"] };
-    case "TUTELA":    return { actuaciones: ["cpnu", "tutelas", "samai"], estados: ["publicaciones"] };
+    // ITER48 — union of the four real sources; there is no tutelas provider.
+    case "TUTELA":    return { actuaciones: ["cpnu", "samai"], estados: ["publicaciones", "samai_estados"] };
     case "LABORAL":   return { actuaciones: ["cpnu"], estados: ["publicaciones"] };
     case "PENAL_906": return { actuaciones: ["cpnu"], estados: ["publicaciones"] };
     default:          return { actuaciones: [], estados: [] };
@@ -82,7 +83,9 @@ export function normalizeProviderKey(raw: string | null | undefined): ProviderKe
     "publicaciones api": "publicaciones", "publicaciones procesales": "publicaciones",
     samai_estados: "samai_estados", "samai estados": "samai_estados",
     "samai estados api": "samai_estados", "ext:samai estados api": "samai_estados",
-    tutelas: "tutelas", "tutelas-api": "tutelas", tutelas_api: "tutelas",
+    // ITER48 — legacy tutelas aliases resolve to their real origin: CPNU.
+    tutelas: "cpnu", "tutelas-api": "cpnu", tutelas_api: "cpnu",
+    "tutelas api": "cpnu", "corte constitucional": "cpnu",
   };
 
   return aliases[cleaned] || null;
