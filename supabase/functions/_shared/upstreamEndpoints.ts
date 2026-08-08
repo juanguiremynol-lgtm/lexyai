@@ -103,6 +103,15 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
   },
 };
 
+/**
+ * Env read that tolerates a non-Deno host: this registry is also imported by
+ * the app-side contract tests, where `Deno` does not exist.
+ */
+function readEnv(name: string): string | undefined {
+  const d = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
+  return d?.env?.get(name);
+}
+
 export function upstreamBaseUrl(host: UpstreamHostKey): string {
   // Read through a guard: this registry is also imported by the app-side tests,
   // where `Deno` does not exist.
