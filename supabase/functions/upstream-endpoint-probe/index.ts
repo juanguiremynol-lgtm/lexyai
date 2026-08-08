@@ -1,12 +1,18 @@
 /**
- * upstream-endpoint-probe — ITERATION 45 (B2).
+ * upstream-endpoint-probe — ITERATION 46 (C).
  *
  * Walks every endpoint in the registry against its declared host and records
- * the outcome. The point is to distinguish three things we kept conflating:
+ * the outcome. ITER46 splits the outcomes further, because a 200 was proving
+ * less than we assumed:
  *
- *   RESUELVE      — the route exists (2xx, or 401/403: guarded, therefore real)
- *   NO_EXISTE     — 404: the route genuinely is not there
- *   INALCANZABLE  — DNS/TLS/timeout: nothing can be concluded
+ *   RESUELVE           — answered AND the body asserts success
+ *   RESUELVE_GUARDADO  — 401/403: `allUsers` is not granted on these Cloud Run
+ *                        services, so this is the EXPECTED unauthenticated
+ *                        answer and proves the route exists
+ *   RESPONDE_CON_ERROR — answered 200 carrying an error envelope
+ *   INDETERMINADO      — answered, but the body cannot assert success
+ *   NO_EXISTE          — 404 on the route itself
+ *   INALCANZABLE       — DNS/TLS/timeout: nothing can be concluded
  *
  * A 404 for a *sample* (an id upstream does not know) is NOT the same as a 404
  * for the *route*; endpoints that take an id declare 404 as resolving so a
@@ -18,7 +24,8 @@ import {
   UPSTREAM_ENDPOINTS,
   UPSTREAM_HOSTS,
   buildEndpointUrl,
-  endpointResolves,
+  classifyProbe,
+  type ProbeOutcome,
   upstreamHeaders,
   upstreamBaseUrl,
 } from "../_shared/upstreamEndpoints.ts";
@@ -68,7 +75,7 @@ Deno.serve(async (req) => {
     });
     const started = Date.now();
     let status: number | null = null;
-    let outcome: "RESUELVE" | "NO_EXISTE" | "INALCANZABLE" = "INALCANZABLE";
+    let outcome: ProbeOutcome = "INALCANZABLE";
     let detail: string | null = null;
 
     try {
@@ -84,12 +91,11 @@ Deno.serve(async (req) => {
       });
       clearTimeout(t);
       status = res.status;
-      outcome = endpointResolves(ep, res.status)
-        ? "RESUELVE"
-        : res.status === 404
-          ? "NO_EXISTE"
-          : "INALCANZABLE";
-      detail = (await res.text().catch(() => "")).slice(0, 300) || null;
+      const text = await res.text().catch(() => "");
+      let parsed: unknown = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+      outcome = classifyProbe(ep, res.status, parsed);
+      detail = text.slice(0, 300) || null;
     } catch (err) {
       detail = err instanceof Error ? err.message.slice(0, 300) : String(err);
     }
@@ -103,6 +109,7 @@ Deno.serve(async (req) => {
       purpose: ep.purpose,
       http_status: status,
       outcome,
+      resolves: outcome === "RESUELVE" || outcome === "RESUELVE_GUARDADO",
       latency_ms: Date.now() - started,
       detail,
       probed_at: new Date().toISOString(),
@@ -113,13 +120,19 @@ Deno.serve(async (req) => {
 
   const missing = results.filter((r) => r.outcome === "NO_EXISTE");
   const unreachable = results.filter((r) => r.outcome === "INALCANZABLE");
+  const guarded = results.filter((r) => r.outcome === "RESUELVE_GUARDADO");
+  const erroring = results.filter((r) => r.outcome === "RESPONDE_CON_ERROR");
+  const indeterminate = results.filter((r) => r.outcome === "INDETERMINADO");
 
   return json({
     ok: true,
     sample: { radicado, work_item_id: workItemId },
     hosts: Object.values(UPSTREAM_HOSTS).map((h) => ({ key: h.key, base_url: upstreamBaseUrl(h.key) })),
     total: results.length,
-    resuelven: results.length - missing.length - unreachable.length,
+    resuelven: results.filter((r) => r.outcome === "RESUELVE").length,
+    resuelven_guardados: guarded.length,
+    responden_con_error: erroring.length,
+    indeterminados: indeterminate.length,
     no_existen: missing.length,
     inalcanzables: unreachable.length,
     resultados: results,

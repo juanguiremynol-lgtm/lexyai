@@ -10,10 +10,12 @@ import { DeadLetterQueuePanel } from "@/components/platform/admin-diagnostics/De
 import { BridgeIntegrityPanel } from "@/components/platform/admin-diagnostics/BridgeIntegrityPanel";
 import { EstadosCoverageReconciliationPanel } from "@/components/platform/admin-diagnostics/EstadosCoverageReconciliationPanel";
 import { DetalleExposicionPanel } from "@/components/platform/admin-diagnostics/DetalleExposicionPanel";
+import { SourceHealthBanner } from "@/components/platform/admin-diagnostics/SourceHealthBanner";
 
 export function AdminSystemHealthTab() {
   return (
     <div className="space-y-6">
+      <SourceHealthBanner />
       <SystemHealthDashboard />
       <BridgeIntegrityPanel />
       <EstadosCoverageReconciliationPanel />

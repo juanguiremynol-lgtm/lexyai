@@ -1,5 +1,5 @@
 /**
- * upstreamEndpoints.ts — ITERATION 45 (B1/B2).
+ * upstreamEndpoints.ts — ITERATION 46 (C).
  *
  * Twice now we have declared an endpoint "missing" when it was simply on
  * another host: the PP_COVERAGE census in iteration 35, and /reserva/estado
@@ -10,6 +10,16 @@
  * "which host serves this path" is decided, and `upstream-endpoint-probe`
  * walks it end to end so a wrong host is reported as a wrong host instead of
  * being misread as a missing feature.
+ *
+ * ITER46 corrects three things GCP's enumeration exposed:
+ *   1. The parameter is `numero_radicacion`, not `radicado`. Our probes were
+ *      sending the wrong name and reading the resulting error as absence.
+ *   2. A 200 is not proof. GCP's endpoints answer 200 with an error envelope,
+ *      so every endpoint now declares a SUCCESS ASSERTION on the body; a probe
+ *      that cannot assert success is reported as INDETERMINADO, not RESUELVE.
+ *   3. `allUsers` is not granted on the Cloud Run services, so an unauthenticated
+ *      401 is the EXPECTED answer and proves the route exists. It is recorded as
+ *      RESUELVE_GUARDADO rather than being conflated with a healthy 200.
  */
 
 export type UpstreamHostKey =
@@ -93,9 +103,20 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
   },
 };
 
+/**
+ * Env read that tolerates a non-Deno host: this registry is also imported by
+ * the app-side contract tests, where `Deno` does not exist.
+ */
+function readEnv(name: string): string | undefined {
+  const d = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
+  return d?.env?.get(name);
+}
+
 export function upstreamBaseUrl(host: UpstreamHostKey): string {
+  // Read through a guard: this registry is also imported by the app-side tests,
+  // where `Deno` does not exist.
   const spec = UPSTREAM_HOSTS[host];
-  const fromEnv = (Deno.env.get(spec.envVar) ?? "").trim().replace(/\/+$/, "");
+  const fromEnv = (readEnv(spec.envVar) ?? "").trim().replace(/\/+$/, "");
   return fromEnv || spec.defaultBaseUrl;
 }
 
@@ -103,7 +124,7 @@ export function upstreamHeaders(host: UpstreamHostKey): Record<string, string> {
   const spec = UPSTREAM_HOSTS[host];
   const headers: Record<string, string> = { Accept: "application/json" };
   for (const envVar of spec.keyEnvVars) {
-    const v = (Deno.env.get(envVar) ?? "").trim();
+    const v = (readEnv(envVar) ?? "").trim();
     if (v) {
       headers[spec.keyHeader] = v;
       break;
@@ -116,16 +137,84 @@ export interface UpstreamEndpoint {
   readonly key: string;
   readonly host: UpstreamHostKey;
   readonly method: "GET" | "POST";
-  /** Path template; `{radicado}` / `{workItemId}` are substituted when probing. */
+  /**
+   * Path template. `{numero_radicacion}` / `{workItemId}` are substituted when
+   * probing. ITER46: the upstream parameter name is `numero_radicacion`; the
+   * legacy `{radicado}` placeholder is still substituted for safety but must
+   * not be used in new entries.
+   */
   readonly path: string;
   readonly purpose: string;
   /** Status codes that prove the ROUTE exists even without a valid sample. */
   readonly resolvesOn?: readonly number[];
   readonly probeBody?: Record<string, unknown>;
+  /**
+   * ITER46 — what a SUCCESSFUL body looks like. A 200 carrying an error
+   * envelope is not success. Returning `null` means "cannot tell from here".
+   */
+  readonly assertSuccess?: (body: unknown, status: number) => boolean | null;
 }
 
 /** 401 proves the route exists and is guarded; 404 is the only true "missing". */
 const ROUTE_EXISTS = [200, 201, 202, 204, 400, 401, 403, 409, 422] as const;
+
+/**
+ * ITER46 — the Cloud Run services do not grant `allUsers`, so an unauthenticated
+ * probe SHOULD receive 401/403. Treating that as a failure would report every
+ * healthy endpoint as broken.
+ */
+export const UNAUTHENTICATED_EXPECTED = [401, 403] as const;
+
+export function isGuardedResponse(status: number): boolean {
+  return (UNAUTHENTICATED_EXPECTED as readonly number[]).includes(status);
+}
+
+/** Generic envelope check: `ok:false` / an `error` key means the 200 lied. */
+function envelopeOk(body: unknown): boolean | null {
+  if (body === null || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (b.ok === false || b.success === false) return false;
+  if (typeof b.error === "string" && b.error.length > 0) return false;
+  if (b.ok === true || b.success === true) return true;
+  return null;
+}
+
+/** ITER46 — a probe outcome that distinguishes "answered well" from "answered". */
+export type ProbeOutcome =
+  | "RESUELVE"
+  | "RESUELVE_GUARDADO"
+  | "MUESTRA_DESCONOCIDA"
+  | "RESPONDE_CON_ERROR"
+  | "NO_EXISTE"
+  | "INDETERMINADO"
+  | "INALCANZABLE";
+
+export function classifyProbe(
+  ep: UpstreamEndpoint,
+  status: number,
+  body: unknown,
+): ProbeOutcome {
+  if (status === 404) {
+    // A 404 for an id the upstream does not know proves the ROUTE exists; only
+    // a 404 on a route that takes no sample means the feature is missing.
+    return (ep.resolvesOn ?? ROUTE_EXISTS).includes(404)
+      ? "MUESTRA_DESCONOCIDA"
+      : "NO_EXISTE";
+  }
+  if (isGuardedResponse(status)) return "RESUELVE_GUARDADO";
+  if (!endpointResolves(ep, status)) return "INALCANZABLE";
+
+  const asserted = ep.assertSuccess ? ep.assertSuccess(body, status) : envelopeOk(body);
+  if (asserted === false) return "RESPONDE_CON_ERROR";
+  if (asserted === null) return "INDETERMINADO";
+  return "RESUELVE";
+}
+
+/** Health endpoints answer `{"status":"ok"|"healthy"}` or `{"ok":true}`. */
+function healthOk(b: unknown): boolean | null {
+  const s = (b as Record<string, unknown> | null)?.status;
+  return typeof s === "string" ? /ok|healthy|up/i.test(s) : envelopeOk(b);
+}
 
 export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
   {
@@ -134,6 +223,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del CPNU Read API",
+    assertSuccess: healthOk,
   },
   {
     key: "cpnu.clase_proceso",
@@ -142,6 +232,13 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     path: "/work-items/{workItemId}/clase-proceso",
     purpose: "Clase de proceso declarada por el proveedor (ITER44/45 — vive en cpnu-read-api, NO en andromeda-read-api)",
     resolvesOn: [...ROUTE_EXISTS, 404],
+    assertSuccess: (b) => {
+      const r = b as Record<string, unknown> | null;
+      if (!r) return null;
+      // The contract block may legitimately report an absence motive.
+      if ("clase_proceso" in r || "claseProveedor" in r || "motivo" in r) return true;
+      return envelopeOk(b);
+    },
   },
   {
     key: "cpnu.jobs_health",
@@ -149,23 +246,31 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del ejecutor de jobs CPNU",
+    assertSuccess: healthOk,
   },
   {
     key: "cpnu.detalle_estado",
     host: "cpnu_jobs",
     method: "GET",
-    path: "/reserva/estado?radicado={radicado}",
-    purpose: "Estado de exposición del detalle (vive en cpnu-https-jobs, NO en andromeda-read-api)",
+    path: "/reserva/estado?numero_radicacion={numero_radicacion}",
+    purpose:
+      "Marca PROCESO_PRIVADO por proceso (ITER46 — el parámetro es `numero_radicacion`, no `radicado`; vive en cpnu-https-jobs, NO en andromeda-read-api)",
     resolvesOn: ROUTE_EXISTS,
+    assertSuccess: (b) => {
+      const r = b as Record<string, unknown> | null;
+      if (!r) return null;
+      if ("privado" in r || "expuesto" in r || "estado" in r) return true;
+      return envelopeOk(b);
+    },
   },
   {
     key: "cpnu.detalle_revalidar",
     host: "cpnu_jobs",
     method: "POST",
     path: "/reserva/revalidar",
-    purpose: "Revalidación diaria de la exposición del detalle",
+    purpose: "Revalidación diaria de la marca PROCESO_PRIVADO (es mutable: puede cambiar de un día para otro)",
     resolvesOn: ROUTE_EXISTS,
-    probeBody: { radicados: [] },
+    probeBody: { numeros_radicacion: [] },
   },
   {
     key: "samai.health",
@@ -173,6 +278,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del SAMAI Read API (expedientes CPACA)",
+    assertSuccess: healthOk,
   },
   {
     key: "samai_estados.health",
@@ -180,6 +286,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness de SAMAI Estados",
+    assertSuccess: healthOk,
   },
   {
     key: "publicaciones.health",
@@ -187,6 +294,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness de Publicaciones Procesales",
+    assertSuccess: healthOk,
   },
   {
     key: "andromeda.salud_radicados",
@@ -194,14 +302,6 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/salud/radicados?source=PP_COVERAGE",
     purpose: "Censo de cobertura PP (ITER35 — vive en andromeda-read-api, NO en la API de PP)",
-    resolvesOn: ROUTE_EXISTS,
-  },
-  {
-    key: "andromeda.source_health",
-    host: "andromeda_read",
-    method: "GET",
-    path: "/salud/source-health",
-    purpose: "Salud por fuente y rama (CPNU/PP/SAMAI/SAMAI_ESTADOS)",
     resolvesOn: ROUTE_EXISTS,
   },
   {
@@ -217,9 +317,13 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     host: "andromeda_read",
     method: "POST",
     path: "/lifecycle",
-    purpose: "Único escritor de `radicados.activo` upstream",
+    purpose:
+      "Único escritor de `radicados.activo` upstream. ITER46 — el payload obligatorio es {work_item_id, radicado, new_state, occurred_at}, verificado contra el 400 del propio endpoint.",
     resolvesOn: ROUTE_EXISTS,
     probeBody: {},
+    // A validation 400 is PROOF the route exists and is enforcing its contract.
+    assertSuccess: (b, status) =>
+      status === 400 ? true : envelopeOk(b),
   },
 ];
 
@@ -233,6 +337,7 @@ export function buildEndpointUrl(
   vars: { radicado?: string; workItemId?: string } = {},
 ): string {
   const path = ep.path
+    .replace("{numero_radicacion}", vars.radicado ?? "")
     .replace("{radicado}", vars.radicado ?? "")
     .replace("{workItemId}", vars.workItemId ?? "");
   return `${upstreamBaseUrl(ep.host)}${path}`;

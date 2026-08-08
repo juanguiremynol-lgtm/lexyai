@@ -18,6 +18,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCaller, canAccessOrg } from "../_shared/callerIdentity.ts";
+import { decideParking } from "../_shared/ghostParking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,19 +301,41 @@ Deno.serve(async (req) => {
         is_reversible: false,
       });
     } else {
-      // CONTROL RUN SUCCEEDED → Item-specific issue
-      classification = "ITEM_SPECIFIC";
-      classificationReason = `El radicado de control (${controlRad.radicado}) se sincronizó exitosamente (${controlStatus}), ` +
-        `pero el radicado del usuario sigue sin encontrarse. Esto confirma que la ruta de sync funciona correctamente para ${category}. ` +
-        `El problema es específico de este radicado (posible digitación incorrecta, juzgado sin publicación digital, o proceso archivado).`;
-      actionTaken = "PARKED";
+      // ── ITER46 (D3) — parking requires a CONFIRMED provider "not found" ──
+      //
+      // Absence has at least three producers: a genuine NOT_FOUND, a transport
+      // failure, and an upstream scraping outage. Only the first says anything
+      // about the matter. With SAMAI frozen since 27 July, every CPACA matter
+      // looks absent right now; parking them would silence live terms.
+      const { data: sourceHealth } = await (supabase as any)
+        .from("upstream_source_health")
+        .select("source, status, last_success_at")
+        .eq("branch", category)
+        .order("observed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const decision = decideParking({
+        recheckStatus: recheckStatus as any,
+        controlSucceeded: true,
+        sourceHealth: sourceHealth ?? null,
+      });
+
+      classification = decision.classification;
+      classificationReason = decision.mayPark
+        ? `El radicado de control (${controlRad.radicado}) se sincronizó exitosamente (${controlStatus}) y el proveedor confirmó «no encontrado» para el radicado del usuario. ` +
+          `La ruta de sync funciona para ${category}; el problema es específico de este radicado (posible digitación incorrecta, juzgado sin publicación digital, o proceso archivado).`
+        : `${decision.reason} (control: ${controlRad.radicado} → ${controlStatus}; reconsulta → ${recheckStatus}; fuente: ${sourceHealth?.source ?? "sin lectura"} / ${sourceHealth?.status ?? "desconocida"}).`;
+      actionTaken = decision.mayPark ? "PARKED" : "NO_ACTION";
 
       // Log action
       await supabase.from("atenia_ai_actions").insert({
         actor: "ATENIA",
         organization_id: orgId,
         work_item_id,
-        action_type: "GHOST_VERIFY_ITEM_SPECIFIC",
+        action_type: decision.mayPark
+          ? "GHOST_VERIFY_ITEM_SPECIFIC"
+          : "GHOST_VERIFY_INCONCLUSIVE",
         autonomy_tier: "OBSERVE",
         reasoning: classificationReason,
         evidence: {
@@ -322,6 +345,8 @@ Deno.serve(async (req) => {
           control_status: controlStatus,
           control_providers: controlProviders,
           expected_providers: CATEGORY_PROVIDERS[category] || [],
+          source_health: sourceHealth ?? null,
+          parking_allowed: decision.mayPark,
         },
         is_reversible: false,
       });

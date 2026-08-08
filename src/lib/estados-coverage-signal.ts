@@ -21,7 +21,7 @@ export type EstadosSignalClass =
   | "SIN_COBERTURA_EN_ESA_FECHA"
   | "ESTADO_SIN_DOCUMENTO"
   | "REMITIDO_A_SUPERIOR"
-  | "DETALLE_NO_EXPUESTO";
+  | "PROCESO_PRIVADO";
 
 /**
  * Iteration 35 — how much a coverage-window edge is worth as evidence.
@@ -104,7 +104,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   SIN_COBERTURA_EN_ESA_FECHA: "Fuera de la cobertura de la fuente",
   ESTADO_SIN_DOCUMENTO: "Estado sin documento",
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
-  DETALLE_NO_EXPUESTO: "Detalle no expuesto por el proveedor",
+  PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
 };
 
 export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
@@ -122,8 +122,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "Estado fijado sin documento publicado por el despacho — el término corre. El estado existe y sirve como anclaje del término, pero el despacho nunca cargó la planilla.",
   REMITIDO_A_SUPERIOR:
     "El expediente salió del despacho de origen (remisión al superior o por competencia). Las fijaciones posteriores corresponden al despacho receptor: la ausencia de estados en el despacho de origen es correcta, no una falla del proveedor.",
-  DETALLE_NO_EXPUESTO:
-    "El proveedor alcanza el radicado pero no expone el detalle: no entrega actuaciones, sujetos ni clase de proceso. La causa no está declarada — puede ser una restricción legal, una configuración del portal o una publicación parcial — de modo que el silencio no se cuenta como falla de cobertura, pero tampoco se interpreta. Mientras el detalle no se exponga, el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
+  PROCESO_PRIVADO:
+    "La Rama Judicial marca este proceso como privado y no expone su detalle: la búsqueda lo devuelve con la leyenda «--- [ PROCESO PRIVADO ] ---» y el detalle responde «No se puede ver el detalle de un proceso privado». La causa de la marca no está declarada por el proveedor y nosotros no la interpretamos. Es una marca por proceso y puede cambiar de un día para otro. Mientras esté marcado, el silencio no se cuenta como falla de cobertura y el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
 };
 
 export function estadosSignalTone(cls: EstadosSignalClass): string {
@@ -142,7 +142,7 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
       return "border-indigo-500/50 text-indigo-600";
     case "REMITIDO_A_SUPERIOR":
       return "border-violet-500/50 text-violet-600";
-    case "DETALLE_NO_EXPUESTO":
+    case "PROCESO_PRIVADO":
       return "border-slate-500/50 text-slate-600";
     default:
       return "border-muted-foreground/40 text-muted-foreground";
@@ -159,9 +159,9 @@ export function estadosSignalAlerts(
     alertable_unmatched_count?: number;
   },
 ): boolean {
-  // ITER45 — a matter whose detail the provider does not expose never alerts on
+  // ITER46 — a matter the provider itself marks PROCESO_PRIVADO never alerts on
   // coverage: the absence is upstream and observed, not a transfer failure.
-  if (signal.signal_class === "DETALLE_NO_EXPUESTO") return false;
+  if (signal.signal_class === "PROCESO_PRIVADO") return false;
   if (signal.signal_class !== "ESTADOS_ESPERADOS_AUSENTES") return false;
   if (signal.recent_unmatched_count <= 0) return false;
   return (signal.alertable_unmatched_count ?? signal.recent_unmatched_count) > 0;

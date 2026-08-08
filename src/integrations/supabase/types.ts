@@ -5672,6 +5672,51 @@ export type Database = {
         }
         Relationships: []
       }
+      despacho_privacy_rate: {
+        Row: {
+          created_at: string
+          despacho_distribution: Json
+          flagged: number
+          id: string
+          measured_at: string
+          notes: string | null
+          scope: string
+          scope_key: string
+          scope_label: string
+          source: string
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          despacho_distribution?: Json
+          flagged: number
+          id?: string
+          measured_at?: string
+          notes?: string | null
+          scope: string
+          scope_key: string
+          scope_label: string
+          source?: string
+          total: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          despacho_distribution?: Json
+          flagged?: number
+          id?: string
+          measured_at?: string
+          notes?: string | null
+          scope?: string
+          scope_key?: string
+          scope_label?: string
+          source?: string
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       detected_processes: {
         Row: {
           ciudad_inferida: string | null
@@ -19309,10 +19354,10 @@ export type Database = {
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
       apply_detalle_exposicion: {
         Args: {
+          p_concluyente?: boolean
           p_desde?: string
           p_expuesto: boolean
           p_motivo?: string
-          p_procedencia?: Json
           p_ttl_days?: number
           p_ultima_verificacion?: string
           p_work_item_id: string
@@ -19953,6 +19998,10 @@ export type Database = {
         Returns: string
       }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
+      normalize_source_health_streak: {
+        Args: { p_reconstructed_streak: number; p_status: string }
+        Returns: number
+      }
       notify_work_item_recipients: {
         Args: {
           p_body: string
@@ -20055,6 +20104,8 @@ export type Database = {
         }
         Returns: undefined
       }
+      rpc_lifecycle_divergences: { Args: never; Returns: Json }
+      rpc_paused_on_absence_report: { Args: never; Returns: Json }
       rpc_upsert_work_item_acts: { Args: { records: Json }; Returns: Json }
       rpc_upsert_work_item_publicaciones: {
         Args: { records: Json }
