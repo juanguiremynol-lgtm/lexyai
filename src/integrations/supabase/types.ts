@@ -19352,31 +19352,18 @@ export type Database = {
         Returns: string
       }
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
-      apply_detalle_exposicion:
-        | {
-            Args: {
-              p_concluyente?: boolean
-              p_desde?: string
-              p_expuesto: boolean
-              p_motivo?: string
-              p_ttl_days?: number
-              p_ultima_verificacion?: string
-              p_work_item_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_desde?: string
-              p_expuesto: boolean
-              p_motivo?: string
-              p_procedencia?: Json
-              p_ttl_days?: number
-              p_ultima_verificacion?: string
-              p_work_item_id: string
-            }
-            Returns: Json
-          }
+      apply_detalle_exposicion: {
+        Args: {
+          p_concluyente?: boolean
+          p_desde?: string
+          p_expuesto: boolean
+          p_motivo?: string
+          p_ttl_days?: number
+          p_ultima_verificacion?: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       apply_email_evidence_effects: {
         Args: { p_link_id: string }
         Returns: Json
