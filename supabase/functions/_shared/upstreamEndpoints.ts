@@ -105,7 +105,7 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
 
 export function upstreamBaseUrl(host: UpstreamHostKey): string {
   const spec = UPSTREAM_HOSTS[host];
-  const fromEnv = (Deno.env.get(spec.envVar) ?? "").trim().replace(/\/+$/, "");
+  const fromEnv = (readEnv(spec.envVar) ?? "").trim().replace(/\/+$/, "");
   return fromEnv || spec.defaultBaseUrl;
 }
 
@@ -113,7 +113,7 @@ export function upstreamHeaders(host: UpstreamHostKey): Record<string, string> {
   const spec = UPSTREAM_HOSTS[host];
   const headers: Record<string, string> = { Accept: "application/json" };
   for (const envVar of spec.keyEnvVars) {
-    const v = (Deno.env.get(envVar) ?? "").trim();
+    const v = (readEnv(envVar) ?? "").trim();
     if (v) {
       headers[spec.keyHeader] = v;
       break;
