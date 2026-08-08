@@ -204,7 +204,8 @@ Deno.serve(async (req) => {
 
     // ── Build fetch registry with all providers ──
     const cpnuBaseUrl = Deno.env.get("CPNU_BASE_URL") || "";
-    const samaiBaseUrl = Deno.env.get("SAMAI_BASE_URL") || "";
+    // ITER48 — pinned: SAMAI_BASE_URL was deleted (it named a different contract).
+    const samaiBaseUrl = upstreamBaseUrl("samai_read");
     const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL") || "";
     const samaiEstadosBaseUrl = Deno.env.get("SAMAI_ESTADOS_BASE_URL") || "";
     const externalApiKey = Deno.env.get("EXTERNAL_X_API_KEY") || "";

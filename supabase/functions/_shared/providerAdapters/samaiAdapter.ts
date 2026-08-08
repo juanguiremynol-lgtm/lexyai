@@ -15,6 +15,7 @@
  * This adapter does NOT persist data — it returns normalized results only.
  */
 
+import { upstreamBaseUrl } from '../upstreamEndpoints.ts';
 import type {
   NormalizedActuacion,
   CaseMetadata,
@@ -76,18 +77,18 @@ export async function fetchFromSamai(
   //   still read SAMAI_BASE_URL, we introduce a dedicated SAMAI_FEED_BASE_URL
   //   used ONLY by this adapter. Fallback to legacy behaviour if unset.
   // ────────────────────────────────────────────────────────────────
+  //   ITER48: SAMAI_BASE_URL was DELETED. It pointed at samai-estados-api,
+  //   which is a DIFFERENT CONTRACT (its /snapshot is POST-only — the source of
+  //   our 405s), not another host for this one. Expediente reads are pinned to
+  //   the verified samai-read-api default, which can no longer be overridden.
   const feedBaseUrl = Deno.env.get('SAMAI_FEED_BASE_URL');
-  const legacyBaseUrl = Deno.env.get('SAMAI_BASE_URL');
-  const baseUrl = feedBaseUrl || legacyBaseUrl;
-  const useFeedProtocol = Boolean(feedBaseUrl);
+  const baseUrl = feedBaseUrl || upstreamBaseUrl('samai_read');
+  const useFeedProtocol = true;
 
   const apiKeyInfo = useFeedProtocol
     ? await resolveFeedApiKey()
     : await getApiKeyForProvider('samai');
 
-  if (!baseUrl) {
-    return makeErrorResult('SAMAI API not configured (missing SAMAI_FEED_BASE_URL and SAMAI_BASE_URL)', startTime);
-  }
 
   const cleanBase = baseUrl.replace(/\/+$/, '');
   const headers = buildHeaders(apiKeyInfo);

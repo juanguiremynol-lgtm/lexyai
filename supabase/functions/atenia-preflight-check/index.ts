@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         name: "SAMAI",
         category: "ACTUACIONES" as const,
         role: "SECONDARY" as const,
-        baseUrl: Deno.env.get("SAMAI_BASE_URL"),
+        baseUrl: upstreamBaseUrl("samai_read"), // ITER48 — pinned, override deleted
         method: "GET" as const,
         testEndpoint: (r: string) => `/buscar?numero_radicacion=${r}`,
         testRadicado: Deno.env.get("SAMAI_TEST_RADICADO") ?? "05001233300020240115300",

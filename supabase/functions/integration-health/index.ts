@@ -22,14 +22,12 @@ const corsHeaders = {
 // Required secret names for judicial providers
 const REQUIRED_SECRETS = [
   "CPNU_BASE_URL",
-  "SAMAI_BASE_URL",
-  "TUTELAS_BASE_URL",
   "PUBLICACIONES_BASE_URL",
   "EXTERNAL_X_API_KEY",
 ];
 
 // Optional provider-specific API keys (take precedence over EXTERNAL_X_API_KEY)
-const OPTIONAL_API_KEYS = ["CPNU_X_API_KEY", "SAMAI_X_API_KEY", "TUTELAS_X_API_KEY", "PUBLICACIONES_X_API_KEY"];
+const OPTIONAL_API_KEYS = ["CPNU_X_API_KEY", "SAMAI_X_API_KEY", "PUBLICACIONES_X_API_KEY"];
 
 // Cloud Run email gateway (Option B) is RETIRED — Resend is the ratified
 // provider. Kept only as a reported no-op so old dashboards degrade cleanly.
