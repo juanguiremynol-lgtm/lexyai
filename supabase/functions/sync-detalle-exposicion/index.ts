@@ -177,11 +177,16 @@ Deno.serve(async (req) => {
       threshold: verdict.threshold,
       sample: { radicados: candidates.slice(0, 20).map((c) => c.radicado) },
     });
-    await supabase.from("admin_notifications").insert({
+    await supabase.from("platform_notifications").insert({
+      event_type: "PROVIDER_BULK_FLIP_BLOCKED",
       title: "Cambio masivo de estado bloqueado (PROCESO_PRIVADO)",
-      body: verdict.reason,
-      severity: "CRITICAL",
-      category: "OPS_INCIDENTS",
+      message: verdict.reason,
+      severity: "critical",
+      metadata: {
+        endpoint_key: "cpnu.detalle_estado",
+        afectados: candidates.length,
+        evaluados: (items ?? []).length,
+      },
     });
     return json({
       ok: false,
