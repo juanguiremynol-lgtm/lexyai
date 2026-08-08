@@ -104,6 +104,8 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
 };
 
 export function upstreamBaseUrl(host: UpstreamHostKey): string {
+  // Read through a guard: this registry is also imported by the app-side tests,
+  // where `Deno` does not exist.
   const spec = UPSTREAM_HOSTS[host];
   const fromEnv = (readEnv(spec.envVar) ?? "").trim().replace(/\/+$/, "");
   return fromEnv || spec.defaultBaseUrl;
