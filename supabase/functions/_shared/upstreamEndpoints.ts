@@ -172,6 +172,7 @@ function envelopeOk(body: unknown): boolean | null {
 export type ProbeOutcome =
   | "RESUELVE"
   | "RESUELVE_GUARDADO"
+  | "MUESTRA_DESCONOCIDA"
   | "RESPONDE_CON_ERROR"
   | "NO_EXISTE"
   | "INDETERMINADO"
@@ -182,7 +183,13 @@ export function classifyProbe(
   status: number,
   body: unknown,
 ): ProbeOutcome {
-  if (status === 404 && !(ep.resolvesOn ?? ROUTE_EXISTS).includes(404)) return "NO_EXISTE";
+  if (status === 404) {
+    // A 404 for an id the upstream does not know proves the ROUTE exists; only
+    // a 404 on a route that takes no sample means the feature is missing.
+    return (ep.resolvesOn ?? ROUTE_EXISTS).includes(404)
+      ? "MUESTRA_DESCONOCIDA"
+      : "NO_EXISTE";
+  }
   if (isGuardedResponse(status)) return "RESUELVE_GUARDADO";
   if (!endpointResolves(ep, status)) return "INALCANZABLE";
 
@@ -192,6 +199,12 @@ export function classifyProbe(
   return "RESUELVE";
 }
 
+/** Health endpoints answer `{"status":"ok"|"healthy"}` or `{"ok":true}`. */
+function healthOk(b: unknown): boolean | null {
+  const s = (b as Record<string, unknown> | null)?.status;
+  return typeof s === "string" ? /ok|healthy|up/i.test(s) : envelopeOk(b);
+}
+
 export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
   {
     key: "cpnu.health",
@@ -199,10 +212,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del CPNU Read API",
-    assertSuccess: (b) => {
-      const s = (b as Record<string, unknown> | null)?.status;
-      return typeof s === "string" ? /ok|healthy|up/i.test(s) : envelopeOk(b);
-    },
+    assertSuccess: healthOk,
   },
   {
     key: "cpnu.clase_proceso",
@@ -225,10 +235,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del ejecutor de jobs CPNU",
-    assertSuccess: (b) => {
-      const s = (b as Record<string, unknown> | null)?.status;
-      return typeof s === "string" ? /ok|healthy|up/i.test(s) : envelopeOk(b);
-    },
+    assertSuccess: healthOk,
   },
   {
     key: "cpnu.detalle_estado",
@@ -260,6 +267,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness del SAMAI Read API (expedientes CPACA)",
+    assertSuccess: healthOk,
   },
   {
     key: "samai_estados.health",
@@ -267,6 +275,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness de SAMAI Estados",
+    assertSuccess: healthOk,
   },
   {
     key: "publicaciones.health",
@@ -274,6 +283,7 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/health",
     purpose: "Liveness de Publicaciones Procesales",
+    assertSuccess: healthOk,
   },
   {
     key: "andromeda.salud_radicados",
@@ -281,14 +291,6 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     method: "GET",
     path: "/salud/radicados?source=PP_COVERAGE",
     purpose: "Censo de cobertura PP (ITER35 — vive en andromeda-read-api, NO en la API de PP)",
-    resolvesOn: ROUTE_EXISTS,
-  },
-  {
-    key: "andromeda.source_health",
-    host: "andromeda_read",
-    method: "GET",
-    path: "/salud/source-health",
-    purpose: "Salud por fuente y rama (CPNU/PP/SAMAI/SAMAI_ESTADOS)",
     resolvesOn: ROUTE_EXISTS,
   },
   {
@@ -304,7 +306,8 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     host: "andromeda_read",
     method: "POST",
     path: "/lifecycle",
-    purpose: "Único escritor de `radicados.activo` upstream",
+    purpose:
+      "Único escritor de `radicados.activo` upstream. ITER46 — el payload obligatorio es {work_item_id, radicado, new_state, occurred_at}, verificado contra el 400 del propio endpoint.",
     resolvesOn: ROUTE_EXISTS,
     probeBody: {},
   },
