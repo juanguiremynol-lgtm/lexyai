@@ -26,6 +26,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { upstreamBaseUrl, upstreamHeaders } from "../_shared/upstreamEndpoints.ts";
+import { evaluateBulkFlip } from "../_shared/bulkFlipGuard.ts";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -147,6 +148,51 @@ Deno.serve(async (req) => {
   const { data: items, error } = await query.limit(1000);
   if (error) return json({ ok: false, error: error.message }, 500);
 
+  // ITER47 — bulk-flip guard. Before writing anything, ask what this ONE read
+  // would do to the portfolio as a whole. The registry misreading we caught in
+  // iteration 46 would have flipped every matter to PROCESO_PRIVADO in a single
+  // pass; a guard that only looks at rows one at a time cannot see that.
+  const candidates = (items ?? []).filter((wi) => {
+    const rad = String(wi.radicado ?? "").replace(/\D/g, "");
+    const r = readingFor(registry, rad);
+    return r.expuesto === false && wi.provider_detail_exposure !== "PROCESO_PRIVADO";
+  });
+
+  const verdict = evaluateBulkFlip({
+    endpointKey: "cpnu.detalle_estado",
+    field: "provider_detail_exposure",
+    targetState: "PROCESO_PRIVADO",
+    affectedRows: candidates.length,
+    totalRows: (items ?? []).length,
+  });
+
+  if (!verdict.allowed) {
+    await supabase.from("provider_bulk_flip_blocks").insert({
+      endpoint_key: "cpnu.detalle_estado",
+      field: "provider_detail_exposure",
+      target_state: "PROCESO_PRIVADO",
+      affected_rows: candidates.length,
+      total_rows: (items ?? []).length,
+      fraction: verdict.fraction,
+      threshold: verdict.threshold,
+      sample: { radicados: candidates.slice(0, 20).map((c) => c.radicado) },
+    });
+    await supabase.from("admin_notifications").insert({
+      title: "Cambio masivo de estado bloqueado (PROCESO_PRIVADO)",
+      body: verdict.reason,
+      severity: "CRITICAL",
+      category: "OPS_INCIDENTS",
+    });
+    return json({
+      ok: false,
+      host: base,
+      error: "cambio_masivo_bloqueado",
+      motivo: verdict.reason,
+      candidatos: candidates.length,
+      evaluados: (items ?? []).length,
+    }, 409);
+  }
+
   const results: Array<Record<string, unknown>> = [];
 
   for (const wi of items ?? []) {
@@ -178,6 +224,7 @@ Deno.serve(async (req) => {
     ok: true,
     host: base,
     registro_privados: registry.entries.size,
+    guardia_cambio_masivo: verdict.reason,
     evaluados: results.length,
     privados: results.filter((r) => r.estado === "PROCESO_PRIVADO").length,
     cambios: results.filter((r) => r.cambio).length,
