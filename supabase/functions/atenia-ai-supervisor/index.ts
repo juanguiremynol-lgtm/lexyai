@@ -19,6 +19,7 @@
  *   - Exponential backoff for retries
  */
 
+import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   bogotaDayBoundsUtc,

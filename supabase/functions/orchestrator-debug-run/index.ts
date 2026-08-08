@@ -23,6 +23,7 @@
  *   - payloads_recorded: number of debug payloads persisted
  */
 
+import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   orchestrateSync,

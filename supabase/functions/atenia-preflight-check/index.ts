@@ -12,6 +12,7 @@
  * or manually from the Supervisor Panel.
  */
 
+import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAction } from "../_shared/action-logger.ts";
 import { resolveCaller, isPrivileged, canAccessOrg, forbidden } from "../_shared/callerIdentity.ts";
