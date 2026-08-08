@@ -5,7 +5,7 @@
  * 
  * Features:
  * - Platform admins or org admins only
- * - Calls CPNU, SAMAI, TUTELAS, or PUBLICACIONES providers
+ * - Calls CPNU, SAMAI, or PUBLICACIONES providers
  * - Returns status, latency, summary, and raw response
  * - Truncates large arrays to safe limits (200 items)
  * - Never exposes secrets in logs or responses
@@ -16,6 +16,7 @@
  * Output: { provider_used, status, latencyMs, summary, raw, truncated, limits, error_code?, retried, attempts }
  */
 
+import { upstreamBaseUrl } from '../_shared/upstreamEndpoints.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -100,7 +101,7 @@ interface RouteAttempt {
 // Auth diagnostics (safe to expose - no secrets)
 interface AuthDiagnostics {
   auth_header_used: string;
-  api_key_source: 'CPNU_X_API_KEY' | 'SAMAI_X_API_KEY' | 'TUTELAS_X_API_KEY' | 'PUBLICACIONES_X_API_KEY' | 'EXTERNAL_X_API_KEY' | 'MISSING';
+  api_key_source: 'CPNU_X_API_KEY' | 'SAMAI_X_API_KEY' | 'PUBLICACIONES_X_API_KEY' | 'EXTERNAL_X_API_KEY' | 'MISSING';
   api_key_present: boolean;
   api_key_fingerprint: string | null; // First 8 chars of sha256 hash (safe)
 }
@@ -542,7 +543,8 @@ async function callProviderWithProbing(
     publicaciones: 'PUBLICACIONES_PATH_PREFIX',
   };
 
-  const baseUrl = Deno.env.get(envMap[provider]);
+  // ITER48 — samai has no override any more; it is pinned to its verified host.
+  const baseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
   const pathPrefix = Deno.env.get(prefixEnvMap[provider]) || ''; // Default to empty
   
   // Get API key with provider-specific selection
@@ -979,7 +981,7 @@ Deno.serve(async (req) => {
         cpnu: 'CPNU_BASE_URL', samai: '',
         publicaciones: 'PUBLICACIONES_BASE_URL',
       };
-      const providerBaseUrl = Deno.env.get(envMap[provider]);
+      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
       const apiKeyInfo = await getApiKeyForProvider(provider);
       
       if (!providerBaseUrl) {
