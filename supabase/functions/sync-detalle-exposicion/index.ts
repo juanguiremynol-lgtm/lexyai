@@ -1,14 +1,16 @@
 /**
- * sync-detalle-exposicion — ITERATION 45 (replaces sync-reserva-estado).
+ * sync-detalle-exposicion — ITERATION 46.
  *
- * Two corrections over iteration 44:
+ * Corrections carried by this runner:
  *
- *  · HOST. `/reserva/estado` was never on andromeda-read-api; it is served by
- *    cpnu-https-jobs. The 404s we read as "GCP did not ship it" were our own
- *    wrong host. The route now comes from the central endpoint registry.
- *  · VOCABULARY. We record that the provider does NOT EXPOSE the detail. We do
- *    not assert *why*: reserva sumarial is one possible cause among several and
- *    we have no evidence to pick one.
+ *  · HOST (iter45). `/reserva/estado` was never on andromeda-read-api; it is
+ *    served by cpnu-https-jobs. The 404s we read as "GCP did not ship it" were
+ *    our own wrong host. The route comes from the central endpoint registry.
+ *  · PARAMETER (iter46). The query parameter is `numero_radicacion`. Sending
+ *    `radicado` produced an error we were reading as absence.
+ *  · VOCABULARY (iter46). We record the provider's own term, PROCESO_PRIVADO,
+ *    and attribute it. We do not assert *why*: the provider never declares a
+ *    cause, and "reserva sumarial" was our interpretation, not its statement.
  *
  * An unreachable endpoint asserts nothing: a failed read never becomes a
  * statement about the matter.
@@ -95,7 +97,10 @@ Deno.serve(async (req) => {
     let reading: ExposicionReading | null = null;
     let httpStatus: number | null = null;
     try {
-      const res = await fetch(`${base}/reserva/estado?radicado=${radicado}`, { headers });
+      const res = await fetch(
+        `${base}/reserva/estado?numero_radicacion=${radicado}`,
+        { headers },
+      );
       httpStatus = res.status;
       if (res.ok) reading = parseExposicion(await res.json());
     } catch {
@@ -110,17 +115,17 @@ Deno.serve(async (req) => {
     const { data: applied, error: rpcErr } = await supabase.rpc("apply_detalle_exposicion", {
       p_work_item_id: wi.id,
       p_expuesto: reading.expuesto,
+      p_concluyente: true,
       p_motivo: reading.motivo,
       p_desde: reading.desde,
       p_ultima_verificacion: reading.ultima_verificacion,
       p_ttl_days: reading.ttl_days,
-      p_procedencia: { endpoint: "cpnu_jobs:/reserva/estado", raw: reading.raw },
     });
 
     results.push({
       work_item_id: wi.id,
       radicado,
-      estado: reading.expuesto ? "DETALLE_EXPUESTO" : "DETALLE_NO_EXPUESTO",
+      estado: reading.expuesto ? "DETALLE_EXPUESTO" : "PROCESO_PRIVADO",
       cambio: (applied as { changed?: boolean } | null)?.changed ?? false,
       error: rpcErr?.message ?? null,
     });
