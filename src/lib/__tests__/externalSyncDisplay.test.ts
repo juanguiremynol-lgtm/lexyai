@@ -32,6 +32,7 @@ describe("externalSyncDisplay", () => {
     expect(externalDisplayModeFor("LABORAL")).toBe("publicaciones");
     expect(externalDisplayModeFor("TUTELA")).toBe("publicaciones");
     expect(externalDisplayModeFor("PENAL_906")).toBe("publicaciones");
+    expect(externalDisplayModeFor("EJECUTIVO")).toBe("publicaciones");
     expect(externalDisplayModeFor("GOV_PROCEDURE")).toBe("none");
     expect(externalDisplayModeFor("PETICION")).toBe("none");
     expect(externalDisplayModeFor(null)).toBe("none");
