@@ -54,23 +54,41 @@ Deno.serve(async (req) => {
   let radicado = body.radicado ?? null;
   let workItemId = body.work_item_id ?? null;
   let sampleHasClase = false;
+  let sampleSource = body.work_item_id ? "REQUEST" : "NINGUNA";
   if (!radicado || !workItemId) {
-    // ITER49 — /clase-proceso needs a matter the provider actually knows and
-    // has answered a clase for; the previous "most recently synced" sample
-    // could be any matter, so the route was probed with an id upstream had
-    // never classified and the outcome said nothing about the route.
+    // ITER49 — `/work-items/{id}/clase-proceso` is keyed on the PROVIDER's own
+    // work_item registry, not on ours: every one of our UUIDs answers
+    // `work_item no encontrado`, so the route was being probed with an id it
+    // could never resolve. The sample now comes from the provider's own
+    // `/work-items` listing, preferring an entry whose radicado we also hold.
     let sample: { id: string; radicado: string | null } | null = null;
-    const { data: classified } = await supabase
-      .from("work_items")
-      .select("id, radicado")
-      .is("deleted_at", null)
-      .not("radicado", "is", null)
-      .eq("clase_proceso_disponible", true)
-      .order("clase_proceso_observed_at", { ascending: false, nullsFirst: false })
-      .limit(1)
-      .maybeSingle();
-    sample = (classified as typeof sample) ?? null;
-    sampleHasClase = !!sample;
+    try {
+      const listRes = await fetch(`${upstreamBaseUrl("cpnu_read")}/work-items?limit=100`, {
+        headers: upstreamHeaders("cpnu_read"),
+      });
+      if (listRes.ok) {
+        const listed = await listRes.json().catch(() => null);
+        const items: Array<Record<string, unknown>> = Array.isArray(listed?.items) ? listed.items : [];
+        const withClase = items.filter((i) => !!i.clase_proceso);
+        const pool = withClase.length > 0 ? withClase : items;
+        if (pool.length > 0) {
+          const radicados = pool.map((i) => String(i.radicado ?? "")).filter(Boolean);
+          const { data: ours } = await supabase
+            .from("work_items")
+            .select("radicado")
+            .is("deleted_at", null)
+            .in("radicado", radicados)
+            .limit(1);
+          const preferred = ours?.[0]?.radicado
+            ? pool.find((i) => String(i.radicado) === ours[0].radicado)
+            : undefined;
+          const chosen = preferred ?? pool[0];
+          sample = { id: String(chosen.id), radicado: String(chosen.radicado ?? "") || null };
+          sampleHasClase = !!chosen.clase_proceso;
+          sampleSource = preferred ? "PROVEEDOR_COINCIDE_CARTERA" : "PROVEEDOR";
+        }
+      }
+    } catch { /* fall through to the local sample */ }
     if (!sample) {
       const { data: fallback } = await supabase
         .from("work_items")
@@ -81,6 +99,7 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle();
       sample = (fallback as typeof sample) ?? null;
+      if (sample) sampleSource = "CARTERA_LOCAL";
     }
     radicado = radicado ?? (sample?.radicado ?? null);
     workItemId = workItemId ?? (sample?.id ?? null);
