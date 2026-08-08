@@ -1,10 +1,15 @@
 /**
- * DetalleExposicionPanel — ITERATION 44.
+ * DetalleExposicionPanel — ITERATION 46.
  *
- * Reserva sumarial is a lawful state, not an incident, so it gets its own
- * readout instead of polluting coverage alerts. What IS alertable here is a
- * reserva nobody has revalidated within its TTL: an unrefreshed reservation is
- * indistinguishable from a matter we simply stopped reading.
+ * The provider names this condition itself: "--- [ PROCESO PRIVADO ] ---" in
+ * search, and "No se puede ver el detalle de un proceso privado" on detail. We
+ * adopt the provider's term and ATTRIBUTE it, instead of coining a vocabulary
+ * ("reserva sumarial", then "detalle no expuesto") the user cannot match
+ * against the portal.
+ *
+ * A private matter is not an incident and never raises a coverage alarm. What
+ * IS watched is revalidation: the mark is mutable and per-matter, so an
+ * unrefreshed reading is indistinguishable from a matter we stopped reading.
  */
 
 import { useState } from "react";
@@ -16,11 +21,16 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw, Lock, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { claseMotivoLabel } from "@/lib/clase-motivo";
+import {
+  type DespachoPrivacyRate,
+  privacyRateCopy,
+  resolvePrivacyRate,
+} from "@/lib/despacho-privacy-rate";
 
-interface ReservaRow {
+interface PrivadoRow {
   work_item_id: string;
   radicado: string | null;
-  workflow_type: string | null;
+  estado: string | null;
   motivo: string | null;
   desde: string | null;
   ultima_verificacion: string | null;
@@ -28,10 +38,12 @@ interface ReservaRow {
   vencida: boolean;
 }
 
-interface ReservaReport {
-  reservados: number;
-  reservados_sin_revalidar: number;
-  detalle: ReservaRow[];
+interface ExposicionReport {
+  privados: number;
+  expuestos: number;
+  desconocidos: number;
+  revalidacion_vencida: number;
+  items: PrivadoRow[];
 }
 
 const fmt = (v: string | null) =>
@@ -44,7 +56,17 @@ export function DetalleExposicionPanel() {
     queryKey: ["detalle-exposicion-report"],
     queryFn: async () => {
       const { data: rep } = await supabase.rpc("detalle_exposicion_report" as never);
-      return (rep ?? null) as unknown as ReservaReport | null;
+      return (rep ?? null) as unknown as ExposicionReport | null;
+    },
+  });
+
+  const { data: rates } = useQuery({
+    queryKey: ["despacho-privacy-rate"],
+    queryFn: async () => {
+      const { data: rows } = await supabase
+        .from("despacho_privacy_rate" as never)
+        .select("scope, scope_key, scope_label, flagged, total, despacho_distribution, measured_at, notes");
+      return (rows ?? []) as unknown as DespachoPrivacyRate[];
     },
   });
 
@@ -53,25 +75,25 @@ export function DetalleExposicionPanel() {
     const { data: res, error } = await supabase.functions.invoke("sync-detalle-exposicion");
     setSyncing(false);
     if (error) {
-      toast.error("No se pudo consultar el estado de exposición en el proveedor");
+      toast.error("No se pudo revalidar la marca de proceso privado con el proveedor");
       return;
     }
     const r = res as { evaluados?: number; cambios?: number; lecturas_fallidas?: number };
     toast.success(
-      `Exposición revisada en ${r?.evaluados ?? 0} expediente(s) · ${r?.cambios ?? 0} cambio(s)` +
+      `Marca revisada en ${r?.evaluados ?? 0} expediente(s) · ${r?.cambios ?? 0} cambio(s)` +
         (r?.lecturas_fallidas ? ` · ${r.lecturas_fallidas} lectura(s) fallida(s)` : ""),
     );
     refetch();
   };
 
-  const rows = data?.detalle ?? [];
+  const rows = data?.items ?? [];
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base flex items-center gap-2">
           <Lock className="h-4 w-4" />
-          Exposición del detalle · estado y revalidación
+          Procesos marcados como privados por el proveedor
         </CardTitle>
         <Button variant="outline" size="sm" onClick={sync} disabled={syncing} className="gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
@@ -80,26 +102,29 @@ export function DetalleExposicionPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2 text-xs">
-          <Badge variant="outline">Detalle no expuesto: {data?.reservados ?? 0}</Badge>
+          <Badge variant="outline">Privados: {data?.privados ?? 0}</Badge>
+          <Badge variant="outline">Con detalle expuesto: {data?.expuestos ?? 0}</Badge>
+          <Badge variant="outline">Sin leer: {data?.desconocidos ?? 0}</Badge>
           <Badge
             variant="outline"
-            className={(data?.reservados_sin_revalidar ?? 0) > 0 ? "border-amber-500/60 text-amber-600" : ""}
+            className={(data?.revalidacion_vencida ?? 0) > 0 ? "border-amber-500/60 text-amber-600" : ""}
           >
-            Sin revalidar dentro del TTL: {data?.reservados_sin_revalidar ?? 0}
+            Sin revalidar dentro del TTL: {data?.revalidacion_vencida ?? 0}
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          Un proceso en reserva no genera alertas de cobertura: el silencio del proveedor es legítimo.
-          Lo que sí se vigila es la revalidación: una reserva sin verificar es indistinguible de un
-          expediente que dejamos de leer.
+          La Rama Judicial marca estos procesos como privados y no expone su detalle. El proveedor no
+          declara la causa y nosotros no la interpretamos. Es una marca <strong>por proceso</strong> y{" "}
+          <strong>mutable</strong>: puede cambiar de un día para otro, por eso se revalida a diario y
+          nunca se deduce del despacho ni del distrito.
         </p>
 
         {isLoading ? (
-          <p className="text-xs text-muted-foreground">Cargando estado de reservas…</p>
+          <p className="text-xs text-muted-foreground">Cargando estado de exposición…</p>
         ) : rows.length === 0 ? (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-            Ningún expediente con el detalle no expuesto.
+            Ningún expediente de la cartera está marcado como privado en este momento.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -107,35 +132,46 @@ export function DetalleExposicionPanel() {
               <thead className="text-muted-foreground">
                 <tr className="border-b">
                   <th className="py-1 text-left font-medium">Radicado</th>
-                  <th className="py-1 text-left font-medium">Área</th>
-                  <th className="py-1 text-left font-medium">Motivo</th>
+                  <th className="py-1 text-left font-medium">Motivo declarado</th>
                   <th className="py-1 text-left font-medium">Desde</th>
                   <th className="py-1 text-left font-medium">Última verificación</th>
+                  <th className="py-1 text-left font-medium">Frecuencia observada</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, 25).map((r) => (
-                  <tr key={r.work_item_id} className="border-b last:border-0">
-                    <td className="py-1 font-mono">{r.radicado ?? "—"}</td>
-                    <td className="py-1">{r.workflow_type ?? "—"}</td>
-                    <td className="py-1">{claseMotivoLabel(r.motivo)}</td>
-                    <td className="py-1">{fmt(r.desde)}</td>
-                    <td className="py-1">
-                      {r.vencida ? (
-                        <span className="inline-flex items-center gap-1 text-amber-600">
-                          <AlertTriangle className="h-3 w-3" />
-                          {fmt(r.ultima_verificacion)} · vencida ({r.ttl_dias ?? 7} d)
-                        </span>
-                      ) : (
-                        fmt(r.ultima_verificacion)
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.slice(0, 25).map((r) => {
+                  const rate = resolvePrivacyRate(r.radicado, rates ?? []);
+                  return (
+                    <tr key={r.work_item_id} className="border-b last:border-0 align-top">
+                      <td className="py-1 font-mono">{r.radicado ?? "—"}</td>
+                      <td className="py-1">{claseMotivoLabel(r.motivo)}</td>
+                      <td className="py-1">{fmt(r.desde)}</td>
+                      <td className="py-1">
+                        {r.vencida ? (
+                          <span className="inline-flex items-center gap-1 text-amber-600">
+                            <AlertTriangle className="h-3 w-3" />
+                            {fmt(r.ultima_verificacion)} · vencida ({r.ttl_dias ?? 1} d)
+                          </span>
+                        ) : (
+                          fmt(r.ultima_verificacion)
+                        )}
+                      </td>
+                      <td className="py-1 text-muted-foreground max-w-[22rem]">
+                        {privacyRateCopy(rate) ?? "Sin medición para esta zona."}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+
+        <p className="text-[11px] text-muted-foreground">
+          La frecuencia observada sirve para interpretar la marca, no para deducirla: en los despachos
+          medidos conviven procesos marcados y no marcados, de modo que ningún despacho es «privado» y
+          la tasa nunca silencia una alarma de cobertura.
+        </p>
       </CardContent>
     </Card>
   );
