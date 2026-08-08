@@ -42,6 +42,20 @@ interface HostSpec {
   readonly keyEnvVars: readonly string[];
   /** Header name the host expects the key in. */
   readonly keyHeader: string;
+  /**
+   * ITER47 — has the default host been VERIFIED to exist, by a live probe that
+   * got the APPLICATION (not Google's frontend) to answer?
+   *
+   *  VERIFICADO   — the service answered as itself, e.g. samai-read-api's
+   *                 /health returns {"ok":true,"service":"samai-read-api"}.
+   *  INEXISTENTE  — Google Frontend serves its own "Page not found" HTML with
+   *                 no application response: no Cloud Run service is deployed
+   *                 under this name. The default is a GUESS and must never be
+   *                 presented to an operator as a value to configure.
+   */
+  readonly hostState?: "VERIFICADO" | "INEXISTENTE" | "SIN_VERIFICAR";
+  /** Probe evidence, so the claim above can be re-checked rather than trusted. */
+  readonly hostEvidence?: string;
 }
 
 export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
@@ -52,6 +66,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://cpnu-read-api-11974381924.us-central1.run.app",
     keyEnvVars: ["CPNU_X_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "VERIFICADO",
+    hostEvidence:
+      "GET /health -> 200 {ok:true, service:cpnu-read-api} (probado 2026-08-08).",
   },
   cpnu_jobs: {
     key: "cpnu_jobs",
@@ -68,6 +85,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://samai-read-api-11974381924.us-central1.run.app",
     keyEnvVars: ["SAMAI_X_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "VERIFICADO",
+    hostEvidence:
+      "GET /health -> 200 {ok:true, service:samai-read-api} (probado 2026-08-08). El host por defecto es CORRECTO: si SAMAI falla, lo que sobra es el override de entorno, no el default.",
   },
   samai_estados: {
     key: "samai_estados",
@@ -76,6 +96,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://samai-estados-api-11974381924.us-central1.run.app",
     keyEnvVars: ["SAMAI_ESTADOS_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "VERIFICADO",
+    hostEvidence:
+      "GET /health -> 200 y /openapi.json -> 200 (probado 2026-08-08).",
   },
   publicaciones: {
     key: "publicaciones",
@@ -84,6 +107,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://publicaciones-procesales-api-11974381924.us-central1.run.app",
     keyEnvVars: ["PUBLICACIONES_X_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "VERIFICADO",
+    hostEvidence:
+      "GET /health -> 200; las rutas de datos responden 401 (guardadas), lo que prueba que existen (probado 2026-08-08).",
   },
   tutelas: {
     key: "tutelas",
@@ -92,6 +118,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://tutelas-api-11974381924.us-central1.run.app",
     keyEnvVars: ["TUTELAS_X_API_KEY", "EXTERNAL_X_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "INEXISTENTE",
+    hostEvidence:
+      "Toda ruta (/, /health, /radicados) devuelve el HTML 404 propio de Google Frontend, SIN respuesta de la aplicacion: no hay servicio Cloud Run desplegado con este nombre. No podemos suministrar un valor correcto; debe darlo GCP (probado 2026-08-08).",
   },
   andromeda_read: {
     key: "andromeda_read",
@@ -100,6 +129,9 @@ export const UPSTREAM_HOSTS: Record<UpstreamHostKey, HostSpec> = {
     defaultBaseUrl: "https://andromeda-read-api-11974381924.us-central1.run.app",
     keyEnvVars: ["ANDROMEDA_API_KEY"],
     keyHeader: "X-API-Key",
+    hostState: "VERIFICADO",
+    hostEvidence:
+      "Toda ruta responde 401 desde la aplicacion (guardada), lo que prueba que el servicio existe (probado 2026-08-08).",
   },
 };
 
@@ -179,6 +211,20 @@ function envelopeOk(body: unknown): boolean | null {
   return null;
 }
 
+/**
+ * ITER47 — an error envelope that names an INTERNAL failure of the provider
+ * (a SQL error, a stack trace, a missing column) rather than a complaint about
+ * our request. `/novedades/hoy` answers 500 with
+ * `{"ok":false,"error":"column w.status does not exist"}` — the staged fix
+ * references a column their own schema lacks.
+ */
+export function isUpstreamDefect(body: unknown): boolean {
+  const err = (body as Record<string, unknown> | null)?.error;
+  if (typeof err !== "string") return false;
+  return /column .* does not exist|relation .* does not exist|undefined column|syntax error at or near|internal server error|traceback|NullPointer|ECONNREFUSED/i
+    .test(err);
+}
+
 /** ITER46 — a probe outcome that distinguishes "answered well" from "answered". */
 export type ProbeOutcome =
   | "RESUELVE"
@@ -187,7 +233,14 @@ export type ProbeOutcome =
   | "RESPONDE_CON_ERROR"
   | "NO_EXISTE"
   | "INDETERMINADO"
-  | "INALCANZABLE";
+  | "INALCANZABLE"
+  /**
+   * ITER47 — the route exists, we reached the right host, and the UPSTREAM
+   * itself is defective. This must never be reported as "missing endpoint" or
+   * as our misconfiguration: the fix belongs to the provider, and reporting it
+   * as absence is what caused us to re-guess hosts twice before.
+   */
+  | "UPSTREAM_ROTO";
 
 export function classifyProbe(
   ep: UpstreamEndpoint,
@@ -202,6 +255,10 @@ export function classifyProbe(
       : "NO_EXISTE";
   }
   if (isGuardedResponse(status)) return "RESUELVE_GUARDADO";
+  // ITER47 — a 5xx, or a 200 carrying an internal error, is the provider's own
+  // defect on a route that demonstrably exists.
+  if (status >= 500) return "UPSTREAM_ROTO";
+  if (isUpstreamDefect(body)) return "UPSTREAM_ROTO";
   if (!endpointResolves(ep, status)) return "INALCANZABLE";
 
   const asserted = ep.assertSuccess ? ep.assertSuccess(body, status) : envelopeOk(body);
@@ -271,6 +328,23 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     purpose: "Revalidación diaria de la marca PROCESO_PRIVADO (es mutable: puede cambiar de un día para otro)",
     resolvesOn: ROUTE_EXISTS,
     probeBody: { numeros_radicacion: [] },
+  },
+  {
+    /**
+     * ITER47 — staged by GCP and DEFECTIVE at the provider. Probed live:
+     *   GET /novedades/hoy -> 500 {"ok":false,"error":"column w.status does not exist"}
+     * The route exists and the host is right, so this is UPSTREAM_ROTO. We keep
+     * it registered precisely so it is reported as the provider's broken
+     * deployment instead of quietly disappearing as an "unavailable feature".
+     */
+    key: "cpnu.novedades_hoy",
+    host: "cpnu_read",
+    method: "GET",
+    path: "/novedades/hoy",
+    purpose:
+      "Novedades del día (ITER47 — ROTA AGUAS ARRIBA: responde 500 por una columna inexistente en el esquema del proveedor)",
+    resolvesOn: [...ROUTE_EXISTS, 500],
+    assertSuccess: (b) => (isUpstreamDefect(b) ? false : envelopeOk(b)),
   },
   {
     key: "samai.health",

@@ -11974,6 +11974,51 @@ export type Database = {
           },
         ]
       }
+      provider_bulk_flip_blocks: {
+        Row: {
+          affected_rows: number
+          blocked_at: string
+          created_at: string
+          endpoint_key: string
+          field: string
+          fraction: number
+          id: string
+          sample: Json | null
+          target_state: string
+          threshold: number
+          total_rows: number
+          updated_at: string
+        }
+        Insert: {
+          affected_rows: number
+          blocked_at?: string
+          created_at?: string
+          endpoint_key: string
+          field: string
+          fraction: number
+          id?: string
+          sample?: Json | null
+          target_state: string
+          threshold: number
+          total_rows: number
+          updated_at?: string
+        }
+        Update: {
+          affected_rows?: number
+          blocked_at?: string
+          created_at?: string
+          endpoint_key?: string
+          field?: string
+          fraction?: number
+          id?: string
+          sample?: Json | null
+          target_state?: string
+          threshold?: number
+          total_rows?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       provider_category_policies: {
         Row: {
           allow_merge_on_empty: boolean
