@@ -31,6 +31,7 @@ import {
   useWorkflowDeadlineRules,
 } from "@/hooks/use-workflow-deadline-rules";
 import { useMissingRules } from "@/hooks/use-missing-rules";
+import { useWorkItemDeadlines } from "@/hooks/use-work-item-deadlines";
 import {
   deriveAlDespachoSuspensions,
   filterRulesToRegimen,
@@ -116,6 +117,14 @@ export function TerminosDeRegla({
 
   const suspensions = useMemo(() => deriveAlDespachoSuspensions(events), [events]);
 
+  // Already-registered terms: the confirmation must be reflected in the card,
+  // otherwise the suggestion looks untouched even though the row exists.
+  const { data: existingDeadlines = [] } = useWorkItemDeadlines(workItemId);
+  const registeredTypes = useMemo(
+    () => new Set(existingDeadlines.map((d) => d.deadline_type)),
+    [existingDeadlines],
+  );
+
   const { suggested, awaiting, unspecified, antinomias } = useMemo(
     () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents, { suspensions }),
     [scoped, events, awaitingAnchorEvents, suspensions],
@@ -148,11 +157,15 @@ export function TerminosDeRegla({
       } as never);
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast.success("Término registrado");
-      queryClient.invalidateQueries({ queryKey: ["work-item-deadlines", workItemId] });
+    onSuccess: async (_data, term) => {
+      toast.success("Término registrado", { id: `term-${term.ruleId}`, duration: 4000 });
+      await queryClient.invalidateQueries({ queryKey: ["work-item-deadlines", workItemId] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "No se pudo registrar"),
+    onError: (e: unknown, term) =>
+      toast.error(e instanceof Error ? e.message : "No se pudo registrar", {
+        id: `term-${term.ruleId}`,
+        duration: 6000,
+      }),
   });
 
   if (
@@ -210,10 +223,18 @@ export function TerminosDeRegla({
                 Se descontaron {term.suspendedDays} día(s) hábil(es) con el expediente al despacho (art. 324).
               </p>
             )}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Sugerencia — no se aplica automáticamente.
-            </p>
-            {term.deadlineDate && (
+            {!registeredTypes.has(term.deadlineType) && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Sugerencia — no se aplica automáticamente.
+              </p>
+            )}
+            {term.deadlineDate && registeredTypes.has(term.deadlineType) && (
+              <p className="mt-2 flex items-center gap-1 text-xs font-medium text-primary">
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                Término registrado en el calendario del expediente.
+              </p>
+            )}
+            {term.deadlineDate && !registeredTypes.has(term.deadlineType) && (
               <Button
                 size="sm"
                 className="mt-2"
