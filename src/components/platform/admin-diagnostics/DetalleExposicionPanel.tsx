@@ -1,5 +1,5 @@
 /**
- * ReservaSumarialPanel — ITERATION 44.
+ * DetalleExposicionPanel — ITERATION 44.
  *
  * Reserva sumarial is a lawful state, not an incident, so it gets its own
  * readout instead of polluting coverage alerts. What IS alertable here is a
@@ -37,28 +37,28 @@ interface ReservaReport {
 const fmt = (v: string | null) =>
   v ? new Date(v).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-export function ReservaSumarialPanel() {
+export function DetalleExposicionPanel() {
   const [syncing, setSyncing] = useState(false);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["reserva-estado-report"],
+    queryKey: ["detalle-exposicion-report"],
     queryFn: async () => {
-      const { data: rep } = await supabase.rpc("reserva_estado_report" as never);
+      const { data: rep } = await supabase.rpc("detalle_exposicion_report" as never);
       return (rep ?? null) as unknown as ReservaReport | null;
     },
   });
 
   const sync = async () => {
     setSyncing(true);
-    const { data: res, error } = await supabase.functions.invoke("sync-reserva-estado");
+    const { data: res, error } = await supabase.functions.invoke("sync-detalle-exposicion");
     setSyncing(false);
     if (error) {
-      toast.error("No se pudo consultar el estado de reserva en el proveedor");
+      toast.error("No se pudo consultar el estado de exposición en el proveedor");
       return;
     }
     const r = res as { evaluados?: number; cambios?: number; lecturas_fallidas?: number };
     toast.success(
-      `Reserva revisada en ${r?.evaluados ?? 0} expediente(s) · ${r?.cambios ?? 0} cambio(s)` +
+      `Exposición revisada en ${r?.evaluados ?? 0} expediente(s) · ${r?.cambios ?? 0} cambio(s)` +
         (r?.lecturas_fallidas ? ` · ${r.lecturas_fallidas} lectura(s) fallida(s)` : ""),
     );
     refetch();
@@ -71,7 +71,7 @@ export function ReservaSumarialPanel() {
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base flex items-center gap-2">
           <Lock className="h-4 w-4" />
-          Reserva sumarial · estado y revalidación
+          Exposición del detalle · estado y revalidación
         </CardTitle>
         <Button variant="outline" size="sm" onClick={sync} disabled={syncing} className="gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
@@ -80,7 +80,7 @@ export function ReservaSumarialPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2 text-xs">
-          <Badge variant="outline">En reserva: {data?.reservados ?? 0}</Badge>
+          <Badge variant="outline">Detalle no expuesto: {data?.reservados ?? 0}</Badge>
           <Badge
             variant="outline"
             className={(data?.reservados_sin_revalidar ?? 0) > 0 ? "border-amber-500/60 text-amber-600" : ""}
@@ -99,7 +99,7 @@ export function ReservaSumarialPanel() {
         ) : rows.length === 0 ? (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-            Ningún expediente en reserva sumarial.
+            Ningún expediente con el detalle no expuesto.
           </p>
         ) : (
           <div className="overflow-x-auto">

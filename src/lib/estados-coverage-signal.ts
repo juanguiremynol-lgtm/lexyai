@@ -21,7 +21,7 @@ export type EstadosSignalClass =
   | "SIN_COBERTURA_EN_ESA_FECHA"
   | "ESTADO_SIN_DOCUMENTO"
   | "REMITIDO_A_SUPERIOR"
-  | "COBERTURA_RESERVADA";
+  | "DETALLE_NO_EXPUESTO";
 
 /**
  * Iteration 35 — how much a coverage-window edge is worth as evidence.
@@ -104,7 +104,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   SIN_COBERTURA_EN_ESA_FECHA: "Fuera de la cobertura de la fuente",
   ESTADO_SIN_DOCUMENTO: "Estado sin documento",
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
-  COBERTURA_RESERVADA: "Reserva sumarial",
+  DETALLE_NO_EXPUESTO: "Detalle no expuesto por el proveedor",
 };
 
 export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
@@ -122,8 +122,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "Estado fijado sin documento publicado por el despacho — el término corre. El estado existe y sirve como anclaje del término, pero el despacho nunca cargó la planilla.",
   REMITIDO_A_SUPERIOR:
     "El expediente salió del despacho de origen (remisión al superior o por competencia). Las fijaciones posteriores corresponden al despacho receptor: la ausencia de estados en el despacho de origen es correcta, no una falla del proveedor.",
-  COBERTURA_RESERVADA:
-    "El proveedor marca el proceso como privado (reserva sumarial). No publica actuaciones, sujetos ni clase de proceso: el silencio es legítimo y no constituye falla de cobertura. Mientras dure la reserva, el correo del despacho actúa como fuente sustantiva.",
+  DETALLE_NO_EXPUESTO:
+    "El proveedor alcanza el radicado pero no expone el detalle: no entrega actuaciones, sujetos ni clase de proceso. La causa no está declarada — puede ser una restricción legal, una configuración del portal o una publicación parcial — de modo que el silencio no se cuenta como falla de cobertura, pero tampoco se interpreta. Mientras el detalle no se exponga, el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
 };
 
 export function estadosSignalTone(cls: EstadosSignalClass): string {
@@ -142,7 +142,7 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
       return "border-indigo-500/50 text-indigo-600";
     case "REMITIDO_A_SUPERIOR":
       return "border-violet-500/50 text-violet-600";
-    case "COBERTURA_RESERVADA":
+    case "DETALLE_NO_EXPUESTO":
       return "border-slate-500/50 text-slate-600";
     default:
       return "border-muted-foreground/40 text-muted-foreground";
@@ -159,8 +159,9 @@ export function estadosSignalAlerts(
     alertable_unmatched_count?: number;
   },
 ): boolean {
-  // ITER43 — a reserved matter never alerts: the provider is right to be silent.
-  if (signal.signal_class === "COBERTURA_RESERVADA") return false;
+  // ITER45 — a matter whose detail the provider does not expose never alerts on
+  // coverage: the absence is upstream and observed, not a transfer failure.
+  if (signal.signal_class === "DETALLE_NO_EXPUESTO") return false;
   if (signal.signal_class !== "ESTADOS_ESPERADOS_AUSENTES") return false;
   if (signal.recent_unmatched_count <= 0) return false;
   return (signal.alertable_unmatched_count ?? signal.recent_unmatched_count) > 0;

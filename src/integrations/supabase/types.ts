@@ -14736,6 +14736,181 @@ export type Database = {
         }
         Relationships: []
       }
+      upstream_endpoint_probes: {
+        Row: {
+          base_url: string
+          created_at: string
+          detail: string | null
+          endpoint_key: string
+          host_key: string
+          http_status: number | null
+          id: string
+          latency_ms: number | null
+          method: string
+          outcome: string
+          path: string
+          probed_at: string
+          resolves: boolean
+          updated_at: string
+        }
+        Insert: {
+          base_url: string
+          created_at?: string
+          detail?: string | null
+          endpoint_key: string
+          host_key: string
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          method: string
+          outcome: string
+          path: string
+          probed_at?: string
+          resolves?: boolean
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string
+          created_at?: string
+          detail?: string | null
+          endpoint_key?: string
+          host_key?: string
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          method?: string
+          outcome?: string
+          path?: string
+          probed_at?: string
+          resolves?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      upstream_lifecycle_divergences: {
+        Row: {
+          created_at: string
+          detected_at: string
+          id: string
+          local_expected_activo: boolean
+          local_lifecycle_state: string
+          radicado: string | null
+          resolution: string
+          resolved_at: string | null
+          signal_emitted_at: string | null
+          updated_at: string
+          upstream_activo: boolean | null
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          detected_at?: string
+          id?: string
+          local_expected_activo: boolean
+          local_lifecycle_state: string
+          radicado?: string | null
+          resolution?: string
+          resolved_at?: string | null
+          signal_emitted_at?: string | null
+          updated_at?: string
+          upstream_activo?: boolean | null
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          detected_at?: string
+          id?: string
+          local_expected_activo?: boolean
+          local_lifecycle_state?: string
+          radicado?: string | null
+          resolution?: string
+          resolved_at?: string | null
+          signal_emitted_at?: string | null
+          updated_at?: string
+          upstream_activo?: boolean | null
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      upstream_source_health: {
+        Row: {
+          branch: string
+          consecutive_empty_runs: number
+          consecutive_errors: number
+          created_at: string
+          id: string
+          last_error_at: string | null
+          last_error_code: string | null
+          last_error_message: string | null
+          last_run_at: string | null
+          last_success_at: string | null
+          observed_at: string
+          parsed_rows: number | null
+          raw: Json
+          source: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          branch: string
+          consecutive_empty_runs?: number
+          consecutive_errors?: number
+          created_at?: string
+          id?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          observed_at?: string
+          parsed_rows?: number | null
+          raw?: Json
+          source: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          branch?: string
+          consecutive_empty_runs?: number
+          consecutive_errors?: number
+          created_at?: string
+          id?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          observed_at?: string
+          parsed_rows?: number | null
+          raw?: Json
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       upstream_workflow_capability: {
         Row: {
           lifecycle_enrollable: boolean
@@ -16119,6 +16294,67 @@ export type Database = {
           },
         ]
       }
+      work_item_detalle_exposicion_historial: {
+        Row: {
+          created_at: string
+          evento: string
+          id: string
+          motivo: string | null
+          ocurrido_en: string
+          organization_id: string | null
+          procedencia: Json
+          radicado: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          evento: string
+          id?: string
+          motivo?: string | null
+          ocurrido_en?: string
+          organization_id?: string | null
+          procedencia?: Json
+          radicado?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          evento?: string
+          id?: string
+          motivo?: string | null
+          ocurrido_en?: string
+          organization_id?: string | null
+          procedencia?: Json
+          radicado?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_email_events: {
         Row: {
           actor_type: string
@@ -17157,67 +17393,6 @@ export type Database = {
           },
         ]
       }
-      work_item_reserva_historial: {
-        Row: {
-          created_at: string
-          evento: string
-          id: string
-          motivo: string | null
-          ocurrido_en: string
-          organization_id: string | null
-          procedencia: Json
-          radicado: string | null
-          updated_at: string
-          work_item_id: string
-        }
-        Insert: {
-          created_at?: string
-          evento: string
-          id?: string
-          motivo?: string | null
-          ocurrido_en?: string
-          organization_id?: string | null
-          procedencia?: Json
-          radicado?: string | null
-          updated_at?: string
-          work_item_id: string
-        }
-        Update: {
-          created_at?: string
-          evento?: string
-          id?: string
-          motivo?: string | null
-          ocurrido_en?: string
-          organization_id?: string | null
-          procedencia?: Json
-          radicado?: string | null
-          updated_at?: string
-          work_item_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "cpnu_freshness_overview"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "work_items"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       work_item_scrape_jobs: {
         Row: {
           created_at: string | null
@@ -18247,12 +18422,12 @@ export type Database = {
           pp_id: number | null
           pp_novedades_pendientes: number | null
           pp_ultima_sync: string | null
-          provider_privacy_desde: string | null
-          provider_privacy_observed_at: string | null
-          provider_privacy_reason: string | null
-          provider_privacy_state: string
-          provider_privacy_ttl_days: number
-          provider_privacy_ultima_verificacion: string | null
+          provider_detail_desde: string | null
+          provider_detail_exposure: string
+          provider_detail_observed_at: string | null
+          provider_detail_reason: string | null
+          provider_detail_ttl_days: number
+          provider_detail_ultima_verificacion: string | null
           provider_reachable: boolean | null
           provider_sources: Json | null
           pubs_initial_sync_completed_at: string | null
@@ -18442,12 +18617,12 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
-          provider_privacy_desde?: string | null
-          provider_privacy_observed_at?: string | null
-          provider_privacy_reason?: string | null
-          provider_privacy_state?: string
-          provider_privacy_ttl_days?: number
-          provider_privacy_ultima_verificacion?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number
+          provider_detail_ultima_verificacion?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -18637,12 +18812,12 @@ export type Database = {
           pp_id?: number | null
           pp_novedades_pendientes?: number | null
           pp_ultima_sync?: string | null
-          provider_privacy_desde?: string | null
-          provider_privacy_observed_at?: string | null
-          provider_privacy_reason?: string | null
-          provider_privacy_state?: string
-          provider_privacy_ttl_days?: number
-          provider_privacy_ultima_verificacion?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number
+          provider_detail_ultima_verificacion?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           pubs_initial_sync_completed_at?: string | null
@@ -19132,6 +19307,18 @@ export type Database = {
         Returns: string
       }
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
+      apply_detalle_exposicion: {
+        Args: {
+          p_desde?: string
+          p_expuesto: boolean
+          p_motivo?: string
+          p_procedencia?: Json
+          p_ttl_days?: number
+          p_ultima_verificacion?: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       apply_email_evidence_effects: {
         Args: { p_link_id: string }
         Returns: Json
@@ -19142,18 +19329,6 @@ export type Database = {
       }
       apply_rechazo_presunto_rule: {
         Args: { p_work_item_id?: string }
-        Returns: Json
-      }
-      apply_reserva_estado: {
-        Args: {
-          p_desde?: string
-          p_motivo?: string
-          p_privado: boolean
-          p_procedencia?: Json
-          p_ttl_days?: number
-          p_ultima_verificacion?: string
-          p_work_item_id: string
-        }
         Returns: Json
       }
       atenia_ai_claim_queue: {
@@ -19457,6 +19632,7 @@ export type Database = {
         Args: { p_date: string; p_provider: string; p_radicado: string }
         Returns: boolean
       }
+      detalle_exposicion_report: { Args: never; Returns: Json }
       detect_despacho_coverage_recovery: { Args: never; Returns: number }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
@@ -19750,6 +19926,10 @@ export type Database = {
       }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
       lifecycle_rejections_report: { Args: never; Returns: Json }
+      lifecycle_state_expected_activo: {
+        Args: { p_state: string }
+        Returns: boolean
+      }
       list_expired_trashed_work_items: {
         Args: never
         Returns: {
@@ -19853,7 +20033,6 @@ export type Database = {
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
-      reserva_estado_report: { Args: never; Returns: Json }
       resume_work_item_monitoring: {
         Args: { p_work_item_id: string }
         Returns: Json
@@ -19934,10 +20113,6 @@ export type Database = {
         }
         Returns: Json
       }
-      set_work_item_provider_privacy: {
-        Args: { p_motivo?: string; p_privado: boolean; p_work_item_id: string }
-        Returns: Json
-      }
       stage_rank: { Args: { p_stage: string }; Returns: number }
       sub_business_days_sql: {
         Args: { p_days: number; p_start: string }
@@ -19999,7 +20174,7 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
-      work_item_reserva_activa: {
+      work_item_detalle_no_expuesto: {
         Args: { p_work_item_id: string }
         Returns: boolean
       }
