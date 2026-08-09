@@ -18407,6 +18407,12 @@ export type Database = {
           clase_proceso_procedencia: Json | null
           clase_proveedor: Json | null
           client_id: string | null
+          client_party_role: string | null
+          client_party_role_basis: string | null
+          client_party_role_confidence: number | null
+          client_party_role_confirmed_at: string | null
+          client_party_role_confirmed_by: string | null
+          client_party_role_source: string | null
           consecutive_404_count: number | null
           consecutive_failures: number
           consecutive_not_found: number | null
@@ -18602,6 +18608,12 @@ export type Database = {
           clase_proceso_procedencia?: Json | null
           clase_proveedor?: Json | null
           client_id?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_source?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
           consecutive_not_found?: number | null
@@ -18797,6 +18809,12 @@ export type Database = {
           clase_proceso_procedencia?: Json | null
           clase_proveedor?: Json | null
           client_id?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_source?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
           consecutive_not_found?: number | null
@@ -19023,6 +19041,7 @@ export type Database = {
           antinomia_designated_rule_id: string | null
           antinomia_group: string | null
           bound_party: string | null
+          bound_party_role: string | null
           citation: string | null
           confidence: string | null
           consequence: string | null
@@ -19059,6 +19078,7 @@ export type Database = {
           antinomia_designated_rule_id?: string | null
           antinomia_group?: string | null
           bound_party?: string | null
+          bound_party_role?: string | null
           citation?: string | null
           confidence?: string | null
           consequence?: string | null
@@ -19095,6 +19115,7 @@ export type Database = {
           antinomia_designated_rule_id?: string | null
           antinomia_group?: string | null
           bound_party?: string | null
+          bound_party_role?: string | null
           citation?: string | null
           confidence?: string | null
           consequence?: string | null
@@ -20046,6 +20067,7 @@ export type Database = {
         Returns: string
       }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
+      normalize_party_name: { Args: { p: string }; Returns: string }
       normalize_source_health_streak: {
         Args: { p_reconstructed_streak: number; p_status: string }
         Returns: number
@@ -20063,6 +20085,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      party_name_match: { Args: { a: string; b: string }; Returns: number }
       platform_create_courtesy_voucher: {
         Args: {
           p_expires_days?: number
@@ -20081,6 +20104,17 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      propose_client_party_roles: {
+        Args: never
+        Returns: {
+          basis: string
+          client_name: string
+          confidence: number
+          proposed_role: string
+          radicado: string
+          work_item_id: string
+        }[]
+      }
       provider_chain_for_work_item: {
         Args: { p_radicado: string; p_workflow: string }
         Returns: string[]
