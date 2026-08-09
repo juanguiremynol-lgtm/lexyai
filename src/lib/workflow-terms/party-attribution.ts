@@ -101,6 +101,27 @@ export function isActionableForClient(attribution: TermAttribution): boolean {
   return attribution === "PROPIO";
 }
 
+/**
+ * Attribution of a STORED deadline row.
+ *
+ * Rows written before this iteration carry no bound party; treating them as
+ * unattributed would empty "Acción requerida" for every existing matter, so
+ * the absence of the datum keeps the previous behaviour (own action) and only
+ * an explicit bound party can move a term out of the actionable list.
+ */
+export function attributeStoredDeadline(
+  meta: { bound_party_role?: string; attribution?: string; is_judge_side?: boolean } | null | undefined,
+  clientRole: ClientPartyRole | null | undefined,
+): TermAttribution {
+  const stored = typeof meta?.attribution === "string" ? meta.attribution.toUpperCase() : "";
+  if (stored === "CONTRAPARTE" || stored === "JUEZ") return stored as TermAttribution;
+  if (!meta?.bound_party_role) return "PROPIO";
+  const computed = attributeTerm(meta.bound_party_role, clientRole, {
+    isJudgeSide: meta.is_judge_side === true,
+  });
+  return computed === "DESCONOCIDO" ? "PROPIO" : computed;
+}
+
 export const ATTRIBUTION_COPY: Record<TermAttribution, string> = {
   PROPIO: "Término a cargo de su cliente.",
   CONTRAPARTE: "Término de la contraparte — informativo, no requiere acción suya.",
