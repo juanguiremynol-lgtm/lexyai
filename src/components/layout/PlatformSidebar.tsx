@@ -74,6 +74,7 @@ const platformNavItems = [
   { title: "Demo Analytics", url: "/platform/demo-analytics", icon: FlaskConical },
   { title: "Reportes Diarios", url: "/platform/daily-ops-reports", icon: FileText },
   { title: "Suspensiones", url: "/platform/suspensions", icon: Calendar },
+  { title: "Vacíos de términos", url: "/platform/workflow-rules", icon: Calendar },
   { title: "Alertas Admin", url: "/platform/admin-alerts", icon: Bell },
   { title: "Cobertura", url: "/platform/coverage-gaps", icon: ShieldCheck },
   { title: "Lista de Espera", url: "/platform/waitlist", icon: UserPlus },

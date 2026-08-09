@@ -111,6 +111,7 @@ import {
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
+import PlatformWorkflowRulesPage from "./pages/platform/PlatformWorkflowRulesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -309,6 +310,7 @@ const App = () => (
             <Route path="demo-analytics" element={<ErrorBoundary><PlatformDemoAnalyticsPage /></ErrorBoundary>} />
             <Route path="daily-ops-reports" element={<ErrorBoundary><PlatformDailyOpsReportsPage /></ErrorBoundary>} />
             <Route path="suspensions" element={<ErrorBoundary><PlatformJudicialSuspensionsPage /></ErrorBoundary>} />
+            <Route path="workflow-rules" element={<ErrorBoundary><PlatformWorkflowRulesPage /></ErrorBoundary>} />
             <Route path="admin-alerts" element={<ErrorBoundary><PlatformAdminAlertsPage /></ErrorBoundary>} />
             <Route path="coverage-gaps" element={<ErrorBoundary><PlatformCoverageGapsPage /></ErrorBoundary>} />
             <Route path="waitlist" element={<ErrorBoundary><PlatformWaitlistPage /></ErrorBoundary>} />

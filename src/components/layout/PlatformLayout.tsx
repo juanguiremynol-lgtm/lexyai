@@ -27,6 +27,7 @@ const routeTitles: Record<string, string> = {
   "/platform/atenia-ai": "Andro IA — Centro de Comando",
   "/platform/daily-ops-reports": "Reportes Diarios de Operaciones",
   "/platform/suspensions": "Suspensiones Judiciales",
+  "/platform/workflow-rules": "Reglas de términos no modeladas",
   "/platform/waitlist": "Lista de Espera",
   "/platform/pdf-settings": "PDF / Gotenberg",
   "/platform/hearings-catalog": "Catálogo de Audiencias",

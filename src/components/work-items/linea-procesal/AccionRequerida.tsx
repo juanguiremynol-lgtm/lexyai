@@ -23,6 +23,12 @@ import { useWorkflowDeadlineRules } from "@/hooks/use-workflow-deadline-rules";
 import { penalTermsPendingRatification } from "@/lib/penal906/penal906-terms";
 import { getStageLabel, type WorkflowType, type CGPPhase } from "@/lib/workflow-constants";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
+import { useWorkItemPartyRole } from "@/hooks/use-work-item-party-role";
+import {
+  ATTRIBUTION_COPY,
+  attributeStoredDeadline,
+  type ClientPartyRole,
+} from "@/lib/workflow-terms/party-attribution";
 
 const ACTIVE_STATUSES = new Set(["PENDING", "PENDING_REVIEW"]);
 
@@ -59,11 +65,24 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const { data: workflowRules = [] } = useWorkflowDeadlineRules(gatedLabel ? workflowType : undefined);
   const penalRulesPending = !!gatedLabel && penalTermsPendingRatification(workflowRules);
 
+  // A term bound to the counterparty or to the despacho is useful to know, but
+  // it is never our client's action and never alerts (iteration 50).
+  const { data: partyRole } = useWorkItemPartyRole(workItemId);
+  const confirmedRole: ClientPartyRole | null =
+    partyRole?.source === "CONFIRMADO" ? partyRole.role : null;
+  const ownAction = (d: WorkItemDeadline) =>
+    attributeStoredDeadline(d.calculation_meta, confirmedRole) === "PROPIO";
+  const notOurs = deadlines.filter(
+    (d) => (ACTIVE_STATUSES.has(d.status) || d.status === "SUGGESTED_BY_PROVIDER") && !ownAction(d),
+  );
+
   const active = deadlines
-    .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date)
+    .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date && ownAction(d))
     .sort((a, b) => (a.deadline_date! < b.deadline_date! ? -1 : 1));
-  const suggestedByEmail = deadlines.filter((d) => d.status === "SUGGESTED_BY_EMAIL");
-  const suggestedByProvider = deadlines.filter((d) => d.status === "SUGGESTED_BY_PROVIDER");
+  const suggestedByEmail = deadlines.filter((d) => d.status === "SUGGESTED_BY_EMAIL" && ownAction(d));
+  const suggestedByProvider = deadlines.filter(
+    (d) => d.status === "SUGGESTED_BY_PROVIDER" && ownAction(d),
+  );
   const manualReview = deadlines.filter((d) => d.status === "REQUIERE_REVISION_MANUAL");
 
   const nearest: WorkItemDeadline | undefined = active[0];
@@ -72,7 +91,8 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
     suggestedByEmail.length > 0 ||
     suggestedByProvider.length > 0 ||
     suggestions.length > 0 ||
-    manualReview.length > 0;
+    manualReview.length > 0 ||
+    notOurs.length > 0;
 
   return (
     <Card>
@@ -219,6 +239,28 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
             </div>
           </div>
         ))}
+
+        {notOurs.length > 0 && (
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Términos de otras partes o del despacho — informativos
+            </p>
+            {notOurs.map((d) => {
+              const attr = attributeStoredDeadline(d.calculation_meta, confirmedRole);
+              return (
+                <div key={d.id} className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {formatDeadlineLabel(d.deadline_type, d.label)}
+                  </span>
+                  {d.deadline_date
+                    ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
+                    : ""}
+                  <span className="block">{ATTRIBUTION_COPY[attr]}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {manualReview.map((d) => (
           <div key={d.id} className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">

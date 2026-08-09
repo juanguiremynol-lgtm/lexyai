@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   );
 
   const today = todayIsoBogota();
-  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0 };
+  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0, not_own_party_skipped: 0 };
 
   try {
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
@@ -107,6 +107,18 @@ Deno.serve(async (req) => {
     if (error) throw error;
 
     for (const d of deadlines ?? []) {
+      // ITER50 — a term bound to the counterparty or to the court is
+      // informative for the litigator; it must never alert our client.
+      const boundRole = String(
+        (d.calculation_meta as Record<string, unknown> | null)?.bound_party_role ?? "",
+      ).toUpperCase();
+      const attribution = String(
+        (d.calculation_meta as Record<string, unknown> | null)?.attribution ?? "",
+      ).toUpperCase();
+      if (attribution === "CONTRAPARTE" || attribution === "JUEZ" || boundRole === "JUEZ") {
+        stats.not_own_party_skipped = (stats.not_own_party_skipped ?? 0) + 1;
+        continue;
+      }
       stats.evaluated++;
       const bd = bdRemaining(d.deadline_date);
       let bucket: "D-3" | "D-1" | "D-DAY" | "OVERDUE" | null = null;

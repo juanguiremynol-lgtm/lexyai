@@ -55,6 +55,11 @@ export interface WorkItemDeadline {
     source_ref_id?: string;
     hora?: string;
     fuente_texto?: string;
+    /** ITER50 — which party the term binds, and how it was attributed. */
+    bound_party_role?: string;
+    client_party_role?: string | null;
+    attribution?: "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO";
+    oral_en_audiencia?: boolean;
     email_evidence?: {
       internet_message_id?: string | null;
       subject?: string | null;
