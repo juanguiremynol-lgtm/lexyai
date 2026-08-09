@@ -1,11 +1,14 @@
 /**
- * TerminosDeRegla — terms derived from RATIFIED workflow deadline rules
- * (iteration 38).
+ * Términos del expediente — terms computed from RATIFIED workflow deadline
+ * rules, attributed to the party they actually bind (iteration 50).
  *
- * Ratified rules compute; DRAFT rules never do. Every computed term is shown as
- * a SUGGESTION with its anchor and legal citation, and is only written to the
- * deadlines table when the user confirms. Ratified rules whose anchor date is
- * unknown are listed as awaiting the anchor — never computed from a guess.
+ * Two invariants:
+ *  1. Nothing here is our engineering backlog. The missing-rules register lives
+ *     in the platform console; the matter only carries a single restrained line
+ *     when its workflow has gaps.
+ *  2. A term binds somebody. Only a term bound to OUR client is offered as an
+ *     action; the counterparty's and the court's terms are informative, and an
+ *     unattributed term asks for the client's capacity instead of guessing.
  */
 import { useMemo } from "react";
 import { toast } from "sonner";
@@ -18,13 +21,22 @@ import {
   Clock,
   Gavel,
   HelpCircle,
+  Info,
   PauseCircle,
   Scale,
+  UserCheck,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useAntinomiaDesignation,
@@ -32,6 +44,20 @@ import {
 } from "@/hooks/use-workflow-deadline-rules";
 import { useMissingRules } from "@/hooks/use-missing-rules";
 import { useWorkItemDeadlines } from "@/hooks/use-work-item-deadlines";
+import {
+  useSetWorkItemPartyRole,
+  useWorkItemPartyRole,
+} from "@/hooks/use-work-item-party-role";
+import {
+  ATTRIBUTION_COPY,
+  attributeTerm,
+  BOUND_PARTY_ROLE_LABELS,
+  CLIENT_PARTY_ROLE_LABELS,
+  CLIENT_PARTY_ROLES,
+  normalizeBoundPartyRole,
+  type ClientPartyRole,
+  type TermAttribution,
+} from "@/lib/workflow-terms/party-attribution";
 import {
   deriveAlDespachoSuspensions,
   filterRulesToRegimen,
@@ -61,6 +87,11 @@ interface TerminosDeReglaProps {
    */
   procedureVariant?: string | null;
 }
+
+type AttributedTerm = SuggestedRuleTerm & {
+  attribution: TermAttribution;
+  boundPartyLabel: string;
+};
 
 export function TerminosDeRegla({
   workItemId,
@@ -98,6 +129,8 @@ export function TerminosDeRegla({
     [isLaboral, filingDate],
   );
 
+  // The register itself is an admin surface; here it only tells us whether the
+  // workflow has gaps, so the matter can carry one restrained line about it.
   const { data: missingRules = [] } = useMissingRules(
     isLaboral ? "LABORAL" : undefined,
     regimenInfo?.regimen ?? null,
@@ -125,17 +158,47 @@ export function TerminosDeRegla({
     [existingDeadlines],
   );
 
-  const { suggested, awaiting, unspecified, antinomias } = useMemo(
+  const { data: partyRole } = useWorkItemPartyRole(workItemId);
+  const setRole = useSetWorkItemPartyRole(workItemId);
+  const confirmedRole: ClientPartyRole | null =
+    partyRole?.source === "CONFIRMADO" ? partyRole.role : null;
+
+  const { suggested, awaiting, antinomias } = useMemo(
     () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents, { suspensions }),
     [scoped, events, awaitingAnchorEvents, suspensions],
   );
   const designate = useAntinomiaDesignation();
 
+  const ruleById = useMemo(() => new Map(scoped.map((r) => [r.id, r])), [scoped]);
+
+  const attributed: AttributedTerm[] = useMemo(
+    () =>
+      suggested.map((t) => {
+        const rule = ruleById.get(t.ruleId);
+        const bound = normalizeBoundPartyRole(rule?.bound_party_role);
+        return {
+          ...t,
+          attribution: attributeTerm(bound, confirmedRole, {
+            isJudgeSide: rule?.is_judge_side === true,
+          }),
+          boundPartyLabel: BOUND_PARTY_ROLE_LABELS[bound],
+        };
+      }),
+    [suggested, ruleById, confirmedRole],
+  );
+
+  const mine = attributed.filter((t) => t.attribution === "PROPIO");
+  const others = attributed.filter((t) => t.attribution === "CONTRAPARTE" || t.attribution === "JUEZ");
+  const unattributed = attributed.filter((t) => t.attribution === "DESCONOCIDO");
+
   const confirm = useMutation({
-    mutationFn: async (term: SuggestedRuleTerm) => {
+    mutationFn: async (term: AttributedTerm) => {
       const { data: auth } = await supabase.auth.getUser();
       const ownerId = auth.user?.id;
       if (!ownerId) throw new Error("Sesión requerida");
+      // An oral, in-hearing moment has no written term by design: confirming it
+      // records that the moment was noted; it must never become a phantom date.
+      const oral = term.oralInHearing || !term.deadlineDate;
       const { error } = await supabase.from("work_item_deadlines").insert({
         owner_id: ownerId,
         work_item_id: workItemId,
@@ -143,23 +206,39 @@ export function TerminosDeRegla({
         label: term.label,
         trigger_event: term.anchor.event,
         trigger_date: term.anchor.date,
-        deadline_date: term.deadlineDate,
-        status: "PENDING",
+        deadline_date: oral ? null : term.deadlineDate,
+        status: oral ? "INVALID_NO_TERM" : "PENDING",
+        notes: oral ? "Momento oral en audiencia registrado — sin término escrito." : null,
         calculation_meta: {
           norma: term.citation,
           anchor_source: term.anchor.type,
           anchor_date: term.anchor.date,
-          day_type: "BUSINESS",
+          day_type: oral ? "HOURS" : "BUSINESS",
           workflow_type: workflowForRules,
           source: "RATIFIED_WORKFLOW_RULE",
           fuente_texto: term.basis,
+          bound_party_role: normalizeBoundPartyRole(
+            ruleById.get(term.ruleId)?.bound_party_role,
+          ),
+          client_party_role: confirmedRole,
+          attribution: term.attribution,
+          oral_en_audiencia: oral,
         },
       } as never);
       if (error) throw error;
     },
     onSuccess: async (_data, term) => {
-      toast.success("Término registrado", { id: `term-${term.ruleId}`, duration: 4000 });
-      await queryClient.invalidateQueries({ queryKey: ["work-item-deadlines", workItemId] });
+      toast.success(
+        term.oralInHearing || !term.deadlineDate
+          ? "Momento registrado en el expediente"
+          : "Término registrado",
+        { id: `term-${term.ruleId}`, duration: 4000 },
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["work-item-deadlines", workItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["work-item-timeline", workItemId] }),
+        queryClient.invalidateQueries({ queryKey: ["hoy-counts"] }),
+      ]);
     },
     onError: (e: unknown, term) =>
       toast.error(e instanceof Error ? e.message : "No se pudo registrar", {
@@ -168,13 +247,123 @@ export function TerminosDeRegla({
       }),
   });
 
+  const roleSelector = (
+    <Select
+      value={partyRole?.role ?? undefined}
+      onValueChange={(v) =>
+        setRole.mutate(v as ClientPartyRole, {
+          onSuccess: () => toast.success("Calidad del cliente registrada"),
+          onError: (e: unknown) =>
+            toast.error(e instanceof Error ? e.message : "No se pudo registrar la calidad"),
+        })}
+    >
+      <SelectTrigger className="h-8 w-[280px] text-xs">
+        <SelectValue placeholder="Indique la calidad en que actúa su cliente" />
+      </SelectTrigger>
+      <SelectContent>
+        {CLIENT_PARTY_ROLES.map((r) => (
+          <SelectItem key={r} value={r} className="text-xs">
+            {CLIENT_PARTY_ROLE_LABELS[r]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const renderTerm = (term: AttributedTerm, tone: "own" | "info" | "unknown") => (
+    <div
+      key={term.ruleId}
+      className={
+        tone === "own"
+          ? "rounded-md border border-primary/30 bg-primary/5 p-3"
+          : tone === "unknown"
+            ? "rounded-md border border-amber-500/40 bg-amber-500/5 p-3"
+            : "rounded-md border bg-muted/30 p-3"
+      }
+    >
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        <CalendarClock
+          className={tone === "own" ? "h-3.5 w-3.5 text-primary" : "h-3.5 w-3.5 text-muted-foreground"}
+          aria-hidden
+        />
+        {term.label}
+        {term.citation && (
+          <Badge variant="outline" className="ml-1 text-[10px]">
+            {term.citation}
+          </Badge>
+        )}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {term.oralInHearing || !term.deadlineDate
+          ? "Sin término escrito — se surte en la audiencia."
+          : `Vence el ${format(new Date(`${term.deadlineDate}T00:00:00`), "d 'de' MMMM yyyy", {
+              locale: es,
+            })}`}
+      </p>
+      {term.basis && <p className="mt-1 text-xs text-muted-foreground">{term.basis}</p>}
+      {term.suspendedOpenEnded && (
+        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <PauseCircle className="h-3.5 w-3.5" aria-hidden />
+          Término suspendido: el expediente está al despacho (art. 324).
+        </p>
+      )}
+      {!term.suspendedOpenEnded && !!term.suspendedDays && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Se descontaron {term.suspendedDays} día(s) hábil(es) con el expediente al despacho (art. 324).
+        </p>
+      )}
+
+      {tone !== "own" && (
+        <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+          {tone === "unknown" ? (
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" aria-hidden />
+          ) : (
+            <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+          )}
+          <span>
+            {ATTRIBUTION_COPY[term.attribution]}
+            {term.attribution === "CONTRAPARTE" ? ` Corresponde a ${term.boundPartyLabel}.` : ""}
+          </span>
+        </p>
+      )}
+      {tone === "unknown" && <div className="mt-2">{roleSelector}</div>}
+
+      {tone === "own" && registeredTypes.has(term.deadlineType) && (
+        <p className="mt-2 flex items-center gap-1 text-xs font-medium text-primary">
+          <Check className="h-3.5 w-3.5" aria-hidden />
+          {term.oralInHearing || !term.deadlineDate
+            ? "Momento registrado en el expediente."
+            : "Término registrado en el calendario del expediente."}
+        </p>
+      )}
+      {tone === "own" && !registeredTypes.has(term.deadlineType) && (
+        <>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Sugerencia — no se aplica automáticamente.
+          </p>
+          <Button
+            size="sm"
+            className="mt-2"
+            disabled={confirm.isPending}
+            onClick={() => confirm.mutate(term)}
+          >
+            <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
+            {term.oralInHearing || !term.deadlineDate ? "Registrar el momento" : "Confirmar término"}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+
+  const hasGaps = missingRules.length > 0;
+
   if (
-    !suggested.length &&
+    !attributed.length &&
     !awaiting.length &&
-    !unspecified.length &&
     !antinomias.length &&
-    !missingRules.length &&
-    !regimenInfo
+    !hasGaps &&
+    !regimenInfo &&
+    !partyRole?.role
   )
     return null;
 
@@ -183,7 +372,7 @@ export function TerminosDeRegla({
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Scale className="h-4 w-4" aria-hidden />
-          Términos de reglas ratificadas
+          Términos del expediente
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -193,60 +382,62 @@ export function TerminosDeRegla({
             {regimenInfo.basis}
           </p>
         )}
-        {suggested.map((term) => (
-          <div key={term.ruleId} className="rounded-md border border-primary/30 bg-primary/5 p-3">
-            <p className="flex items-center gap-1.5 text-sm font-medium">
-              <CalendarClock className="h-3.5 w-3.5 text-primary" aria-hidden />
-              {term.label}
-              {term.citation && (
-                <Badge variant="outline" className="ml-1 text-[10px]">
-                  {term.citation}
-                </Badge>
-              )}
+
+        {/* Client capacity — the datum every attribution depends on. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-2">
+          <UserCheck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          {confirmedRole ? (
+            <p className="text-xs text-muted-foreground">
+              Su cliente actúa como{" "}
+              <span className="font-medium text-foreground">
+                {CLIENT_PARTY_ROLE_LABELS[confirmedRole]}
+              </span>
+              .
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {term.oralInHearing || !term.deadlineDate
-                ? "Sin término escrito — se surte en la audiencia."
-                : `Vencería el ${format(new Date(`${term.deadlineDate}T00:00:00`), "d 'de' MMMM yyyy", {
-                    locale: es,
-                  })}`}
-            </p>
-            {term.basis && <p className="mt-1 text-xs text-muted-foreground">{term.basis}</p>}
-            {term.suspendedOpenEnded && (
-              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                <PauseCircle className="h-3.5 w-3.5" aria-hidden />
-                Término suspendido: el expediente está al despacho (art. 324).
+          ) : partyRole?.role ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Calidad propuesta:{" "}
+                <span className="font-medium text-foreground">
+                  {CLIENT_PARTY_ROLE_LABELS[partyRole.role]}
+                </span>
+                {partyRole.basis ? ` — ${partyRole.basis}` : ""} Confírmela para atribuir los términos.
               </p>
-            )}
-            {!term.suspendedOpenEnded && !!term.suspendedDays && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Se descontaron {term.suspendedDays} día(s) hábil(es) con el expediente al despacho (art. 324).
-              </p>
-            )}
-            {!registeredTypes.has(term.deadlineType) && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Sugerencia — no se aplica automáticamente.
-              </p>
-            )}
-            {term.deadlineDate && registeredTypes.has(term.deadlineType) && (
-              <p className="mt-2 flex items-center gap-1 text-xs font-medium text-primary">
-                <Check className="h-3.5 w-3.5" aria-hidden />
-                Término registrado en el calendario del expediente.
-              </p>
-            )}
-            {term.deadlineDate && !registeredTypes.has(term.deadlineType) && (
               <Button
                 size="sm"
-                className="mt-2"
-                disabled={confirm.isPending}
-                onClick={() => confirm.mutate(term)}
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={setRole.isPending}
+                onClick={() =>
+                  setRole.mutate(partyRole.role as ClientPartyRole, {
+                    onSuccess: () => toast.success("Calidad del cliente confirmada"),
+                    onError: (e: unknown) =>
+                      toast.error(e instanceof Error ? e.message : "No se pudo confirmar"),
+                  })}
               >
                 <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
-                Confirmar término
+                Confirmar calidad
               </Button>
-            )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Indique la calidad en que actúa su cliente para atribuir los términos.
+            </p>
+          )}
+          {!confirmedRole && roleSelector}
+        </div>
+
+        {mine.map((t) => renderTerm(t, "own"))}
+        {unattributed.map((t) => renderTerm(t, "unknown"))}
+
+        {others.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Términos de otras partes o del despacho (informativos)
+            </p>
+            {others.map((t) => renderTerm(t, "info"))}
           </div>
-        ))}
+        )}
 
         {awaiting.map((a) => (
           <div key={a.ruleId} className="rounded-md border p-3">
@@ -321,45 +512,13 @@ export function TerminosDeRegla({
           </div>
         ))}
 
-        {unspecified.map((u) => (
-          <div key={u.ruleId} className="rounded-md border border-dashed p-3">
-            <p className="flex items-center gap-1.5 text-sm font-medium">
-              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-              {u.label}
-              {u.citation && (
-                <Badge variant="outline" className="ml-1 text-[10px]">
-                  {u.citation}
-                </Badge>
-              )}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {u.daysAmountMax ? `${u.daysAmount} a ${u.daysAmountMax} días` : `${u.daysAmount} días`}
-              {u.variantDaysAmount ? ` (${u.variantDaysAmount} días: ${u.variantCondition})` : ""}
-              {u.anchorEvent ? ` · ancla: ${u.anchorEvent}` : ""}
-            </p>
-            <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">{u.note}</p>
-            {u.conservativeNote && (
-              <p className="mt-1 text-[11px] text-muted-foreground">{u.conservativeNote}</p>
-            )}
-          </div>
-        ))}
-
-        {missingRules.map((m) => (
-          <div key={m.id} className="rounded-md border border-dashed p-3">
-            <p className="flex items-center gap-1.5 text-sm font-medium">
-              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-              {m.label}
-              {m.expected_citation && (
-                <Badge variant="outline" className="ml-1 text-[10px]">
-                  {m.expected_citation}
-                </Badge>
-              )}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Término no modelado — pendiente de verificación normativa. {m.reason}
-            </p>
-          </div>
-        ))}
+        {/* The register itself is internal; the matter only says a gap exists. */}
+        {hasGaps && (
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <HelpCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+            Algunos términos de este flujo aún no están modelados.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
