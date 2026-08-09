@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   );
 
   const today = todayIsoBogota();
-  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0 };
+  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0, not_own_party_skipped: 0 };
 
   try {
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
