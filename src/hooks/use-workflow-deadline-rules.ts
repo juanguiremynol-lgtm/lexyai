@@ -80,8 +80,10 @@ export interface WorkflowDeadlineRule {
   days_amount: number;
   day_type: DeadlineDayType;
   description: string | null;
-  /** Who the term binds (party or the judge). */
+  /** Who the term binds (party or the judge), as free text. */
   bound_party?: string | null;
+  /** Canonical party the term binds — drives attribution (iteration 50). */
+  bound_party_role?: string | null;
   /** What happens when the term lapses (desierto, preclusión, ...). */
   consequence?: string | null;
   /** True when the term is the court's own internal deadline. */
