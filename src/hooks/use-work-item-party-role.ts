@@ -35,9 +35,7 @@ export function useWorkItemPartyRole(workItemId: string | undefined | null) {
       const { data, error } = await supabase
         .from("work_items")
         .select(
-          "client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, demandantes, demandados, clients(name)",
-        // client_party_represents is selected separately below to keep the
-        // generated types happy on older schema snapshots.
+          "client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, client_party_represents, demandantes, demandados, clients(name)",
         )
         .eq("id", workItemId!)
         .maybeSingle();
