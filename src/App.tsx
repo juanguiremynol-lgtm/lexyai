@@ -47,6 +47,7 @@ import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Utilities from "./pages/Utilities";
+import PartyRolesReview from "./pages/PartyRolesReview";
 import Links from "./pages/Links";
 import WorkItemDetailPage from "./pages/WorkItemDetail/index";
 import ItemRedirect from "./pages/ItemRedirect";
@@ -252,6 +253,7 @@ const App = () => (
             <Route path="tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
             <Route path="alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
             <Route path="utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
+            <Route path="calidad-partes" element={<ErrorBoundary><PartyRolesReview /></ErrorBoundary>} />
             <Route path="links" element={<ErrorBoundary><Links /></ErrorBoundary>} />
             <Route path="documents" element={<ErrorBoundary><DocumentSearch /></ErrorBoundary>} />
             <Route path="peticiones/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />

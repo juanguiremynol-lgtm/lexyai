@@ -35,6 +35,9 @@ export interface WorkItemDeadline {
     | "PRESUNCION_DESCARTADA_POR_AVANCE"
     | "DISMISSED"
     | "CANCELLED";
+  /** ITER51 — materialised attribution: which party this term binds. */
+  bound_party_role: string | null;
+  is_judge_side: boolean | null;
   calculation_meta: {
     anchor_source?: string;
     anchor_date?: string;

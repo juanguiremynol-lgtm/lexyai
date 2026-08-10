@@ -27,6 +27,7 @@ import { useWorkItemPartyRole } from "@/hooks/use-work-item-party-role";
 import {
   ATTRIBUTION_COPY,
   attributeStoredDeadline,
+  isActionableForClient,
   type ClientPartyRole,
 } from "@/lib/workflow-terms/party-attribution";
 
@@ -70,11 +71,24 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const { data: partyRole } = useWorkItemPartyRole(workItemId);
   const confirmedRole: ClientPartyRole | null =
     partyRole?.source === "CONFIRMADO" ? partyRole.role : null;
-  const ownAction = (d: WorkItemDeadline) =>
-    attributeStoredDeadline(d.calculation_meta, confirmedRole) === "PROPIO";
-  const notOurs = deadlines.filter(
-    (d) => (ACTIVE_STATUSES.has(d.status) || d.status === "SUGGESTED_BY_PROVIDER") && !ownAction(d),
+  const attributionOf = (d: WorkItemDeadline) =>
+    attributeStoredDeadline(
+      {
+        bound_party_role: d.bound_party_role ?? d.calculation_meta?.bound_party_role ?? null,
+        is_judge_side: d.is_judge_side ?? null,
+        attribution: d.calculation_meta?.attribution ?? null,
+      },
+      confirmedRole,
+      partyRole?.represents ?? null,
+    );
+  const ownAction = (d: WorkItemDeadline) => isActionableForClient(attributionOf(d));
+  const relevant = deadlines.filter(
+    (d) => ACTIVE_STATUSES.has(d.status) || d.status === "SUGGESTED_BY_PROVIDER",
   );
+  const notOurs = relevant.filter(
+    (d) => !ownAction(d) && attributionOf(d) !== "DESCONOCIDO",
+  );
+  const unattributed = relevant.filter((d) => attributionOf(d) === "DESCONOCIDO");
 
   const active = deadlines
     .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date && ownAction(d))
@@ -92,7 +106,8 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
     suggestedByProvider.length > 0 ||
     suggestions.length > 0 ||
     manualReview.length > 0 ||
-    notOurs.length > 0;
+    notOurs.length > 0 ||
+    unattributed.length > 0;
 
   return (
     <Card>
@@ -246,7 +261,7 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
               Términos de otras partes o del despacho — informativos
             </p>
             {notOurs.map((d) => {
-              const attr = attributeStoredDeadline(d.calculation_meta, confirmedRole);
+              const attr = attributionOf(d);
               return (
                 <div key={d.id} className="text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">
@@ -259,6 +274,26 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {unattributed.length > 0 && (
+          <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+              Términos sin parte determinada
+            </p>
+            {unattributed.map((d) => (
+              <div key={d.id} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {formatDeadlineLabel(d.deadline_type, d.label)}
+                </span>
+                {d.deadline_date
+                  ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
+                  : ""}
+                <span className="block">{ATTRIBUTION_COPY.DESCONOCIDO}</span>
+              </div>
+            ))}
           </div>
         )}
 

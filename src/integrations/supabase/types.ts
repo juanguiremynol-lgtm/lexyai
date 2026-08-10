@@ -16293,6 +16293,7 @@ export type Database = {
       }
       work_item_deadlines: {
         Row: {
+          bound_party_role: string | null
           business_days_count: number | null
           calculation_meta: Json | null
           created_at: string
@@ -16300,6 +16301,7 @@ export type Database = {
           deadline_type: string
           description: string | null
           id: string
+          is_judge_side: boolean
           label: string
           met_at: string | null
           notes: string | null
@@ -16312,6 +16314,7 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          bound_party_role?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
@@ -16319,6 +16322,7 @@ export type Database = {
           deadline_type: string
           description?: string | null
           id?: string
+          is_judge_side?: boolean
           label: string
           met_at?: string | null
           notes?: string | null
@@ -16331,6 +16335,7 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          bound_party_role?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
@@ -16338,6 +16343,7 @@ export type Database = {
           deadline_type?: string
           description?: string | null
           id?: string
+          is_judge_side?: boolean
           label?: string
           met_at?: string | null
           notes?: string | null
@@ -18407,6 +18413,7 @@ export type Database = {
           clase_proceso_procedencia: Json | null
           clase_proveedor: Json | null
           client_id: string | null
+          client_party_represents: string | null
           client_party_role: string | null
           client_party_role_basis: string | null
           client_party_role_confidence: number | null
@@ -18608,6 +18615,7 @@ export type Database = {
           clase_proceso_procedencia?: Json | null
           clase_proveedor?: Json | null
           client_id?: string | null
+          client_party_represents?: string | null
           client_party_role?: string | null
           client_party_role_basis?: string | null
           client_party_role_confidence?: number | null
@@ -18809,6 +18817,7 @@ export type Database = {
           clase_proceso_procedencia?: Json | null
           clase_proveedor?: Json | null
           client_id?: string | null
+          client_party_represents?: string | null
           client_party_role?: string | null
           client_party_role_basis?: string | null
           client_party_role_confidence?: number | null
