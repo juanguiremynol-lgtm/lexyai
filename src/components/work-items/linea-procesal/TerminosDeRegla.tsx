@@ -209,6 +209,8 @@ export function TerminosDeRegla({
         deadline_date: oral ? null : term.deadlineDate,
         status: oral ? "INVALID_NO_TERM" : "PENDING",
         notes: oral ? "Momento oral en audiencia registrado — sin término escrito." : null,
+        bound_party_role: normalizeBoundPartyRole(ruleById.get(term.ruleId)?.bound_party_role),
+        is_judge_side: ruleById.get(term.ruleId)?.is_judge_side === true,
         calculation_meta: {
           norma: term.citation,
           anchor_source: term.anchor.type,
