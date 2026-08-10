@@ -40,9 +40,12 @@ describe("term attribution", () => {
     expect(normalizeBoundPartyRole("otra cosa")).toBe("DESCONOCIDO");
   });
 
-  it("keeps legacy stored deadlines actionable (no bound party recorded)", () => {
-    expect(attributeStoredDeadline(null, null)).toBe("PROPIO");
-    expect(attributeStoredDeadline({}, "DEMANDANTE")).toBe("PROPIO");
+  it("marks stored deadlines with no resolvable rule as unattributed (iter51)", () => {
+    expect(attributeStoredDeadline(null, null)).toBe("DESCONOCIDO");
+    expect(attributeStoredDeadline({}, "DEMANDANTE")).toBe("DESCONOCIDO");
+    expect(attributeStoredDeadline({ bound_party_role: "DESCONOCIDO" }, "DEMANDANTE")).toBe(
+      "DESCONOCIDO",
+    );
   });
 
   it("moves a stored counterparty term out of the actionable list", () => {
