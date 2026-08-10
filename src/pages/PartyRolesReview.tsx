@@ -157,7 +157,7 @@ export default function PartyRolesReview() {
               >
                 <div className="min-w-0">
                   <Link
-                    to={`/app/item/${r.id}`}
+                    to={`/app/items/${r.id}`}
                     className="font-mono text-sm font-medium hover:underline"
                   >
                     {r.radicado ?? "Sin radicado"}
