@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { ClientPartyRole } from "@/lib/workflow-terms/party-attribution";
+import type { RepresentedParty } from "@/lib/workflow-terms/party-attribution";
 import { isClientPartyRole } from "@/lib/workflow-terms/party-attribution";
 
 export interface WorkItemPartyRole {
@@ -16,6 +17,8 @@ export interface WorkItemPartyRole {
   source: "PROPUESTO" | "CONFIRMADO" | null;
   confidence: number | null;
   basis: string | null;
+  /** Party represented when the client acts as curador ad litem. */
+  represents: RepresentedParty | null;
   clientName: string | null;
   demandantes: string | null;
   demandados: string | null;
@@ -33,6 +36,8 @@ export function useWorkItemPartyRole(workItemId: string | undefined | null) {
         .from("work_items")
         .select(
           "client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, demandantes, demandados, clients(name)",
+        // client_party_represents is selected separately below to keep the
+        // generated types happy on older schema snapshots.
         )
         .eq("id", workItemId!)
         .maybeSingle();
@@ -50,6 +55,10 @@ export function useWorkItemPartyRole(workItemId: string | undefined | null) {
               ? Number(row.client_party_role_confidence)
               : null,
         basis: typeof row.client_party_role_basis === "string" ? row.client_party_role_basis : null,
+        represents:
+          row.client_party_represents === "DEMANDANTE" || row.client_party_represents === "DEMANDADO"
+            ? (row.client_party_represents as RepresentedParty)
+            : null,
         clientName: client?.name ?? null,
         demandantes: typeof row.demandantes === "string" ? row.demandantes : null,
         demandados: typeof row.demandados === "string" ? row.demandados : null,
@@ -61,7 +70,9 @@ export function useWorkItemPartyRole(workItemId: string | undefined | null) {
 export function useSetWorkItemPartyRole(workItemId: string | undefined | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (role: ClientPartyRole) => {
+    mutationFn: async (input: ClientPartyRole | { role: ClientPartyRole; represents?: RepresentedParty | null }) => {
+      const role = typeof input === "string" ? input : input.role;
+      const represents = typeof input === "string" ? undefined : input.represents;
       const { data: auth } = await supabase.auth.getUser();
       const { error } = await supabase
         .from("work_items")
@@ -70,6 +81,7 @@ export function useSetWorkItemPartyRole(workItemId: string | undefined | null) {
           client_party_role_source: "CONFIRMADO",
           client_party_role_confirmed_at: new Date().toISOString(),
           client_party_role_confirmed_by: auth.user?.id ?? null,
+          ...(represents !== undefined ? { client_party_represents: represents } : {}),
         } as never)
         .eq("id", workItemId!);
       if (error) throw error;
