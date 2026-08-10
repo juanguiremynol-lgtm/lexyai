@@ -28,7 +28,15 @@ export type BoundPartyRole =
   | "AMBAS"
   | "DESCONOCIDO";
 
-export type TermAttribution = "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO";
+export type TermAttribution =
+  | "PROPIO"
+  | "PROPIO_EN_REPRESENTACION"
+  | "CONTRAPARTE"
+  | "JUEZ"
+  | "DESCONOCIDO";
+
+/** Party a curador ad litem / apoderado de oficio acts for. */
+export type RepresentedParty = "DEMANDANTE" | "DEMANDADO";
 
 export const CLIENT_PARTY_ROLE_LABELS: Record<ClientPartyRole, string> = {
   DEMANDANTE: "Demandante",
@@ -55,9 +63,17 @@ export const BOUND_PARTY_ROLE_LABELS: Record<BoundPartyRole, string> = {
 /** Active side (demandante/accionante) vs passive side (demandado/accionado). */
 type ProceduralSide = "ACTIVA" | "PASIVA";
 
-function sideOf(role: ClientPartyRole | null | undefined): ProceduralSide | null {
+function sideOf(
+  role: ClientPartyRole | null | undefined,
+  represents?: RepresentedParty | null,
+): ProceduralSide | null {
   if (role === "DEMANDANTE" || role === "ACCIONANTE") return "ACTIVA";
   if (role === "DEMANDADO" || role === "ACCIONADO") return "PASIVA";
+  // A curador ad litem has no capacity of his own: he borrows the side of the
+  // party he was appointed for, and only once that party is stated.
+  if (role === "APODERADO_DE_OFICIO" && represents) {
+    return represents === "DEMANDANTE" ? "ACTIVA" : "PASIVA";
+  }
   // Víctima, tercero and curador ad litem do not map onto a side without more
   // information; inferring one is exactly the error this module prevents.
   return null;
@@ -83,47 +99,60 @@ export function normalizeBoundPartyRole(v: unknown): BoundPartyRole {
 export function attributeTerm(
   boundPartyRole: BoundPartyRole | string | null | undefined,
   clientRole: ClientPartyRole | null | undefined,
-  opts: { isJudgeSide?: boolean } = {},
+  opts: { isJudgeSide?: boolean; represents?: RepresentedParty | null } = {},
 ): TermAttribution {
   const bound = normalizeBoundPartyRole(boundPartyRole);
   if (opts.isJudgeSide || bound === "JUEZ") return "JUEZ";
-  if (bound === "AMBAS") return "PROPIO";
+  const own: TermAttribution =
+    clientRole === "APODERADO_DE_OFICIO" ? "PROPIO_EN_REPRESENTACION" : "PROPIO";
+  if (bound === "AMBAS") return clientRole ? own : "PROPIO";
   if (!clientRole) return "DESCONOCIDO";
-  const side = sideOf(clientRole);
+  const side = sideOf(clientRole, opts.represents ?? null);
   if (!side) return "DESCONOCIDO";
-  if (bound === "DEMANDANTE") return side === "ACTIVA" ? "PROPIO" : "CONTRAPARTE";
-  if (bound === "DEMANDADO") return side === "PASIVA" ? "PROPIO" : "CONTRAPARTE";
+  if (bound === "DEMANDANTE") return side === "ACTIVA" ? own : "CONTRAPARTE";
+  if (bound === "DEMANDADO") return side === "PASIVA" ? own : "CONTRAPARTE";
   return "DESCONOCIDO";
 }
 
 /** Only a term attributed to our client may be actioned or alerted on. */
 export function isActionableForClient(attribution: TermAttribution): boolean {
-  return attribution === "PROPIO";
+  return attribution === "PROPIO" || attribution === "PROPIO_EN_REPRESENTACION";
 }
 
 /**
  * Attribution of a STORED deadline row.
  *
- * Rows written before this iteration carry no bound party; treating them as
- * unattributed would empty "Acción requerida" for every existing matter, so
- * the absence of the datum keeps the previous behaviour (own action) and only
- * an explicit bound party can move a term out of the actionable list.
+ * ITER51 — the bound party is now materialised on `work_item_deadlines`, so a
+ * row that still carries no resolvable rule is genuinely unattributed. We say
+ * DESCONOCIDO instead of assuming the term is our client's: presenting the
+ * counterparty's window as his own is the failure this module exists to stop.
  */
 export function attributeStoredDeadline(
-  meta: { bound_party_role?: string; attribution?: string; is_judge_side?: boolean } | null | undefined,
+  row:
+    | {
+        bound_party_role?: string | null;
+        attribution?: string | null;
+        is_judge_side?: boolean | null;
+      }
+    | null
+    | undefined,
   clientRole: ClientPartyRole | null | undefined,
+  represents?: RepresentedParty | null,
 ): TermAttribution {
-  const stored = typeof meta?.attribution === "string" ? meta.attribution.toUpperCase() : "";
+  const stored = typeof row?.attribution === "string" ? row.attribution.toUpperCase() : "";
   if (stored === "CONTRAPARTE" || stored === "JUEZ") return stored as TermAttribution;
-  if (!meta?.bound_party_role) return "PROPIO";
-  const computed = attributeTerm(meta.bound_party_role, clientRole, {
-    isJudgeSide: meta.is_judge_side === true,
+  const bound = row?.bound_party_role;
+  if (!bound || bound === "DESCONOCIDO") return "DESCONOCIDO";
+  return attributeTerm(bound, clientRole, {
+    isJudgeSide: row?.is_judge_side === true,
+    represents: represents ?? null,
   });
-  return computed === "DESCONOCIDO" ? "PROPIO" : computed;
 }
 
 export const ATTRIBUTION_COPY: Record<TermAttribution, string> = {
   PROPIO: "Término a cargo de su cliente.",
+  PROPIO_EN_REPRESENTACION:
+    "Término a cargo de la parte que usted representa como curador ad litem / apoderado de oficio.",
   CONTRAPARTE: "Término de la contraparte — informativo, no requiere acción suya.",
   JUEZ: "Término a cargo del despacho — informativo, no requiere acción suya.",
   DESCONOCIDO:
