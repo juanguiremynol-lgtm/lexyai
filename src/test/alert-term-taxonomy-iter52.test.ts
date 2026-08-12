@@ -47,7 +47,9 @@ describe("iteration 52 — term alert taxonomy", () => {
   });
 
   it("no alert path emits a term type outside the three", () => {
-    const files = [...walk("src"), ...walk("supabase/functions")];
+    const files = [...walk("src"), ...walk("supabase/functions")].filter(
+      (f) => !f.endsWith("alert-term-taxonomy-iter52.test.ts"),
+    );
     const offenders: string[] = [];
     for (const f of files) {
       const src = readFileSync(f, "utf8");
