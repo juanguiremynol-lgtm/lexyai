@@ -53,27 +53,91 @@ Deno.serve(async (req) => {
   );
 
   const today = todayIsoBogota();
-  const stats = { evaluated: 0, alerts_created: 0, skipped_dedup: 0, errors: 0, manual_review_alerts: 0, not_own_party_skipped: 0 };
+  const stats = {
+    evaluated: 0,
+    alerts_created: 0,
+    skipped_dedup: 0,
+    errors: 0,
+    manual_review_alerts: 0,
+    not_own_party_skipped: 0,
+    judge_side_skipped: 0,
+    buckets: { TERMINO_CRITICO: 0, TERMINO_POR_VENCER: 0, TERMINO_VENCIDO: 0 } as Record<string, number>,
+  };
+
+  /**
+   * Iteration 52 — the alert doctrine has THREE term types by urgency and the
+   * severity is the point of the distinction. There is no generic term alert.
+   */
+  function classifyTerm(bd: number | null): {
+    alert_type: "TERMINO_CRITICO" | "TERMINO_POR_VENCER" | "TERMINO_VENCIDO";
+    severity: "WARNING" | "CRITICAL";
+  } {
+    if (bd === null) return { alert_type: "TERMINO_POR_VENCER", severity: "WARNING" };
+    if (bd < 0) return { alert_type: "TERMINO_VENCIDO", severity: "CRITICAL" };
+    if (bd <= 3) return { alert_type: "TERMINO_CRITICO", severity: "CRITICAL" };
+    return { alert_type: "TERMINO_POR_VENCER", severity: "WARNING" };
+  }
+
+  /** Weekend-only forward walk, mirroring bdRemaining's approximation. */
+  function addBusinessDays(startIso: string, days: number): string | null {
+    const d = new Date(startIso + "T00:00:00");
+    if (isNaN(d.getTime())) return null;
+    let added = 0;
+    while (added < days) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) added++;
+    }
+    return d.toISOString().slice(0, 10);
+  }
 
   try {
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
     const { data: manualReview, error: mrErr } = await supabase
       .from("work_item_deadlines")
-      .select("id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta")
+      .select(
+        "id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(workflow_type)",
+      )
       .eq("status", "REQUIERE_REVISION_MANUAL")
       .is("deadline_date", null);
 
     if (mrErr) throw mrErr;
 
-    for (const d of manualReview ?? []) {
+    // Rule catalogue: gives the provisional length of a term whose anchor could
+    // not be confirmed, so urgency is estimated rather than flattened.
+    const { data: ruleRows } = await supabase
+      .from("deadline_rules")
+      .select("workflow_type, deadline_type, days_amount, day_type, is_active")
+      .eq("is_active", true);
+    const ruleDays = new Map<string, number>();
+    for (const r of (ruleRows ?? []) as any[]) {
+      if (r.day_type === "BUSINESS" && Number(r.days_amount) > 0) {
+        ruleDays.set(`${r.workflow_type}|${r.deadline_type}`, Number(r.days_amount));
+      }
+    }
+
+    for (const d of (manualReview ?? []) as any[]) {
+      // A term borne by the court is informative and never alerts (iter 50 C3).
+      if (d.is_judge_side === true || String(d.bound_party_role ?? "").toUpperCase() === "JUEZ") {
+        stats.judge_side_skipped++;
+        continue;
+      }
+      const wfm = Array.isArray(d.work_items) ? d.work_items[0] : d.work_items;
+      const wf = String(wfm?.workflow_type ?? "");
+      const days =
+        ruleDays.get(`${wf}|${d.deadline_type}`) ?? ruleDays.get(`GENERIC|${d.deadline_type}`) ?? null;
+      const provisionalDate =
+        days && d.trigger_date ? addBusinessDays(String(d.trigger_date), days) : null;
+      const bd = provisionalDate ? bdRemaining(provisionalDate) : null;
+      const { alert_type, severity } = classifyTerm(bd);
       const { error: insErr } = await supabase.from("alert_instances").insert({
         owner_id: d.owner_id,
         organization_id: d.organization_id,
         entity_id: d.work_item_id,
         entity_type: "WORK_ITEM",
-        severity: "WARNING",
-        alert_type: "TERMINO_DEADLINE",
+        severity,
+        alert_type,
         title: "Término requiere verificación manual — sin fecha de fijación confirmada",
         message: d.label,
         status: "PENDING",
@@ -82,6 +146,9 @@ Deno.serve(async (req) => {
           deadline_id: d.id,
           deadline_type: d.deadline_type,
           deadline_date: null,
+          provisional_deadline_date: provisionalDate,
+          provisional: true,
+          business_days_remaining: bd,
           bucket: "MANUAL_REVIEW",
           trigger_date: d.trigger_date,
           engine: "LOCAL",
@@ -92,6 +159,7 @@ Deno.serve(async (req) => {
         if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
         else { stats.errors++; console.error("[evaluate-deadline-alerts:manual]", insErr); }
       } else {
+        stats.buckets[alert_type]++;
         stats.manual_review_alerts++;
         stats.alerts_created++;
       }
@@ -148,29 +216,28 @@ Deno.serve(async (req) => {
       }
       stats.evaluated++;
       const bd = bdRemaining(d.deadline_date);
-      let bucket: "D-3" | "D-1" | "D-DAY" | "OVERDUE" | null = null;
-      let severity: "WARNING" | "CRITICAL" = "WARNING";
+      let bucket: "D-3" | "D-1" | "D-DAY" | "D-8" | "OVERDUE" | null = null;
       let title = "";
 
       if (bd < 0) {
         bucket = "OVERDUE";
-        severity = "CRITICAL";
         title = `Término VENCIDO hace ${Math.abs(bd)} día(s) hábiles`;
       } else if (bd === 0) {
         bucket = "D-DAY";
-        severity = "CRITICAL";
         title = "Término vence HOY";
       } else if (bd === 1) {
         bucket = "D-1";
-        severity = "CRITICAL";
         title = "Término vence MAÑANA";
       } else if (bd <= 3) {
         bucket = "D-3";
-        severity = "WARNING";
+        title = `Término vence en ${bd} día(s) hábiles`;
+      } else if (bd <= 8) {
+        bucket = "D-8";
         title = `Término vence en ${bd} día(s) hábiles`;
       } else {
         continue;
       }
+      const { alert_type, severity } = classifyTerm(bd);
 
       const fingerprint = `deadline_${bucket}_${d.id}_${today}`;
       const { error: insErr } = await supabase.from("alert_instances").insert({
@@ -179,7 +246,7 @@ Deno.serve(async (req) => {
         entity_id: d.work_item_id,
         entity_type: "WORK_ITEM",
         severity,
-        alert_type: "TERMINO_DEADLINE",
+        alert_type,
         title,
         message: d.label,
         status: "PENDING",
@@ -199,6 +266,7 @@ Deno.serve(async (req) => {
         if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
         else { stats.errors++; console.error("[evaluate-deadline-alerts]", insErr); }
       } else {
+        stats.buckets[alert_type]++;
         stats.alerts_created++;
       }
     }
