@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CheckCircle2, ShieldQuestion } from "lucide-react";
+import { CheckCircle2, ShieldQuestion, UserPlus, AlertTriangle } from "lucide-react";
 import {
   CLIENT_PARTY_ROLES,
   CLIENT_PARTY_ROLE_LABELS,
@@ -40,6 +40,7 @@ interface ProposalRow {
   basis: string | null;
   represents: RepresentedParty | null;
   clientName: string | null;
+  hasClient: boolean;
 }
 
 function useRoleProposals() {
@@ -50,7 +51,7 @@ function useRoleProposals() {
       const { data, error } = await supabase
         .from("work_items")
         .select(
-          "id, radicado, client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, client_party_represents, clients(name)",
+          "id, radicado, client_id, client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, client_party_represents, clients(name)",
         )
         .eq("lifecycle_state", "ACTIVE")
         .order("radicado", { ascending: true });
@@ -65,6 +66,7 @@ function useRoleProposals() {
           basis: (r.client_party_role_basis as string) ?? null,
           represents: (r.client_party_represents as RepresentedParty) ?? null,
           clientName: ((r.clients as { name?: string } | null)?.name as string) ?? null,
+          hasClient: r.client_id != null,
         }))
         .filter((r) => r.source !== "CONFIRMADO");
     },
@@ -84,6 +86,10 @@ export default function PartyRolesReview() {
         const role = overrides[item.id] ?? item.role;
         if (!role) continue;
         const rep = represents[item.id] ?? item.represents ?? null;
+        // A verbatim name match can still be wrong — the client may appear on
+        // both sides, or a homonym may exist. Overriding a high-confidence
+        // proposal is one action, and it is recorded as an override.
+        const isOverride = !!item.role && role !== item.role;
         const { error } = await supabase
           .from("work_items")
           .update({
@@ -92,6 +98,9 @@ export default function PartyRolesReview() {
             client_party_role_confirmed_at: new Date().toISOString(),
             client_party_role_confirmed_by: auth.user?.id ?? null,
             client_party_represents: role === "APODERADO_DE_OFICIO" ? rep : null,
+            client_party_role_overridden: isOverride,
+            client_party_role_proposed: isOverride ? item.role : null,
+            client_party_role_override_confidence: isOverride ? item.confidence : null,
           } as never)
           .eq("id", item.id);
         if (error) throw error;
@@ -114,7 +123,10 @@ export default function PartyRolesReview() {
     () => rows.filter((r) => r.role && r.confidence >= HIGH_CONFIDENCE),
     [rows],
   );
-  const unmatched = useMemo(() => rows.filter((r) => !r.role), [rows]);
+  const unmatched = useMemo(() => rows.filter((r) => !r.role && r.hasClient), [rows]);
+  // Not an attribution failure: a matter with no client is a data gap the user
+  // closes in one action, and it must read as such.
+  const withoutClient = useMemo(() => rows.filter((r) => !r.hasClient), [rows]);
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -150,6 +162,7 @@ export default function PartyRolesReview() {
           )}
           {rows.map((r) => {
             const role = overrides[r.id] ?? r.role;
+            const isOverride = !!r.role && !!role && role !== r.role;
             return (
               <div
                 key={r.id}
@@ -169,6 +182,13 @@ export default function PartyRolesReview() {
                     {r.basis ? `Coincidencia: ${r.basis}` : "Sin coincidencia con las partes"} ·{" "}
                     confianza {(r.confidence * 100).toFixed(0)}%
                   </p>
+                  {isOverride && (
+                    <p className="truncate text-xs text-amber-600 dark:text-amber-500">
+                      Está corrigiendo una propuesta de confianza{" "}
+                      {(r.confidence * 100).toFixed(0)}% ({CLIENT_PARTY_ROLE_LABELS[r.role!]}). Se
+                      dejará constancia de la corrección.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Select
@@ -189,6 +209,7 @@ export default function PartyRolesReview() {
                     </SelectContent>
                   </Select>
                   {role === "APODERADO_DE_OFICIO" && (
+                    <>
                     <Select
                       value={represents[r.id] ?? r.represents ?? undefined}
                       onValueChange={(v) =>
@@ -203,6 +224,11 @@ export default function PartyRolesReview() {
                         <SelectItem value="DEMANDADO">Representa al demandado</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="w-full text-xs text-muted-foreground">
+                      Hereda los términos procesales de la parte representada, no sus
+                      obligaciones sustanciales por fuera del proceso.
+                    </p>
+                    </>
                   )}
                   <Button
                     size="sm"
@@ -230,6 +256,32 @@ export default function PartyRolesReview() {
           <CardContent className="text-sm text-muted-foreground">
             El nombre del cliente no coincide con ninguna de las partes registradas. Indique la
             calidad manualmente en la lista anterior.
+          </CardContent>
+        </Card>
+      )}
+
+      {withoutClient.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UserPlus className="h-4 w-4" aria-hidden />
+              Expedientes sin cliente asociado ({withoutClient.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="flex items-start gap-2 text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              No es una falla de atribución: falta asociar el cliente. Al asociarlo, la calidad se
+              propone automáticamente.
+            </p>
+            {withoutClient.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                <span className="font-mono text-xs">{r.radicado ?? "Sin radicado"}</span>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to={`/app/items/${r.id}`}>Asociar cliente</Link>
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

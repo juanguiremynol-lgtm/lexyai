@@ -5221,6 +5221,7 @@ export type Database = {
       }
       deadline_rules: {
         Row: {
+          bound_party_role: string | null
           created_at: string
           day_type: string
           days_amount: number
@@ -5228,12 +5229,14 @@ export type Database = {
           description: string | null
           id: string
           is_active: boolean
+          is_judge_side: boolean
           norma: string | null
           requires_manual_review: boolean
           updated_at: string
           workflow_type: string
         }
         Insert: {
+          bound_party_role?: string | null
           created_at?: string
           day_type: string
           days_amount: number
@@ -5241,12 +5244,14 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_judge_side?: boolean
           norma?: string | null
           requires_manual_review?: boolean
           updated_at?: string
           workflow_type: string
         }
         Update: {
+          bound_party_role?: string | null
           created_at?: string
           day_type?: string
           days_amount?: number
@@ -5254,6 +5259,7 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_judge_side?: boolean
           norma?: string | null
           requires_manual_review?: boolean
           updated_at?: string
@@ -16294,6 +16300,7 @@ export type Database = {
       work_item_deadlines: {
         Row: {
           bound_party_role: string | null
+          bound_party_source: string | null
           business_days_count: number | null
           calculation_meta: Json | null
           created_at: string
@@ -16315,6 +16322,7 @@ export type Database = {
         }
         Insert: {
           bound_party_role?: string | null
+          bound_party_source?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
@@ -16336,6 +16344,7 @@ export type Database = {
         }
         Update: {
           bound_party_role?: string | null
+          bound_party_source?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
           created_at?: string
@@ -18419,6 +18428,9 @@ export type Database = {
           client_party_role_confidence: number | null
           client_party_role_confirmed_at: string | null
           client_party_role_confirmed_by: string | null
+          client_party_role_overridden: boolean
+          client_party_role_override_confidence: number | null
+          client_party_role_proposed: string | null
           client_party_role_source: string | null
           consecutive_404_count: number | null
           consecutive_failures: number
@@ -18621,6 +18633,9 @@ export type Database = {
           client_party_role_confidence?: number | null
           client_party_role_confirmed_at?: string | null
           client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
           client_party_role_source?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
@@ -18823,6 +18838,9 @@ export type Database = {
           client_party_role_confidence?: number | null
           client_party_role_confirmed_at?: string | null
           client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
           client_party_role_source?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
