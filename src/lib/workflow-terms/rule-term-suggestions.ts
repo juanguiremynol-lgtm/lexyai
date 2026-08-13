@@ -21,6 +21,12 @@ export interface TermEvent {
   at: string;
   text: string;
   source: "ACTUACION" | "ESTADO";
+  /**
+   * ITER53 — for an estado, the date of the PROVIDENCIA it publishes. An
+   * estado's own date is the fijación; citing it as the auto's date misstates
+   * the file, and a lawyer who checks the reasoning finds it does not match.
+   */
+  docDate?: string | null;
 }
 
 export interface ResolvedAnchor extends PenalAnchor {
@@ -65,18 +71,29 @@ export function resolveAnchorsFromEvents(events: TermEvent[]): ResolvedAnchor[] 
 
   // NOTIFICACION_MANDAMIENTO_PAGO — the mandamiento is notified by estado; the
   // notification takes effect the business day following the fijación.
-  const mandamiento = [...sorted].reverse().find((e) => MANDAMIENTO_RE.test(normalize(e.text)));
+  const isFijacion = (e: TermEvent) => FIJACION_RE.test(normalize(e.text)) || e.source === "ESTADO";
+  const mandCandidates = sorted.filter((e) => MANDAMIENTO_RE.test(normalize(e.text)));
+  // The AUTO is an actuación. An estado that merely publishes it carries the
+  // fijación date, so it is only a fallback — and then only through its own
+  // providencia date, never through the publication date.
+  const mandamientoAct = [...mandCandidates].reverse().find((e) => !isFijacion(e));
+  const mandamiento = mandamientoAct ?? [...mandCandidates].reverse()[0];
   if (mandamiento) {
+    const autoDate = mandamientoAct
+      ? iso(mandamiento.at)
+      : mandamiento.docDate
+        ? iso(mandamiento.docDate)
+        : null;
     const fijacion = sorted.find(
-      (e) => FIJACION_RE.test(normalize(e.text)) && iso(e.at) >= iso(mandamiento.at),
-    );
-    if (fijacion) {
+      (e) => FIJACION_RE.test(normalize(e.text)) && iso(e.at) >= iso(autoDate ?? mandamiento.at),
+    ) ?? (mandamientoAct ? undefined : mandamiento);
+    if (fijacion && autoDate) {
       const notificationDate = nextBusinessDay(iso(fijacion.at));
       out.push({
         type: "ANCHOR_NOTIFICACION",
         event: "NOTIFICACION_MANDAMIENTO_PAGO",
         date: notificationDate,
-        basis: `Auto que libra mandamiento de pago del ${iso(mandamiento.at)}, fijado en estado el ${iso(
+        basis: `Auto que libra mandamiento de pago del ${autoDate}, fijado en estado el ${iso(
           fijacion.at,
         )}; la notificación por estado surte efectos el día hábil siguiente (${notificationDate}).`,
       });
