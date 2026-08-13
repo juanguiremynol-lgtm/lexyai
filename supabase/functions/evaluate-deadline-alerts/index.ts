@@ -106,14 +106,15 @@ Deno.serve(async (req) => {
   try {
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
-    const { data: manualReview, error: mrErr } = await supabase
+    let manualQuery: any = supabase
       .from("work_item_deadlines")
       .select(
         "id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(workflow_type)",
       )
       .eq("status", "REQUIERE_REVISION_MANUAL")
-      .is("deadline_date", null)
-      .in("work_item_id", scopedWorkItemId ? [scopedWorkItemId] : []);
+      .is("deadline_date", null);
+    if (scopedWorkItemId) manualQuery = manualQuery.eq("work_item_id", scopedWorkItemId);
+    const { data: manualReview, error: mrErr } = await manualQuery;
 
     if (mrErr) throw mrErr;
 
@@ -180,7 +181,7 @@ Deno.serve(async (req) => {
 
     const notOwnDeadlineIds: string[] = [];
 
-    const { data: deadlines, error } = await supabase
+    let pendingQuery: any = supabase
       .from("work_item_deadlines")
       .select(
         "id, work_item_id, owner_id, organization_id, deadline_type, label, deadline_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(client_party_role, client_party_represents)",
@@ -188,6 +189,8 @@ Deno.serve(async (req) => {
       .eq("status", "PENDING")
       .not("deadline_date", "is", null)
       .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10));
+    if (scopedWorkItemId) pendingQuery = pendingQuery.eq("work_item_id", scopedWorkItemId);
+    const { data: deadlines, error } = await pendingQuery;
 
     if (error) throw error;
 
