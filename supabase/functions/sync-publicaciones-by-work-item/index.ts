@@ -1262,25 +1262,23 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.log(`[sync-pub] Access verified: user ${userId} has role ${membership.role}`);
     }
 
-    // ============= COOLDOWN GATE =============
-    // Prevent stampede on Cloud Run after outage recovery. Scheduled jobs and
-    // login-triggered syncs respect the cooldown. Manual "refresh now" bypasses
-    // via a future flag; today _scheduled=false counts as manual.
+    // ============= COOLDOWN GATE (ITER55 B1) =============
+    // A cooldown must suppress the EXPENSIVE operation — the deep-scrape
+    // trigger POST /procesar-radicado — never the cheap READ of data the
+    // provider already holds. Returning early here converted a rate limit
+    // into data loss: radicado ...0016000 had its estado sitting in
+    // /historico while every re-check was short-circuited before reading it.
+    //
+    // So a recent sync now downgrades the run to READ-ONLY instead of
+    // skipping it: we still call /historico and persist whatever is there,
+    // and only the re-scrape trigger stays suppressed.
     const manualBypass = (payload as any)?._force === true && (!isServiceRole || _scheduled === true);
+    let readOnlyDueToCooldown = false;
     if (!manualBypass && workItem.last_synced_at) {
       const ageMs = Date.now() - new Date(workItem.last_synced_at as string).getTime();
       if (ageMs >= 0 && ageMs < SYNC_COOLDOWN_MS) {
-        console.log(`[sync-pub] Cooldown active (age=${Math.round(ageMs/1000)}s < ${SYNC_COOLDOWN_MS/1000}s) wi=${work_item_id}`);
-        return jsonResponse({
-          ok: true,
-          status: 'skipped_recent_sync',
-          reason: 'cooldown_active',
-          work_item_id,
-          workflow_type: workItem.workflow_type,
-          last_synced_at: workItem.last_synced_at,
-          inserted_count: 0,
-          skipped_count: 0,
-        });
+        readOnlyDueToCooldown = true;
+        console.log(`[sync-pub] Cooldown active (age=${Math.round(ageMs/1000)}s < ${SYNC_COOLDOWN_MS/1000}s) wi=${work_item_id} → READ-ONLY run (trigger suppressed, /historico still read)`);
       }
     }
 
