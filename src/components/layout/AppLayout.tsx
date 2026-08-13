@@ -7,6 +7,7 @@ import { RenewalTickerTop, RenewalTickerBottom } from "@/components/billing/Rene
 import { ProfileBubble } from "@/components/profile/ProfileBubble";
 import { SuspendedPaywall } from "@/components/billing/SuspendedPaywall";
 import { BetaTrialBanner } from "@/components/billing/BetaTrialBanner";
+import { PartyCapacityBanner } from "@/components/parties/PartyCapacityBanner";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
@@ -40,6 +41,7 @@ export function AppLayout() {
         <SidebarInset className="flex flex-1 flex-col min-w-0">
           <RenewalTickerTop />
           <BetaTrialBanner />
+          <PartyCapacityBanner />
           <EstadosTicker />
           <TopBar />
           {/* Main content area - transparent for aqua theme */}

@@ -1,14 +1,14 @@
 /**
- * "Calidad de las partes" — bulk confirmation of proposed client roles.
+ * "Calidad en que actúa su cliente" — ITER56 one-time onboarding.
  *
- * Attribution of a term is only as good as the role behind it, and a proposed
- * role is a guess until the litigator owns it. This screen makes owning the
- * whole portfolio a single pass instead of 49 visits to 49 matters.
+ * A migration surface, not a permanent screen: it clears the portfolio in one
+ * sitting and retires itself when nothing is left unconfirmed. Attention is
+ * routed by how sure the machine is — bulk where a match is verbatim,
+ * deliberation where it is partial, a specific remedy where there is no
+ * proposal at all — and every row states the CONSEQUENCE before confirming.
  */
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,154 +21,202 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CheckCircle2, ShieldQuestion, UserPlus, AlertTriangle } from "lucide-react";
+import { CheckCircle2, ShieldQuestion, ShieldAlert, UserPlus, ScanSearch } from "lucide-react";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
+import {
+  usePartyCapacityRows,
+  useConfirmCapacity,
+  type CapacityRow,
+  type ConfirmInput,
+  type ConfirmResult,
+} from "@/hooks/use-party-capacity";
 import {
   CLIENT_PARTY_ROLES,
   CLIENT_PARTY_ROLE_LABELS,
   type ClientPartyRole,
   type RepresentedParty,
 } from "@/lib/workflow-terms/party-attribution";
-
-const HIGH_CONFIDENCE = 0.9;
-
-interface ProposalRow {
-  id: string;
-  radicado: string | null;
-  role: ClientPartyRole | null;
-  source: string | null;
-  confidence: number;
-  basis: string | null;
-  represents: RepresentedParty | null;
-  clientName: string | null;
-  hasClient: boolean;
-}
-
-function useRoleProposals() {
-  return useQuery({
-    queryKey: ["party-role-proposals"],
-    staleTime: 30_000,
-    queryFn: async (): Promise<ProposalRow[]> => {
-      const { data, error } = await supabase
-        .from("work_items")
-        .select(
-          "id, radicado, client_id, client_party_role, client_party_role_source, client_party_role_confidence, client_party_role_basis, client_party_represents, clients(name)",
-        )
-        .eq("lifecycle_state", "ACTIVE")
-        .order("radicado", { ascending: true });
-      if (error) throw error;
-      return ((data ?? []) as unknown as Record<string, unknown>[])
-        .map((r) => ({
-          id: String(r.id),
-          radicado: (r.radicado as string) ?? null,
-          role: (r.client_party_role as ClientPartyRole) ?? null,
-          source: (r.client_party_role_source as string) ?? null,
-          confidence: Number(r.client_party_role_confidence ?? 0),
-          basis: (r.client_party_role_basis as string) ?? null,
-          represents: (r.client_party_represents as RepresentedParty) ?? null,
-          clientName: ((r.clients as { name?: string } | null)?.name as string) ?? null,
-          hasClient: r.client_id != null,
-        }))
-        .filter((r) => r.source !== "CONFIRMADO");
-    },
-  });
-}
+import {
+  computeAttributionConsequence,
+  consequenceCopy,
+  NO_PROPOSAL_COPY,
+} from "@/lib/workflow-terms/party-capacity";
 
 export default function PartyRolesReview() {
-  const { data: rows = [], isLoading } = useRoleProposals();
-  const queryClient = useQueryClient();
+  const { isPlatformAdmin, isLoading: adminLoading } = usePlatformAdmin();
+  const { data: rows = [], isLoading } = usePartyCapacityRows();
+  const confirm = useConfirmCapacity();
   const [overrides, setOverrides] = useState<Record<string, ClientPartyRole>>({});
   const [represents, setRepresents] = useState<Record<string, RepresentedParty>>({});
+  const [summary, setSummary] = useState<ConfirmResult | null>(null);
+  const [confirmedTotal, setConfirmedTotal] = useState(0);
 
-  const confirmRows = useMutation({
-    mutationFn: async (items: ProposalRow[]) => {
-      const { data: auth } = await supabase.auth.getUser();
-      for (const item of items) {
-        const role = overrides[item.id] ?? item.role;
-        if (!role) continue;
-        const rep = represents[item.id] ?? item.represents ?? null;
-        // A verbatim name match can still be wrong — the client may appear on
-        // both sides, or a homonym may exist. Overriding a high-confidence
-        // proposal is one action, and it is recorded as an override.
-        const isOverride = !!item.role && role !== item.role;
-        const { error } = await supabase
-          .from("work_items")
-          .update({
-            client_party_role: role,
-            client_party_role_source: "CONFIRMADO",
-            client_party_role_confirmed_at: new Date().toISOString(),
-            client_party_role_confirmed_by: auth.user?.id ?? null,
-            client_party_represents: role === "APODERADO_DE_OFICIO" ? rep : null,
-            client_party_role_overridden: isOverride,
-            client_party_role_proposed: isOverride ? item.role : null,
-            client_party_role_override_confidence: isOverride ? item.confidence : null,
-          } as never)
-          .eq("id", item.id);
-        if (error) throw error;
+  const high = useMemo(() => rows.filter((r) => r.section === "ALTA_CONFIANZA"), [rows]);
+  const review = useMemo(() => rows.filter((r) => r.section === "REVISION"), [rows]);
+  const none = useMemo(() => rows.filter((r) => r.section === "SIN_PROPUESTA"), [rows]);
+
+  // A curador ad litem borrows the side of the party he was appointed for, so
+  // the offer is APODERADO_DE_OFICIO — never a collapse onto DEMANDADO.
+  const roleOf = (r: CapacityRow): ClientPartyRole | null =>
+    overrides[r.id] ?? r.role ?? (r.reason === "CURADOR_AD_LITEM" ? "APODERADO_DE_OFICIO" : null);
+  const repOf = (r: CapacityRow): RepresentedParty | null =>
+    represents[r.id] ?? r.represents ?? null;
+
+  const runConfirm = (items: CapacityRow[]) => {
+    const payload: ConfirmInput[] = [];
+    for (const r of items) {
+      const role = roleOf(r);
+      if (!role) continue;
+      if (role === "APODERADO_DE_OFICIO" && !repOf(r)) {
+        toast.error("Indique a quién representa el curador ad litem", {
+          id: "capacity-rep",
+          duration: 4000,
+        });
+        return;
       }
-      return items.length;
-    },
-    onSuccess: async (n) => {
-      toast.success(`${n} expediente(s) confirmados`, { id: "party-role-confirm", duration: 3000 });
-      await queryClient.invalidateQueries({ queryKey: ["party-role-proposals"] });
-      await queryClient.invalidateQueries({ queryKey: ["work-item-party-role"] });
-    },
-    onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "No fue posible confirmar", {
-        id: "party-role-confirm",
-        duration: 5000,
-      }),
-  });
+      payload.push({ row: r, role, represents: repOf(r) });
+    }
+    if (payload.length === 0) return;
+    confirm.mutate(payload, {
+      onSuccess: (res) => {
+        setConfirmedTotal((n) => n + res.confirmed);
+        setSummary((s) => ({
+          confirmed: (s?.confirmed ?? 0) + res.confirmed,
+          deadlinesChanged: (s?.deadlinesChanged ?? 0) + res.deadlinesChanged,
+          alertsRetired: (s?.alertsRetired ?? 0) + res.alertsRetired,
+        }));
+        toast.success(`${res.confirmed} expediente(s) confirmados`, {
+          id: "capacity-confirm",
+          duration: 3000,
+        });
+      },
+      onError: (e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "No fue posible confirmar", {
+          id: "capacity-confirm",
+          duration: 5000,
+        }),
+    });
+  };
 
-  const highConfidence = useMemo(
-    () => rows.filter((r) => r.role && r.confidence >= HIGH_CONFIDENCE),
-    [rows],
+  const RoleSelect = ({ r }: { r: CapacityRow }) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        value={roleOf(r) ?? undefined}
+        onValueChange={(v) => setOverrides((o) => ({ ...o, [r.id]: v as ClientPartyRole }))}
+      >
+        <SelectTrigger className="h-8 w-[230px]">
+          <SelectValue placeholder="Seleccione la calidad" />
+        </SelectTrigger>
+        <SelectContent>
+          {CLIENT_PARTY_ROLES.map((cr) => (
+            <SelectItem key={cr} value={cr}>
+              {CLIENT_PARTY_ROLE_LABELS[cr]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {roleOf(r) === "APODERADO_DE_OFICIO" && (
+        <Select
+          value={repOf(r) ?? undefined}
+          onValueChange={(v) => setRepresents((s) => ({ ...s, [r.id]: v as RepresentedParty }))}
+        >
+          <SelectTrigger className="h-8 w-[210px]">
+            <SelectValue placeholder="¿A quién representa?" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="DEMANDANTE">Representa al demandante</SelectItem>
+            <SelectItem value="DEMANDADO">Representa al demandado</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   );
-  const unmatched = useMemo(() => rows.filter((r) => !r.role && r.hasClient), [rows]);
-  // Not an attribution failure: a matter with no client is a data gap the user
-  // closes in one action, and it must read as such.
-  const withoutClient = useMemo(() => rows.filter((r) => !r.hasClient), [rows]);
+
+  const Consequence = ({ r }: { r: CapacityRow }) => (
+    <p className="text-xs text-muted-foreground">
+      {consequenceCopy(computeAttributionConsequence(r.deadlines, roleOf(r), repOf(r)))}
+    </p>
+  );
+
+  if (!adminLoading && !isPlatformAdmin) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            Esta pantalla está reservada a los administradores de la plataforma.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const pending = rows.length;
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div>
-        <h1 className="text-xl font-semibold">Calidad en que actúa su cliente</h1>
-        <p className="text-sm text-muted-foreground">
-          Confirme la calidad de su cliente en cada expediente. De ella depende a quién
-          corresponde cada término.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Calidad en que actúa su cliente</h1>
+          <p className="text-sm text-muted-foreground">
+            Confirmación única de toda la cartera. De la calidad depende a quién corresponde cada
+            término: mientras no esté confirmada, los términos de la contraparte no se filtran.
+          </p>
+        </div>
+        <Badge variant="secondary" className="text-sm">
+          {confirmedTotal} confirmados · {pending} pendientes
+        </Badge>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
-          <CardTitle className="text-base">
-            Propuestas por confirmar{" "}
-            <Badge variant="secondary">{rows.length}</Badge>
-          </CardTitle>
-          <Button
-            size="sm"
-            disabled={highConfidence.length === 0 || confirmRows.isPending}
-            onClick={() => confirmRows.mutate(highConfidence)}
-          >
-            <CheckCircle2 className="mr-1 h-4 w-4" aria-hidden />
-            Confirmar todas las de confianza alta ({highConfidence.length})
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {isLoading && <Skeleton className="h-24 w-full" />}
-          {!isLoading && rows.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No hay propuestas pendientes: todas las calidades están confirmadas.
+      {summary && (
+        <Card className="border-emerald-500/40">
+          <CardContent className="space-y-1 p-4 text-sm">
+            <p className="font-medium">Resultado de esta sesión</p>
+            <p className="text-muted-foreground">
+              {summary.confirmed} expediente(s) confirmados · {summary.deadlinesChanged} término(s)
+              cambiaron de atribución · {summary.alertsRetired} alerta(s) dejaron de ser aplicables.
             </p>
-          )}
-          {rows.map((r) => {
-            const role = overrides[r.id] ?? r.role;
-            const isOverride = !!r.role && !!role && role !== r.role;
-            return (
+            {pending === 0 && (
+              <p className="text-muted-foreground">
+                No queda ningún expediente por confirmar: esta pantalla se retira.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading && <Skeleton className="h-40 w-full" />}
+
+      {!isLoading && pending === 0 && (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            Todas las calidades están confirmadas. Si más adelante ingresa un expediente sin
+            confirmar, volverá a aparecer aquí y en el aviso superior.
+          </CardContent>
+        </Card>
+      )}
+
+      {high.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              Alta confianza <Badge variant="secondary">{high.length}</Badge>
+            </CardTitle>
+            <Button size="sm" disabled={confirm.isPending} onClick={() => runConfirm(high)}>
+              Confirmar las {high.length}
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Coincidencia literal del nombre del cliente con una de las partes. Puede corregir
+              cualquier fila antes de confirmar en bloque.
+            </p>
+            {high.map((r) => (
               <div
                 key={r.id}
                 className="flex flex-col gap-2 rounded-md border p-3 md:flex-row md:items-center md:justify-between"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 space-y-0.5">
                   <Link
                     to={`/app/items/${r.id}`}
                     className="font-mono text-sm font-medium hover:underline"
@@ -176,112 +224,131 @@ export default function PartyRolesReview() {
                     {r.radicado ?? "Sin radicado"}
                   </Link>
                   <p className="truncate text-xs text-muted-foreground">
-                    {r.clientName ?? "Sin cliente asociado"}
+                    {r.clientName ?? "Sin cliente"}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {r.basis ? `Coincidencia: ${r.basis}` : "Sin coincidencia con las partes"} ·{" "}
-                    confianza {(r.confidence * 100).toFixed(0)}%
+                    Coincide con: <span className="font-medium">{r.basis ?? "—"}</span>
                   </p>
-                  {isOverride && (
-                    <p className="truncate text-xs text-amber-600 dark:text-amber-500">
-                      Está corrigiendo una propuesta de confianza{" "}
-                      {(r.confidence * 100).toFixed(0)}% ({CLIENT_PARTY_ROLE_LABELS[r.role!]}). Se
-                      dejará constancia de la corrección.
-                    </p>
-                  )}
+                  <Consequence r={r} />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={role ?? undefined}
-                    onValueChange={(v) =>
-                      setOverrides((o) => ({ ...o, [r.id]: v as ClientPartyRole }))
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-[230px]">
-                      <SelectValue placeholder="Seleccione la calidad" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CLIENT_PARTY_ROLES.map((cr) => (
-                        <SelectItem key={cr} value={cr}>
-                          {CLIENT_PARTY_ROLE_LABELS[cr]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {role === "APODERADO_DE_OFICIO" && (
-                    <>
-                    <Select
-                      value={represents[r.id] ?? r.represents ?? undefined}
-                      onValueChange={(v) =>
-                        setRepresents((s) => ({ ...s, [r.id]: v as RepresentedParty }))
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-[200px]">
-                        <SelectValue placeholder="¿A quién representa?" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DEMANDANTE">Representa al demandante</SelectItem>
-                        <SelectItem value="DEMANDADO">Representa al demandado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="w-full text-xs text-muted-foreground">
-                      Hereda los términos procesales de la parte representada, no sus
-                      obligaciones sustanciales por fuera del proceso.
-                    </p>
-                    </>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!role || confirmRows.isPending}
-                    onClick={() => confirmRows.mutate([r])}
-                  >
-                    Confirmar
-                  </Button>
-                </div>
+                <RoleSelect r={r} />
               </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      {unmatched.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldQuestion className="h-4 w-4" aria-hidden />
-              Sin propuesta automática ({unmatched.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            El nombre del cliente no coincide con ninguna de las partes registradas. Indique la
-            calidad manualmente en la lista anterior.
+            ))}
           </CardContent>
         </Card>
       )}
 
-      {withoutClient.length > 0 && (
+      {review.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="h-4 w-4" aria-hidden />
-              Expedientes sin cliente asociado ({withoutClient.length})
+              <ScanSearch className="h-4 w-4" aria-hidden />
+              Revisión <Badge variant="secondary">{review.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p className="flex items-start gap-2 text-muted-foreground">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              No es una falla de atribución: falta asociar el cliente. Al asociarlo, la calidad se
-              propone automáticamente.
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Coincidencia parcial: confirme una por una tras leer ambas partes.
             </p>
-            {withoutClient.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
-                <span className="font-mono text-xs">{r.radicado ?? "Sin radicado"}</span>
-                <Button size="sm" variant="outline" asChild>
-                  <Link to={`/app/items/${r.id}`}>Asociar cliente</Link>
-                </Button>
+            {review.map((r) => (
+              <div key={r.id} className="space-y-2 rounded-md border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Link to={`/app/items/${r.id}`} className="font-mono text-sm font-medium hover:underline">
+                    {r.radicado ?? "Sin radicado"}
+                  </Link>
+                  <Badge variant="outline">confianza {(r.confidence * 100).toFixed(0)}%</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Cliente: <span className="font-medium">{r.clientName ?? "Sin cliente"}</span>
+                </p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="rounded bg-muted/50 p-2 text-xs">
+                    <p className="font-medium">Demandantes</p>
+                    <p className="whitespace-pre-wrap text-muted-foreground">
+                      {r.demandantes?.trim() || "(vacío)"}
+                    </p>
+                  </div>
+                  <div className="rounded bg-muted/50 p-2 text-xs">
+                    <p className="font-medium">Demandados</p>
+                    <p className="whitespace-pre-wrap text-muted-foreground">
+                      {r.demandados?.trim() || "(vacío)"}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{r.basis ?? "—"}</p>
+                <Consequence r={r} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <RoleSelect r={r} />
+                  <Button size="sm" disabled={confirm.isPending} onClick={() => runConfirm([r])}>
+                    Confirmar
+                  </Button>
+                </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {none.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldQuestion className="h-4 w-4" aria-hidden />
+              Sin propuesta <Badge variant="secondary">{none.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {none.map((r) => {
+              const copy = NO_PROPOSAL_COPY[r.reason ?? "SIN_COINCIDENCIA"];
+              return (
+                <div key={r.id} className="space-y-2 rounded-md border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link to={`/app/items/${r.id}`} className="font-mono text-sm font-medium hover:underline">
+                      {r.radicado ?? "Sin radicado"}
+                    </Link>
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <ShieldAlert className="h-3 w-3" aria-hidden />
+                      {copy.title}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{copy.remedy}</p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div className="rounded bg-muted/50 p-2 text-xs">
+                      <p className="font-medium">Demandantes</p>
+                      <p className="whitespace-pre-wrap text-muted-foreground">
+                        {r.demandantes?.trim() || "(vacío)"}
+                      </p>
+                    </div>
+                    <div className="rounded bg-muted/50 p-2 text-xs">
+                      <p className="font-medium">Demandados</p>
+                      <p className="whitespace-pre-wrap text-muted-foreground">
+                        {r.demandados?.trim() || "(vacío)"}
+                      </p>
+                    </div>
+                  </div>
+                  <Consequence r={r} />
+                  {r.reason === "SIN_CLIENTE" ? (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to={`/app/items/${r.id}`}>
+                        <UserPlus className="mr-1 h-4 w-4" aria-hidden />
+                        Asociar cliente
+                      </Link>
+                    </Button>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <RoleSelect r={r} />
+                      <Button
+                        size="sm"
+                        disabled={confirm.isPending || !roleOf(r)}
+                        onClick={() => runConfirm([r])}
+                      >
+                        Confirmar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
