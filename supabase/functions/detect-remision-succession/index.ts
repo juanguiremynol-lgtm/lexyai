@@ -54,19 +54,26 @@ Deno.serve(async (req) => {
   }
   const dryRun = body.dry_run === true;
 
-  let actQuery = supabase
-    .from("work_item_acts")
-    .select("id, work_item_id, description, act_type, act_date")
-    .order("act_date", { ascending: false })
-    .limit(4000);
-  if (body.work_item_id) actQuery = actQuery.eq("work_item_id", body.work_item_id);
-
-  const { data: acts, error: actErr } = await actQuery;
-  if (actErr) return json({ ok: false, error: actErr.message }, 500);
+  // PostgREST caps a page at 1000 rows: paginate explicitly or the scan lies
+  // about its own coverage.
+  const acts: ActRow[] = [];
+  const PAGE = 1000;
+  for (let page = 0; page < 20; page++) {
+    let q = supabase
+      .from("work_item_acts")
+      .select("id, work_item_id, description, act_type, act_date")
+      .order("act_date", { ascending: false })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (body.work_item_id) q = q.eq("work_item_id", body.work_item_id);
+    const { data, error } = await q;
+    if (error) return json({ ok: false, error: error.message }, 500);
+    acts.push(...((data ?? []) as ActRow[]));
+    if ((data?.length ?? 0) < PAGE) break;
+  }
 
   // One verdict per matter: the most recent act that carries the vocabulary.
   const perItem = new Map<string, { act: ActRow; evidence: string; klass: string }>();
-  for (const a of (acts ?? []) as ActRow[]) {
+  for (const a of acts) {
     if (perItem.has(a.work_item_id)) continue;
     const text = `${a.description ?? ""} ${a.act_type ?? ""}`;
     const v = classifyRemisionText(text);
@@ -185,5 +192,5 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: true, scanned: (acts ?? []).length, detected: detected.length, rows: detected });
+  return json({ ok: true, scanned: acts.length, detected: detected.length, rows: detected });
 });
