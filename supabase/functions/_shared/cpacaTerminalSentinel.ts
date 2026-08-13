@@ -19,9 +19,17 @@
  *     terminal etapa with neither = TERMINAL_NO_CLASIFICADO, and it must SAY SO.
  */
 
+import { classifyRemisionStream } from "./remisionCompetencia.ts";
+
 export type CpacaTerminalClass =
   | "NO_TERMINAL"
   | "REMISION"
+  /**
+   * ITER57 — the horizontal remisión. It is a REMISION for every purpose that
+   * silences the origin's estados, but its successor is a brand new radicado at
+   * another despacho, not the same file one instance up.
+   */
+  | "REMISION_COMPETENCIA"
   | "TERMINACION_ORDINARIA"
   | "TERMINAL_NO_CLASIFICADO";
 
@@ -96,6 +104,17 @@ export function classifyCpacaTerminal(input: CpacaTerminalInput): CpacaTerminalV
 
   const remision = acts.find((a) => matches(a, REMISION_PATTERNS));
   if (remision) {
+    // ITER57 — one classifier decides the direction of a remisión. The sentinel
+    // only decides that the matter is terminal.
+    const dir = classifyRemisionStream(acts);
+    if (dir.klass === "REMITIDO_POR_COMPETENCIA") {
+      return {
+        klass: "REMISION_COMPETENCIA",
+        reason:
+          "Etapa terminal con declaración de incompetencia: el expediente se remitió horizontalmente a otro despacho, que asignará un radicado nuevo.",
+        evidence: dir.evidence ?? remision,
+      };
+    }
     return {
       klass: "REMISION",
       reason:
@@ -122,7 +141,7 @@ export function classifyCpacaTerminal(input: CpacaTerminalInput): CpacaTerminalV
   };
 }
 
-/** Only a REMISION verdict may silence missing estados in the origin despacho. */
+/** Only a remisión verdict may silence missing estados in the origin despacho. */
 export function terminalSilencesEstados(v: CpacaTerminalVerdict): boolean {
-  return v.klass === "REMISION";
+  return v.klass === "REMISION" || v.klass === "REMISION_COMPETENCIA";
 }
