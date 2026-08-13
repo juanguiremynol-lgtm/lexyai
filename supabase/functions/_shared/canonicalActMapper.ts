@@ -18,6 +18,7 @@
 
 import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
+import { extractRunProvenance } from "./runProvenance.ts";
 
 export interface ProviderActUnit {
   actuacion: string;
@@ -141,6 +142,13 @@ export function toCanonicalActRow(
     fecha_inicia_termino: unit.fecha_inicia_termino ?? null,
     fecha_finaliza_termino: unit.fecha_finaliza_termino ?? null,
   };
+  // ITER55 A1 — carry the provider's own run provenance verbatim. The DB
+  // trigger reads it from raw_data and only falls back to our 30-minute
+  // window when it is absent. NULL stays NULL (UNKNOWN), never a guess.
+  const provenance = extractRunProvenance(unit);
+  rawData.run_type = provenance.run_type;
+  rawData.previous_scan_at = provenance.previous_scan_at;
+  rawData.provider_observed_at = provenance.provider_observed_at;
   if (unit.parte) rawData.parte = unit.parte;
   const consolidated = sourceList;
   if (consolidated.length > 1) rawData._sources = consolidated;

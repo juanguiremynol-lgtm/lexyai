@@ -5543,6 +5543,73 @@ export type Database = {
           },
         ]
       }
+      despacho_census_requests: {
+        Row: {
+          attempts: number
+          created_at: string
+          despacho_code: string
+          error: string | null
+          id: string
+          radicado: string | null
+          requested_at: string
+          resolved_at: string | null
+          result: Json | null
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          despacho_code: string
+          error?: string | null
+          id?: string
+          radicado?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          despacho_code?: string
+          error?: string | null
+          id?: string
+          radicado?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       despacho_competencia_catalog: {
         Row: {
           competencia: string
@@ -5585,11 +5652,14 @@ export type Database = {
           annual_volumes: Json
           census_source: string | null
           checked_at: string | null
+          control_despacho_code: string | null
+          control_result: Json | null
           created_at: string
           despacho_label: string
           evidence: Json
           from_confidence: string
           id: string
+          measurement_status: string
           monthly_presence: Json
           note: string
           portal_alias: string | null
@@ -5607,11 +5677,14 @@ export type Database = {
           annual_volumes?: Json
           census_source?: string | null
           checked_at?: string | null
+          control_despacho_code?: string | null
+          control_result?: Json | null
           created_at?: string
           despacho_label: string
           evidence?: Json
           from_confidence?: string
           id?: string
+          measurement_status?: string
           monthly_presence?: Json
           note: string
           portal_alias?: string | null
@@ -5629,11 +5702,14 @@ export type Database = {
           annual_volumes?: Json
           census_source?: string | null
           checked_at?: string | null
+          control_despacho_code?: string | null
+          control_result?: Json | null
           created_at?: string
           despacho_label?: string
           evidence?: Json
           from_confidence?: string
           id?: string
+          measurement_status?: string
           monthly_presence?: Json
           note?: string
           portal_alias?: string | null
@@ -15953,6 +16029,7 @@ export type Database = {
           hash_fingerprint: string
           id: string
           ingest_run_mode: string
+          ingest_run_mode_source: string | null
           inicia_termino: string | null
           instancia: string | null
           is_archived: boolean | null
@@ -16012,6 +16089,7 @@ export type Database = {
           hash_fingerprint: string
           id?: string
           ingest_run_mode?: string
+          ingest_run_mode_source?: string | null
           inicia_termino?: string | null
           instancia?: string | null
           is_archived?: boolean | null
@@ -16071,6 +16149,7 @@ export type Database = {
           hash_fingerprint?: string
           id?: string
           ingest_run_mode?: string
+          ingest_run_mode_source?: string | null
           inicia_termino?: string | null
           instancia?: string | null
           is_archived?: boolean | null
@@ -17257,6 +17336,7 @@ export type Database = {
           hash_fingerprint: string
           id: string
           ingest_run_mode: string
+          ingest_run_mode_source: string | null
           is_archived: boolean | null
           is_canonical: boolean | null
           is_future_dated: boolean
@@ -17307,6 +17387,7 @@ export type Database = {
           hash_fingerprint: string
           id?: string
           ingest_run_mode?: string
+          ingest_run_mode_source?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -17357,6 +17438,7 @@ export type Database = {
           hash_fingerprint?: string
           id?: string
           ingest_run_mode?: string
+          ingest_run_mode_source?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -20146,6 +20228,7 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      provenance_migration_at: { Args: never; Returns: string }
       provider_chain_for_work_item: {
         Args: { p_radicado: string; p_workflow: string }
         Returns: string[]
@@ -20154,6 +20237,7 @@ export type Database = {
         Args: { p_workflow: string }
         Returns: string[]
       }
+      provider_run_mode_from_raw: { Args: { p_raw: Json }; Returns: string }
       provider_scope: { Args: { p_provider: string }; Returns: string }
       pub_matches_provider: {
         Args: { p_provider: string; p_source: string }
@@ -20246,6 +20330,7 @@ export type Database = {
           sample_work_item_id: string
         }[]
       }
+      run_mode_authority_report: { Args: { p_since?: string }; Returns: Json }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
       samai_zero_actuaciones_report: { Args: never; Returns: Json }
       schema_access_probe: { Args: never; Returns: Json }
