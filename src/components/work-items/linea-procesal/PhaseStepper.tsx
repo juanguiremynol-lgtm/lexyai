@@ -37,6 +37,14 @@ interface PhaseStepperProps {
   inferredPhase?: string | null;
 }
 
+/**
+ * ITER53/B3 — a bare `YYYY-MM-DD` parses as UTC midnight and renders as the
+ * previous day west of Greenwich. Judicial dates are calendar dates.
+ */
+function parseEventDate(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+}
+
 export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhase }: PhaseStepperProps) {
   const phases = getWorkflowPhases(workflowType);
   const mapped = mapStageToCanonicalPhase(workflowType, currentStage);
@@ -46,7 +54,19 @@ export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhas
   const currentPhase = mapped ?? clampedInferred ?? null;
   const isInferred = !mapped && !!clampedInferred;
   const currentIndex = phases.findIndex((p) => p.key === currentPhase);
-  const reachByPhase = new Map(reaches.map((r) => [r.phaseKey, r]));
+  // A phase cannot have been reached BEFORE an earlier phase of the same
+  // sequence: a notification dated before the auto it notifies is impossible,
+  // so that reach is a mis-attributed event and is not dated at all.
+  const raw = new Map(reaches.map((r) => [r.phaseKey, r]));
+  const reachByPhase = new Map<string, PhaseReach>();
+  let floor = "";
+  for (const phase of phases) {
+    const r = raw.get(phase.key);
+    if (!r) continue;
+    if (floor && r.reachedAt.slice(0, 10) < floor) continue;
+    reachByPhase.set(phase.key, r);
+    floor = r.reachedAt.slice(0, 10);
+  }
 
   return (
     <>
@@ -96,7 +116,7 @@ export function PhaseStepper({ workflowType, currentStage, reaches, inferredPhas
               {reach ? (
                 <>
                   {Icon && <Icon className="h-3 w-3" aria-label={SOURCE_LABEL[reach.source]} />}
-                  <span>{format(new Date(reach.reachedAt), "d MMM yyyy", { locale: es })}</span>
+                  <span>{format(parseEventDate(reach.reachedAt), "d MMM yyyy", { locale: es })}</span>
                 </>
               ) : (
                 <span aria-hidden>—</span>
