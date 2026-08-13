@@ -30,11 +30,19 @@ describe("iteración 57 — remisión por competencia", () => {
     expect(v.klass).toBe("REMITIDO_POR_COMPETENCIA");
   });
 
+  it("distingue el conflicto de competencia de la remisión firme", () => {
+    const v = classifyRemisionText(
+      "Auto Decide - Rechaza la demanda por falta de competencia – Ordena enviar al superior, resuelva conflicto de competencia negativa.",
+    );
+    expect(v.klass).toBe("CONFLICTO_COMPETENCIA");
+    expect(relationForRemision(v.klass)).toBe("CONFLICTO_COMPETENCIA");
+  });
+
   it("prioriza la competencia en un flujo de actuaciones", () => {
     const v = classifyRemisionStream([
       "Auto de trámite",
       "Remite el expediente",
-      "Conflicto negativo de competencia",
+      "Auto declara la falta de competencia y remite el expediente",
     ]);
     expect(v.klass).toBe("REMITIDO_POR_COMPETENCIA");
   });
