@@ -15,7 +15,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { resolveHost } from "../_shared/upstreamEndpoints.ts";
+import { upstreamBaseUrl, upstreamHeaders } from "../_shared/upstreamEndpoints.ts";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -44,9 +44,8 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const host = resolveHost("publicaciones");
-  const baseUrl = host.baseUrl;
-  const apiKey = host.apiKey ?? "";
+  const baseUrl = upstreamBaseUrl("publicaciones");
+  const headers = { ...upstreamHeaders("publicaciones"), Accept: "application/json" };
 
   const { data: pending, error: qErr } = await supabase
     .from("despacho_census_requests")
@@ -73,9 +72,7 @@ Deno.serve(async (req) => {
     let payload: any = null;
     let httpStatus: number | null = null;
     try {
-      const res = await fetch(url, {
-        headers: apiKey ? { "X-API-Key": apiKey, Accept: "application/json" } : { Accept: "application/json" },
-      });
+      const res = await fetch(url, { headers });
       httpStatus = res.status;
       if (res.ok) payload = await res.json();
     } catch (err) {
