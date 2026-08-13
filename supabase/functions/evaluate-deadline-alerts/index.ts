@@ -52,6 +52,17 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
+  // ITER56 — the onboarding surface confirms a capacity and needs the effect in
+  // the same session, so the evaluation can be scoped to one matter.
+  let scopedWorkItemId: string | null = null;
+  if (req.method === "POST") {
+    try {
+      const body = await req.json();
+      const v = body?.work_item_id;
+      if (typeof v === "string" && v.trim()) scopedWorkItemId = v.trim();
+    } catch (_e) { /* no body — full portfolio run */ }
+  }
+
   const today = todayIsoBogota();
   const stats = {
     evaluated: 0,
@@ -61,6 +72,7 @@ Deno.serve(async (req) => {
     manual_review_alerts: 0,
     not_own_party_skipped: 0,
     judge_side_skipped: 0,
+    alerts_retired: 0,
     buckets: { TERMINO_CRITICO: 0, TERMINO_POR_VENCER: 0, TERMINO_VENCIDO: 0 } as Record<string, number>,
   };
 
@@ -100,7 +112,8 @@ Deno.serve(async (req) => {
         "id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(workflow_type)",
       )
       .eq("status", "REQUIERE_REVISION_MANUAL")
-      .is("deadline_date", null);
+      .is("deadline_date", null)
+      .filter("work_item_id", scopedWorkItemId ? "eq" : "not.is", scopedWorkItemId ?? null);
 
     if (mrErr) throw mrErr;
 
@@ -165,6 +178,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    const notOwnDeadlineIds: string[] = [];
+
     const { data: deadlines, error } = await supabase
       .from("work_item_deadlines")
       .select(
@@ -172,7 +187,8 @@ Deno.serve(async (req) => {
       )
       .eq("status", "PENDING")
       .not("deadline_date", "is", null)
-      .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10));
+      .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10))
+      .filter("work_item_id", scopedWorkItemId ? "eq" : "not.is", scopedWorkItemId ?? null);
 
     if (error) throw error;
 
@@ -212,6 +228,7 @@ Deno.serve(async (req) => {
         !own;
       if (notOwn) {
         stats.not_own_party_skipped = (stats.not_own_party_skipped ?? 0) + 1;
+        notOwnDeadlineIds.push(String(d.id));
         continue;
       }
       stats.evaluated++;
@@ -271,7 +288,26 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, today, ...stats }), {
+    // A term that is no longer our client's must stop alerting NOW, not after
+    // the alert's own expiry: the confirmation is what made it inapplicable.
+    for (const did of notOwnDeadlineIds) {
+      const { data: stale } = await supabase
+        .from("alert_instances")
+        .select("id")
+        .eq("status", "PENDING")
+        .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+        .contains("payload", { deadline_id: did });
+      for (const a of (stale ?? []) as any[]) {
+        const { error: upErr } = await supabase
+          .from("alert_instances")
+          .update({ status: "CANCELLED" })
+          .eq("id", a.id);
+        if (upErr) stats.errors++;
+        else stats.alerts_retired++;
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, today, scoped_work_item_id: scopedWorkItemId, ...stats }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {
