@@ -94,7 +94,7 @@ export function SucesionBanner({ workItemId }: Props) {
           <Button
             variant="link"
             className="h-auto p-0"
-            onClick={() => navigate(`/app/expedientes/${r.origin_work_item_id}`)}
+            onClick={() => navigate(`/app/work-items/${r.origin_work_item_id}`)}
           >
             Ver expediente de origen
           </Button>
@@ -134,7 +134,7 @@ export function SucesionBanner({ workItemId }: Props) {
               <Button
                 variant="link"
                 className="h-auto p-0"
-                onClick={() => navigate(`/app/expedientes/${r.successor_work_item_id}`)}
+                onClick={() => navigate(`/app/work-items/${r.successor_work_item_id}`)}
               >
                 Ver expediente sucesor {r.successor_radicado ? `(${r.successor_radicado})` : ""}
               </Button>
