@@ -1946,7 +1946,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
       await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'empty');
 
-      // ============= SCHEDULED EMPTY-RETRY (24h + 48h) =============
+      // ============= SCHEDULED EMPTY-RETRY =============
       // A single "empty" response is not enough to declare a WI truly
       // devoid of estados: publicaciones frequently arrive with 12–36h of
       // upstream lag (portal indexing, SAMAI Estados eventual consistency,
@@ -1954,8 +1954,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       // we let the coverage gap stand on its own. The unique constraint
       // (work_item_id, kind) makes this idempotent: repeated empty runs
       // on the same WI reuse the existing row and do not reset the counter.
+      //
+      // PENDING_UPSTREAM is a different animal: /historico was cold and the
+      // provider started processing the radicado during our own call. It
+      // typically finishes within a couple of minutes, so a 24h re-check
+      // leaves a brand-new work item with an empty estados tab for a full
+      // day. Re-check those in 10 minutes with a longer attempt budget.
       try {
-        const nextRunAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const isPendingUpstream = result.result_code === 'PENDING_UPSTREAM';
+        const retryDelayMs = isPendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const maxAttempts = isPendingUpstream ? 4 : 2;
+        const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
         const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
           .select('id, attempt, max_attempts')
           .eq('work_item_id', work_item_id)
@@ -1970,12 +1979,20 @@ Deno.serve(withSyncTimeline(async (req) => {
             kind: 'PUB_RETRY',
             provider: 'publicaciones',
             attempt: 1,
-            max_attempts: 2, // 24h + 48h re-checks before giving up
+            max_attempts: maxAttempts,
             next_run_at: nextRunAt,
             last_error_code: result.result_code || 'SUCCESS_EMPTY',
-            last_error_message: 'Auto-scheduled 24h re-check after empty estados response',
+            last_error_message: isPendingUpstream
+              ? 'Auto-scheduled 10min re-check: upstream was still processing the radicado'
+              : 'Auto-scheduled 24h re-check after empty estados response',
           });
           console.log(`[sync-pub] Enqueued PUB_RETRY for ${work_item_id} → next_run_at=${nextRunAt}`);
+        } else if (isPendingUpstream) {
+          // Pull an existing (slow) re-check forward — the provider is warm now.
+          await (supabase.from('sync_retry_queue') as any)
+            .update({ next_run_at: nextRunAt, last_error_code: 'PENDING_UPSTREAM', updated_at: new Date().toISOString() })
+            .eq('id', existingRetry.id)
+            .gt('next_run_at', nextRunAt);
         }
       } catch (retryErr: any) {
         console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);

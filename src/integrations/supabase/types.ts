@@ -20051,6 +20051,10 @@ export type Database = {
         Args: { p_legal_date: string }
         Returns: boolean
       }
+      is_initial_load_window: {
+        Args: { p_detected_at: string; p_work_item_created_at: string }
+        Returns: boolean
+      }
       is_judicial_email_sender: { Args: { p_sender: string }; Returns: boolean }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
