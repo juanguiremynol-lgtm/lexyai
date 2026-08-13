@@ -2962,6 +2962,16 @@ Deno.serve(withSyncTimeline(async (req) => {
         fecha_inicia_termino: act.fecha_inicia_termino,
         fecha_finaliza_termino: act.fecha_finaliza_termino,
       };
+
+      // ITER55 A1 — provider run provenance travels verbatim in raw_data;
+      // the BEFORE INSERT trigger derives ingest_run_mode from it and only
+      // falls back to the 30-minute window when it is absent.
+      {
+        const prov = extractRunProvenance(act);
+        rawDataPayload.run_type = prov.run_type;
+        rawDataPayload.previous_scan_at = prov.previous_scan_at;
+        rawDataPayload.provider_observed_at = prov.provider_observed_at;
+      }
       
       // Embed cross-provider data if this is a consolidated TUTELA record
       const consolidatedSources = (act as any)._consolidated_sources as string[] | undefined;
