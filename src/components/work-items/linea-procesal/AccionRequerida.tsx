@@ -66,10 +66,10 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const attributionOf = (d: WorkItemDeadline) =>
     resolve({
       boundPartyRole: d.bound_party_role ?? d.calculation_meta?.bound_party_role ?? null,
-      is_judge_side: d.is_judge_side ?? null,
+      isJudgeSide: d.is_judge_side ?? null,
       boundPartySource: d.bound_party_source ?? null,
       storedAttribution: d.calculation_meta?.attribution ?? null,
-    } as never);
+    });
   const ownAction = (d: WorkItemDeadline) => attributionOf(d).actionable;
   const relevant = deadlines.filter(
     (d) => ACTIVE_STATUSES.has(d.status) || d.status === "SUGGESTED_BY_PROVIDER",
