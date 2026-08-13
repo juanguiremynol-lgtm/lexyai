@@ -27,7 +27,20 @@
 export type RemisionClass =
   | "NO_REMISION"
   | "REMITIDO_AL_SUPERIOR"
+  /**
+   * The despacho rejects competence AND sends the file UP so the superior
+   * settles a negative conflict (CGP art. 139). The file may come back: the
+   * origin is not closed by remisión, it is suspended pending the ruling.
+   */
+  | "CONFLICTO_COMPETENCIA"
   | "REMITIDO_POR_COMPETENCIA";
+/** A competence dispute escalated to the superior — direction up, outcome open. */
+const CONFLICTO_PATTERNS: RegExp[] = [
+  /\bconflicto (negativo|positivo)? ?de competencia\b/,
+  /\bcompetencia negativa\b/,
+  /\bdirimir (el )?conflicto\b/,
+];
+
 
 export interface RemisionVerdict {
   klass: RemisionClass;
@@ -100,6 +113,15 @@ export function classifyRemisionText(text: string | null | undefined): RemisionV
   }
 
   const comp = firstMatch(text, COMPETENCIA_PATTERNS);
+  const conflicto = firstMatch(text, CONFLICTO_PATTERNS);
+  if (conflicto) {
+    return {
+      klass: "CONFLICTO_COMPETENCIA",
+      reason:
+        "El despacho rechaza la competencia y envía el expediente al superior para que dirima el conflicto. El destino final aún no está decidido: el expediente puede regresar.",
+      evidence: conflicto,
+    };
+  }
   if (comp) {
     return {
       klass: "REMITIDO_POR_COMPETENCIA",
@@ -142,7 +164,7 @@ export function classifyRemisionStream(
   let fallback: RemisionVerdict | null = null;
   for (const t of texts) {
     const v = classifyRemisionText(t);
-    if (v.klass === "REMITIDO_POR_COMPETENCIA") return v;
+    if (v.klass === "REMITIDO_POR_COMPETENCIA" || v.klass === "CONFLICTO_COMPETENCIA") return v;
     if (v.klass === "REMITIDO_AL_SUPERIOR" && !fallback) fallback = v;
   }
   return fallback ?? { klass: "NO_REMISION", reason: "Sin vocabulario de remisión.", evidence: null };
@@ -288,6 +310,7 @@ export type SuccessionRelation =
 
 export function relationForRemision(klass: RemisionClass): SuccessionRelation | null {
   if (klass === "REMITIDO_POR_COMPETENCIA") return "REMISION_COMPETENCIA";
+  if (klass === "CONFLICTO_COMPETENCIA") return "CONFLICTO_COMPETENCIA";
   if (klass === "REMITIDO_AL_SUPERIOR") return "SEGUNDA_INSTANCIA";
   return null;
 }
