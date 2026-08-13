@@ -16382,6 +16382,7 @@ export type Database = {
           bound_party_source: string | null
           business_days_count: number | null
           calculation_meta: Json | null
+          closure_reason: string | null
           created_at: string
           deadline_date: string | null
           deadline_type: string
@@ -16404,6 +16405,7 @@ export type Database = {
           bound_party_source?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
+          closure_reason?: string | null
           created_at?: string
           deadline_date?: string | null
           deadline_type: string
@@ -16426,6 +16428,7 @@ export type Database = {
           bound_party_source?: string | null
           business_days_count?: number | null
           calculation_meta?: Json | null
+          closure_reason?: string | null
           created_at?: string
           deadline_date?: string | null
           deadline_type?: string
@@ -18092,6 +18095,127 @@ export type Database = {
           },
         ]
       }
+      work_item_successions: {
+        Row: {
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          destino_codigo_motivo: string | null
+          destino_codigo_status: string
+          destino_despacho_codigo: string | null
+          destino_despacho_nombre: string | null
+          detected_by: string
+          evidence: Json
+          id: string
+          notes: string | null
+          organization_id: string | null
+          origin_work_item_id: string
+          owner_id: string | null
+          relation_type: string
+          status: string
+          successor_confidence: number | null
+          successor_radicado: string | null
+          successor_work_item_id: string | null
+          trigger_act_date: string | null
+          trigger_act_id: string | null
+          trigger_evidence: string | null
+          updated_at: string
+        }
+        Insert: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          destino_codigo_motivo?: string | null
+          destino_codigo_status?: string
+          destino_despacho_codigo?: string | null
+          destino_despacho_nombre?: string | null
+          detected_by?: string
+          evidence?: Json
+          id?: string
+          notes?: string | null
+          organization_id?: string | null
+          origin_work_item_id: string
+          owner_id?: string | null
+          relation_type: string
+          status?: string
+          successor_confidence?: number | null
+          successor_radicado?: string | null
+          successor_work_item_id?: string | null
+          trigger_act_date?: string | null
+          trigger_act_id?: string | null
+          trigger_evidence?: string | null
+          updated_at?: string
+        }
+        Update: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          destino_codigo_motivo?: string | null
+          destino_codigo_status?: string
+          destino_despacho_codigo?: string | null
+          destino_despacho_nombre?: string | null
+          detected_by?: string
+          evidence?: Json
+          id?: string
+          notes?: string | null
+          organization_id?: string | null
+          origin_work_item_id?: string
+          owner_id?: string | null
+          relation_type?: string
+          status?: string
+          successor_confidence?: number | null
+          successor_radicado?: string | null
+          successor_work_item_id?: string | null
+          trigger_act_date?: string | null
+          trigger_act_id?: string | null
+          trigger_evidence?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
+            columns: ["origin_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
+            columns: ["origin_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
+            columns: ["origin_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
+            columns: ["successor_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
+            columns: ["successor_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
+            columns: ["successor_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_sync_timeline: {
         Row: {
           adapter_version: string | null
@@ -18514,6 +18638,9 @@ export type Database = {
           client_party_role_override_confidence: number | null
           client_party_role_proposed: string | null
           client_party_role_source: string | null
+          closure_at: string | null
+          closure_note: string | null
+          closure_reason: string | null
           consecutive_404_count: number | null
           consecutive_failures: number
           consecutive_not_found: number | null
@@ -18719,6 +18846,9 @@ export type Database = {
           client_party_role_override_confidence?: number | null
           client_party_role_proposed?: string | null
           client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
           consecutive_not_found?: number | null
@@ -18924,6 +19054,9 @@ export type Database = {
           client_party_role_override_confidence?: number | null
           client_party_role_proposed?: string | null
           client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
           consecutive_not_found?: number | null

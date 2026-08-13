@@ -56,6 +56,7 @@ import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonito
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
 import { RechazoPresuntoBanner } from "@/components/work-items/RechazoPresuntoBanner";
+import { SucesionBanner } from "@/components/work-items/SucesionBanner";
 import { LineaProcesal } from "@/components/work-items/linea-procesal";
 import { deriveLifecycleView } from "@/hooks/use-work-item-actions";
 import { DeletedWorkItemView } from "./DeletedWorkItemView";
@@ -399,6 +400,7 @@ export default function WorkItemDetail() {
               per-category tab logic here. */}
           {(() => { return null; })()}
           <RechazoPresuntoBanner workItemId={workItem.id} />
+          <SucesionBanner workItemId={workItem.id} />
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
           <LineaProcesal
             workItemId={workItem.id}
