@@ -20244,6 +20244,7 @@ export type Database = {
       }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
       samai_zero_actuaciones_report: { Args: never; Returns: Json }
+      schema_access_probe: { Args: never; Returns: Json }
       search_work_items_normalized: {
         Args: { p_limit?: number; p_query: string }
         Returns: {
