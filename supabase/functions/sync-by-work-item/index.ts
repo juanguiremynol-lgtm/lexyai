@@ -21,6 +21,7 @@ import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
+import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
