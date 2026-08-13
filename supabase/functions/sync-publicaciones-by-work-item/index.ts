@@ -1378,9 +1378,11 @@ Deno.serve(withSyncTimeline(async (req) => {
     // decision travels with the request. We capture the decision via callback
     // and log it to provider_sync_traces below.
     const gateStatus = await checkRescrapeGate(supabase, work_item_id);
+    // ITER55 B1 — the sync cooldown folds into the TRIGGER gate, not the read.
+    const triggerAllowed = gateStatus.allow && !readOnlyDueToCooldown;
     let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
     console.log(
-      `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${gateStatus.allow} ` +
+      `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${triggerAllowed} (gate=${gateStatus.allow}, read_only_cooldown=${readOnlyDueToCooldown}) ` +
         `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,
     );
 
@@ -1402,7 +1404,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       try {
         fetchResult = await Promise.race([
         fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
-          allow: gateStatus.allow,
+          allow: triggerAllowed,
           onDecision: (d) => { rescrapeDecision = d; },
         }),
         new Promise<FetchResultV3>((_, reject) => 
@@ -1448,6 +1450,8 @@ Deno.serve(withSyncTimeline(async (req) => {
           radicado: normalizedRadicado,
           workflow: workItem.workflow_type,
           gate_allow: gateStatus.allow,
+          trigger_allowed: triggerAllowed,
+          read_only_due_to_cooldown: readOnlyDueToCooldown,
           gate_last_triggered_at: gateStatus.lastTriggeredAt,
           gate_hours_since_last: gateStatus.hoursSince,
           cooldown_hours: RESCRAPE_COOLDOWN_MS / 3_600_000,
