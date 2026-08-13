@@ -16,24 +16,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { upstreamBaseUrl, upstreamHeaders } from "../_shared/upstreamEndpoints.ts";
+import { annualVolumesTotal, controlDespachoFor } from "../_shared/censusControl.ts";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-/** Control despacho = same circuit, a sibling office code, to prove the
- *  instrument reaches that circuit at all. */
-export function controlDespachoFor(code: string, siblings: string[]): string | null {
-  const circuit = code.slice(0, 8);
-  return siblings.find((s) => s !== code && s.slice(0, 8) === circuit) ?? null;
-}
-
-export function annualVolumesTotal(v: Record<string, unknown> | null | undefined): number {
-  if (!v) return 0;
-  return Object.values(v).reduce<number>((a, n) => a + (Number(n) || 0), 0);
 }
 
 Deno.serve(async (req) => {

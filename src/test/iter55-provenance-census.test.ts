@@ -16,7 +16,7 @@ import {
 import {
   controlDespachoFor,
   annualVolumesTotal,
-} from "../../supabase/functions/request-despacho-census/index.ts";
+} from "../../supabase/functions/_shared/censusControl.ts";
 
 const AFTER = "2026-08-13T12:00:00.000Z";
 
