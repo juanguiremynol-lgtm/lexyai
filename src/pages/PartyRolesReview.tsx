@@ -55,7 +55,10 @@ export default function PartyRolesReview() {
   const review = useMemo(() => rows.filter((r) => r.section === "REVISION"), [rows]);
   const none = useMemo(() => rows.filter((r) => r.section === "SIN_PROPUESTA"), [rows]);
 
-  const roleOf = (r: CapacityRow): ClientPartyRole | null => overrides[r.id] ?? r.role;
+  // A curador ad litem borrows the side of the party he was appointed for, so
+  // the offer is APODERADO_DE_OFICIO — never a collapse onto DEMANDADO.
+  const roleOf = (r: CapacityRow): ClientPartyRole | null =>
+    overrides[r.id] ?? r.role ?? (r.reason === "CURADOR_AD_LITEM" ? "APODERADO_DE_OFICIO" : null);
   const repOf = (r: CapacityRow): RepresentedParty | null =>
     represents[r.id] ?? r.represents ?? null;
 
