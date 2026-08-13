@@ -12,6 +12,7 @@ import {
   makeAiVerifyHealthSink,
   AI_VERIFY_HEALTH_SERVICE,
 } from "../_shared/aiVerifyLink.ts";
+import { classifySchemaAccess, type SchemaAccessProbe } from "../_shared/schemaAccessGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,26 @@ Deno.serve(async (req) => {
   const checks: HealthCheck[] = [];
 
   try {
+    // Check 0 (ITER53/D1): can we SEE the schema at all? A degraded read must
+    // never be reported as a health result — it is not evidence of anything.
+    const { data: probeRaw } = await supabase.rpc("schema_access_probe");
+    const verdict = classifySchemaAccess(
+      (probeRaw ?? null) as unknown as SchemaAccessProbe | null,
+    );
+    if (verdict.conclusionsForbidden) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          schema_access: verdict.state,
+          detail: verdict.reason,
+          checks: [],
+          note: "No se emiten conclusiones de salud: la lectura del esquema no es concluyente.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
+      );
+    }
+    checks.push({ name: "schema_access", ok: true, detail: verdict.reason });
+
     // Check 1: Last heartbeat (any org) within 45 min
     // Check both atenia_ai_actions (heartbeat_observe) AND atenia_cron_runs (HEARTBEAT)
     let heartbeatAge = Infinity;

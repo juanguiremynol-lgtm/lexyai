@@ -3538,7 +3538,11 @@ Deno.serve(withSyncTimeline(async (req) => {
           console.log(
             `[sync-by-work-item][clase] SUGGESTION ${decision.workflow.workflow} (${decision.workflow.label}) — ${decision.workflow.reason}`,
           );
-          await supabase.from('work_item_clase_proceso_audit').insert({
+          // ITER53/C1 — a re-read is not a change. The suggestion is only
+          // historicised when the class itself moved; otherwise every sync
+          // would write "X → X" into the procedural history.
+          if (decision.claseChanged) {
+            await supabase.from('work_item_clase_proceso_audit').insert({
             work_item_id,
             organization_id: (currentRow as { organization_id?: string | null } | null)?.organization_id ?? null,
             previous_clase: (currentRow as { clase_proceso?: string | null } | null)?.clase_proceso ?? null,
@@ -3547,7 +3551,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             new_workflow_type: decision.workflow.workflow,
             change_source: 'PROVIDER_CLASS_SUGGESTION',
             procedencia: contract.procedencia,
-          });
+            });
+          }
 
           // ITER42 — a log is not an offer. The disagreement also becomes a
           // PENDING suggestion the lawyer can accept, which is the only path

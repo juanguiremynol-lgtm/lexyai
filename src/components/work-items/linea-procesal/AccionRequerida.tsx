@@ -23,13 +23,7 @@ import { useWorkflowDeadlineRules } from "@/hooks/use-workflow-deadline-rules";
 import { penalTermsPendingRatification } from "@/lib/penal906/penal906-terms";
 import { getStageLabel, type WorkflowType, type CGPPhase } from "@/lib/workflow-constants";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
-import { useWorkItemPartyRole } from "@/hooks/use-work-item-party-role";
-import {
-  ATTRIBUTION_COPY,
-  attributeStoredDeadline,
-  isActionableForClient,
-  type ClientPartyRole,
-} from "@/lib/workflow-terms/party-attribution";
+import { useTermAttribution } from "@/hooks/use-term-attribution";
 
 const ACTIVE_STATUSES = new Set(["PENDING", "PENDING_REVIEW"]);
 
@@ -66,29 +60,24 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
   const { data: workflowRules = [] } = useWorkflowDeadlineRules(gatedLabel ? workflowType : undefined);
   const penalRulesPending = !!gatedLabel && penalTermsPendingRatification(workflowRules);
 
-  // A term bound to the counterparty or to the despacho is useful to know, but
-  // it is never our client's action and never alerts (iteration 50).
-  const { data: partyRole } = useWorkItemPartyRole(workItemId);
-  const confirmedRole: ClientPartyRole | null =
-    partyRole?.source === "CONFIRMADO" ? partyRole.role : null;
+  // ITER53 — ONE attribution for the whole screen. Acción requerida, the terms
+  // card and the unattributed block all read this same resolution.
+  const { resolve } = useTermAttribution(workItemId);
   const attributionOf = (d: WorkItemDeadline) =>
-    attributeStoredDeadline(
-      {
-        bound_party_role: d.bound_party_role ?? d.calculation_meta?.bound_party_role ?? null,
-        is_judge_side: d.is_judge_side ?? null,
-        attribution: d.calculation_meta?.attribution ?? null,
-      },
-      confirmedRole,
-      partyRole?.represents ?? null,
-    );
-  const ownAction = (d: WorkItemDeadline) => isActionableForClient(attributionOf(d));
+    resolve({
+      boundPartyRole: d.bound_party_role ?? d.calculation_meta?.bound_party_role ?? null,
+      isJudgeSide: d.is_judge_side ?? null,
+      boundPartySource: d.bound_party_source ?? null,
+      storedAttribution: d.calculation_meta?.attribution ?? null,
+    });
+  const ownAction = (d: WorkItemDeadline) => attributionOf(d).actionable;
   const relevant = deadlines.filter(
     (d) => ACTIVE_STATUSES.has(d.status) || d.status === "SUGGESTED_BY_PROVIDER",
   );
   const notOurs = relevant.filter(
-    (d) => !ownAction(d) && attributionOf(d) !== "DESCONOCIDO",
+    (d) => !ownAction(d) && attributionOf(d).attribution !== "DESCONOCIDO",
   );
-  const unattributed = relevant.filter((d) => attributionOf(d) === "DESCONOCIDO");
+  const unattributed = relevant.filter((d) => attributionOf(d).attribution === "DESCONOCIDO");
 
   const active = deadlines
     .filter((d) => ACTIVE_STATUSES.has(d.status) && d.deadline_date && ownAction(d))
@@ -270,7 +259,7 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
                   {d.deadline_date
                     ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
                     : ""}
-                  <span className="block">{ATTRIBUTION_COPY[attr]}</span>
+                  <span className="block">{attr.statement}</span>
                 </div>
               );
             })}
@@ -283,6 +272,10 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
               <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
               Términos sin parte determinada
             </p>
+            <p className="text-[11px] text-muted-foreground">
+              Indique la calidad en que actúa su cliente en «Términos del expediente» para
+              atribuirlos.
+            </p>
             {unattributed.map((d) => (
               <div key={d.id} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
@@ -291,7 +284,7 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
                 {d.deadline_date
                   ? ` · ${format(new Date(d.deadline_date + "T00:00:00"), "d MMM yyyy", { locale: es })}`
                   : ""}
-                <span className="block">{ATTRIBUTION_COPY.DESCONOCIDO}</span>
+                <span className="block">{attributionOf(d).statement}</span>
               </div>
             ))}
           </div>

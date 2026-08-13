@@ -95,7 +95,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
       if (acts.error) console.error("[linea-procesal] acts", acts.error);
       if (pubs.error) console.error("[linea-procesal] pubs", pubs.error);
 
-      type Ev = { at: string; text: string; source: PhaseReach["source"] };
+      type Ev = { at: string; text: string; source: PhaseReach["source"]; docDate?: string | null };
       const evs: Ev[] = [];
       for (const a of acts.data ?? []) {
         if (a.is_archived) continue;
@@ -107,7 +107,14 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         if (p.is_archived) continue;
         const at = p.fecha_fijacion ?? p.published_at ?? p.created_at;
         if (!at) continue;
-        evs.push({ at, text: `${p.title ?? ""} ${p.annotation ?? ""}`, source: "ESTADO" });
+        // ITER53/B1 — an estado carries TWO dates: its fijación (`at`) and the
+        // date of the providencia it publishes. They are not interchangeable.
+        evs.push({
+          at,
+          text: `${p.title ?? ""} ${p.annotation ?? ""}`,
+          source: "ESTADO",
+          docDate: (p as { fecha_providencia?: string | null }).fecha_providencia ?? null,
+        });
       }
       evs.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
@@ -118,7 +125,13 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         if (!phaseKey) continue;
         latestPhase = phaseKey;
         if (!first.has(phaseKey)) {
-          first.set(phaseKey, { phaseKey, reachedAt: ev.at, source: ev.source });
+          // A phase is reached on the date of the EVENT that reaches it: for an
+          // estado publishing a providencia that is the providencia's own date.
+          first.set(phaseKey, {
+            phaseKey,
+            reachedAt: ev.source === "ESTADO" && ev.docDate ? ev.docDate : ev.at,
+            source: ev.source,
+          });
         }
       }
       const actEvents = evs.filter((e) => e.source === "ACTUACION");
@@ -135,6 +148,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         termEvents: evs.slice(-120).map((e) => ({
           at: e.at,
           text: e.text,
+          docDate: e.docDate ?? null,
           source: e.source === "ESTADO" ? ("ESTADO" as const) : ("ACTUACION" as const),
         })),
       };

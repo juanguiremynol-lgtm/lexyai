@@ -158,3 +158,86 @@ export const ATTRIBUTION_COPY: Record<TermAttribution, string> = {
   DESCONOCIDO:
     "Verifique a quién corresponde este término — indique la calidad en que actúa su cliente.",
 };
+
+/**
+ * ITER53 — ONE attribution, computed once, rendered everywhere.
+ *
+ * Every surface (Acción requerida, Términos del expediente, the unattributed
+ * block) must read the SAME resolution for the same row. Three sections
+ * disagreeing about one term is worse than any of them being silent, and a
+ * chip showing the CLIENT's role next to a term that binds the other party
+ * inverts the meaning of the matter.
+ */
+
+/** Short, term-facing names — never the client's own capacity. */
+const BOUND_PARTY_SHORT: Record<BoundPartyRole, string> = {
+  DEMANDANTE: "demandante",
+  DEMANDADO: "demandado",
+  RECURRENTE: "recurrente",
+  OPOSITOR: "no recurrente",
+  JUEZ: "despacho",
+  AMBAS: "ambas partes",
+  DESCONOCIDO: "parte no determinada",
+};
+
+/**
+ * Bound-party values that were filled by a generic catalogue fallback rather
+ * than by a ratified rule. They state a default, not an attribution, so they
+ * may never present a term as the client's own action (A4).
+ */
+export const UNESTABLISHED_BOUND_SOURCES = new Set(["CATALOGO_GENERICO"]);
+
+export interface TermAttributionInput {
+  boundPartyRole?: string | null;
+  isJudgeSide?: boolean | null;
+  /** How the bound party got onto the row (`work_item_deadlines.bound_party_source`). */
+  boundPartySource?: string | null;
+  /** Attribution frozen on the row when it was created. */
+  storedAttribution?: string | null;
+}
+
+export interface ResolvedTermAttribution {
+  attribution: TermAttribution;
+  boundPartyRole: BoundPartyRole;
+  /** One sentence about WHOSE term it is. Always about the bound party. */
+  statement: string;
+  actionable: boolean;
+  /** True only when the capacity of the client is what blocks the attribution. */
+  needsClientCapacity: boolean;
+}
+
+export function resolveTermAttribution(
+  input: TermAttributionInput,
+  clientRole: ClientPartyRole | null | undefined,
+  represents?: RepresentedParty | null,
+): ResolvedTermAttribution {
+  const bound = normalizeBoundPartyRole(input.boundPartyRole);
+  const judge = input.isJudgeSide === true || bound === "JUEZ";
+  const unestablished =
+    !judge && UNESTABLISHED_BOUND_SOURCES.has((input.boundPartySource ?? "").toUpperCase());
+
+  const stored = typeof input.storedAttribution === "string" ? input.storedAttribution.toUpperCase() : "";
+  let attribution: TermAttribution;
+  if (judge) attribution = "JUEZ";
+  else if (unestablished) attribution = "DESCONOCIDO";
+  else if (stored === "CONTRAPARTE") attribution = "CONTRAPARTE";
+  else if (bound === "DESCONOCIDO") attribution = "DESCONOCIDO";
+  else attribution = attributeTerm(bound, clientRole, { isJudgeSide: false, represents: represents ?? null });
+
+  const actionable = isActionableForClient(attribution);
+  const needsClientCapacity = attribution === "DESCONOCIDO" && !clientRole;
+
+  let statement: string;
+  if (attribution === "JUEZ") statement = ATTRIBUTION_COPY.JUEZ;
+  else if (attribution === "PROPIO") statement = ATTRIBUTION_COPY.PROPIO;
+  else if (attribution === "PROPIO_EN_REPRESENTACION") statement = ATTRIBUTION_COPY.PROPIO_EN_REPRESENTACION;
+  else if (attribution === "CONTRAPARTE")
+    statement = `Término de la contraparte (${BOUND_PARTY_SHORT[bound]}) — informativo, no requiere acción suya.`;
+  else if (bound !== "DESCONOCIDO" && !unestablished)
+    statement = `Término a cargo de ${BOUND_PARTY_ROLE_LABELS[bound]} — confirme la calidad de su cliente para saber si le corresponde.`;
+  else
+    statement =
+      "Parte no determinada — verifique a quién corresponde este término antes de actuar sobre él.";
+
+  return { attribution, boundPartyRole: bound, statement, actionable, needsClientCapacity };
+}
