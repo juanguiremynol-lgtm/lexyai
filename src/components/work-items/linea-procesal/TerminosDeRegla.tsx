@@ -50,7 +50,6 @@ import {
 } from "@/hooks/use-work-item-party-role";
 import {
   ATTRIBUTION_COPY,
-  attributeTerm,
   BOUND_PARTY_ROLE_LABELS,
   CLIENT_PARTY_ROLE_LABELS,
   CLIENT_PARTY_ROLES,
@@ -58,6 +57,7 @@ import {
   type ClientPartyRole,
   type TermAttribution,
 } from "@/lib/workflow-terms/party-attribution";
+import { useTermAttribution } from "@/hooks/use-term-attribution";
 import {
   deriveAlDespachoSuspensions,
   filterRulesToRegimen,
@@ -91,6 +91,8 @@ interface TerminosDeReglaProps {
 type AttributedTerm = SuggestedRuleTerm & {
   attribution: TermAttribution;
   boundPartyLabel: string;
+  /** ITER53 — the single sentence about whose term this is. */
+  statement: string;
 };
 
 export function TerminosDeRegla({
@@ -162,6 +164,8 @@ export function TerminosDeRegla({
   const setRole = useSetWorkItemPartyRole(workItemId);
   const confirmedRole: ClientPartyRole | null =
     partyRole?.source === "CONFIRMADO" ? partyRole.role : null;
+  // ITER53 — one resolver, shared with Acción requerida.
+  const { resolve } = useTermAttribution(workItemId);
 
   const { suggested, awaiting, antinomias } = useMemo(
     () => buildRuleTermSuggestions(scoped, events, awaitingAnchorEvents, { suspensions }),
@@ -176,20 +180,35 @@ export function TerminosDeRegla({
       suggested.map((t) => {
         const rule = ruleById.get(t.ruleId);
         const bound = normalizeBoundPartyRole(rule?.bound_party_role);
+        const resolved = resolve({
+          boundPartyRole: bound,
+          isJudgeSide: rule?.is_judge_side === true,
+          boundPartySource: rule?.bound_party_role ? "REGLA_RATIFICADA" : null,
+        });
         return {
           ...t,
-          attribution: attributeTerm(bound, confirmedRole, {
-            isJudgeSide: rule?.is_judge_side === true,
-          }),
+          attribution: resolved.attribution,
+          statement: resolved.statement,
           boundPartyLabel: BOUND_PARTY_ROLE_LABELS[bound],
         };
       }),
-    [suggested, ruleById, confirmedRole],
+    [suggested, ruleById, resolve],
   );
 
-  const mine = attributed.filter((t) => t.attribution === "PROPIO");
-  const others = attributed.filter((t) => t.attribution === "CONTRAPARTE" || t.attribution === "JUEZ");
-  const unattributed = attributed.filter((t) => t.attribution === "DESCONOCIDO");
+  const mine = attributed.filter(
+    (t) => t.attribution === "PROPIO" || t.attribution === "PROPIO_EN_REPRESENTACION",
+  );
+  // A term already registered on the matter is rendered ONCE. Acción requerida
+  // owns the stored rows; the card only keeps the client's own ones, as the
+  // confirmation receipt of the button that lives here.
+  const others = attributed.filter(
+    (t) =>
+      (t.attribution === "CONTRAPARTE" || t.attribution === "JUEZ") &&
+      !registeredTypes.has(t.deadlineType),
+  );
+  const unattributed = attributed.filter(
+    (t) => t.attribution === "DESCONOCIDO" && !registeredTypes.has(t.deadlineType),
+  );
 
   const confirm = useMutation({
     mutationFn: async (term: AttributedTerm) => {
@@ -322,13 +341,9 @@ export function TerminosDeRegla({
           ) : (
             <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
           )}
-          <span>
-            {ATTRIBUTION_COPY[term.attribution]}
-            {term.attribution === "CONTRAPARTE" ? ` Corresponde a ${term.boundPartyLabel}.` : ""}
-          </span>
+          <span>{term.statement}</span>
         </p>
       )}
-      {tone === "unknown" && <div className="mt-2">{roleSelector}</div>}
 
       {tone === "own" && registeredTypes.has(term.deadlineType) && (
         <p className="mt-2 flex items-center gap-1 text-xs font-medium text-primary">
