@@ -49,7 +49,7 @@ import {
   useWorkItemPartyRole,
 } from "@/hooks/use-work-item-party-role";
 import {
-  ATTRIBUTION_COPY,
+
   BOUND_PARTY_ROLE_LABELS,
   CLIENT_PARTY_ROLE_LABELS,
   CLIENT_PARTY_ROLES,
