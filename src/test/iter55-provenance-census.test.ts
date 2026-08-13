@@ -97,7 +97,7 @@ describe("D — terminal sentinel", () => {
   it("recognises a remisión from the terminal stage plus the vocabulary", () => {
     const v = classifyCpacaTerminal({
       etapa: "Finalizado",
-      acts: [{ title: "Envío a superior", description: "Remisión del expediente al Tribunal" }],
+      act_descriptions: ["Envío a superior — Remisión del expediente al Tribunal"],
     });
     expect(v.klass).toBe("REMISION");
   });
@@ -105,7 +105,7 @@ describe("D — terminal sentinel", () => {
   it("does not call an ordinary termination a remisión", () => {
     const v = classifyCpacaTerminal({
       etapa: "Finalizado",
-      acts: [{ title: "Sentencia ejecutoriada", description: "Archivo definitivo del expediente" }],
+      act_descriptions: ["Sentencia ejecutoriada — archivo definitivo del expediente"],
     });
     expect(v.klass).not.toBe("REMISION");
   });
@@ -113,7 +113,7 @@ describe("D — terminal sentinel", () => {
   it("never fires on a live matter", () => {
     const v = classifyCpacaTerminal({
       etapa: "En trámite",
-      acts: [{ title: "Envío a superior", description: "" }],
+      act_descriptions: ["Envío a superior"],
     });
     expect(v.klass).toBe("NO_TERMINAL");
   });
