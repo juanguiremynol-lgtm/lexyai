@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
       )
       .eq("status", "REQUIERE_REVISION_MANUAL")
       .is("deadline_date", null)
-      .filter("work_item_id", scopedWorkItemId ? "eq" : "not.is", scopedWorkItemId ?? null);
+      .in("work_item_id", scopedWorkItemId ? [scopedWorkItemId] : []);
 
     if (mrErr) throw mrErr;
 
@@ -187,8 +187,7 @@ Deno.serve(async (req) => {
       )
       .eq("status", "PENDING")
       .not("deadline_date", "is", null)
-      .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10))
-      .filter("work_item_id", scopedWorkItemId ? "eq" : "not.is", scopedWorkItemId ?? null);
+      .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10));
 
     if (error) throw error;
 
