@@ -53,6 +53,7 @@ export function UnclassifiedTray() {
         )
         .eq("workflow_type", "INDETERMINADO" as never)
         .eq("status", "ACTIVE")
+        .is("deleted_at", null)
         .order("last_action_date", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as unknown as UnclassifiedRow[];
