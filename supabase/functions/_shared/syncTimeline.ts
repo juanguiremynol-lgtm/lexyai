@@ -32,7 +32,7 @@ export interface SyncTimelineEvent {
   function_name?: string | null;
   adapter_version?: string | null;
   deploy_sha?: string | null;
-  status: "success" | "error" | "empty" | "skipped" | "partial";
+  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected";
   error_code?: string | null;
   error_message?: string | null;
   records_inserted?: number;
@@ -144,23 +144,47 @@ export function withSyncTimeline(
     const errorCode = strOr(parsed?.error_code ?? parsed?.code);
     const errorMsg = strOr(parsed?.error_message ?? parsed?.error);
 
+    // Iteration 62 — a run must never report absence it did not observe.
+    //   rejected        → our own gate refused the call (auth/precondition);
+    //                     no provider was ever contacted.
+    //   pending_upstream→ the provider was still working when we asked.
+    //   skipped         → scraping kicked off; the answer is not in yet.
+    //   empty           → a named provider answered with zero rows.
+    const resultCode = strOr(parsed?.result_code) ?? errorCode;
+    const authRejected =
+      response.status === 401 || response.status === 403 ||
+      errorCode === "UNAUTHORIZED" || errorCode === "FORBIDDEN";
+    const pendingUpstream =
+      parsed?.pending_upstream === true ||
+      resultCode === "PENDING_UPSTREAM" ||
+      strOr(parsed?.status) === "PENDING_UPSTREAM";
+
     let status: SyncTimelineEvent["status"];
-    if (!ok) status = "error";
+    if (authRejected) status = "rejected";
+    else if (pendingUpstream) status = "pending_upstream";
+    else if (!ok) status = "error";
     else if (parsed?.code === "SCRAPING_INITIATED" || parsed?.scraping_initiated) status = "skipped";
-    else if (inserted === 0 && skipped === 0) status = "empty";
-    else status = "success";
+    else if (inserted === 0 && skipped === 0) {
+      // A run that cannot name its provider has no standing to assert "empty".
+      status = provider === "unknown" ? "skipped" : "empty";
+    } else status = "success";
 
     // Fire-and-forget; never block response delivery.
     recordSyncTimelineEvent({
       work_item_id: workItemId,
-      provider,
+      // Never attribute a caller-side rejection to a provider we never called.
+      provider: authRejected ? "none" : provider,
       operation: opts.default_operation,
       function_name: opts.function_name,
       adapter_version: opts.adapter_version ?? null,
       deploy_sha: DEPLOY_SHA,
       status,
-      error_code: ok ? null : (errorCode ?? null),
-      error_message: ok ? null : (errorMsg ?? null),
+      error_code: authRejected
+        ? "CALLER_UNAUTHORIZED"
+        : status === "pending_upstream"
+          ? "PENDING_UPSTREAM"
+          : (status === "skipped" && provider === "unknown" ? "PROVIDER_UNRESOLVED" : (ok ? null : (errorCode ?? null))),
+      error_message: ok && !authRejected ? null : (errorMsg ?? errorCode ?? null),
       records_inserted: inserted,
       records_skipped: skipped,
       latency_ms: latencyMs,

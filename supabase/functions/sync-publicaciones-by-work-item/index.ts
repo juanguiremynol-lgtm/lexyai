@@ -336,12 +336,13 @@ async function writePublicacionesAttemptRow(
   result: any,
   scheduled: boolean | undefined,
   isServiceRole: boolean,
-  outcome: 'success' | 'empty' | 'error',
+  outcome: 'success' | 'empty' | 'error' | 'pending_upstream',
 ): Promise<void> {
   try {
     const invokedBy = (scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
     const status =
       outcome === 'error' ? 'FAILED'
+      : outcome === 'pending_upstream' ? 'PENDING_UPSTREAM'
       : outcome === 'empty' ? 'SUCCESS'
       : 'SUCCESS';
     await supabase.from('external_sync_runs').insert({
@@ -388,6 +389,64 @@ async function writePublicacionesAttemptRow(
         : {},
     });
   } catch (_e) { /* best-effort */ }
+}
+
+/**
+ * Iteration 62 — schedule the estados re-check.
+ *
+ * `pendingUpstream=true` means the provider was still working when we asked
+ * (10-minute cadence, 4 attempts). Otherwise the provider answered and
+ * confirmed no rows, which only warrants the slow 24h re-check.
+ */
+async function schedulePubRecheck(
+  supabase: any,
+  workItemId: string,
+  workItem: any,
+  radicado: string,
+  result: any,
+  pendingUpstream: boolean,
+): Promise<void> {
+  try {
+    const retryDelayMs = pendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const maxAttempts = pendingUpstream ? 4 : 2;
+    const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
+    const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
+      .select('id, attempt, max_attempts')
+      .eq('work_item_id', workItemId)
+      .eq('kind', 'PUB_RETRY')
+      .maybeSingle();
+
+    if (!existingRetry) {
+      await (supabase.from('sync_retry_queue') as any).insert({
+        work_item_id: workItemId,
+        organization_id: workItem?.organization_id,
+        radicado,
+        kind: 'PUB_RETRY',
+        provider: 'publicaciones',
+        attempt: 1,
+        max_attempts: maxAttempts,
+        next_run_at: nextRunAt,
+        last_error_code: pendingUpstream ? 'PENDING_UPSTREAM' : (result?.result_code || 'SUCCESS_EMPTY'),
+        last_error_message: pendingUpstream
+          ? 'Auto-scheduled 10min re-check: upstream was still processing the radicado'
+          : 'Auto-scheduled 24h re-check after empty estados response',
+      });
+      console.log(`[sync-pub] Enqueued PUB_RETRY for ${workItemId} → next_run_at=${nextRunAt}`);
+    } else if (pendingUpstream) {
+      // Pull an existing (slow) re-check forward — the provider is warm now.
+      await (supabase.from('sync_retry_queue') as any)
+        .update({
+          next_run_at: nextRunAt,
+          max_attempts: Math.max(existingRetry.max_attempts ?? 2, maxAttempts),
+          last_error_code: 'PENDING_UPSTREAM',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingRetry.id)
+        .gt('next_run_at', nextRunAt);
+    }
+  } catch (retryErr: any) {
+    console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);
+  }
 }
 
 /**
@@ -1746,6 +1805,21 @@ Deno.serve(withSyncTimeline(async (req) => {
         `samai_raw=${result.samai_estados_summary?.raw_count ?? 'n/a'}`
       );
 
+      // ============= ITERATION 62: NOT-READY IS NOT ABSENCE =============
+      // A provider that is still warming /historico has NOT told us the
+      // matter has no estados. Recording that as EMPTY (and as a coverage
+      // gap) manufactures a false absence that looks like a healthy run.
+      // Return early with an explicit PENDING_UPSTREAM verdict and let the
+      // 10-minute re-check (iteration 54) settle the question.
+      if (result.result_code === 'PENDING_UPSTREAM') {
+        (result as any).status = 'PENDING_UPSTREAM';
+        await writePublicacionesAttemptRow(
+          supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
+        );
+        await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+        return jsonResponse({ ...result, pending_upstream: true }, 200);
+      }
+
       // ============= COVERAGE GAP DETECTION =============
       // Iteration 34 — PROVIDER_NO_DOCUMENT is NOT a coverage gap. The court
       // registered the estado and never uploaded the planilla: the estado
@@ -1962,43 +2036,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // typically finishes within a couple of minutes, so a 24h re-check
       // leaves a brand-new work item with an empty estados tab for a full
       // day. Re-check those in 10 minutes with a longer attempt budget.
-      try {
-        const isPendingUpstream = result.result_code === 'PENDING_UPSTREAM';
-        const retryDelayMs = isPendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
-        const maxAttempts = isPendingUpstream ? 4 : 2;
-        const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
-        const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
-          .select('id, attempt, max_attempts')
-          .eq('work_item_id', work_item_id)
-          .eq('kind', 'PUB_RETRY')
-          .maybeSingle();
-
-        if (!existingRetry) {
-          await (supabase.from('sync_retry_queue') as any).insert({
-            work_item_id,
-            organization_id: workItem.organization_id,
-            radicado: normalizedRadicado,
-            kind: 'PUB_RETRY',
-            provider: 'publicaciones',
-            attempt: 1,
-            max_attempts: maxAttempts,
-            next_run_at: nextRunAt,
-            last_error_code: result.result_code || 'SUCCESS_EMPTY',
-            last_error_message: isPendingUpstream
-              ? 'Auto-scheduled 10min re-check: upstream was still processing the radicado'
-              : 'Auto-scheduled 24h re-check after empty estados response',
-          });
-          console.log(`[sync-pub] Enqueued PUB_RETRY for ${work_item_id} → next_run_at=${nextRunAt}`);
-        } else if (isPendingUpstream) {
-          // Pull an existing (slow) re-check forward — the provider is warm now.
-          await (supabase.from('sync_retry_queue') as any)
-            .update({ next_run_at: nextRunAt, last_error_code: 'PENDING_UPSTREAM', updated_at: new Date().toISOString() })
-            .eq('id', existingRetry.id)
-            .gt('next_run_at', nextRunAt);
-        }
-      } catch (retryErr: any) {
-        console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);
-      }
+      await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, false);
 
       return jsonResponse({
         ...result,

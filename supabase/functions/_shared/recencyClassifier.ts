@@ -37,6 +37,11 @@ export interface RecencyInput {
   window_business_days?: number; // default 3
   /** Explicit sweep/backfill run. Defaults to false (normal daily sync). */
   is_sweep?: boolean;
+  /**
+   * Iteration 62 — the work item held zero acts before this run, so the whole
+   * batch is the matter's history arriving for the first time, never news.
+   */
+  is_initial_load?: boolean;
   run_mode?: string | null;
   now?: Date;
 }
@@ -80,12 +85,12 @@ export function businessDaysBetween(from: Date, to: Date): number {
 export function classifyRecency(input: RecencyInput): DiscoveryType {
   const windowDays = input.window_business_days ?? 3;
   const now = input.now ?? new Date();
-  const sweep = input.is_sweep ?? isSweepRunMode(input.run_mode);
+  const sweep = (input.is_initial_load === true) || (input.is_sweep ?? isSweepRunMode(input.run_mode));
   if (!input.legal_date) return "HISTORICO_DETECTADO";
   const legal = new Date(input.legal_date as string | Date);
   if (isNaN(legal.getTime())) return "HISTORICO_DETECTADO";
   const diff = businessDaysBetween(legal, now);
-  if (diff <= windowDays) return "NOVEDAD";
+  if (diff <= windowDays) return input.is_initial_load === true ? "HISTORICO_DETECTADO" : "NOVEDAD";
   return sweep ? "HISTORICO_DETECTADO" : "ACTUACION_RETROACTIVA";
 }
 
