@@ -16032,6 +16032,7 @@ export type Database = {
           ingest_run_mode_source: string | null
           inicia_termino: string | null
           instancia: string | null
+          instancia_grado: string | null
           is_archived: boolean | null
           is_canonical: boolean | null
           is_future_dated: boolean
@@ -16049,11 +16050,13 @@ export type Database = {
           provider_instance_id: string | null
           raw_data: Json | null
           raw_schema_version: string | null
+          recurso_consecutivo: string | null
           requiere_revision_manual: boolean
           retro_gap_days: number | null
           scrape_date: string | null
           source: string | null
           source_platform: string | null
+          source_radicado: string | null
           source_reference: string | null
           source_url: string | null
           sources: string[] | null
@@ -16092,6 +16095,7 @@ export type Database = {
           ingest_run_mode_source?: string | null
           inicia_termino?: string | null
           instancia?: string | null
+          instancia_grado?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -16109,11 +16113,13 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          recurso_consecutivo?: string | null
           requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
+          source_radicado?: string | null
           source_reference?: string | null
           source_url?: string | null
           sources?: string[] | null
@@ -16152,6 +16158,7 @@ export type Database = {
           ingest_run_mode_source?: string | null
           inicia_termino?: string | null
           instancia?: string | null
+          instancia_grado?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -16169,11 +16176,13 @@ export type Database = {
           provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
+          recurso_consecutivo?: string | null
           requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
+          source_radicado?: string | null
           source_reference?: string | null
           source_url?: string | null
           sources?: string[] | null
@@ -17340,6 +17349,7 @@ export type Database = {
           id: string
           ingest_run_mode: string
           ingest_run_mode_source: string | null
+          instancia_grado: string | null
           is_archived: boolean | null
           is_canonical: boolean | null
           is_future_dated: boolean
@@ -17358,9 +17368,11 @@ export type Database = {
           raw_data: Json | null
           raw_json: Json | null
           raw_schema_version: string | null
+          recurso_consecutivo: string | null
           requiere_revision_manual: boolean
           retro_gap_days: number | null
           source: string
+          source_radicado: string | null
           sources: string[] | null
           tipo_publicacion: string | null
           title: string
@@ -17391,6 +17403,7 @@ export type Database = {
           id?: string
           ingest_run_mode?: string
           ingest_run_mode_source?: string | null
+          instancia_grado?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -17409,9 +17422,11 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          recurso_consecutivo?: string | null
           requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           source?: string
+          source_radicado?: string | null
           sources?: string[] | null
           tipo_publicacion?: string | null
           title: string
@@ -17442,6 +17457,7 @@ export type Database = {
           id?: string
           ingest_run_mode?: string
           ingest_run_mode_source?: string | null
+          instancia_grado?: string | null
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_future_dated?: boolean
@@ -17460,9 +17476,11 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           raw_schema_version?: string | null
+          recurso_consecutivo?: string | null
           requiere_revision_manual?: boolean
           retro_gap_days?: number | null
           source?: string
+          source_radicado?: string | null
           sources?: string[] | null
           tipo_publicacion?: string | null
           title?: string
@@ -19816,6 +19834,7 @@ export type Database = {
           p_act_date: string
           p_party_hint: string
           p_raw_title: string
+          p_recurso?: string
           p_work_item_id: string
         }
         Returns: string
@@ -19831,6 +19850,7 @@ export type Database = {
           p_party_hint: string
           p_pub_date: string
           p_raw_title: string
+          p_recurso?: string
           p_tipo: string
           p_work_item_id: string
         }
@@ -20397,7 +20417,10 @@ export type Database = {
         Returns: undefined
       }
       radicado_base: { Args: { p_radicado: string }; Returns: string }
+      radicado_base21: { Args: { p_rad: string }; Returns: string }
+      radicado_consecutivo: { Args: { p_rad: string }; Returns: string }
       radicado_instance: { Args: { p_radicado: string }; Returns: string }
+      radicado_instancia_grado: { Args: { p_rad: string }; Returns: string }
       recompute_manual_review_deadlines: {
         Args: never
         Returns: {
@@ -20572,6 +20595,7 @@ export type Database = {
         Args: { p_work_item_id: string }
         Returns: boolean
       }
+      work_item_id_for_radicacion: { Args: { p_rad: string }; Returns: string }
       work_item_status_for_lifecycle: {
         Args: {
           p_state: Database["public"]["Enums"]["work_item_lifecycle_state"]
