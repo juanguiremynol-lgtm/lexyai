@@ -17531,6 +17531,97 @@ export type Database = {
           },
         ]
       }
+      work_item_recurso_streams: {
+        Row: {
+          acto_disparador: string | null
+          base_activa_upstream: boolean | null
+          base_lifecycle_state: string | null
+          consecutivo: string
+          created_at: string
+          descubierto_por: string | null
+          despacho: string | null
+          fecha_ultima_actuacion_proveedor: string | null
+          id: string
+          instancia_grado: string
+          last_seen_upstream_at: string
+          organization_id: string | null
+          owner_id: string | null
+          radicado_23: string
+          radicado_base_21: string
+          subscribed_at: string | null
+          subscription_state: string
+          updated_at: string
+          work_item_id: string | null
+          workflow_type_base: string | null
+        }
+        Insert: {
+          acto_disparador?: string | null
+          base_activa_upstream?: boolean | null
+          base_lifecycle_state?: string | null
+          consecutivo: string
+          created_at?: string
+          descubierto_por?: string | null
+          despacho?: string | null
+          fecha_ultima_actuacion_proveedor?: string | null
+          id?: string
+          instancia_grado: string
+          last_seen_upstream_at?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          radicado_23: string
+          radicado_base_21: string
+          subscribed_at?: string | null
+          subscription_state: string
+          updated_at?: string
+          work_item_id?: string | null
+          workflow_type_base?: string | null
+        }
+        Update: {
+          acto_disparador?: string | null
+          base_activa_upstream?: boolean | null
+          base_lifecycle_state?: string | null
+          consecutivo?: string
+          created_at?: string
+          descubierto_por?: string | null
+          despacho?: string | null
+          fecha_ultima_actuacion_proveedor?: string | null
+          id?: string
+          instancia_grado?: string
+          last_seen_upstream_at?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          radicado_23?: string
+          radicado_base_21?: string
+          subscribed_at?: string | null
+          subscription_state?: string
+          updated_at?: string
+          work_item_id?: string | null
+          workflow_type_base?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_reminders: {
         Row: {
           cadence_business_days: number
