@@ -193,6 +193,10 @@ export function canonicalActFingerprint(input: {
   party_hint: string | null;
   /** Legacy alias — merged with `actuacion` if that field is empty. */
   description?: string | null;
+  /** ITER59 — consecutivo del recurso of the stream that produced the act.
+   *  Only a NON-"00" consecutivo participates in identity, so first-instance
+   *  fingerprints stay byte-identical to every hash already stored. */
+  recurso_consecutivo?: string | null;
 }): string {
   const wi = normalizeWorkItemId(input.work_item_id);
   const date = normalizeDate(input.act_date);
@@ -200,7 +204,16 @@ export function canonicalActFingerprint(input: {
   const title = normalizeTitle(rawTitle);
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
-  return `wi_${wi}_${simpleHash(`act|${wi}|${date}|${title}${suffix}`)}`;
+  const recurso = recursoDiscriminator(input.recurso_consecutivo);
+  return `wi_${wi}_${simpleHash(`act|${wi}|${date}|${title}${suffix}${recurso}`)}`;
+}
+
+/** ITER59 — `|r:NN` only for a recurso stream. "00"/null contribute nothing. */
+export function recursoDiscriminator(consecutivo: string | null | undefined): string {
+  if (!consecutivo) return "";
+  const c = String(consecutivo).trim().padStart(2, "0");
+  if (!/^\d{2}$/.test(c) || c === "00") return "";
+  return `|r:${c}`;
 }
 
 /** Canonical, source-agnostic fingerprint for a work_item_publicaciones row.
@@ -221,6 +234,8 @@ export function canonicalPubFingerprint(input: {
   /** Required — pass `null` if not available. Prevents silent divergence. */
   party_hint: string | null;
   description?: string | null;
+  /** ITER59 — see `canonicalActFingerprint`. */
+  recurso_consecutivo?: string | null;
 }): string {
   const wi = normalizeWorkItemId(input.work_item_id);
   const date = normalizeDate(input.pub_date);
@@ -228,5 +243,6 @@ export function canonicalPubFingerprint(input: {
   const title = normalizeTitle(rawTitle);
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
-  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${title}${suffix}`)}`;
+  const recurso = recursoDiscriminator(input.recurso_consecutivo);
+  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${title}${suffix}${recurso}`)}`;
 }

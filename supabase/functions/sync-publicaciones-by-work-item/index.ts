@@ -2035,6 +2035,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         work_item_id,
         organization_id: workItem.organization_id,
         source: (pub as any)._source_provider || 'publicaciones',
+        source_radicado: workItem.radicado ?? null,
       });
       const fingerprint = canonicalRow.hash_fingerprint;
 

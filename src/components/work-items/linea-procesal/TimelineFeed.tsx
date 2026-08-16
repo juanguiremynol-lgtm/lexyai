@@ -87,6 +87,11 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
               const attachmentCount =
                 e.kind === "ESTADO" && typeof meta.attachment_count === "number" ? meta.attachment_count : 1;
               const isDerived = meta.desfijacion_source === "DERIVED_NEXT_BUSINESS_DAY";
+              // ITER59 — one work item, two provider streams: the reader must
+              // see which court produced each fact.
+              const isSegunda = meta.instancia_grado === "SEGUNDA";
+              const streamRadicado =
+                typeof meta.source_radicado === "string" ? meta.source_radicado : null;
               const title =
                 e.kind === "TERMINO"
                   ? formatDeadlineLabel(
@@ -114,6 +119,19 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
                         ? format(new Date(e.occurred_at), "d MMM yyyy", { locale: es })
                         : "sin fecha"}
                     </span>
+                    {isSegunda && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px]"
+                        title={
+                          streamRadicado
+                            ? `Radicación del recurso: ${streamRadicado}`
+                            : "Actuación del superior"
+                        }
+                      >
+                        Segunda instancia
+                      </Badge>
+                    )}
                   </div>
                   <p
                     className={cn("mt-0.5 text-sm", e.kind === "CORREO" && "font-medium")}

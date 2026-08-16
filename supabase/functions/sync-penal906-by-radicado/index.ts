@@ -503,6 +503,7 @@ Deno.serve(async (req) => {
           scrape_date: scrapeDate,
           despacho: fetchResult.proceso?.["Despacho"] || null,
           source: "cpnu",
+          source_radicado: workItem.radicado ?? null,
         },
       );
       const eventDate = canonicalAct.act_date;

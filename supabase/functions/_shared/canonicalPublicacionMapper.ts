@@ -39,6 +39,7 @@
 
 import { canonicalPubFingerprint, resolvePartyHint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
+import { resolveProviderLinkage } from "./recursoStreams.ts";
 
 // ───────────────────────── date / string helpers ─────────────────────────
 
@@ -317,6 +318,8 @@ export interface CanonicalPubContext {
   organization_id: string | null;
   /** Provider key that produced the unit — decides SAMAI date semantics. */
   source?: string;
+  /** ITER59 — 23-digit radicación of the stream that produced the unit. */
+  source_radicado?: string | null;
 }
 
 /** Exactly the payload shape accepted by `rpc_upsert_work_item_publicaciones`. */
@@ -340,6 +343,9 @@ export interface CanonicalPubRow {
   date_confidence: string;
   raw_schema_version: string;
   sources: string[];
+  source_radicado: string | null;
+  recurso_consecutivo: string | null;
+  instancia_grado: string | null;
 }
 
 function isoAtNoon(d: string | null): string | null {
@@ -379,6 +385,12 @@ export function toCanonicalPubRow(
     ? samaiProvidenciaDate
     : (effectiveEstadoDate || parsedFecha);
 
+  // ITER59 — which provider stream (…00 origin / …01 recurso) produced this.
+  const linkage = resolveProviderLinkage(
+    (unit.raw_data ?? unit) as Record<string, unknown>,
+    ctx.source_radicado ?? null,
+  );
+
   const hash_fingerprint = canonicalPubFingerprint({
     work_item_id: ctx.work_item_id,
     pub_date: identityDate,
@@ -386,6 +398,7 @@ export function toCanonicalPubRow(
     title,
     // ONE shared resolver — never a local field list (iteration 26).
     party_hint: unit.parte ?? resolvePartyHint(unit.raw_data) ?? null,
+    recurso_consecutivo: linkage.consecutivo,
   });
 
   const dateSource = parsedFecha
@@ -421,6 +434,9 @@ export function toCanonicalPubRow(
       null,
       "publicaciones",
     ),
+    source_radicado: linkage.radicacion,
+    recurso_consecutivo: linkage.consecutivo,
+    instancia_grado: linkage.instancia,
   };
 }
 
@@ -437,7 +453,14 @@ export function mapProviderPayloadToCanonicalPubRows(
  * `bridge-reconcile` uses this on both sides of the comparison.
  */
 export function canonicalPubIdentityFromRow(
-  row: { fecha_fijacion?: string | null; published_at?: string | null; tipo_publicacion?: string | null; title?: string | null; raw_data?: any },
+  row: {
+    fecha_fijacion?: string | null;
+    published_at?: string | null;
+    tipo_publicacion?: string | null;
+    title?: string | null;
+    raw_data?: any;
+    recurso_consecutivo?: string | null;
+  },
   workItemId: string,
 ): string {
   return canonicalPubFingerprint({
@@ -447,6 +470,8 @@ export function canonicalPubIdentityFromRow(
     title: row.title ?? null,
     party_hint: (row.raw_data as any)?.parte ?? resolvePartyHint((row.raw_data as any)?.raw_data)
       ?? resolvePartyHint(row.raw_data) ?? null,
+    recurso_consecutivo:
+      row.recurso_consecutivo ?? (row.raw_data as any)?.consecutivo_recurso ?? null,
   });
 }
 

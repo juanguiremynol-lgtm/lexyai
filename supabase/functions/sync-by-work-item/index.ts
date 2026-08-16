@@ -21,6 +21,7 @@ import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
+import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
@@ -889,6 +890,7 @@ function generateFingerprint(
   _anotacion?: string,
   _instancia?: string,
   partyHint?: string | null,
+  recursoConsecutivo?: string | null,
 ): string {
   // Delegate to source-agnostic canonical fingerprint so all write paths
   // (edge functions + shared adapters) produce identical hashes. Includes
@@ -898,6 +900,7 @@ function generateFingerprint(
     act_date: date || null,
     actuacion: text,
     party_hint: partyHint ?? null,
+    recurso_consecutivo: recursoConsecutivo ?? null,
   });
 }
 
@@ -2682,7 +2685,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     const { data: existingActsForDedup } = await supabase
       .from('work_item_acts')
-      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source')
+      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo')
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
@@ -2698,7 +2701,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     for (const a of existingActsForDedup || []) {
       const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
       const fechaReg = (a as any).fecha_registro_source || '';
-      const key = `${a.act_date || ''}|${descOnly}|${fechaReg}`;
+      // ITER59 — the stream is part of the semantic key: the same title on the
+      // same day at the origin court and at the superior are two facts.
+      const recurso = (a as any).recurso_consecutivo || '00';
+      const key = `${a.act_date || ''}|${descOnly}|${fechaReg}|${recurso}`;
       // Prefer the row that already has an anotacion so we don't overwrite it later.
       const prev = existingSemanticMap.get(key);
       const currAnot = String(((a as any).raw_data?.anotacion) || '');
@@ -2813,7 +2819,11 @@ Deno.serve(withSyncTimeline(async (req) => {
       const partyHint = (act as any)?.parte
         ?? (act as any)?.raw_data?.parte
         ?? null;
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint);
+      // ITER59 — which provider stream produced this act. A recurso stream
+      // (…01) belongs to the SAME work item but is a distinct fact: the
+      // superior's "Fijacion Estado" is not the origin court's.
+      const linkage = resolveProviderLinkage(act as any, workItem.radicado ?? null);
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint, linkage.consecutivo);
 
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
@@ -2874,7 +2884,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Catches SAMAI variants where annotation text differs slightly
       // BUT preserves records with same date+title when fecha_registro differs
       const fechaRegistroVal = act.fecha_registro || '';
-      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}`;
+      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}|${linkage.consecutivo ?? '00'}`;
       if (existingSemanticSet.has(semanticKey)) {
         // ── ANOTACION BACKFILL ──
         // Existing row was persisted before samai-read-api served the full
@@ -3015,6 +3025,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
           instancia: act.instancia || null,
+          source_radicado: linkage.radicacion,
+          recurso_consecutivo: linkage.consecutivo ?? '00',
+          instancia_grado: linkage.instancia,
           fecha_registro_source: act.fecha_registro || null,
           inicia_termino: act.fecha_inicia_termino || null,
           raw_data: rawDataPayload,
