@@ -185,6 +185,36 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter62_reclass_report: {
+        Row: {
+          captured_at: string
+          error_code: string | null
+          id: string
+          n: number | null
+          phase: string
+          provider: string | null
+          status: string | null
+        }
+        Insert: {
+          captured_at?: string
+          error_code?: string | null
+          id?: string
+          n?: number | null
+          phase: string
+          provider?: string | null
+          status?: string | null
+        }
+        Update: {
+          captured_at?: string
+          error_code?: string | null
+          id?: string
+          n?: number | null
+          phase?: string
+          provider?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string
@@ -20342,6 +20372,10 @@ export type Database = {
         Returns: boolean
       }
       has_business_tier: { Args: { _org_id: string }; Returns: boolean }
+      has_completed_estados_read: {
+        Args: { p_work_item_id: string }
+        Returns: boolean
+      }
       has_org_role: {
         Args: {
           _org_id: string
