@@ -142,6 +142,23 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
       ],
     },
   },
+  // EJECUTIVO — ordinary civil jurisdiction, identical chain to CGP
+  // (iteration 32 routing). Missing here it produced zero provider attempts
+  // and a spurious TIMEOUT on every executive matter.
+  EJECUTIVO: {
+    ACTUACIONES: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+  },
   PETICION: {
     ACTUACIONES: { executionMode: "CHAIN", providers: [] },
     ESTADOS: { executionMode: "CHAIN", providers: [] },
