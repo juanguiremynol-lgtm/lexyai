@@ -5,6 +5,7 @@ import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constant
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
 import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
+import { resolveMonitoringOffReason } from "@/lib/monitoring-reason";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
@@ -145,11 +146,15 @@ export function useCreateWorkItem() {
         description: data.description || null,
         source_reference: data.source_reference || null,
         
-        // Defaults
+        // Defaults. Monitoring is derived from the canonical invariant so a
+        // provider-eligible workflow without a radicado is explicitly marked
+        // PENDIENTE_DE_RADICACION instead of silently unmonitored.
         is_flagged: false,
-        monitoring_enabled: data.workflow_type === 'CGP' || data.workflow_type === 'CPACA' || data.workflow_type === 'LABORAL' || data.workflow_type === 'PENAL_906' || data.workflow_type === 'TUTELA',
+        monitoring_enabled: monitoringOffReason === null,
+        monitoring_disabled_reason: monitoringOffReason,
         email_linking_enabled: true,
       };
+
 
       const { data: workItem, error } = await supabase
         .from("work_items")
