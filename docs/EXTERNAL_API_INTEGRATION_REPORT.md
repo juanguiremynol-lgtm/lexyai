@@ -312,3 +312,20 @@ GET  /expediente/{tutelaCode}          # Synchronous lookup
 POST /search { radicado: tutelaCode }  # Async scraping job
 GET  /job/{jobId}                      # Poll job result
 ```
+
+## ITER62 — Field request to GCP: `ubicacion_expediente`
+
+Status: **OPEN — awaiting upstream field**. Do NOT infer, derive or work around it.
+
+Observation: the CPNU portal itself displays "Ubicación del Expediente: Software:
+Justicia XXI Web" for matters where our `claseProveedor` block returns
+`ubicacion_expediente = null`. The provider therefore holds the value; the
+contract simply does not carry it.
+
+Our position:
+- We keep the field NULL until GCP supplies it explicitly in the contract.
+- No heuristic, no scrape-side reconstruction, no default string. An absent
+  field asserts nothing (same rule as coverage windows, privacy state and
+  incomplete reads).
+- Requested of GCP: expose `ubicacion_expediente` verbatim in the
+  `claseProveedor` block, with its own observation timestamp.

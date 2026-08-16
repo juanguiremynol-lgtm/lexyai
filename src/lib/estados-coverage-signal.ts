@@ -22,7 +22,8 @@ export type EstadosSignalClass =
   | "ESTADO_SIN_DOCUMENTO"
   | "REMITIDO_A_SUPERIOR"
   | "APELACION_EN_SUPERIOR"
-  | "PROCESO_PRIVADO";
+  | "PROCESO_PRIVADO"
+  | "LECTURA_NO_CONCLUYENTE";
 
 /**
  * Iteration 35 — how much a coverage-window edge is worth as evidence.
@@ -107,7 +108,32 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
   APELACION_EN_SUPERIOR: "Apelación en el superior — fuera del alcance de la fuente",
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
+  LECTURA_NO_CONCLUYENTE: "Lectura no concluyente",
 };
+
+/**
+ * ITER62 — a read that never completed asserts nothing. Only a completed
+ * provider answer may feed a coverage verdict; PENDING_UPSTREAM,
+ * PROVIDER_UNRESOLVED and CALLER_UNAUTHORIZED reads are withheld, not empty.
+ */
+export type EstadosReadOutcome =
+  | "COMPLETED"
+  | "PENDING_UPSTREAM"
+  | "PROVIDER_UNRESOLVED"
+  | "CALLER_UNAUTHORIZED";
+
+/** Mirror of the SQL helper `has_completed_estados_read`. */
+export function isCompletedProviderRead(
+  read: { status?: string | null; provider?: string | null; error_code?: string | null } | null | undefined,
+): boolean {
+  if (!read) return false;
+  const status = (read.status ?? "").toLowerCase();
+  const provider = (read.provider ?? "unknown").toLowerCase();
+  const code = (read.error_code ?? "").toUpperCase();
+  if (!["success", "empty"].includes(status)) return false;
+  if (["unknown", "none", ""].includes(provider)) return false;
+  return !["PENDING_UPSTREAM", "PROVIDER_UNRESOLVED", "CALLER_UNAUTHORIZED"].includes(code);
+}
 
 export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
   CUBIERTO:
@@ -128,6 +154,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "El recurso se concedió y el expediente subió al superior, pero el proceso sigue vivo en el despacho de origen. La fuente de estados deriva el despacho del prefijo del radicado, de modo que la actividad de segunda instancia no es visible por esta vía: no es silencio del despacho, es un límite del contrato de la fuente. Debe revisarse directamente en el despacho de segunda instancia.",
   PROCESO_PRIVADO:
     "La Rama Judicial marca este proceso como privado y no expone su detalle: la búsqueda lo devuelve con la leyenda «--- [ PROCESO PRIVADO ] ---» y el detalle responde «No se puede ver el detalle de un proceso privado». La causa de la marca no está declarada por el proveedor y nosotros no la interpretamos. Es una marca por proceso y puede cambiar de un día para otro. Mientras esté marcado, el silencio no se cuenta como falla de cobertura y el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
+  LECTURA_NO_CONCLUYENTE:
+    "La fuente de estados todavía no ha entregado una respuesta completa para este expediente: la última lectura quedó pendiente en el proveedor, no pudo resolver la fuente o fue rechazada en nuestra propia puerta de entrada. Una lectura incompleta no afirma nada, de modo que no se emite un veredicto de cobertura ni se genera alerta hasta que exista una respuesta completa del proveedor.",
 };
 
 export function estadosSignalTone(cls: EstadosSignalClass): string {
@@ -148,6 +176,8 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
       return "border-violet-500/50 text-violet-600";
     case "APELACION_EN_SUPERIOR":
       return "border-orange-500/60 text-orange-600";
+    case "LECTURA_NO_CONCLUYENTE":
+      return "border-slate-400/50 text-slate-500";
     case "PROCESO_PRIVADO":
       return "border-slate-500/50 text-slate-600";
     default:
