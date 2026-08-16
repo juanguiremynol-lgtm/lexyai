@@ -19,6 +19,7 @@
 import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 import { extractRunProvenance } from "./runProvenance.ts";
+import { resolveProviderLinkage } from "./recursoStreams.ts";
 
 export interface ProviderActUnit {
   actuacion: string;
@@ -54,6 +55,9 @@ export interface CanonicalActContext {
   despacho?: string | null;
   /** YYYY-MM-DD; defaults to today (UTC). */
   scrape_date?: string;
+  /** ITER59 — the 23-digit radicación of the stream being ingested. A recurso
+   *  stream (…01) lands in the SAME work item as its base process (…00). */
+  source_radicado?: string | null;
 }
 
 export interface CanonicalActRow {
@@ -76,6 +80,9 @@ export interface CanonicalActRow {
   date_confidence: string;
   raw_schema_version: string;
   instancia: string | null;
+  source_radicado: string | null;
+  recurso_consecutivo: string | null;
+  instancia_grado: string | null;
   fecha_registro_source: string | null;
   inicia_termino: string | null;
   raw_data: Record<string, unknown>;
@@ -130,6 +137,9 @@ export function toCanonicalActRow(
   const sourceList = normalizeSourceList(rawSource, unit._consolidated_sources ?? null, "cpnu");
   const dateSource = actDate ? "api_explicit" : "inferred_sync";
 
+  // ITER59 — one place resolves which provider stream this fact came from.
+  const linkage = resolveProviderLinkage(unit, ctx.source_radicado ?? null);
+
   const rawData: Record<string, unknown> = {
     actuacion: unit.actuacion,
     anotacion: unit.anotacion ?? null,
@@ -142,6 +152,11 @@ export function toCanonicalActRow(
     fecha_inicia_termino: unit.fecha_inicia_termino ?? null,
     fecha_finaliza_termino: unit.fecha_finaliza_termino ?? null,
   };
+  rawData.radicacion = linkage.radicacion;
+  rawData.radicacion_base = linkage.base21;
+  rawData.consecutivo_recurso = linkage.consecutivo;
+  rawData.instancia_grado = linkage.instancia;
+  if (linkage.conflict) rawData.linkage_conflict = true;
   // ITER55 A1 — carry the provider's own run provenance verbatim. The DB
   // trigger reads it from raw_data and only falls back to our 30-minute
   // window when it is absent. NULL stays NULL (UNKNOWN), never a guess.
@@ -172,6 +187,7 @@ export function toCanonicalActRow(
       act_date: actDate,
       actuacion: description,
       party_hint: unit.parte ?? null,
+      recurso_consecutivo: linkage.consecutivo,
     }),
     scrape_date: ctx.scrape_date || new Date().toISOString().slice(0, 10),
     despacho: ctx.despacho ?? unit.nombre_despacho ?? null,
@@ -181,6 +197,9 @@ export function toCanonicalActRow(
       ? "cpnu_v2"
       : actSource === "samai" ? "samai_2026_02" : `${actSource}_v1`,
     instancia: unit.instancia ?? null,
+    source_radicado: linkage.radicacion,
+    recurso_consecutivo: linkage.consecutivo,
+    instancia_grado: linkage.instancia,
     fecha_registro_source: unit.fecha_registro ?? null,
     inicia_termino: unit.fecha_inicia_termino ?? null,
     raw_data: rawData,
@@ -189,7 +208,12 @@ export function toCanonicalActRow(
 
 /** Identity of a stored `work_item_acts` row, recomputed from the row itself. */
 export function canonicalActIdentityFromRow(
-  row: { act_date?: string | null; description?: string | null; raw_data?: any },
+  row: {
+    act_date?: string | null;
+    description?: string | null;
+    raw_data?: any;
+    recurso_consecutivo?: string | null;
+  },
   workItemId: string,
 ): string {
   return canonicalActFingerprint({
@@ -197,5 +221,7 @@ export function canonicalActIdentityFromRow(
     act_date: row.act_date ?? null,
     actuacion: row.description ?? null,
     party_hint: (row.raw_data as any)?.parte ?? null,
+    recurso_consecutivo:
+      row.recurso_consecutivo ?? (row.raw_data as any)?.consecutivo_recurso ?? null,
   });
 }
