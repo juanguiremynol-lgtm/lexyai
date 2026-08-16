@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.gcp-lifecycle-broadcaster]
 verify_jwt = false
 
+[functions.subscribe-superior-instances]
+verify_jwt = false
+
 [functions.crawl-rama-judicial]
 verify_jwt = false
 
