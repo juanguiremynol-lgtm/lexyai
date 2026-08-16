@@ -402,6 +402,26 @@ export const UPSTREAM_ENDPOINTS: readonly UpstreamEndpoint[] = [
     resolvesOn: ROUTE_EXISTS,
   },
   {
+    /**
+     * ITER60 (A) — enumeración de instancias de recurso (llaves de 23 dígitos)
+     * descubiertas por GCP y aún sin suscribir. Vive en cpnu-https-jobs, NO en
+     * cpnu-read-api ni en andromeda-read-api: probado 2026-08-16, ambos
+     * responden 404 y el job responde 200 con `{success, total, instancias}`.
+     */
+    key: "cpnu.instancias_sin_suscribir",
+    host: "cpnu_jobs",
+    method: "GET",
+    path: "/instancias/sin-suscribir",
+    purpose:
+      "Instancias de recurso (radicados de 23 dígitos) detectadas upstream y sin suscripción en Andromeda",
+    resolvesOn: ROUTE_EXISTS,
+    assertSuccess: (b) => {
+      const r = b as Record<string, unknown> | null;
+      if (r && (Array.isArray(r.instancias) || typeof r.total === "number")) return true;
+      return envelopeOk(b);
+    },
+  },
+  {
     key: "andromeda.lifecycle",
     host: "andromeda_read",
     method: "POST",
