@@ -230,12 +230,11 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ACTUACIONES: new Set(["CPNU"]),
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
-};
-
-// EJECUTIVO shares the ordinary-jurisdiction connectors with CGP.
-COMPATIBLE_CONNECTORS.EJECUTIVO = {
-  ACTUACIONES: new Set(["CPNU"]),
-  ESTADOS: new Set(["PUBLICACIONES"]),
+  // EJECUTIVO shares the ordinary-jurisdiction connectors with CGP.
+  EJECUTIVO: {
+    ACTUACIONES: new Set(["CPNU"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
+  },
 };
 
 /**
