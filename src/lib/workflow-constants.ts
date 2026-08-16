@@ -370,5 +370,15 @@ export function getStageLabel(workflowType: WorkflowType, stage: string, cgpPhas
  * Check if a workflow type uses 23-digit radicado
  */
 export function workflowUsesRadicado(workflowType: WorkflowType): boolean {
-  return workflowType === 'CGP' || workflowType === 'CPACA' || workflowType === 'TUTELA' || workflowType === 'LABORAL' || workflowType === 'PENAL_906';
+  // Must cover every provider-eligible workflow. Iteration 61: EJECUTIVO was
+  // missing here, so its wizard skipped the radicado step entirely and the
+  // number the user typed never reached the row.
+  return (
+    workflowType === 'CGP' ||
+    workflowType === 'CPACA' ||
+    workflowType === 'TUTELA' ||
+    workflowType === 'LABORAL' ||
+    workflowType === 'PENAL_906' ||
+    workflowType === 'EJECUTIVO'
+  );
 }

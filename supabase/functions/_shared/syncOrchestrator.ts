@@ -1150,7 +1150,8 @@ export async function orchestrateSync(
     });
     const persistedZeroDespiteFeed = feedHadData && totalInsertedActs === 0;
     let status: SyncRunResult["status"];
-    if (hasSuccess && !hasErrors) status = "SUCCESS";
+    if (allAttempts.length === 0) status = "FAILED";
+    else if (hasSuccess && !hasErrors) status = "SUCCESS";
     else if (hasSuccess) status = "PARTIAL";
     else if (allAttempts.every((a) => a.status === "timeout")) status = "TIMEOUT";
     else status = "FAILED";
@@ -1166,10 +1167,14 @@ export async function orchestrateSync(
       totalInsertedPubs,
       totalSkippedPubs,
       providerAttempts: allAttempts,
-      errorCode: persistedZeroDespiteFeed ? "PERSIST_MISMATCH" : null,
-      errorMessage: persistedZeroDespiteFeed
-        ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
-        : null,
+      errorCode: allAttempts.length === 0
+        ? "NO_PROVIDER_ROUTE"
+        : (persistedZeroDespiteFeed ? "PERSIST_MISMATCH" : null),
+      errorMessage: allAttempts.length === 0
+        ? `No provider was queried for workflow ${ctx.workflowType} — coverage matrix has no compatible route.`
+        : (persistedZeroDespiteFeed
+          ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
+          : null),
       durationMs: Date.now() - startTime,
       foundStatus: overallFoundStatus,
     };

@@ -33,6 +33,8 @@ import { ActuacionesTable } from "./ActuacionesTable";
 import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
 import { AlertCircle } from "lucide-react";
+import { resolveActsEmptyState } from "@/lib/monitoring-reason";
+import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 
 interface ActsTabProps {
   workItem: WorkItem & { _source?: string };
@@ -193,6 +195,13 @@ export function ActsTab({ workItem }: ActsTabProps) {
   }
 
   if (!acts || acts.length === 0) {
+    const emptyState = resolveActsEmptyState({
+      workflowType: workItem.workflow_type,
+      radicado: workItem.radicado,
+      monitoringEnabled: (workItem as any).monitoring_enabled,
+      monitoringDisabledReason: (workItem as any).monitoring_disabled_reason ?? null,
+      lastSyncedAt: workItem.last_synced_at ?? null,
+    });
     return (
       <div className="space-y-4">
         {apiError && (
@@ -210,13 +219,25 @@ export function ActsTab({ workItem }: ActsTabProps) {
         <Card>
           <CardContent className="py-12">
             <div className="text-center">
-              <div className="text-4xl mb-4">📭</div>
-              <h3 className="font-semibold mb-2">No se han encontrado actuaciones para este asunto</h3>
+              <div className="text-4xl mb-4">{emptyState.showAddRadicado ? "🔎" : "📭"}</div>
+              <h3 className="font-semibold mb-2">{emptyState.title}</h3>
               <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                Las actuaciones aparecerán automáticamente cuando los sistemas judiciales
-                registren movimientos en este proceso.
+                {emptyState.description}
               </p>
-              {workItem.last_synced_at && (
+              {emptyState.showAddRadicado && (
+                <div className="mt-6 flex justify-center">
+                  <AddRadicadoInline
+                    workItemId={workItem.id}
+                    currentRadicado={workItem.radicado ?? null}
+                    workflowType={workItem.workflow_type as any}
+                    onUpdate={() => {
+                      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+                      queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
+                    }}
+                  />
+                </div>
+              )}
+              {emptyState.kind === "CONSULTADO_SIN_RESULTADOS" && workItem.last_synced_at && (
                 <p className="text-xs text-muted-foreground mt-4">
                   Última búsqueda: {new Date(workItem.last_synced_at).toLocaleDateString("es-CO", {
                     timeZone: "America/Bogota",
