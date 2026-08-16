@@ -20,6 +20,7 @@ import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 import { extractRunProvenance } from "./runProvenance.ts";
 import { resolveProviderLinkage } from "./recursoStreams.ts";
+import { documentosObserved, normalizeActDocumentos, type ActDocumento } from "./actDocumentos.ts";
 
 export interface ProviderActUnit {
   actuacion: string;
@@ -85,6 +86,9 @@ export interface CanonicalActRow {
   instancia_grado: string | null;
   fecha_registro_source: string | null;
   inicia_termino: string | null;
+  /** ITER60 — CPNU act-level documents. `null` = not observed, `[]` = none. */
+  documentos: ActDocumento[] | null;
+  documentos_observados_en: string | null;
   raw_data: Record<string, unknown>;
 }
 
@@ -139,6 +143,11 @@ export function toCanonicalActRow(
 
   // ITER59 — one place resolves which provider stream this fact came from.
   const linkage = resolveProviderLinkage(unit, ctx.source_radicado ?? null);
+  // ITER60 — documents are resolved in exactly one place too.
+  const documentos = normalizeActDocumentos(unit.documentos);
+  const documentosObservedAt = documentosObserved(unit.documentos)
+    ? new Date().toISOString()
+    : null;
 
   const rawData: Record<string, unknown> = {
     actuacion: unit.actuacion,
@@ -190,7 +199,9 @@ export function toCanonicalActRow(
       recurso_consecutivo: linkage.consecutivo,
     }),
     scrape_date: ctx.scrape_date || new Date().toISOString().slice(0, 10),
-    despacho: ctx.despacho ?? unit.nombre_despacho ?? null,
+    // ITER60 — the act's OWN despacho wins: a second-instance act is produced
+    // by the superior, not by the despacho the work item is bound to.
+    despacho: unit.nombre_despacho ?? linkage.despacho ?? ctx.despacho ?? null,
     date_source: dateSource,
     date_confidence: DATE_CONFIDENCE[dateSource] || "low",
     raw_schema_version: actSource === "cpnu"
@@ -202,6 +213,8 @@ export function toCanonicalActRow(
     instancia_grado: linkage.instancia,
     fecha_registro_source: unit.fecha_registro ?? null,
     inicia_termino: unit.fecha_inicia_termino ?? null,
+    documentos,
+    documentos_observados_en: documentosObservedAt,
     raw_data: rawData,
   };
 }

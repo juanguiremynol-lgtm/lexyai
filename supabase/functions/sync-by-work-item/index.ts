@@ -22,6 +22,7 @@ import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
+import { documentosObserved, normalizeActDocumentos } from "../_shared/actDocumentos.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
@@ -3020,7 +3021,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           sources: consolidatedSources && consolidatedSources.length > 1 ? consolidatedSources : [actSource],
           hash_fingerprint: fingerprint,
           scrape_date: new Date().toISOString().split('T')[0],
-          despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
+          // ITER60 — act-level despacho first: a second-instance act is
+          // produced by the superior, not by the work item's origin despacho.
+          despacho: act.nombre_despacho || linkage.despacho || fetchResult.caseMetadata?.despacho || null,
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
@@ -3030,6 +3033,11 @@ Deno.serve(withSyncTimeline(async (req) => {
           instancia_grado: linkage.instancia,
           fecha_registro_source: act.fecha_registro || null,
           inicia_termino: act.fecha_inicia_termino || null,
+          // ITER60 — CPNU act-level documents (null = not observed, [] = none).
+          documentos: normalizeActDocumentos((act as any).documentos),
+          documentos_observados_en: documentosObserved((act as any).documentos)
+            ? new Date().toISOString()
+            : null,
           raw_data: rawDataPayload,
         }]),
       });
