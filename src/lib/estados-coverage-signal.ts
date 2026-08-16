@@ -110,6 +110,8 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
 };
 
+ESTADOS_SIGNAL_LABEL.LECTURA_NO_CONCLUYENTE = "Lectura no concluyente";
+
 /**
  * ITER62 — a read that never completed asserts nothing. Only a completed
  * provider answer may feed a coverage verdict; PENDING_UPSTREAM,
