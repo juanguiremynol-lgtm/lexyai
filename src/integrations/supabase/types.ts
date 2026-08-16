@@ -19622,6 +19622,10 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      act_is_apelacion_concedida: {
+        Args: { p_act_type: string; p_description: string }
+        Returns: boolean
+      }
       act_is_fijacion_estado: {
         Args: { p_act_type: string; p_description: string }
         Returns: boolean
@@ -20026,6 +20030,7 @@ export type Database = {
         Args: { p_subject: string; p_subtype: string; p_workflow: string }
         Returns: string
       }
+      emit_appellate_blindspot_alerts: { Args: never; Returns: Json }
       estados_coverage_reconciliation: { Args: never; Returns: Json }
       estados_coverage_summary: { Args: never; Returns: Json }
       estados_provider_for_workflow: {
@@ -20350,6 +20355,8 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      portfolio_appellate_blindspots: { Args: never; Returns: Json }
+      portfolio_silent_success: { Args: { p_days?: number }; Returns: Json }
       propose_client_party_roles: {
         Args: never
         Returns: {
@@ -20556,6 +20563,10 @@ export type Database = {
       user_has_accepted_current_terms: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      work_item_appellate_blindspot: {
+        Args: { p_work_item_id: string }
+        Returns: Json
       }
       work_item_detalle_no_expuesto: {
         Args: { p_work_item_id: string }
