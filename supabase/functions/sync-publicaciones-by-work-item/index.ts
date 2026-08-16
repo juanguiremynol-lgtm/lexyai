@@ -1746,6 +1746,21 @@ Deno.serve(withSyncTimeline(async (req) => {
         `samai_raw=${result.samai_estados_summary?.raw_count ?? 'n/a'}`
       );
 
+      // ============= ITERATION 62: NOT-READY IS NOT ABSENCE =============
+      // A provider that is still warming /historico has NOT told us the
+      // matter has no estados. Recording that as EMPTY (and as a coverage
+      // gap) manufactures a false absence that looks like a healthy run.
+      // Return early with an explicit PENDING_UPSTREAM verdict and let the
+      // 10-minute re-check (iteration 54) settle the question.
+      if (result.result_code === 'PENDING_UPSTREAM') {
+        (result as any).status = 'PENDING_UPSTREAM';
+        await writePublicacionesAttemptRow(
+          supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
+        );
+        await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+        return jsonResponse({ ...result, pending_upstream: true }, 200);
+      }
+
       // ============= COVERAGE GAP DETECTION =============
       // Iteration 34 — PROVIDER_NO_DOCUMENT is NOT a coverage gap. The court
       // registered the estado and never uploaded the planilla: the estado
