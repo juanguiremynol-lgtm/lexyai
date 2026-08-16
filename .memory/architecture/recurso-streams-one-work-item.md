@@ -26,3 +26,16 @@ Rules:
 
 Single source: `supabase/functions/_shared/recursoStreams.ts` (+ SQL mirrors
 `radicado_base21`, `radicado_consecutivo`, `radicado_instancia_grado`).
+
+ITER60 — subscription of discovered instances:
+- GCP enumerates unsubscribed 23-digit streams at
+  `GET {cpnu_jobs}/instancias/sin-suscribir` (cpnu-https-jobs host; cpnu_read
+  and andromeda_read return 404 — do not re-guess the host).
+- `subscribe-superior-instances` records every discovery in
+  `work_item_recurso_streams` and emits a lifecycle ACTIVE event through
+  `gcp_lifecycle_outbox` with the 23-digit key as radicado and the BASE work
+  item as subject. A recurso never creates a second work item.
+- A base that is not ACTIVE is NEVER re-animated: the row is stored as
+  OMITIDO_BASE_INACTIVA, which is the "live activity at a superior on an
+  archived matter" signal. Upstream `base_activa` is advisory only; our
+  lifecycle table is the truth and disagreements are stored, not resolved.
