@@ -37,6 +37,27 @@ function extractSamaiAttachments(
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * ITER60 — CPNU act-level documents, persisted in work_item_acts.documentos.
+ * NULL means the provider was never asked; [] means the provider says none.
+ */
+export interface ActDocumento {
+  id?: string | null;
+  nombre?: string | null;
+  tipo?: string | null;
+  descripcion?: string | null;
+  url?: string | null;
+  fecha_carga?: string | null;
+  estado?: string | null;
+}
+
+function extractActDocumentos(raw: unknown): ActDocumento[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (d): d is ActDocumento => !!d && typeof d === "object",
+  );
+}
+
 export interface WorkItemAct {
   id: string;
   owner_id: string;
@@ -64,6 +85,8 @@ export interface WorkItemAct {
   instancia?: string | null;
   fecha_registro_source?: string | null;
   inicia_termino?: string | null;
+  documentos?: unknown;
+  documentos_observados_en?: string | null;
 }
 
 // ─── Category classification ─────────────────────────────────────────────────
