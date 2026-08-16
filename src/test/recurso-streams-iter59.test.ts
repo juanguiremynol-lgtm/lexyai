@@ -112,6 +112,7 @@ describe("ITER59 — stage inference must not regress on the superior's radicaci
       docketText: "Radicación Y Reparto — se recibe expediente del juzgado de origen",
     });
     expect(r.decision).toBe("REGRESSION_BLOCKED");
-    expect(r.finalStage).toBe("ALEGATOS_SENTENCIA");
+    // blocked ⇒ no stage change is emitted at all
+    expect(r.finalStage).toBeNull();
   });
 });
