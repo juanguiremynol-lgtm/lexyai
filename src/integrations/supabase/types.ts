@@ -16021,6 +16021,8 @@ export type Database = {
           despacho: string | null
           detected_at: string
           discovery_type: string | null
+          documentos: Json | null
+          documentos_observados_en: string | null
           event_category: string | null
           event_date: string | null
           event_summary: string | null
@@ -16084,6 +16086,8 @@ export type Database = {
           despacho?: string | null
           detected_at?: string
           discovery_type?: string | null
+          documentos?: Json | null
+          documentos_observados_en?: string | null
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null
@@ -16147,6 +16151,8 @@ export type Database = {
           despacho?: string | null
           detected_at?: string
           discovery_type?: string | null
+          documentos?: Json | null
+          documentos_observados_en?: string | null
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null

@@ -37,6 +37,27 @@ function extractSamaiAttachments(
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * ITER60 — CPNU act-level documents, persisted in work_item_acts.documentos.
+ * NULL means the provider was never asked; [] means the provider says none.
+ */
+export interface ActDocumento {
+  id?: string | null;
+  nombre?: string | null;
+  tipo?: string | null;
+  descripcion?: string | null;
+  url?: string | null;
+  fecha_carga?: string | null;
+  estado?: string | null;
+}
+
+function extractActDocumentos(raw: unknown): ActDocumento[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (d): d is ActDocumento => !!d && typeof d === "object",
+  );
+}
+
 export interface WorkItemAct {
   id: string;
   owner_id: string;
@@ -64,6 +85,8 @@ export interface WorkItemAct {
   instancia?: string | null;
   fecha_registro_source?: string | null;
   inicia_termino?: string | null;
+  documentos?: unknown;
+  documentos_observados_en?: string | null;
 }
 
 // ─── Category classification ─────────────────────────────────────────────────
@@ -366,6 +389,10 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
   const hasAnnotation = !!displayAnnotation?.trim();
 
   const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
+  // ITER60 — CPNU documents live in a dedicated column, not raw_data.
+  const actDocumentos = extractActDocumentos(act.documentos).filter(
+    (d) => typeof d.url === "string" && d.url.trim().length > 0,
+  );
 
   return (
     <div
@@ -553,6 +580,49 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
           </div>
         );
       })()}
+
+      {/* Row 7: CPNU act documents — work_item_acts.documentos */}
+      {actDocumentos.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-border/30">
+          <div className="text-xs font-medium text-foreground/70 mb-1.5">
+            📎 Documentos de la actuación ({actDocumentos.length})
+          </div>
+          <ul className="space-y-1.5">
+            {actDocumentos.map((doc, idx) => {
+              const label =
+                doc.nombre?.trim() || doc.descripcion?.trim() || `Documento ${idx + 1}`;
+              return (
+                <li
+                  key={doc.id ?? doc.url ?? idx}
+                  className="flex items-center gap-2 text-xs flex-wrap"
+                  title={doc.descripcion?.trim() || label}
+                >
+                  <span className="text-muted-foreground truncate max-w-[60%]">{label}</span>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <a
+                      href={doc.url as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                    >
+                      👁️ Ver
+                    </a>
+                    <a
+                      href={doc.url as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
+                    >
+                      ⬇️ Descargar
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -22,9 +22,14 @@ import { decomposeStoredRadicado } from "./emailMatcher.ts";
 
 export type InstanciaGrado = "PRIMERA" | "SEGUNDA";
 
-/** Suffixes GCP probes today. A third recurso ("03") is NOT covered upstream;
- *  the iteration-58 blind-spot detector remains the net for that case. */
-export const PROBED_RECURSO_SUFFIXES = ["00", "01", "02"] as const;
+/**
+ * ITER60 — GCP's probe is now ADAPTIVE and walks consecutivos up to "09"
+ * (legacy "03" instances exist in the wild). We mirror that cap exactly so a
+ * subscription key we ask for is always a key the provider can resolve.
+ */
+export const PROBED_RECURSO_SUFFIXES = [
+  "00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
+] as const;
 
 /** 21-digit process identity, or null when the input is not a radicado. */
 export function radicadoBase21(raw: string | null | undefined): string | null {
@@ -92,9 +97,22 @@ export interface ProviderRadicadoLinkage {
   conflict: boolean;
 }
 
-const RADICACION_FIELDS = ["radicacion", "radicado", "numero_radicacion", "llaveProceso", "llave_proceso"];
-const BASE_FIELDS = ["radicacion_base", "radicacionBase", "base21", "radicado_base"];
-const CONSECUTIVO_FIELDS = ["consecutivo_recurso", "consecutivoRecurso", "consecutivo"];
+// ITER60 — GCP now emits four EXPLICIT fields on every act:
+//   radicado_23, radicado_base_21, instancia (the 2-digit consecutivo), despacho.
+// `radicado_base_21` is a generated column upstream, so it is the field we
+// trust first; nothing here slices a substring when it is present.
+const RADICACION_FIELDS = [
+  "radicado_23", "radicacion_23",
+  "radicacion", "radicado", "numero_radicacion", "llaveProceso", "llave_proceso",
+];
+const BASE_FIELDS = [
+  "radicado_base_21", "radicacion_base_21",
+  "radicacion_base", "radicacionBase", "base21", "radicado_base",
+];
+// ITER60 — `instancia` upstream is the CONSECUTIVO ("00"/"01"/"02"), NOT a
+// procedural grade. Before this contract it was an alias of `tipo_categoria`
+// ("judicial"), which is why it is read last and only when it is 1–2 digits.
+const CONSECUTIVO_FIELDS = ["consecutivo_recurso", "consecutivoRecurso", "consecutivo", "instancia"];
 const INSTANCIA_FIELDS = ["instancia", "instancia_grado", "instanciaGrado"];
 const DESPACHO_FIELDS = ["despacho", "nombre_despacho", "despacho_nombre"];
 const ID_PROCESO_FIELDS = ["id_proceso", "idProceso"];
@@ -118,8 +136,10 @@ function digits(s: string | null): string | null {
 function normalizeInstancia(raw: string | null): InstanciaGrado | null {
   if (!raw) return null;
   const s = raw.trim().toUpperCase();
-  if (s.startsWith("PRIMERA") || s === "1" || s === "01" || s === "UNICA" || s === "ÚNICA") return "PRIMERA";
-  if (s.startsWith("SEGUNDA") || s === "2" || s === "02") return "SEGUNDA";
+  // "01"/"02" are NEVER read as a grade: upstream uses them as consecutivos,
+  // where "01" means SEGUNDA instancia — the exact inversion we must not make.
+  if (s.startsWith("PRIMERA") || s === "1" || s === "UNICA" || s === "ÚNICA") return "PRIMERA";
+  if (s.startsWith("SEGUNDA") || s === "2") return "SEGUNDA";
   return null;
 }
 
@@ -144,8 +164,11 @@ export function resolveProviderLinkage(
     ? declaredConsec.padStart(2, "0")
     : recursoConsecutivo(radicacion);
 
-  const instancia = normalizeInstancia(pick(src, INSTANCIA_FIELDS))
-    ?? instanciaGradoForConsecutivo(consecutivo);
+  // The consecutivo is authoritative for the grade; a textual `instancia`
+  // ("Segunda") is only consulted when no consecutivo could be resolved.
+  const instancia = consecutivo !== null
+    ? instanciaGradoForConsecutivo(consecutivo)
+    : (normalizeInstancia(pick(src, INSTANCIA_FIELDS)) ?? "PRIMERA");
 
   return {
     radicacion,
