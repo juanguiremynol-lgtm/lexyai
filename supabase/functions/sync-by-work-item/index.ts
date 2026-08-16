@@ -2685,7 +2685,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     const { data: existingActsForDedup } = await supabase
       .from('work_item_acts')
-      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source')
+      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo')
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
