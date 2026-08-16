@@ -105,13 +105,13 @@ describe("ITER59 — stage inference must not regress on the superior's radicaci
   it("blocks 'Radicación Y Reparto' from pushing an advanced matter back", () => {
     const r = evaluatePreclusion({
       workflowType: "CGP",
-      currentStage: "SENTENCIA",
+      currentStage: "ALEGATOS_SENTENCIA",
       currentCgpPhase: "PROCESS",
-      suggestedStage: "RADICACION",
+      suggestedStage: "RADICADO_CONFIRMED",
       suggestedCgpPhase: "FILING",
       docketText: "Radicación Y Reparto — se recibe expediente del juzgado de origen",
     });
     expect(r.decision).toBe("REGRESSION_BLOCKED");
-    expect(r.finalStage).toBe("SENTENCIA");
+    expect(r.finalStage).toBe("ALEGATOS_SENTENCIA");
   });
 });
