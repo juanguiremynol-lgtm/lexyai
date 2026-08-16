@@ -321,7 +321,33 @@ async function toolWorkItemFreshness(sb: any): Promise<Record<string, unknown>> 
     return hours > 24;
   });
 
-  return { stale_items: stale.length, total_monitored: (data || []).length, oldest: (data || []).slice(0, 5) };
+  // ITER58 — "the provider answered" is not "the matter is being watched".
+  // A matter that syncs successfully every day and has received nothing for a
+  // month is the shape of a binding failure, not of a quiet docket.
+  let silent: Record<string, unknown> = { count: 0, items: [] };
+  try {
+    const { data: sil, error } = await sb.rpc("portfolio_silent_success", { p_days: 30 });
+    if (!error && sil) silent = sil as Record<string, unknown>;
+  } catch (_e) { /* reported as unavailable below */ }
+
+  return {
+    stale_items: stale.length,
+    total_monitored: (data || []).length,
+    oldest: (data || []).slice(0, 5),
+    silent_success_30d: Number((silent as any)?.count ?? 0),
+    silent_success_items: ((silent as any)?.items ?? []).slice(0, 15),
+  };
+}
+
+/**
+ * ITER58 — appellate blind spot. The estados source derives the despacho from
+ * the radicado prefix, so once the appeal is granted the second-instance
+ * activity is structurally invisible. These matters must never read as healthy.
+ */
+async function toolAppellateBlindspots(sb: any): Promise<Record<string, unknown>> {
+  const { data, error } = await sb.rpc("portfolio_appellate_blindspots");
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as Record<string, unknown>;
 }
 
 /**
@@ -415,6 +441,7 @@ function getTools(): ToolDef[] {
     { name: "RECENT_ACTIONS", label: "Recent AI Actions", fn: toolRecentActions },
     { name: "WORK_ITEM_FRESHNESS", label: "Work Item Freshness", fn: toolWorkItemFreshness },
     { name: "ESTADOS_COVERAGE", label: "Estados Coverage (actuaciones sin estados)", fn: toolEstadosCoverage },
+    { name: "APPELLATE_BLINDSPOTS", label: "Apelación en el superior (actividad no visible)", fn: toolAppellateBlindspots },
   ];
 }
 
@@ -687,6 +714,25 @@ function generateTxtReport(
   const freshResult = results.find(r => r.name === "WORK_ITEM_FRESHNESS");
   if (freshResult?.status === "OK" && (freshResult.output as any)?.stale_items > 0) {
     errors.push(`${(freshResult.output as any).stale_items} work items stale > 24h`);
+  }
+  if (freshResult?.status === "OK" && (freshResult.output as any)?.silent_success_30d > 0) {
+    errors.push(
+      `${(freshResult.output as any).silent_success_30d} expediente(s) con sincronización exitosa y CERO movimientos hace 30+ días (silencio sospechoso)`,
+    );
+    for (const s of ((freshResult.output as any).silent_success_items || []).slice(0, 5)) {
+      errors.push(`  ${s.radicado ?? s.work_item_id}: ${s.dias_sin_movimiento} días sin movimiento (${s.despacho ?? 'despacho sin identificar'})`);
+    }
+  }
+
+  // Appellate blind spots
+  const apelResult = results.find(r => r.name === "APPELLATE_BLINDSPOTS");
+  if (apelResult?.status === "OK" && ((apelResult.output as any)?.count ?? 0) > 0) {
+    errors.push(
+      `${(apelResult.output as any).count} expediente(s) con apelación en el superior sin estados desde entonces — la fuente no cubre el despacho de segunda instancia`,
+    );
+    for (const a of ((apelResult.output as any).items || []).slice(0, 10)) {
+      errors.push(`  ${a.radicado}: apelación ${a.apelacion_date}, ${a.dias_sin_estados} días sin estados (origen ${a.despacho_origen ?? 'sin identificar'})`);
+    }
   }
 
   // Problem orgs

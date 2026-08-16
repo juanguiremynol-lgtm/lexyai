@@ -21,6 +21,7 @@ export type EstadosSignalClass =
   | "SIN_COBERTURA_EN_ESA_FECHA"
   | "ESTADO_SIN_DOCUMENTO"
   | "REMITIDO_A_SUPERIOR"
+  | "APELACION_EN_SUPERIOR"
   | "PROCESO_PRIVADO";
 
 /**
@@ -104,6 +105,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   SIN_COBERTURA_EN_ESA_FECHA: "Fuera de la cobertura de la fuente",
   ESTADO_SIN_DOCUMENTO: "Estado sin documento",
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
+  APELACION_EN_SUPERIOR: "Apelación en el superior — fuera del alcance de la fuente",
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
 };
 
@@ -122,6 +124,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "Estado fijado sin documento publicado por el despacho — el término corre. El estado existe y sirve como anclaje del término, pero el despacho nunca cargó la planilla.",
   REMITIDO_A_SUPERIOR:
     "El expediente salió del despacho de origen (remisión al superior o por competencia). Las fijaciones posteriores corresponden al despacho receptor: la ausencia de estados en el despacho de origen es correcta, no una falla del proveedor.",
+  APELACION_EN_SUPERIOR:
+    "El recurso se concedió y el expediente subió al superior, pero el proceso sigue vivo en el despacho de origen. La fuente de estados deriva el despacho del prefijo del radicado, de modo que la actividad de segunda instancia no es visible por esta vía: no es silencio del despacho, es un límite del contrato de la fuente. Debe revisarse directamente en el despacho de segunda instancia.",
   PROCESO_PRIVADO:
     "La Rama Judicial marca este proceso como privado y no expone su detalle: la búsqueda lo devuelve con la leyenda «--- [ PROCESO PRIVADO ] ---» y el detalle responde «No se puede ver el detalle de un proceso privado». La causa de la marca no está declarada por el proveedor y nosotros no la interpretamos. Es una marca por proceso y puede cambiar de un día para otro. Mientras esté marcado, el silencio no se cuenta como falla de cobertura y el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
 };
@@ -142,6 +146,8 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
       return "border-indigo-500/50 text-indigo-600";
     case "REMITIDO_A_SUPERIOR":
       return "border-violet-500/50 text-violet-600";
+    case "APELACION_EN_SUPERIOR":
+      return "border-orange-500/60 text-orange-600";
     case "PROCESO_PRIVADO":
       return "border-slate-500/50 text-slate-600";
     default:
@@ -162,6 +168,9 @@ export function estadosSignalAlerts(
   // ITER46 — a matter the provider itself marks PROCESO_PRIVADO never alerts on
   // coverage: the absence is upstream and observed, not a transfer failure.
   if (signal.signal_class === "PROCESO_PRIVADO") return false;
+  // ITER58 — an appellate blind spot is real, but it is not a coverage gap of
+  // the origin despacho: it has its own alert type.
+  if (signal.signal_class === "APELACION_EN_SUPERIOR") return false;
   if (signal.signal_class !== "ESTADOS_ESPERADOS_AUSENTES") return false;
   if (signal.recent_unmatched_count <= 0) return false;
   return (signal.alertable_unmatched_count ?? signal.recent_unmatched_count) > 0;
@@ -238,4 +247,47 @@ export function actIsRemisionExpediente(description?: string | null, actType?: s
       t.includes("otros despachos") ||
       t.includes("otro juzgado"))
   );
+}
+
+/**
+ * ITER58 — mirror of the SQL predicate `act_is_apelacion_concedida`.
+ *
+ * The appeal being granted is the moment the file leaves the reach of the
+ * estados source: from then on the activity happens at the superior, under a
+ * despacho the source will never derive from this radicado.
+ */
+export function actIsApelacionConcedida(description?: string | null, actType?: string | null): boolean {
+  const t = estadosSignalNorm(`${description ?? ""} ${actType ?? ""}`);
+  if (!t.trim()) return false;
+  if (t.includes("concede") && t.includes("apelacion")) return true;
+  if (t.includes("concede") && t.includes("recurso") && t.includes("apel")) return true;
+  if (t.includes("apelacion") && (t.includes("efecto suspensivo") || t.includes("efecto devolutivo"))) return true;
+  if (t.includes("envio a superior")) return true;
+  if (t.includes("remi") && t.includes("superior")) return true;
+  if (t.includes("al tribunal") && t.includes("apel")) return true;
+  return false;
+}
+
+export interface AppellateBlindspot {
+  work_item_id: string;
+  radicado: string | null;
+  despacho_origen: string | null;
+  estados_provider: string | null;
+  apelacion_date: string | null;
+  apelacion_description?: string | null;
+  dias_sin_estados: number;
+  pubs_after: number;
+  blindspot: boolean;
+}
+
+/** Minimum silence before the blind spot is worth saying out loud. */
+export const APPELLATE_BLINDSPOT_MIN_DAYS = 15;
+
+/** Mirror of the SQL `blindspot` flag in `work_item_appellate_blindspot`. */
+export function isAppellateBlindspot(
+  input: { apelacion_date?: string | null; pubs_after?: number; dias_sin_estados?: number },
+): boolean {
+  if (!input.apelacion_date) return false;
+  if ((input.pubs_after ?? 0) > 0) return false;
+  return (input.dias_sin_estados ?? 0) >= APPELLATE_BLINDSPOT_MIN_DAYS;
 }

@@ -53,7 +53,18 @@ export default function PartyRolesReview() {
 
   const high = useMemo(() => rows.filter((r) => r.section === "ALTA_CONFIANZA"), [rows]);
   const review = useMemo(() => rows.filter((r) => r.section === "REVISION"), [rows]);
-  const none = useMemo(() => rows.filter((r) => r.section === "SIN_PROPUESTA"), [rows]);
+  // ITER58 — a matter with no client attached cannot be attributed at all, so
+  // it leads the list: associating the client is what unblocks every later step.
+  const none = useMemo(
+    () =>
+      rows
+        .filter((r) => r.section === "SIN_PROPUESTA")
+        .sort((a, b) =>
+          Number(b.reason === "SIN_CLIENTE") - Number(a.reason === "SIN_CLIENTE"),
+        ),
+    [rows],
+  );
+  const sinCliente = useMemo(() => none.filter((r) => r.reason === "SIN_CLIENTE"), [none]);
 
   // A curador ad litem borrows the side of the party he was appointed for, so
   // the offer is APODERADO_DE_OFICIO — never a collapse onto DEMANDADO.
@@ -298,6 +309,12 @@ export default function PartyRolesReview() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {sinCliente.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {sinCliente.length} expediente(s) no tienen cliente vinculado: sin cliente no hay
+                calidad que confirmar ni términos que atribuir. Aparecen de primeros.
+              </p>
+            )}
             {none.map((r) => {
               const copy = NO_PROPOSAL_COPY[r.reason ?? "SIN_COINCIDENCIA"];
               return (
