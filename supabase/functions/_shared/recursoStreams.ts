@@ -22,9 +22,14 @@ import { decomposeStoredRadicado } from "./emailMatcher.ts";
 
 export type InstanciaGrado = "PRIMERA" | "SEGUNDA";
 
-/** Suffixes GCP probes today. A third recurso ("03") is NOT covered upstream;
- *  the iteration-58 blind-spot detector remains the net for that case. */
-export const PROBED_RECURSO_SUFFIXES = ["00", "01", "02"] as const;
+/**
+ * ITER60 — GCP's probe is now ADAPTIVE and walks consecutivos up to "09"
+ * (legacy "03" instances exist in the wild). We mirror that cap exactly so a
+ * subscription key we ask for is always a key the provider can resolve.
+ */
+export const PROBED_RECURSO_SUFFIXES = [
+  "00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
+] as const;
 
 /** 21-digit process identity, or null when the input is not a radicado. */
 export function radicadoBase21(raw: string | null | undefined): string | null {
