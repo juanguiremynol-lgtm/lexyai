@@ -106,6 +106,11 @@ export function useCreateWorkItem() {
       }
 
       // Build the insert payload
+      const monitoringOffReason = resolveMonitoringOffReason({
+        workflowType: data.workflow_type,
+        radicado: data.radicado ?? null,
+      });
+
       const workItemData = {
         owner_id: user.id,
         workflow_type: data.workflow_type,
