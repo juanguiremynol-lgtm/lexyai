@@ -19,7 +19,7 @@ import {
   canonicalActFingerprint,
   canonicalPubFingerprint,
 } from "../../supabase/functions/_shared/canonicalFingerprint.ts";
-import { decidePreclusion } from "@/lib/workflows/preclusion-guard";
+import { evaluatePreclusion } from "@/lib/workflows/preclusion-guard";
 
 const ORIGEN = "05001400302820260052100";
 const RECURSO = "05001400302820260052101";
@@ -103,7 +103,7 @@ describe("ITER59 — fingerprints tolerate two streams in one work item", () => 
 
 describe("ITER59 — stage inference must not regress on the superior's radicación", () => {
   it("blocks 'Radicación Y Reparto' from pushing an advanced matter back", () => {
-    const r = decidePreclusion({
+    const r = evaluatePreclusion({
       workflowType: "CGP",
       currentStage: "SENTENCIA",
       currentCgpPhase: "PROCESS",
