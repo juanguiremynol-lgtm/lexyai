@@ -108,9 +108,8 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
   APELACION_EN_SUPERIOR: "Apelación en el superior — fuera del alcance de la fuente",
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
+  LECTURA_NO_CONCLUYENTE: "Lectura no concluyente",
 };
-
-ESTADOS_SIGNAL_LABEL.LECTURA_NO_CONCLUYENTE = "Lectura no concluyente";
 
 /**
  * ITER62 — a read that never completed asserts nothing. Only a completed
