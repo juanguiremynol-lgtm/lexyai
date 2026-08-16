@@ -387,8 +387,12 @@ Deno.serve(async (req) => {
           // Reschedule. PUB_RETRY uses a fixed 24h cadence so the two
           // remaining attempts land at +24h and +48h from the first empty
           // response. Other kinds keep the policy-driven jitter.
+          // Iteration 62 — a PENDING_UPSTREAM re-check must keep its fast
+          // cadence: overwriting it with the 24h "empty" schedule left a
+          // brand-new matter without estados for a full day.
+          const isPendingUpstream = task.last_error_code === 'PENDING_UPSTREAM';
           const delayMs = task.kind === 'PUB_RETRY'
-            ? 24 * 60 * 60 * 1000
+            ? (isPendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000)
             : retryJitterMs();
           const nextRunAt = new Date(Date.now() + delayMs).toISOString();
 
@@ -397,8 +401,10 @@ Deno.serve(async (req) => {
               attempt: task.attempt + 1,
               next_run_at: nextRunAt,
               claimed_at: null,
-              last_error_code: task.kind === 'PUB_RETRY' ? 'PUB_EMPTY_RECHECK' : 'SCRAPING_TIMEOUT',
-              last_error_message: `Attempt ${task.attempt} rescheduled (+${Math.round(delayMs / 3600000)}h)`,
+              last_error_code: task.kind === 'PUB_RETRY'
+                ? (isPendingUpstream ? 'PENDING_UPSTREAM' : 'PUB_EMPTY_RECHECK')
+                : 'SCRAPING_TIMEOUT',
+              last_error_message: `Attempt ${task.attempt} rescheduled (+${Math.round(delayMs / 60000)}min)`,
             })
             .eq('id', task.id);
 
