@@ -367,6 +367,8 @@ function normalizeOnePublicacion(
       work_item_id: options?.workItemId || '',
       organization_id: null,
       source: unit._source_provider || PROVIDER_KEY,
+      // ITER59 — stream of origin; falls back to the unit's own radicación.
+      source_radicado: (options as any)?.radicado ?? null,
     },
   );
   const fingerprint = canonicalRow.hash_fingerprint;
