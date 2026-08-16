@@ -22,7 +22,8 @@ export type EstadosSignalClass =
   | "ESTADO_SIN_DOCUMENTO"
   | "REMITIDO_A_SUPERIOR"
   | "APELACION_EN_SUPERIOR"
-  | "PROCESO_PRIVADO";
+  | "PROCESO_PRIVADO"
+  | "LECTURA_NO_CONCLUYENTE";
 
 /**
  * Iteration 35 — how much a coverage-window edge is worth as evidence.
@@ -108,6 +109,30 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   APELACION_EN_SUPERIOR: "Apelación en el superior — fuera del alcance de la fuente",
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
 };
+
+/**
+ * ITER62 — a read that never completed asserts nothing. Only a completed
+ * provider answer may feed a coverage verdict; PENDING_UPSTREAM,
+ * PROVIDER_UNRESOLVED and CALLER_UNAUTHORIZED reads are withheld, not empty.
+ */
+export type EstadosReadOutcome =
+  | "COMPLETED"
+  | "PENDING_UPSTREAM"
+  | "PROVIDER_UNRESOLVED"
+  | "CALLER_UNAUTHORIZED";
+
+/** Mirror of the SQL helper `has_completed_estados_read`. */
+export function isCompletedProviderRead(
+  read: { status?: string | null; provider?: string | null; error_code?: string | null } | null | undefined,
+): boolean {
+  if (!read) return false;
+  const status = (read.status ?? "").toLowerCase();
+  const provider = (read.provider ?? "unknown").toLowerCase();
+  const code = (read.error_code ?? "").toUpperCase();
+  if (!["success", "empty"].includes(status)) return false;
+  if (["unknown", "none", ""].includes(provider)) return false;
+  return !["PENDING_UPSTREAM", "PROVIDER_UNRESOLVED", "CALLER_UNAUTHORIZED"].includes(code);
+}
 
 export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
   CUBIERTO:
