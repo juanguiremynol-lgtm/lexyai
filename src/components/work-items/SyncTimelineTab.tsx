@@ -30,7 +30,7 @@ interface TimelineRow {
   function_name: string | null;
   adapter_version: string | null;
   deploy_sha: string | null;
-  status: "success" | "error" | "empty" | "skipped" | "partial";
+  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected";
   error_code: string | null;
   error_message: string | null;
   records_inserted: number;
@@ -45,6 +45,9 @@ const STATUS_META: Record<TimelineRow["status"], { label: string; variant: "defa
   empty: { label: "Vacío", variant: "secondary", Icon: MinusCircle },
   skipped: { label: "Omitido", variant: "outline", Icon: Clock },
   partial: { label: "Parcial", variant: "secondary", Icon: AlertCircle },
+  // ITER62 — four situations, four outcomes. None borrows another's meaning.
+  pending_upstream: { label: "Proveedor aún sin respuesta", variant: "outline", Icon: Clock },
+  rejected: { label: "Rechazado en nuestra puerta", variant: "outline", Icon: AlertCircle },
 };
 
 function shortSha(sha: string | null): string {
