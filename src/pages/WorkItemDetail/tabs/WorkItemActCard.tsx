@@ -389,6 +389,10 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
   const hasAnnotation = !!displayAnnotation?.trim();
 
   const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
+  // ITER60 — CPNU documents live in a dedicated column, not raw_data.
+  const actDocumentos = extractActDocumentos(act.documentos).filter(
+    (d) => typeof d.url === "string" && d.url.trim().length > 0,
+  );
 
   return (
     <div
