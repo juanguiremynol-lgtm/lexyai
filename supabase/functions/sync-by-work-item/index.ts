@@ -2701,7 +2701,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     for (const a of existingActsForDedup || []) {
       const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
       const fechaReg = (a as any).fecha_registro_source || '';
-      const key = `${a.act_date || ''}|${descOnly}|${fechaReg}`;
+      // ITER59 — the stream is part of the semantic key: the same title on the
+      // same day at the origin court and at the superior are two facts.
+      const recurso = (a as any).recurso_consecutivo || '00';
+      const key = `${a.act_date || ''}|${descOnly}|${fechaReg}|${recurso}`;
       // Prefer the row that already has an anotacion so we don't overwrite it later.
       const prev = existingSemanticMap.get(key);
       const currAnot = String(((a as any).raw_data?.anotacion) || '');
