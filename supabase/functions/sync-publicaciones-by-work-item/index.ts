@@ -336,12 +336,13 @@ async function writePublicacionesAttemptRow(
   result: any,
   scheduled: boolean | undefined,
   isServiceRole: boolean,
-  outcome: 'success' | 'empty' | 'error',
+  outcome: 'success' | 'empty' | 'error' | 'pending_upstream',
 ): Promise<void> {
   try {
     const invokedBy = (scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
     const status =
       outcome === 'error' ? 'FAILED'
+      : outcome === 'pending_upstream' ? 'PENDING_UPSTREAM'
       : outcome === 'empty' ? 'SUCCESS'
       : 'SUCCESS';
     await supabase.from('external_sync_runs').insert({
