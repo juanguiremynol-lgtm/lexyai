@@ -392,6 +392,64 @@ async function writePublicacionesAttemptRow(
 }
 
 /**
+ * Iteration 62 — schedule the estados re-check.
+ *
+ * `pendingUpstream=true` means the provider was still working when we asked
+ * (10-minute cadence, 4 attempts). Otherwise the provider answered and
+ * confirmed no rows, which only warrants the slow 24h re-check.
+ */
+async function schedulePubRecheck(
+  supabase: any,
+  workItemId: string,
+  workItem: any,
+  radicado: string,
+  result: any,
+  pendingUpstream: boolean,
+): Promise<void> {
+  try {
+    const retryDelayMs = pendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const maxAttempts = pendingUpstream ? 4 : 2;
+    const nextRunAt = new Date(Date.now() + retryDelayMs).toISOString();
+    const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
+      .select('id, attempt, max_attempts')
+      .eq('work_item_id', workItemId)
+      .eq('kind', 'PUB_RETRY')
+      .maybeSingle();
+
+    if (!existingRetry) {
+      await (supabase.from('sync_retry_queue') as any).insert({
+        work_item_id: workItemId,
+        organization_id: workItem?.organization_id,
+        radicado,
+        kind: 'PUB_RETRY',
+        provider: 'publicaciones',
+        attempt: 1,
+        max_attempts: maxAttempts,
+        next_run_at: nextRunAt,
+        last_error_code: pendingUpstream ? 'PENDING_UPSTREAM' : (result?.result_code || 'SUCCESS_EMPTY'),
+        last_error_message: pendingUpstream
+          ? 'Auto-scheduled 10min re-check: upstream was still processing the radicado'
+          : 'Auto-scheduled 24h re-check after empty estados response',
+      });
+      console.log(`[sync-pub] Enqueued PUB_RETRY for ${workItemId} → next_run_at=${nextRunAt}`);
+    } else if (pendingUpstream) {
+      // Pull an existing (slow) re-check forward — the provider is warm now.
+      await (supabase.from('sync_retry_queue') as any)
+        .update({
+          next_run_at: nextRunAt,
+          max_attempts: Math.max(existingRetry.max_attempts ?? 2, maxAttempts),
+          last_error_code: 'PENDING_UPSTREAM',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingRetry.id)
+        .gt('next_run_at', nextRunAt);
+    }
+  } catch (retryErr: any) {
+    console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);
+  }
+}
+
+/**
  * ITERATION 21 — every non-2xx must carry a diagnosable body.
  * Shape: { error, stage, radicado, pg_message } plus legacy code/message.
  */
