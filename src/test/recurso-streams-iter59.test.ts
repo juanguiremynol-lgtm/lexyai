@@ -39,13 +39,14 @@ describe("ITER59 — base-21 identity across recurso streams", () => {
     expect(instanciaGradoForRadicado(RECURSO)).toBe("SEGUNDA");
   });
 
-  it("subscribes only the suffixes GCP probes — 03+ stays uncovered", () => {
-    expect(recursoSubscriptionKeys(ORIGEN)).toEqual([
-      "05001400302820260052100",
-      "05001400302820260052101",
-      "05001400302820260052102",
-    ]);
-    expect(PROBED_RECURSO_SUFFIXES).not.toContain("03");
+  // ITER60 — GCP's probe became adaptive with a cap of "09"; legacy "03"
+  // instances exist, so the old 00–02 window is no longer the contract.
+  it("mirrors GCP's adaptive probe window 00–09", () => {
+    const keys = recursoSubscriptionKeys(ORIGEN);
+    expect(keys).toHaveLength(10);
+    expect(keys[0]).toBe("05001400302820260052100");
+    expect(keys.at(-1)).toBe("05001400302820260052109");
+    expect(PROBED_RECURSO_SUFFIXES).toContain("03");
   });
 });
 
