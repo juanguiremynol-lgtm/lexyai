@@ -104,3 +104,20 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
 export function documentosObserved(raw: unknown): boolean {
   return Array.isArray(raw);
 }
+
+/**
+ * ITER67 — the read API now emits its OWN `documentos_observados_en`, which is
+ * when the provider actually looked, not when we happened to sync. Prefer it;
+ * fall back to our sync clock only when the provider stays silent about it.
+ */
+export function resolveDocumentosObservadosEn(
+  raw: unknown,
+  providerObservedAt: unknown,
+  now: string = new Date().toISOString(),
+): string | null {
+  if (typeof providerObservedAt === "string" && providerObservedAt.trim()) {
+    const parsed = Date.parse(providerObservedAt);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  return documentosObserved(raw) ? now : null;
+}
