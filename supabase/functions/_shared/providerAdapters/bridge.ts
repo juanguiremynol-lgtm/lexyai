@@ -93,7 +93,8 @@ export interface WizardProcessData {
     estado?: string;
     anexos?: number;
     indice?: string;
-    documentos?: Array<{ nombre: string; url: string }>;
+    documentos?: Array<Record<string, unknown>>;
+    documentos_observados_en?: string | null;
   }>;
   total_actuaciones?: number;
   ponente?: string;
@@ -130,7 +131,8 @@ export interface OrchestratorActuacionRaw {
   anexos?: number;
   indice?: string;
   nombre_despacho?: string;
-  documentos?: Array<{ nombre: string; url: string }>;
+  documentos?: Array<Record<string, unknown>>;
+  documentos_observados_en?: string | null;
   /** Untouched raw item from the provider — used to recover fields
    *  (e.g. anotacion) that the strict normalizer alias list may have missed. */
   raw_data?: Record<string, unknown>;
@@ -284,6 +286,7 @@ export function toWizardResult(result: ProviderAdapterResult): WizardProviderRes
     anexos: a.anexos_count,
     indice: a.indice,
     documentos: a.documentos,
+    documentos_observados_en: a.documentos_observados_en ?? null,
   }));
 
   const processData: WizardProcessData = {
@@ -342,6 +345,7 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     indice: a.indice,
     nombre_despacho: a.nombre_despacho,
     documentos: a.documentos,
+    documentos_observados_en: a.documentos_observados_en ?? null,
     raw_data: (a as unknown as { raw_data?: Record<string, unknown> }).raw_data,
   }));
 
