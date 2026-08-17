@@ -41,24 +41,7 @@ function extractSamaiAttachments(
  * ITER60 — CPNU act-level documents, persisted in work_item_acts.documentos.
  * NULL means the provider was never asked; [] means the provider says none.
  */
-export interface ActDocumento {
-  id?: string | null;
-  nombre?: string | null;
-  tipo?: string | null;
-  descripcion?: string | null;
-  url?: string | null;
-  fecha_carga?: string | null;
-  estado?: string | null;
-  /** ITER64 — false when the provider announced the file but gave no link. */
-  disponible?: boolean | null;
-}
-
-function extractActDocumentos(raw: unknown): ActDocumento[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (d): d is ActDocumento => !!d && typeof d === "object",
-  );
-}
+export type ActDocumento = ActDocumentoLike;
 
 export interface WorkItemAct {
   id: string;
