@@ -23,6 +23,10 @@ export interface ActDocumento {
   tipo: string | null;
   descripcion: string | null;
   url: string | null;
+  /** ITER66 — provider-authoritative download URL (GCS bucket). */
+  gcs_url: string | null;
+  /** ITER66 — the provider's own route; public but SPA-broken. Fallback only. */
+  url_origen: string | null;
   fecha_carga: string | null;
   estado: string | null;
   /**
@@ -39,7 +43,9 @@ const ID_KEYS = ["idRegDocumento", "id_reg_documento", "id", "documento_id"];
 const NOMBRE_KEYS = ["nombre", "nombre_archivo", "filename", "name"];
 const TIPO_KEYS = ["tipo", "tipo_documento", "mime", "content_type"];
 const DESC_KEYS = ["descripcion", "description"];
-const URL_KEYS = ["url", "gcs_url", "url_descarga", "urlDescarga", "public_url", "url_publica"];
+const GCS_KEYS = ["gcs_url", "gcsUrl", "public_url", "url_publica"];
+const ORIGEN_KEYS = ["url_origen", "urlOrigen", "url_descarga", "urlDescarga"];
+const URL_KEYS = [...GCS_KEYS, "url", ...ORIGEN_KEYS];
 const FECHA_KEYS = ["fechaCarga", "fecha_carga", "fecha", "uploaded_at"];
 const ESTADO_KEYS = ["estado", "resultado", "status"];
 
@@ -64,19 +70,23 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const src = item as Record<string, unknown>;
-    const url = str(src, URL_KEYS);
+    const gcs = str(src, GCS_KEYS);
+    const origen = str(src, ORIGEN_KEYS);
+    const url = gcs ?? str(src, URL_KEYS);
     const doc: ActDocumento = {
       id: str(src, ID_KEYS),
       nombre: str(src, NOMBRE_KEYS),
       tipo: str(src, TIPO_KEYS),
       descripcion: str(src, DESC_KEYS),
       url,
+      gcs_url: gcs,
+      url_origen: origen,
       fecha_carga: str(src, FECHA_KEYS),
       estado: str(src, ESTADO_KEYS) ?? (url ? null : "SIN_ENLACE_DEL_PROVEEDOR"),
       disponible: !!url,
     };
     // A descriptor with no identity, no URL and no filename carries nothing.
-    if (!doc.id && !doc.url && !doc.nombre) continue;
+    if (!doc.id && !doc.url && !doc.url_origen && !doc.nombre) continue;
     out.push(doc);
   }
   // Identity is the provider id or URL; the filename is the last resort so a
