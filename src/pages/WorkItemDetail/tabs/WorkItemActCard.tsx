@@ -49,6 +49,8 @@ export interface ActDocumento {
   url?: string | null;
   fecha_carga?: string | null;
   estado?: string | null;
+  /** ITER64 — false when the provider announced the file but gave no link. */
+  disponible?: boolean | null;
 }
 
 function extractActDocumentos(raw: unknown): ActDocumento[] {
@@ -390,8 +392,13 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
 
   const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
   // ITER60 — CPNU documents live in a dedicated column, not raw_data.
+  // ITER64 — an announced document with no link is still evidence that the
+  // file exists at the despacho. Show it, say the link is missing; never hide.
   const actDocumentos = extractActDocumentos(act.documentos).filter(
-    (d) => typeof d.url === "string" && d.url.trim().length > 0,
+    (d) =>
+      (typeof d.url === "string" && d.url.trim().length > 0) ||
+      !!d.nombre?.trim() ||
+      !!d.descripcion?.trim(),
   );
 
   return (
