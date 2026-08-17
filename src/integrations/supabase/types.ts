@@ -215,6 +215,42 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter63_reclass_report: {
+        Row: {
+          after_error_code: string | null
+          after_provider: string | null
+          after_status: string | null
+          before_provider: string | null
+          before_status: string | null
+          bucket: string | null
+          created_at: string | null
+          row_count: number | null
+          workflow_type: string | null
+        }
+        Insert: {
+          after_error_code?: string | null
+          after_provider?: string | null
+          after_status?: string | null
+          before_provider?: string | null
+          before_status?: string | null
+          bucket?: string | null
+          created_at?: string | null
+          row_count?: number | null
+          workflow_type?: string | null
+        }
+        Update: {
+          after_error_code?: string | null
+          after_provider?: string | null
+          after_status?: string | null
+          before_provider?: string | null
+          before_status?: string | null
+          bucket?: string | null
+          created_at?: string | null
+          row_count?: number | null
+          workflow_type?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string

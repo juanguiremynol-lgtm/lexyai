@@ -329,3 +329,21 @@ Our position:
   incomplete reads).
 - Requested of GCP: expose `ubicacion_expediente` verbatim in the
   `claseProveedor` block, with its own observation timestamp.
+
+## ITER64 — Field request to GCP: act document download URLs
+
+Status: **OPEN — provider announces the file, omits the link.**
+
+Observation (radicado `05001400300520260046800`, actuación "Radicación Y Reparto",
+`indice = 120807611`): the payload carries `anexos: 1` and
+`documentos: [{ "nombre": "01ActaReparto.pdf", "url": "" }]`. The PDF is visible
+in CPNU directly, so it exists; only the resolved link is missing.
+
+Our position:
+- We no longer drop link-less descriptors at ingest. They persist with
+  `disponible: false` and `estado: "SIN_ENLACE_DEL_PROVEEDOR"`, and the act card
+  shows "Sin enlace del proveedor". An announced document is evidence; silence
+  is not.
+- No client-side scraping of `/api/v2/Proceso/DocumentosActuacion/{idRegActuacion}`.
+- Requested of GCP: populate `documentos[].url` (and `idRegDocumento`) from
+  `DocumentosActuacion`, mirroring the estados attachment pipeline.

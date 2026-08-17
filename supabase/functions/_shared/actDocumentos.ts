@@ -25,6 +25,14 @@ export interface ActDocumento {
   url: string | null;
   fecha_carga: string | null;
   estado: string | null;
+  /**
+   * ITER64 — true when the descriptor carries a retrievable URL.
+   * CPNU announces documents on the act (`documentos:[{nombre, url:""}]`,
+   * `anexos: 1`) before GCP has resolved the download link. Dropping those
+   * descriptors made an announced-but-unlinked PDF read exactly like "the
+   * provider says there are none" — a false absence. We keep them and say so.
+   */
+  disponible: boolean;
 }
 
 const ID_KEYS = ["idRegDocumento", "id_reg_documento", "id", "documento_id"];
@@ -56,23 +64,26 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const src = item as Record<string, unknown>;
+    const url = str(src, URL_KEYS);
     const doc: ActDocumento = {
       id: str(src, ID_KEYS),
       nombre: str(src, NOMBRE_KEYS),
       tipo: str(src, TIPO_KEYS),
       descripcion: str(src, DESC_KEYS),
-      url: str(src, URL_KEYS),
+      url,
       fecha_carga: str(src, FECHA_KEYS),
-      estado: str(src, ESTADO_KEYS),
+      estado: str(src, ESTADO_KEYS) ?? (url ? null : "SIN_ENLACE_DEL_PROVEEDOR"),
+      disponible: !!url,
     };
-    // A descriptor with neither identity nor URL carries nothing retrievable.
-    if (!doc.id && !doc.url) continue;
+    // A descriptor with no identity, no URL and no filename carries nothing.
+    if (!doc.id && !doc.url && !doc.nombre) continue;
     out.push(doc);
   }
-  // Identity is the provider id, never the filename.
+  // Identity is the provider id or URL; the filename is the last resort so a
+  // name-only announcement is still deduplicated instead of discarded.
   const seen = new Set<string>();
   return out.filter((d) => {
-    const key = d.id ?? d.url ?? "";
+    const key = d.id ?? d.url ?? d.nombre ?? "";
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

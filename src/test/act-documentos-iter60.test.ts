@@ -33,14 +33,22 @@ describe("ITER60 — explicit provider fields", () => {
 });
 
 describe("ITER60 — act documents", () => {
-  it("normalises CPNU documents and drops entries with no handle", () => {
+  it("normalises CPNU documents, keeps name-only announcements, drops empties", () => {
     const docs = normalizeActDocumentos([
       { idRegDocumento: 991, nombre: "Auto.pdf", url: "https://x/1.pdf", fechaCarga: "2026-08-01" },
-      { nombre: "sin url ni id" },
+      { nombre: "01ActaReparto.pdf", url: "" },
+      {},
       { idRegDocumento: 991, nombre: "duplicado", url: "https://x/1.pdf" },
     ]);
-    expect(docs).toHaveLength(1);
-    expect(docs?.[0]).toMatchObject({ id: "991", nombre: "Auto.pdf", url: "https://x/1.pdf" });
+    expect(docs).toHaveLength(2);
+    expect(docs?.[0]).toMatchObject({ id: "991", nombre: "Auto.pdf", url: "https://x/1.pdf", disponible: true });
+    // ITER64 — announced without a link is NOT the same as "no documents".
+    expect(docs?.[1]).toMatchObject({
+      nombre: "01ActaReparto.pdf",
+      url: null,
+      disponible: false,
+      estado: "SIN_ENLACE_DEL_PROVEEDOR",
+    });
   });
 
   it("distinguishes 'provider says none' from 'never asked'", () => {

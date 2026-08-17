@@ -49,6 +49,8 @@ export interface ActDocumento {
   url?: string | null;
   fecha_carga?: string | null;
   estado?: string | null;
+  /** ITER64 — false when the provider announced the file but gave no link. */
+  disponible?: boolean | null;
 }
 
 function extractActDocumentos(raw: unknown): ActDocumento[] {
@@ -390,8 +392,13 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
 
   const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
   // ITER60 — CPNU documents live in a dedicated column, not raw_data.
+  // ITER64 — an announced document with no link is still evidence that the
+  // file exists at the despacho. Show it, say the link is missing; never hide.
   const actDocumentos = extractActDocumentos(act.documentos).filter(
-    (d) => typeof d.url === "string" && d.url.trim().length > 0,
+    (d) =>
+      (typeof d.url === "string" && d.url.trim().length > 0) ||
+      !!d.nombre?.trim() ||
+      !!d.descripcion?.trim(),
   );
 
   return (
@@ -591,6 +598,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
             {actDocumentos.map((doc, idx) => {
               const label =
                 doc.nombre?.trim() || doc.descripcion?.trim() || `Documento ${idx + 1}`;
+              const href = typeof doc.url === "string" && doc.url.trim() ? doc.url.trim() : null;
               return (
                 <li
                   key={doc.id ?? doc.url ?? idx}
@@ -598,9 +606,14 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                   title={doc.descripcion?.trim() || label}
                 >
                   <span className="text-muted-foreground truncate max-w-[60%]">{label}</span>
+                  {!href ? (
+                    <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                      Sin enlace del proveedor
+                    </span>
+                  ) : (
                   <div className="flex items-center gap-1.5 ml-auto">
                     <a
-                      href={doc.url as string}
+                      href={href}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
@@ -608,7 +621,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                       👁️ Ver
                     </a>
                     <a
-                      href={doc.url as string}
+                      href={href}
                       target="_blank"
                       rel="noopener noreferrer"
                       download
@@ -617,6 +630,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                       ⬇️ Descargar
                     </a>
                   </div>
+                  )}
                 </li>
               );
             })}
