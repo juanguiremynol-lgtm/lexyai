@@ -387,9 +387,9 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
   // file exists at the despacho. Show it, say the link is missing; never hide.
   const actDocumentos = extractActDocumentos(act.documentos).filter(
     (d) =>
-      (typeof d.url === "string" && d.url.trim().length > 0) ||
-      !!d.nombre?.trim() ||
-      !!d.descripcion?.trim(),
+      !!resolveActDocumentoUrl(d) ||
+      !!(typeof d.nombre === "string" && d.nombre.trim()) ||
+      !!(typeof d.descripcion === "string" && d.descripcion.trim()),
   );
 
   return (
@@ -587,19 +587,21 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
           </div>
           <ul className="space-y-1.5">
             {actDocumentos.map((doc, idx) => {
-              const label =
-                doc.nombre?.trim() || doc.descripcion?.trim() || `Documento ${idx + 1}`;
-              const href = typeof doc.url === "string" && doc.url.trim() ? doc.url.trim() : null;
+              const label = actDocumentoLabel(doc, idx);
+              const href = resolveActDocumentoUrl(doc);
+              const state = actDocumentoState(doc);
               return (
                 <li
                   key={doc.id ?? doc.url ?? idx}
                   className="flex items-center gap-2 text-xs flex-wrap"
-                  title={doc.descripcion?.trim() || label}
+                  title={
+                    (typeof doc.descripcion === "string" && doc.descripcion.trim()) || label
+                  }
                 >
                   <span className="text-muted-foreground truncate max-w-[60%]">{label}</span>
                   {!href ? (
                     <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                      Sin enlace del proveedor
+                      {actDocumentoStateLabel(state)}
                     </span>
                   ) : (
                   <div className="flex items-center gap-1.5 ml-auto">
