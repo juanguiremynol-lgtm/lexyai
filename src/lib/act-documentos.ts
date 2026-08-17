@@ -20,7 +20,6 @@ export interface ActDocumentoLike {
   fecha_carga?: string | null;
   estado?: string | null;
   disponible?: boolean | null;
-  [key: string]: unknown;
 }
 
 export type ActDocumentoState =
