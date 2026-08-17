@@ -22,7 +22,11 @@ import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
-import { resolveDocumentosObservadosEn, normalizeActDocumentos } from "../_shared/actDocumentos.ts";
+import {
+  resolveDocumentosObservadosEn,
+  normalizeActDocumentos,
+  documentosEnrichmentPatch,
+} from "../_shared/actDocumentos.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
@@ -2879,6 +2883,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             console.log(`[sync-by-work-item] ✅ fingerprint anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${(existing as any).id} — no new alert`);
           }
         }
+        // ITER67 — a duplicated act may still have LEARNED documents upstream.
+        await applyDocumentosEnrichment((existing as any).id, existing as any, act);
         result.skipped_count++;
         continue;
       }
@@ -2932,6 +2938,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           }
         } else {
           console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
+        }
+        if (existingRow) {
+          await applyDocumentosEnrichment(existingRow.id, existingRow as any, act);
         }
         result.skipped_count++;
         continue;
