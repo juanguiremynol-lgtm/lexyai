@@ -153,13 +153,13 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
   // ITER64 — CPNU act-level documents live in the dedicated `documentos`
   // column, not in raw_data. Announced-without-link descriptors must still be
   // shown: hiding them reads as "the provider has no file", a false absence.
-  const cpnuDocs = Array.isArray(act.documentos)
-    ? (act.documentos as Array<Record<string, unknown>>).filter(
-        (d) => !!d && typeof d === "object",
-      )
-    : [];
+  // ITER66 — the download URL lives in `gcs_url` (repo-wide convention);
+  // `url` is only our alias and is absent on older rows.
+  const cpnuDocs = extractActDocumentos(act.documentos);
   const announcedNoLink = cpnuDocs.filter(
-    (d) => !isAbsoluteHttpUrl(d.url) && (typeof d.nombre === "string" || typeof d.descripcion === "string"),
+    (d) =>
+      !resolveActDocumentoUrl(d) &&
+      (typeof d.nombre === "string" || typeof d.descripcion === "string"),
   );
 
   const items: Array<{ href: string; icon: JSX.Element; label: string; title?: string }> = [];
@@ -199,12 +199,12 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
   }
   // CPNU act documents with a resolved provider link.
   for (const d of cpnuDocs) {
-    const href = abs(d.url);
+    const href = resolveActDocumentoUrl(d);
     if (!href) continue;
     items.push({
       href,
       icon: <Download className="h-3 w-3" />,
-      label: String(d.nombre ?? "Documento").slice(0, 24),
+      label: actDocumentoLabel(d).slice(0, 24),
       title: String(d.descripcion ?? d.nombre ?? "Documento"),
     });
   }
@@ -222,14 +222,14 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
         {announcedNoLink.map((d, i) => (
           <span
             key={i}
-            title={`${String(d.nombre ?? d.descripcion ?? "Documento")} — el proveedor anunció el documento sin enlace de descarga`}
+            title={`${actDocumentoLabel(d)} — ${actDocumentoStateLabel(actDocumentoState(d))}`}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300"
           >
             <FileText className="h-3 w-3" />
             <span className="truncate max-w-[110px]">
-              {String(d.nombre ?? d.descripcion ?? "Documento")}
+              {actDocumentoLabel(d)}
             </span>
-            <span className="opacity-70">sin enlace</span>
+            <span className="opacity-70">{actDocumentoStateLabel(actDocumentoState(d))}</span>
           </span>
         ))}
       </div>
