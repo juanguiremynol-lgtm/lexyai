@@ -290,6 +290,16 @@ export function WorkItemCoveragePanel({
                 <span>Última fijación: {estadosSignal.last_fijacion_date}</span>
               )}
             </div>
+            {/* ITER63 — an inconclusive read is information: the question is
+                open. It must not render like a matter nobody asked about. */}
+            {estadosSignal.signal_class === "LECTURA_NO_CONCLUYENTE" && (
+              <div className="mt-1 rounded-md border border-slate-400/50 bg-muted/40 p-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <span className="font-medium">Pregunta abierta:</span> la última lectura de la
+                fuente de estados no se completó, de modo que no hay veredicto de cobertura para
+                este expediente. Se reintenta automáticamente; no es silencio del despacho ni
+                ausencia confirmada.
+              </div>
+            )}
             {estadosSignal.signal_class === "ESTADOS_ESPERADOS_AUSENTES" &&
               (estadosSignal.evidence?.unmatched_fijaciones?.length ?? 0) > 0 && (
                 <ul className="mt-1 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400">
