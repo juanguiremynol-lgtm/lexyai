@@ -2868,7 +2868,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
         .from('work_item_acts')
-        .select('id, raw_data')
+        .select('id, raw_data, documentos, documentos_observados_en')
         .eq('work_item_id', work_item_id)
         .eq('hash_fingerprint', fingerprint)
         .maybeSingle();
@@ -2917,7 +2917,12 @@ Deno.serve(withSyncTimeline(async (req) => {
           }
         }
         // ITER67 — a duplicated act may still have LEARNED documents upstream.
-        await applyDocumentosEnrichment((existing as any).id, existing as any, act);
+        await applyDocumentosEnrichment(
+          (existing as any).id,
+          (existing as any).documentos ?? null,
+          (existing as any).documentos_observados_en ?? null,
+          act,
+        );
         result.skipped_count++;
         continue;
       }
@@ -2973,7 +2978,12 @@ Deno.serve(withSyncTimeline(async (req) => {
           console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
         }
         if (existingRow) {
-          await applyDocumentosEnrichment(existingRow.id, existingRow as any, act);
+          await applyDocumentosEnrichment(
+            existingRow.id,
+            existingRow.documentos ?? null,
+            existingRow.documentos_observados_en ?? null,
+            act,
+          );
         }
         result.skipped_count++;
         continue;
