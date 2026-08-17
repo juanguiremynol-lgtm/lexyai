@@ -21,6 +21,13 @@ import {
 import { FileText, Table2, ExternalLink, HardDrive, Download, Eye } from "lucide-react";
 import type { WorkItemAct } from "./WorkItemActCard";
 import { isAbsoluteHttpUrl } from "@/lib/document-url-resolver";
+import {
+  extractActDocumentos,
+  resolveActDocumentoUrl,
+  actDocumentoState,
+  actDocumentoStateLabel,
+  actDocumentoLabel,
+} from "@/lib/act-documentos";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
