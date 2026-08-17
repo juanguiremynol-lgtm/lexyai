@@ -6,6 +6,14 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import {
+  extractActDocumentos,
+  resolveActDocumentoUrl,
+  actDocumentoState,
+  actDocumentoStateLabel,
+  actDocumentoLabel,
+  type ActDocumentoLike,
+} from "@/lib/act-documentos";
 
 // ─── Attachment types ────────────────────────────────────────────────────────
 
