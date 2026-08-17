@@ -104,3 +104,59 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
 export function documentosObserved(raw: unknown): boolean {
   return Array.isArray(raw);
 }
+
+/**
+ * ITER67 — the read API now emits its OWN `documentos_observados_en`, which is
+ * when the provider actually looked, not when we happened to sync. Prefer it;
+ * fall back to our sync clock only when the provider stays silent about it.
+ */
+export function resolveDocumentosObservadosEn(
+  raw: unknown,
+  providerObservedAt: unknown,
+  now: string = new Date().toISOString(),
+): string | null {
+  if (typeof providerObservedAt === "string" && providerObservedAt.trim()) {
+    const parsed = Date.parse(providerObservedAt);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  return documentosObserved(raw) ? now : null;
+}
+
+function linkedCount(docs: ActDocumento[] | null): number {
+  return (docs ?? []).filter((d) => !!(d.gcs_url || d.url || d.url_origen)).length;
+}
+
+/**
+ * ITER67 — an act already stored is still allowed to LEARN documents. The old
+ * sync skipped duplicates wholesale, so a PDF that materialised after the first
+ * read stayed forever as "sin enlace del proveedor". Enrichment only: never
+ * replace linked descriptors with poorer ones, never flatten to `[]`.
+ */
+export function documentosEnrichmentPatch(
+  existing: unknown,
+  existingObservedAt: string | null,
+  incomingRaw: unknown,
+  providerObservedAt: unknown,
+  now: string = new Date().toISOString(),
+): { documentos: ActDocumento[]; documentos_observados_en: string | null } | null {
+  const incoming = normalizeActDocumentos(incomingRaw);
+  if (!incoming) return null;
+
+  const current = Array.isArray(existing)
+    ? (normalizeActDocumentos(existing) ?? [])
+    : null;
+
+  const improves =
+    current === null ||
+    linkedCount(incoming) > linkedCount(current) ||
+    incoming.length > current.length;
+
+  if (!improves) return null;
+
+  return {
+    documentos: incoming,
+    documentos_observados_en:
+      resolveDocumentosObservadosEn(incomingRaw, providerObservedAt, now) ??
+      existingObservedAt,
+  };
+}

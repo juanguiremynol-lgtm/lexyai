@@ -48,7 +48,14 @@ export interface NormalizedActuacion {
   /** Judicial instance (e.g., '00', '01', '02') */
   instancia?: string;
   /** Document attachments */
-  documentos?: Array<{ nombre: string; url: string }>;
+  /**
+   * ITER67 — provider document descriptors, carried VERBATIM. Flattening them
+   * to {nombre,url} destroyed `gcs_url` (the authoritative download link) and
+   * made a DESCARGADO PDF read as "sin enlace del proveedor".
+   */
+  documentos?: Array<Record<string, unknown>>;
+  /** Provider's own observation timestamp for the documents field. */
+  documentos_observados_en?: string | null;
   /** Original provider response for debugging */
   raw_data?: Record<string, unknown>;
 }

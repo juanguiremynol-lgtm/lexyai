@@ -22,7 +22,11 @@ import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
-import { documentosObserved, normalizeActDocumentos } from "../_shared/actDocumentos.ts";
+import {
+  resolveDocumentosObservadosEn,
+  normalizeActDocumentos,
+  documentosEnrichmentPatch,
+} from "../_shared/actDocumentos.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
@@ -245,8 +249,10 @@ interface ActuacionRaw {
   indice?: string;
   // Court/despacho name per actuación (CPNU-specific)
   nombre_despacho?: string;
-  // Document attachments (CPNU documentos array)
-  documentos?: Array<{ nombre: string; url: string }>;
+  // Document attachments (CPNU documentos array — gcs_url is authoritative)
+  documentos?: Array<Record<string, unknown>>;
+  // ITER67 — provider's own observation timestamp for the documents field.
+  documentos_observados_en?: string | null;
 }
 
 interface FetchResult {
@@ -2686,7 +2692,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     const { data: existingActsForDedup } = await supabase
       .from('work_item_acts')
-      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo')
+      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en')
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
@@ -2698,6 +2704,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       description: string | null;
       hash_fingerprint: string | null;
       source: string | null;
+      documentos: unknown;
+      documentos_observados_en: string | null;
     }>();
     for (const a of existingActsForDedup || []) {
       const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
@@ -2717,11 +2725,42 @@ Deno.serve(withSyncTimeline(async (req) => {
           description: a.description,
           hash_fingerprint: (a as any).hash_fingerprint ?? null,
           source: (a as any).source ?? null,
+          documentos: (a as any).documentos ?? null,
+          documentos_observados_en: (a as any).documentos_observados_en ?? null,
         });
       }
     }
     const existingSemanticSet = new Set(existingSemanticMap.keys());
     console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc+fechaReg) tuples for semantic dedup`);
+
+    /**
+     * ITER67 — a duplicated act still learns documents. CPNU materialises the
+     * PDF hours or days after announcing the actuación, so skipping duplicates
+     * wholesale froze the first (linkless) descriptor forever.
+     */
+    const applyDocumentosEnrichment = async (
+      actId: string,
+      existingDocs: unknown,
+      existingObservedAt: string | null,
+      incoming: ActuacionRaw,
+    ): Promise<void> => {
+      const patch = documentosEnrichmentPatch(
+        existingDocs,
+        existingObservedAt,
+        (incoming as any).documentos,
+        (incoming as any).documentos_observados_en,
+      );
+      if (!patch) return;
+      const { error: docErr } = await supabase
+        .from('work_item_acts')
+        .update({ ...patch, last_seen_at: new Date().toISOString() })
+        .eq('id', actId);
+      if (docErr) {
+        console.warn(`[sync-by-work-item] ⚠️ documentos enrichment failed for ${actId}: ${docErr.message}`);
+      } else {
+        console.log(`[sync-by-work-item] ✅ documentos enriched for act ${actId} (${patch.documentos.length} descriptor(s))`);
+      }
+    };
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
@@ -2829,7 +2868,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
         .from('work_item_acts')
-        .select('id, raw_data')
+        .select('id, raw_data, documentos, documentos_observados_en')
         .eq('work_item_id', work_item_id)
         .eq('hash_fingerprint', fingerprint)
         .maybeSingle();
@@ -2877,6 +2916,13 @@ Deno.serve(withSyncTimeline(async (req) => {
             console.log(`[sync-by-work-item] ✅ fingerprint anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${(existing as any).id} — no new alert`);
           }
         }
+        // ITER67 — a duplicated act may still have LEARNED documents upstream.
+        await applyDocumentosEnrichment(
+          (existing as any).id,
+          (existing as any).documentos ?? null,
+          (existing as any).documentos_observados_en ?? null,
+          act,
+        );
         result.skipped_count++;
         continue;
       }
@@ -2930,6 +2976,14 @@ Deno.serve(withSyncTimeline(async (req) => {
           }
         } else {
           console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
+        }
+        if (existingRow) {
+          await applyDocumentosEnrichment(
+            existingRow.id,
+            existingRow.documentos ?? null,
+            existingRow.documentos_observados_en ?? null,
+            act,
+          );
         }
         result.skipped_count++;
         continue;
@@ -3035,9 +3089,10 @@ Deno.serve(withSyncTimeline(async (req) => {
           inicia_termino: act.fecha_inicia_termino || null,
           // ITER60 — CPNU act-level documents (null = not observed, [] = none).
           documentos: normalizeActDocumentos((act as any).documentos),
-          documentos_observados_en: documentosObserved((act as any).documentos)
-            ? new Date().toISOString()
-            : null,
+          documentos_observados_en: resolveDocumentosObservadosEn(
+            (act as any).documentos,
+            (act as any).documentos_observados_en,
+          ),
           raw_data: rawDataPayload,
         }]),
       });
