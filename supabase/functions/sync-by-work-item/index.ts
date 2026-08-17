@@ -22,7 +22,7 @@ import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
-import { documentosObserved, normalizeActDocumentos } from "../_shared/actDocumentos.ts";
+import { resolveDocumentosObservadosEn, normalizeActDocumentos } from "../_shared/actDocumentos.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
@@ -3035,9 +3035,10 @@ Deno.serve(withSyncTimeline(async (req) => {
           inicia_termino: act.fecha_inicia_termino || null,
           // ITER60 — CPNU act-level documents (null = not observed, [] = none).
           documentos: normalizeActDocumentos((act as any).documentos),
-          documentos_observados_en: documentosObserved((act as any).documentos)
-            ? new Date().toISOString()
-            : null,
+          documentos_observados_en: resolveDocumentosObservadosEn(
+            (act as any).documentos,
+            (act as any).documentos_observados_en,
+          ),
           raw_data: rawDataPayload,
         }]),
       });
