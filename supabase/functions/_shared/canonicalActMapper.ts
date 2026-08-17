@@ -20,7 +20,7 @@ import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 import { extractRunProvenance } from "./runProvenance.ts";
 import { resolveProviderLinkage } from "./recursoStreams.ts";
-import { documentosObserved, normalizeActDocumentos, type ActDocumento } from "./actDocumentos.ts";
+import { resolveDocumentosObservadosEn, normalizeActDocumentos, type ActDocumento } from "./actDocumentos.ts";
 
 export interface ProviderActUnit {
   actuacion: string;
@@ -145,9 +145,10 @@ export function toCanonicalActRow(
   const linkage = resolveProviderLinkage(unit, ctx.source_radicado ?? null);
   // ITER60 — documents are resolved in exactly one place too.
   const documentos = normalizeActDocumentos(unit.documentos);
-  const documentosObservedAt = documentosObserved(unit.documentos)
-    ? new Date().toISOString()
-    : null;
+  const documentosObservedAt = resolveDocumentosObservadosEn(
+    unit.documentos,
+    (unit as Record<string, unknown>).documentos_observados_en,
+  );
 
   const rawData: Record<string, unknown> = {
     actuacion: unit.actuacion,
