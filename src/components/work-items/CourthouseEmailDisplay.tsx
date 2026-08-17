@@ -7,7 +7,8 @@
  * - Not Found: no match in directory
  * - Not Available: hasn't been run yet — shows action buttons
  * 
- * Only visible for judicial workflow types (CGP, LABORAL, CPACA, TUTELA, PENAL_906)
+ * Only visible for judicial workflow types — the list lives in
+ * `JUDICIAL_WORKFLOW_TYPES` (src/lib/workflow-constants.ts). Never inline it here.
  */
 
 import { useState } from "react";
@@ -48,9 +49,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { WorkItem } from "@/types/work-item";
-
-// Judicial workflow types that should show courthouse resolution
-const JUDICIAL_TYPES = new Set(["CGP", "LABORAL", "CPACA", "TUTELA", "PENAL_906"]);
+import { isJudicialWorkflowType } from "@/lib/workflow-constants";
 
 interface CourthouseEmailDisplayProps {
   workItem: WorkItem & {
@@ -249,7 +248,7 @@ export function CourthouseEmailDisplay({ workItem }: CourthouseEmailDisplayProps
   };
 
   // Only show for judicial workflow types (after all hooks)
-  if (!JUDICIAL_TYPES.has(workItem.workflow_type)) {
+  if (!isJudicialWorkflowType(workItem.workflow_type)) {
     return null;
   }
 
