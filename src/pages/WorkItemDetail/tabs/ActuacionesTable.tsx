@@ -197,6 +197,17 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
         });
     }
   }
+  // CPNU act documents with a resolved provider link.
+  for (const d of cpnuDocs) {
+    const href = abs(d.url);
+    if (!href) continue;
+    items.push({
+      href,
+      icon: <Download className="h-3 w-3" />,
+      label: String(d.nombre ?? "Documento").slice(0, 24),
+      title: String(d.descripcion ?? d.nombre ?? "Documento"),
+    });
+  }
 
   if (!items.length && clasificada) {
     return (
