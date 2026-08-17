@@ -146,6 +146,31 @@ export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
   'GENERIC',
 ];
 
+/**
+ * Workflow types whose matters are handled by a judicial despacho and therefore
+ * have a courthouse e-mail (authority_email / resolved_email).
+ *
+ * SINGLE SOURCE OF TRUTH — never re-declare this list inline in a component.
+ * Omitting a type here silently hides the e-mail surface for that workflow
+ * (this is what happened to EJECUTIVO after iteration 32).
+ */
+export const JUDICIAL_WORKFLOW_TYPES: WorkflowType[] = [
+  'CGP',
+  'EJECUTIVO',
+  'LABORAL',
+  'CPACA',
+  'TUTELA',
+  'PENAL_906',
+];
+
+export const JUDICIAL_WORKFLOW_TYPE_SET: ReadonlySet<string> = new Set<string>(
+  JUDICIAL_WORKFLOW_TYPES,
+);
+
+export function isJudicialWorkflowType(type: string | null | undefined): boolean {
+  return !!type && JUDICIAL_WORKFLOW_TYPE_SET.has(type);
+}
+
 // ============================================
 // CGP Stages (Filing phase + Process phase)
 // ============================================
