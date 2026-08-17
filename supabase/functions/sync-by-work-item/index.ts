@@ -245,8 +245,10 @@ interface ActuacionRaw {
   indice?: string;
   // Court/despacho name per actuación (CPNU-specific)
   nombre_despacho?: string;
-  // Document attachments (CPNU documentos array)
-  documentos?: Array<{ nombre: string; url: string }>;
+  // Document attachments (CPNU documentos array — gcs_url is authoritative)
+  documentos?: Array<Record<string, unknown>>;
+  // ITER67 — provider's own observation timestamp for the documents field.
+  documentos_observados_en?: string | null;
 }
 
 interface FetchResult {
