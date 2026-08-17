@@ -150,6 +150,17 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
   const proxyPdfUrl = abs(raw?.pdf_url);
   const samai = extractSamaiAttachments(act);
   const clasificada = (raw?.estado as string | undefined)?.toUpperCase() === "CLASIFICADA";
+  // ITER64 — CPNU act-level documents live in the dedicated `documentos`
+  // column, not in raw_data. Announced-without-link descriptors must still be
+  // shown: hiding them reads as "the provider has no file", a false absence.
+  const cpnuDocs = Array.isArray(act.documentos)
+    ? (act.documentos as Array<Record<string, unknown>>).filter(
+        (d) => !!d && typeof d === "object",
+      )
+    : [];
+  const announcedNoLink = cpnuDocs.filter(
+    (d) => !isAbsoluteHttpUrl(d.url) && (typeof d.nombre === "string" || typeof d.descripcion === "string"),
+  );
 
   const items: Array<{ href: string; icon: JSX.Element; label: string; title?: string }> = [];
   if (autoUrl?.trim())
@@ -186,12 +197,42 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
         });
     }
   }
+  // CPNU act documents with a resolved provider link.
+  for (const d of cpnuDocs) {
+    const href = abs(d.url);
+    if (!href) continue;
+    items.push({
+      href,
+      icon: <Download className="h-3 w-3" />,
+      label: String(d.nombre ?? "Documento").slice(0, 24),
+      title: String(d.descripcion ?? d.nombre ?? "Documento"),
+    });
+  }
 
   if (!items.length && clasificada) {
     return (
       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300">
         Clasificado
       </span>
+    );
+  }
+  if (!items.length && announcedNoLink.length > 0) {
+    return (
+      <div className="flex flex-col gap-1">
+        {announcedNoLink.map((d, i) => (
+          <span
+            key={i}
+            title={`${String(d.nombre ?? d.descripcion ?? "Documento")} — el proveedor anunció el documento sin enlace de descarga`}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          >
+            <FileText className="h-3 w-3" />
+            <span className="truncate max-w-[110px]">
+              {String(d.nombre ?? d.descripcion ?? "Documento")}
+            </span>
+            <span className="opacity-70">sin enlace</span>
+          </span>
+        ))}
+      </div>
     );
   }
   if (!items.length) return <span className="text-muted-foreground/40">—</span>;
