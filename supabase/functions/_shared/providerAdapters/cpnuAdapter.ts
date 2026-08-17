@@ -174,11 +174,16 @@ function normalizeActuaciones(
 
     if (act.conDocumentos) normalized.anexos_count = 1;
 
-    if (Array.isArray(act.documentos) && act.documentos.length > 0) {
-      normalized.documentos = (act.documentos as Array<{ nombre?: string; url?: string }>).map(d => ({
-        nombre: String(d.nombre || 'Documento'),
-        url: String(d.url || ''),
-      }));
+    // ITER67 — carry the descriptors VERBATIM. The download URL lives in
+    // `gcs_url`; the old {nombre,url} projection silently dropped it.
+    if (Array.isArray(act.documentos)) {
+      normalized.documentos = (act.documentos as unknown[]).filter(
+        (d): d is Record<string, unknown> => !!d && typeof d === 'object',
+      );
+    }
+    const observedAt = act.documentos_observados_en ?? act.documentosObservadosEn;
+    if (typeof observedAt === 'string' && observedAt.trim()) {
+      normalized.documentos_observados_en = observedAt.trim();
     }
 
     normalized.raw_data = act;
