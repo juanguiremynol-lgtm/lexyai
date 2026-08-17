@@ -412,7 +412,7 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                 <p className="font-medium">{workItem.authority_name || "Sin especificar"}</p>
               </div>
 
-              {workItem.authority_email && (
+              {workItem.authority_email ? (
                 <div className="col-span-2 flex items-center gap-2">
                   <Mail className="h-4 w-4 text-muted-foreground" />
                   <a 
@@ -421,6 +421,13 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                   >
                     {workItem.authority_email}
                   </a>
+                </div>
+              ) : (
+                <div className="col-span-2 flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    Sin correo del despacho — resuélvelo en la tarjeta "Correo del despacho".
+                  </span>
                 </div>
               )}
 
