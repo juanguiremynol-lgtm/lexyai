@@ -20,6 +20,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { canonicalizeProvider } from "./syncVocabulary.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -52,17 +53,21 @@ export async function recordSyncTimelineEvent(
   if (!url || !key) return;
   try {
     const supabase = createClient(url, key);
+    // ITER63 — one declared vocabulary, one stable multi-source ordering.
+    const canon = canonicalizeProvider(event.provider);
     const { error } = await supabase.from("work_item_sync_timeline").insert({
       work_item_id: event.work_item_id,
       organization_id: event.organization_id ?? null,
       sync_run_id: event.sync_run_id ?? null,
-      provider: event.provider,
+      provider: canon.provider,
+      providers: canon.providers,
       operation: event.operation,
       function_name: event.function_name ?? null,
       adapter_version: event.adapter_version ?? null,
       deploy_sha: event.deploy_sha ?? DEPLOY_SHA,
       status: event.status,
-      error_code: event.error_code ?? null,
+      error_code: event.error_code ??
+        (canon.providers.includes("unknown") ? "PROVIDER_UNRESOLVED" : null),
       error_message: event.error_message ?? null,
       records_inserted: event.records_inserted ?? 0,
       records_skipped: event.records_skipped ?? 0,

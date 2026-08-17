@@ -16,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { AlertCircle, CheckCircle2, Clock, GitCommit, MinusCircle, XCircle } from "lucide-react";
+import { isProviderAttributable } from "@/lib/syncVocabulary";
 
 interface Props {
   workItemId: string;
@@ -26,6 +27,7 @@ interface TimelineRow {
   finished_at: string;
   started_at: string | null;
   provider: string;
+  providers: string[] | null;
   operation: string;
   function_name: string | null;
   adapter_version: string | null;
@@ -53,6 +55,22 @@ const STATUS_META: Record<TimelineRow["status"], { label: string; variant: "defa
 function shortSha(sha: string | null): string {
   if (!sha || sha === "unset") return "sin versión";
   return sha.length > 8 ? sha.slice(0, 8) : sha;
+}
+
+/**
+ * ITER63 — the provider column is a declared vocabulary and a run may hold
+ * several sources. Legacy rows that cannot name their source say so.
+ */
+const UNATTRIBUTED_LABEL: Record<string, string> = {
+  PROVIDER_UNRESOLVED: "Fuente no resuelta — la corrida no llegó a nombrar proveedor",
+  PROVIDER_UNKNOWN_LEGACY: "Fuente no recuperable (registro histórico) — no se puede afirmar cuál respondió",
+  PROVIDER_UNDECLARED: "Valor de proveedor no declarado — puesto en cuarentena",
+  CALLER_UNAUTHORIZED: "Rechazado en nuestra puerta — ningún proveedor fue consultado",
+};
+
+function providerLabel(row: TimelineRow): string {
+  const list = row.providers && row.providers.length > 0 ? row.providers : [row.provider];
+  return list.join(" + ");
 }
 
 export function SyncTimelineTab({ workItemId }: Props) {
@@ -142,9 +160,15 @@ export function SyncTimelineTab({ workItemId }: Props) {
                       <Icon className="h-3 w-3" />
                       {meta.label}
                     </Badge>
-                    <Badge variant="outline">{row.provider}</Badge>
+                    <Badge variant="outline">{providerLabel(row)}</Badge>
                     <Badge variant="outline">{row.operation}</Badge>
                   </div>
+                  {!isProviderAttributable(row.providers ?? [row.provider]) && (
+                    <div className="text-xs text-muted-foreground">
+                      {UNATTRIBUTED_LABEL[row.error_code ?? ""] ??
+                        "Esta corrida no puede atribuirse a una fuente: no cuenta para la salud de ningún proveedor."}
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground">
                     {format(new Date(row.finished_at), "d MMM yyyy HH:mm:ss", { locale: es })}
                     {row.latency_ms != null && <> · {row.latency_ms} ms</>}

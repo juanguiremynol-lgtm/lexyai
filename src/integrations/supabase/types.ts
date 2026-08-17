@@ -14252,6 +14252,54 @@ export type Database = {
           },
         ]
       }
+      sync_vocabulary: {
+        Row: {
+          created_at: string
+          description: string | null
+          domain: string
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          domain: string
+          value: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          domain?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      sync_vocabulary_violations: {
+        Row: {
+          domain: string
+          id: string
+          observed_at: string
+          raw_value: string
+          source_table: string
+          work_item_id: string | null
+        }
+        Insert: {
+          domain: string
+          id?: string
+          observed_at?: string
+          raw_value: string
+          source_table: string
+          work_item_id?: string | null
+        }
+        Update: {
+          domain?: string
+          id?: string
+          observed_at?: string
+          raw_value?: string
+          source_table?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       sync_watches: {
         Row: {
           condition_params: Json
@@ -18376,6 +18424,7 @@ export type Database = {
           operation: string
           organization_id: string | null
           provider: string
+          providers: string[]
           records_inserted: number
           records_skipped: number
           started_at: string | null
@@ -18397,6 +18446,7 @@ export type Database = {
           operation?: string
           organization_id?: string | null
           provider: string
+          providers?: string[]
           records_inserted?: number
           records_skipped?: number
           started_at?: string | null
@@ -18418,6 +18468,7 @@ export type Database = {
           operation?: string
           organization_id?: string | null
           provider?: string
+          providers?: string[]
           records_inserted?: number
           records_skipped?: number
           started_at?: string | null
@@ -19972,6 +20023,7 @@ export type Database = {
       }
       canon_normalize_date: { Args: { p_input: string }; Returns: string }
       canon_normalize_title: { Args: { p_raw: string }; Returns: string }
+      canon_provider_tokens: { Args: { _raw: string }; Returns: string[] }
       canon_pub_fingerprint: {
         Args: {
           p_party_hint: string
@@ -20686,6 +20738,10 @@ export type Database = {
       sync_work_item_enrollment: {
         Args: { p_work_item_id: string }
         Returns: number
+      }
+      timeline_row_is_provider_attributable: {
+        Args: { _provider: string; _providers: string[] }
+        Returns: boolean
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       unaccent_lower_safe: { Args: { p_text: string }; Returns: string }

@@ -1652,7 +1652,7 @@ async function auditOrganization(
 
   const { data: pubNoDataTimeline } = await supabase
     .from("work_item_sync_timeline" as any)
-    .select("work_item_id, status, error_code, records_inserted")
+    .select("work_item_id, status, error_code, records_inserted, provider")
     .eq("function_name", "sync-publicaciones-by-work-item")
     .gte("created_at", dayStart)
     .lte("created_at", dayEnd)
@@ -1660,8 +1660,11 @@ async function auditOrganization(
     .eq("records_inserted", 0)
     .limit(1000);
 
+  // ITER63 — a run that cannot name its provider asserts nothing, so it may
+  // not contribute a "no data" verdict to the supervisor's streaks either.
   const pubNoDataItemIds = new Set(
-    ((pubNoDataTimeline || []) as Array<{ work_item_id?: string | null }>)
+    ((pubNoDataTimeline || []) as Array<{ work_item_id?: string | null; provider?: string | null }>)
+      .filter((row) => !!row.provider && !["unknown", "none"].includes(row.provider))
       .map((row) => row.work_item_id)
       .filter((id): id is string => typeof id === "string"),
   );
