@@ -316,13 +316,44 @@ export function toWizardResult(result: ProviderAdapterResult): WizardProviderRes
 
   return {
     ok: result.status === 'SUCCESS' || result.status === 'EMPTY',
-    found: result.status === 'SUCCESS' && result.actuaciones.length > 0,
+    /**
+     * A radicado exists upstream the moment the provider returns process
+     * identity (despacho / fecha de radicación / parties), even when the
+     * actuaciones list is still empty. Brand-new matters are filed days
+     * before their first actuación is published, and requiring at least one
+     * act made the wizard report "no encontrado" for perfectly valid,
+     * provider-confirmed processes. Downstream `determineFoundStatus` already
+     * distinguishes FOUND_COMPLETE from FOUND_PARTIAL using the act count.
+     */
+    found:
+      (result.status === 'SUCCESS' || result.status === 'EMPTY') &&
+      (result.actuaciones.length > 0 || hasProcessIdentity(result)),
     source: result.provider.toUpperCase(),
     processData,
     latency_ms: result.durationMs,
     error: result.errorMessage,
     eventsFound: result.actuaciones.length,
   };
+}
+
+/**
+ * True when the provider returned enough identity to prove the radicado
+ * exists upstream (independently of whether any actuación was published).
+ */
+function hasProcessIdentity(result: ProviderAdapterResult): boolean {
+  const m = result.metadata;
+  const p = result.parties;
+  return Boolean(
+    m?.despacho ||
+    m?.fecha_radicacion ||
+    m?.tipo_proceso ||
+    m?.clase_proceso ||
+    m?.ponente ||
+    p?.demandante ||
+    p?.demandado ||
+    (p?.sujetos_procesales && p.sujetos_procesales.length > 0) ||
+    (result.publicaciones && result.publicaciones.length > 0),
+  );
 }
 
 // ═══════════════════════════════════════════
