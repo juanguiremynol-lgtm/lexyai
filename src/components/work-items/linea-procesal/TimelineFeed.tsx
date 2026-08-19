@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarClock, ExternalLink, FileText, History, Mail, Newspaper, Route, Scale } from "lucide-react";
+import { CalendarClock, Circle, ExternalLink, Eye, FileText, History, Mail, Newspaper, Route, Scale } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const FILTERS: Array<{ key: "TODO" | TimelineKind; label: string }> = [
   { key: "TERMINO", label: "Términos" },
   { key: "ETAPA", label: "Etapas" },
   { key: "CLASE", label: "Clase" },
+  { key: "EXPOSICION_DETALLE", label: "Detalle" },
 ];
 
 const KIND_ICON: Record<TimelineKind, typeof FileText> = {
@@ -32,6 +33,7 @@ const KIND_ICON: Record<TimelineKind, typeof FileText> = {
   TERMINO: CalendarClock,
   ETAPA: Route,
   CLASE: Scale,
+  EXPOSICION_DETALLE: Eye,
 };
 
 export function TimelineFeed({ workItemId }: { workItemId: string }) {
@@ -81,7 +83,9 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
         ) : (
           <ol className="relative space-y-3 border-l border-border pl-4">
             {visible.map((e) => {
-              const Icon = KIND_ICON[e.kind];
+              // Defensive: an unknown server-side kind must never render
+              // `undefined` as a component (React error #130).
+              const Icon = KIND_ICON[e.kind] ?? Circle;
               const meta = (e.meta ?? {}) as Record<string, unknown>;
               const webLink = typeof meta.web_link === "string" ? meta.web_link : null;
               const attachmentCount =

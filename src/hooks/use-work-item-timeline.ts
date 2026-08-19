@@ -8,7 +8,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export type TimelineKind = "ACTUACION" | "ESTADO" | "CORREO" | "TERMINO" | "ETAPA" | "CLASE";
+export type TimelineKind =
+  | "ACTUACION"
+  | "ESTADO"
+  | "CORREO"
+  | "TERMINO"
+  | "ETAPA"
+  | "CLASE"
+  | "EXPOSICION_DETALLE";
 
 export interface TimelineEntry {
   work_item_id: string;
