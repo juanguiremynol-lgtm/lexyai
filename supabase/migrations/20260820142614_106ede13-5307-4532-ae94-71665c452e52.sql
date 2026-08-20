@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.purge_soft_deleted_work_items(int, bool) TO postgres;
