@@ -1,0 +1,1 @@
+select cron.schedule('purge-soft-deleted-work-items-daily', '40 8 * * *', $$select public.purge_soft_deleted_work_items(10, false);$$);
