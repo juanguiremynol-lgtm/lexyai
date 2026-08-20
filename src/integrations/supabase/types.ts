@@ -406,6 +406,20 @@ export type Database = {
             foreignKeyName: "actuaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actuaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actuaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1003,6 +1017,20 @@ export type Database = {
             foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1415,6 +1443,20 @@ export type Database = {
             foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1607,6 +1649,20 @@ export type Database = {
             foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -1660,6 +1716,20 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
@@ -1748,6 +1818,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
@@ -1849,6 +1933,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
@@ -2043,6 +2141,20 @@ export type Database = {
             foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -2119,6 +2231,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
@@ -2219,6 +2345,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
@@ -3297,6 +3437,20 @@ export type Database = {
             foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3394,6 +3548,20 @@ export type Database = {
             foreignKeyName: "cgp_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3477,6 +3645,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
@@ -3818,6 +4000,20 @@ export type Database = {
             foreignKeyName: "cgp_milestones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -3948,6 +4144,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "cgp_term_instances_work_item_id_fkey"
@@ -5623,6 +5833,20 @@ export type Database = {
             foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
             columns: ["linked_work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
+            columns: ["linked_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
+            columns: ["linked_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -5699,6 +5923,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "despacho_census_requests_work_item_id_fkey"
@@ -6944,6 +7182,20 @@ export type Database = {
             foreignKeyName: "email_outbox_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -7295,6 +7547,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "estado_sin_documento_work_item_id_fkey"
@@ -7743,6 +8009,20 @@ export type Database = {
             foreignKeyName: "external_sync_runs_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_sync_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_sync_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -8011,6 +8291,20 @@ export type Database = {
             foreignKeyName: "generated_documents_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_documents_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_documents_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -8178,6 +8472,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
@@ -8771,6 +9079,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hearings_work_item_id_fkey"
@@ -9760,6 +10082,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "memorial_history_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "memorial_history_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "memorial_history_work_item_id_fkey"
@@ -11890,6 +12226,20 @@ export type Database = {
             foreignKeyName: "process_events_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13181,6 +13531,20 @@ export type Database = {
             foreignKeyName: "provider_source_health_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_source_health_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_source_health_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13785,6 +14149,20 @@ export type Database = {
             foreignKeyName: "support_bundles_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_bundles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_bundles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -13880,6 +14258,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_audit_log_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_audit_log_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "sync_audit_log_work_item_id_fkey"
@@ -14050,6 +14442,20 @@ export type Database = {
             foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: true
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -14206,6 +14612,20 @@ export type Database = {
             foreignKeyName: "sync_retry_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -14311,6 +14731,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "sync_traces_work_item_id_fkey"
@@ -14440,6 +14874,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "sync_watches_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_watches_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "sync_watches_work_item_id_fkey"
@@ -15171,6 +15619,20 @@ export type Database = {
             foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -15331,6 +15793,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "user_data_alerts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_data_alerts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "user_data_alerts_work_item_id_fkey"
@@ -15863,6 +16339,20 @@ export type Database = {
             foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
             columns: ["selected_work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
+            columns: ["selected_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
+            columns: ["selected_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16390,6 +16880,20 @@ export type Database = {
             foreignKeyName: "work_item_acts_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16452,6 +16956,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
@@ -16528,6 +17046,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
@@ -16641,6 +17173,20 @@ export type Database = {
             foreignKeyName: "work_item_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16702,6 +17248,20 @@ export type Database = {
             foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -16758,6 +17318,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_email_events_work_item_id_fkey"
@@ -16826,6 +17400,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
@@ -16956,6 +17544,20 @@ export type Database = {
             foreignKeyName: "work_item_email_links_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_email_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17053,6 +17655,20 @@ export type Database = {
             foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: true
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17117,6 +17733,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_external_links_work_item_id_fkey"
@@ -17268,6 +17898,20 @@ export type Database = {
             foreignKeyName: "work_item_hearings_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17388,6 +18032,20 @@ export type Database = {
             foreignKeyName: "work_item_parties_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_parties_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_parties_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17438,6 +18096,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
@@ -17673,6 +18345,20 @@ export type Database = {
             foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17764,6 +18450,20 @@ export type Database = {
             foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17843,6 +18543,20 @@ export type Database = {
             foreignKeyName: "work_item_reminders_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -17908,6 +18622,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
@@ -18004,6 +18732,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
@@ -18130,6 +18872,20 @@ export type Database = {
             foreignKeyName: "work_item_sources_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -18225,6 +18981,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
@@ -18352,6 +19122,20 @@ export type Database = {
             foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -18452,6 +19236,20 @@ export type Database = {
             foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
             columns: ["origin_work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
+            columns: ["origin_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
+            columns: ["origin_work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -18468,6 +19266,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
+            columns: ["successor_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
+            columns: ["successor_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
@@ -18559,6 +19371,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
@@ -18705,6 +19531,20 @@ export type Database = {
             foreignKeyName: "work_item_tasks_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -18784,6 +19624,20 @@ export type Database = {
             foreignKeyName: "work_item_tracks_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tracks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tracks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -18852,6 +19706,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
             referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
@@ -19861,6 +20729,1372 @@ export type Database = {
           work_item_title: string | null
         }
         Relationships: []
+      }
+      v_live_work_items: {
+        Row: {
+          acta_radicacion_url: string | null
+          acta_reparto_notes: string | null
+          acta_reparto_received_at: string | null
+          acts_initial_sync_completed_at: string | null
+          asunto: string | null
+          atenia_health_score: number | null
+          authority_city: string | null
+          authority_department: string | null
+          authority_email: string | null
+          authority_name: string | null
+          auto_admisorio_date: string | null
+          auto_admisorio_url: string | null
+          cgp_class: string | null
+          cgp_cuantia: string | null
+          cgp_instancia: string | null
+          cgp_phase: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant: string | null
+          clase_proceso: string | null
+          clase_proceso_disponible: boolean | null
+          clase_proceso_last_attempt_at: string | null
+          clase_proceso_last_read_case: string | null
+          clase_proceso_motivo_ausencia: string | null
+          clase_proceso_observed_at: string | null
+          clase_proceso_procedencia: Json | null
+          clase_proveedor: Json | null
+          client_id: string | null
+          client_party_represents: string | null
+          client_party_role: string | null
+          client_party_role_basis: string | null
+          client_party_role_confidence: number | null
+          client_party_role_confirmed_at: string | null
+          client_party_role_confirmed_by: string | null
+          client_party_role_overridden: boolean | null
+          client_party_role_override_confidence: number | null
+          client_party_role_proposed: string | null
+          client_party_role_source: string | null
+          closure_at: string | null
+          closure_note: string | null
+          closure_reason: string | null
+          consecutive_404_count: number | null
+          consecutive_failures: number | null
+          consecutive_not_found: number | null
+          corte_status: string | null
+          courthouse_directory_id: number | null
+          courthouse_email_confidence: number | null
+          courthouse_email_confirmed: string | null
+          courthouse_email_confirmed_at: string | null
+          courthouse_email_evidence: Json | null
+          courthouse_email_source: string | null
+          courthouse_email_status: string | null
+          courthouse_email_suggested: string | null
+          courthouse_email_suggested_at: string | null
+          courthouse_needs_review: boolean | null
+          created_at: string | null
+          delete_reason: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          demandados: string | null
+          demandantes: string | null
+          demonitor_at: string | null
+          demonitor_reason: string | null
+          description: string | null
+          despacho_competencia: string | null
+          despacho_competencia_subjects: string[] | null
+          email_linking_enabled: boolean | null
+          etapa: string | null
+          expediente_url: string | null
+          fecha_para_sentencia: string | null
+          fecha_presenta_demanda: string | null
+          fecha_radicado: string | null
+          fecha_sentencia: string | null
+          filing_date: string | null
+          formato_expediente: string | null
+          freshness_sla_hours: number | null
+          freshness_tier: string | null
+          freshness_violation_at: string | null
+          freshness_violation_notified: boolean | null
+          ghost_bootstrap_attempts: number | null
+          ghost_candidate_at: string | null
+          ghost_verification_run_id: string | null
+          ghost_verification_status: string | null
+          id: string | null
+          is_flagged: boolean | null
+          last_action_date: string | null
+          last_action_description: string | null
+          last_attempted_sync_at: string | null
+          last_checked_at: string | null
+          last_cpnu_buscar_at: string | null
+          last_crawled_at: string | null
+          last_error_at: string | null
+          last_error_code: string | null
+          last_error_meta: Json | null
+          last_event_at: string | null
+          last_event_summary: string | null
+          last_inference_date: string | null
+          last_phase_change_at: string | null
+          last_scrape_at: string | null
+          last_scrape_initiated_at: string | null
+          last_stage_change_at: string | null
+          last_stage_change_by_user_id: string | null
+          last_stage_change_source: string | null
+          last_stage_suggestion_at: string | null
+          last_stage_suggestion_id: string | null
+          last_successful_sync_at: string | null
+          last_sync_attempt_at: string | null
+          last_synced_at: string | null
+          latest_estado_at: string | null
+          latest_estado_fingerprint: string | null
+          legacy_admin_process_id: string | null
+          legacy_cgp_item_id: string | null
+          legacy_cpaca_id: string | null
+          legacy_peticion_id: string | null
+          lifecycle_actor: string | null
+          lifecycle_actor_user: string | null
+          lifecycle_changed_at: string | null
+          lifecycle_changed_by: string | null
+          lifecycle_reason: string | null
+          lifecycle_state:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id: string | null
+          medida_cautelar: string | null
+          migration_note: string | null
+          milestones_cleared_at: string | null
+          milestones_cleared_status: string | null
+          ministerio_publico: string | null
+          monitoring_disabled_at: string | null
+          monitoring_disabled_by: string | null
+          monitoring_disabled_meta: Json | null
+          monitoring_disabled_reason: string | null
+          monitoring_enabled: boolean | null
+          monitoring_mode: string | null
+          monitoring_suspended_at: string | null
+          monitoring_suspended_reason: string | null
+          naturaleza_proceso: string | null
+          needs_cpnu_refresh: boolean | null
+          notes: string | null
+          notification_effective_date: string | null
+          notification_substatus: string | null
+          onedrive_url: string | null
+          organization_id: string | null
+          origen: string | null
+          owner_id: string | null
+          pipeline_stage: number | null
+          ponente: string | null
+          pp_estado: string | null
+          pp_id: number | null
+          pp_novedades_pendientes: number | null
+          pp_ultima_sync: string | null
+          provider_detail_desde: string | null
+          provider_detail_exposure: string | null
+          provider_detail_observed_at: string | null
+          provider_detail_reason: string | null
+          provider_detail_ttl_days: number | null
+          provider_detail_ultima_verificacion: string | null
+          provider_reachable: boolean | null
+          provider_sources: Json | null
+          pubs_initial_sync_completed_at: string | null
+          purge_after: string | null
+          radicado: string | null
+          radicado_blocks: Json | null
+          radicado_digits: string | null
+          radicado_raw: string | null
+          radicado_valid: boolean | null
+          radicado_verified: boolean | null
+          raw_courthouse_input: Json | null
+          resolution_candidates: Json | null
+          resolution_confidence: number | null
+          resolution_method: string | null
+          resolved_at: string | null
+          resolved_email: string | null
+          samai_consultado_en: string | null
+          samai_fuente: string | null
+          samai_guid: string | null
+          samai_sala_conoce: string | null
+          samai_sala_decide: string | null
+          samai_veces_en_corporacion: number | null
+          scrape_job_id: string | null
+          scrape_poll_url: string | null
+          scrape_provider: string | null
+          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields: Json | null
+          scraping_enabled: boolean | null
+          sentencia_ref: string | null
+          service_object: string | null
+          sharepoint_url: string | null
+          source: Database["public"]["Enums"]["item_source"] | null
+          source_payload: Json | null
+          source_platform: string | null
+          source_reference: string | null
+          stage: string | null
+          stage_inference_enabled: boolean | null
+          status: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso: string | null
+          sync_failure_streak: number | null
+          tipo_proceso: string | null
+          tipo_recurso: string | null
+          title: string | null
+          total_actuaciones: number | null
+          total_sujetos_procesales: number | null
+          tutela_code: string | null
+          ubicacion_expediente: string | null
+          updated_at: string | null
+          workflow_type: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source: string | null
+        }
+        Insert: {
+          acta_radicacion_url?: string | null
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
+          asunto?: string | null
+          atenia_health_score?: number | null
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant?: string | null
+          clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
+          client_id?: string | null
+          client_party_represents?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean | null
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
+          client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
+          consecutive_404_count?: number | null
+          consecutive_failures?: number | null
+          consecutive_not_found?: number | null
+          corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string | null
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
+          courthouse_needs_review?: boolean | null
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          demandados?: string | null
+          demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
+          description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
+          email_linking_enabled?: boolean | null
+          etapa?: string | null
+          expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
+          filing_date?: string | null
+          formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
+          id?: string | null
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_attempted_sync_at?: string | null
+          last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
+          last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_meta?: Json | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_inference_date?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
+          last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
+          last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id?: string | null
+          medida_cautelar?: string | null
+          migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
+          ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
+          naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean | null
+          notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
+          onedrive_url?: string | null
+          organization_id?: string | null
+          origen?: string | null
+          owner_id?: string | null
+          pipeline_stage?: number | null
+          ponente?: string | null
+          pp_estado?: string | null
+          pp_id?: number | null
+          pp_novedades_pendientes?: number | null
+          pp_ultima_sync?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string | null
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number | null
+          provider_detail_ultima_verificacion?: string | null
+          provider_reachable?: boolean | null
+          provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
+          purge_after?: string | null
+          radicado?: string | null
+          radicado_blocks?: Json | null
+          radicado_digits?: string | null
+          radicado_raw?: string | null
+          radicado_valid?: boolean | null
+          radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
+          service_object?: string | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"] | null
+          source_payload?: Json | null
+          source_platform?: string | null
+          source_reference?: string | null
+          stage?: string | null
+          stage_inference_enabled?: boolean | null
+          status?: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso?: string | null
+          sync_failure_streak?: number | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
+          title?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          tutela_code?: string | null
+          ubicacion_expediente?: string | null
+          updated_at?: string | null
+          workflow_type?: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source?: string | null
+        }
+        Update: {
+          acta_radicacion_url?: string | null
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
+          asunto?: string | null
+          atenia_health_score?: number | null
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant?: string | null
+          clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
+          client_id?: string | null
+          client_party_represents?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean | null
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
+          client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
+          consecutive_404_count?: number | null
+          consecutive_failures?: number | null
+          consecutive_not_found?: number | null
+          corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string | null
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
+          courthouse_needs_review?: boolean | null
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          demandados?: string | null
+          demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
+          description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
+          email_linking_enabled?: boolean | null
+          etapa?: string | null
+          expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
+          filing_date?: string | null
+          formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
+          id?: string | null
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_attempted_sync_at?: string | null
+          last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
+          last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_meta?: Json | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_inference_date?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
+          last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
+          last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id?: string | null
+          medida_cautelar?: string | null
+          migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
+          ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
+          naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean | null
+          notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
+          onedrive_url?: string | null
+          organization_id?: string | null
+          origen?: string | null
+          owner_id?: string | null
+          pipeline_stage?: number | null
+          ponente?: string | null
+          pp_estado?: string | null
+          pp_id?: number | null
+          pp_novedades_pendientes?: number | null
+          pp_ultima_sync?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string | null
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number | null
+          provider_detail_ultima_verificacion?: string | null
+          provider_reachable?: boolean | null
+          provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
+          purge_after?: string | null
+          radicado?: string | null
+          radicado_blocks?: Json | null
+          radicado_digits?: string | null
+          radicado_raw?: string | null
+          radicado_valid?: boolean | null
+          radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
+          service_object?: string | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"] | null
+          source_payload?: Json | null
+          source_platform?: string | null
+          source_reference?: string | null
+          stage?: string | null
+          stage_inference_enabled?: boolean | null
+          status?: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso?: string | null
+          sync_failure_streak?: number | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
+          title?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          tutela_code?: string | null
+          ubicacion_expediente?: string | null
+          updated_at?: string | null
+          workflow_type?: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_items_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_courthouse_directory_id_fkey"
+            columns: ["courthouse_directory_id"]
+            isOneToOne: false
+            referencedRelation: "courthouse_directory"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_monitored_work_items: {
+        Row: {
+          acta_radicacion_url: string | null
+          acta_reparto_notes: string | null
+          acta_reparto_received_at: string | null
+          acts_initial_sync_completed_at: string | null
+          asunto: string | null
+          atenia_health_score: number | null
+          authority_city: string | null
+          authority_department: string | null
+          authority_email: string | null
+          authority_name: string | null
+          auto_admisorio_date: string | null
+          auto_admisorio_url: string | null
+          cgp_class: string | null
+          cgp_cuantia: string | null
+          cgp_instancia: string | null
+          cgp_phase: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant: string | null
+          clase_proceso: string | null
+          clase_proceso_disponible: boolean | null
+          clase_proceso_last_attempt_at: string | null
+          clase_proceso_last_read_case: string | null
+          clase_proceso_motivo_ausencia: string | null
+          clase_proceso_observed_at: string | null
+          clase_proceso_procedencia: Json | null
+          clase_proveedor: Json | null
+          client_id: string | null
+          client_party_represents: string | null
+          client_party_role: string | null
+          client_party_role_basis: string | null
+          client_party_role_confidence: number | null
+          client_party_role_confirmed_at: string | null
+          client_party_role_confirmed_by: string | null
+          client_party_role_overridden: boolean | null
+          client_party_role_override_confidence: number | null
+          client_party_role_proposed: string | null
+          client_party_role_source: string | null
+          closure_at: string | null
+          closure_note: string | null
+          closure_reason: string | null
+          consecutive_404_count: number | null
+          consecutive_failures: number | null
+          consecutive_not_found: number | null
+          corte_status: string | null
+          courthouse_directory_id: number | null
+          courthouse_email_confidence: number | null
+          courthouse_email_confirmed: string | null
+          courthouse_email_confirmed_at: string | null
+          courthouse_email_evidence: Json | null
+          courthouse_email_source: string | null
+          courthouse_email_status: string | null
+          courthouse_email_suggested: string | null
+          courthouse_email_suggested_at: string | null
+          courthouse_needs_review: boolean | null
+          created_at: string | null
+          delete_reason: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          demandados: string | null
+          demandantes: string | null
+          demonitor_at: string | null
+          demonitor_reason: string | null
+          description: string | null
+          despacho_competencia: string | null
+          despacho_competencia_subjects: string[] | null
+          email_linking_enabled: boolean | null
+          etapa: string | null
+          expediente_url: string | null
+          fecha_para_sentencia: string | null
+          fecha_presenta_demanda: string | null
+          fecha_radicado: string | null
+          fecha_sentencia: string | null
+          filing_date: string | null
+          formato_expediente: string | null
+          freshness_sla_hours: number | null
+          freshness_tier: string | null
+          freshness_violation_at: string | null
+          freshness_violation_notified: boolean | null
+          ghost_bootstrap_attempts: number | null
+          ghost_candidate_at: string | null
+          ghost_verification_run_id: string | null
+          ghost_verification_status: string | null
+          id: string | null
+          is_flagged: boolean | null
+          last_action_date: string | null
+          last_action_description: string | null
+          last_attempted_sync_at: string | null
+          last_checked_at: string | null
+          last_cpnu_buscar_at: string | null
+          last_crawled_at: string | null
+          last_error_at: string | null
+          last_error_code: string | null
+          last_error_meta: Json | null
+          last_event_at: string | null
+          last_event_summary: string | null
+          last_inference_date: string | null
+          last_phase_change_at: string | null
+          last_scrape_at: string | null
+          last_scrape_initiated_at: string | null
+          last_stage_change_at: string | null
+          last_stage_change_by_user_id: string | null
+          last_stage_change_source: string | null
+          last_stage_suggestion_at: string | null
+          last_stage_suggestion_id: string | null
+          last_successful_sync_at: string | null
+          last_sync_attempt_at: string | null
+          last_synced_at: string | null
+          latest_estado_at: string | null
+          latest_estado_fingerprint: string | null
+          legacy_admin_process_id: string | null
+          legacy_cgp_item_id: string | null
+          legacy_cpaca_id: string | null
+          legacy_peticion_id: string | null
+          lifecycle_actor: string | null
+          lifecycle_actor_user: string | null
+          lifecycle_changed_at: string | null
+          lifecycle_changed_by: string | null
+          lifecycle_reason: string | null
+          lifecycle_state:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id: string | null
+          medida_cautelar: string | null
+          migration_note: string | null
+          milestones_cleared_at: string | null
+          milestones_cleared_status: string | null
+          ministerio_publico: string | null
+          monitoring_disabled_at: string | null
+          monitoring_disabled_by: string | null
+          monitoring_disabled_meta: Json | null
+          monitoring_disabled_reason: string | null
+          monitoring_enabled: boolean | null
+          monitoring_mode: string | null
+          monitoring_suspended_at: string | null
+          monitoring_suspended_reason: string | null
+          naturaleza_proceso: string | null
+          needs_cpnu_refresh: boolean | null
+          notes: string | null
+          notification_effective_date: string | null
+          notification_substatus: string | null
+          onedrive_url: string | null
+          organization_id: string | null
+          origen: string | null
+          owner_id: string | null
+          pipeline_stage: number | null
+          ponente: string | null
+          pp_estado: string | null
+          pp_id: number | null
+          pp_novedades_pendientes: number | null
+          pp_ultima_sync: string | null
+          provider_detail_desde: string | null
+          provider_detail_exposure: string | null
+          provider_detail_observed_at: string | null
+          provider_detail_reason: string | null
+          provider_detail_ttl_days: number | null
+          provider_detail_ultima_verificacion: string | null
+          provider_reachable: boolean | null
+          provider_sources: Json | null
+          pubs_initial_sync_completed_at: string | null
+          purge_after: string | null
+          radicado: string | null
+          radicado_blocks: Json | null
+          radicado_digits: string | null
+          radicado_raw: string | null
+          radicado_valid: boolean | null
+          radicado_verified: boolean | null
+          raw_courthouse_input: Json | null
+          resolution_candidates: Json | null
+          resolution_confidence: number | null
+          resolution_method: string | null
+          resolved_at: string | null
+          resolved_email: string | null
+          samai_consultado_en: string | null
+          samai_fuente: string | null
+          samai_guid: string | null
+          samai_sala_conoce: string | null
+          samai_sala_decide: string | null
+          samai_veces_en_corporacion: number | null
+          scrape_job_id: string | null
+          scrape_poll_url: string | null
+          scrape_provider: string | null
+          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields: Json | null
+          scraping_enabled: boolean | null
+          sentencia_ref: string | null
+          service_object: string | null
+          sharepoint_url: string | null
+          source: Database["public"]["Enums"]["item_source"] | null
+          source_payload: Json | null
+          source_platform: string | null
+          source_reference: string | null
+          stage: string | null
+          stage_inference_enabled: boolean | null
+          status: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso: string | null
+          sync_failure_streak: number | null
+          tipo_proceso: string | null
+          tipo_recurso: string | null
+          title: string | null
+          total_actuaciones: number | null
+          total_sujetos_procesales: number | null
+          tutela_code: string | null
+          ubicacion_expediente: string | null
+          updated_at: string | null
+          workflow_type: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source: string | null
+        }
+        Insert: {
+          acta_radicacion_url?: string | null
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
+          asunto?: string | null
+          atenia_health_score?: number | null
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant?: string | null
+          clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
+          client_id?: string | null
+          client_party_represents?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean | null
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
+          client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
+          consecutive_404_count?: number | null
+          consecutive_failures?: number | null
+          consecutive_not_found?: number | null
+          corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string | null
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
+          courthouse_needs_review?: boolean | null
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          demandados?: string | null
+          demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
+          description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
+          email_linking_enabled?: boolean | null
+          etapa?: string | null
+          expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
+          filing_date?: string | null
+          formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
+          id?: string | null
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_attempted_sync_at?: string | null
+          last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
+          last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_meta?: Json | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_inference_date?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
+          last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
+          last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id?: string | null
+          medida_cautelar?: string | null
+          migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
+          ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
+          naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean | null
+          notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
+          onedrive_url?: string | null
+          organization_id?: string | null
+          origen?: string | null
+          owner_id?: string | null
+          pipeline_stage?: number | null
+          ponente?: string | null
+          pp_estado?: string | null
+          pp_id?: number | null
+          pp_novedades_pendientes?: number | null
+          pp_ultima_sync?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string | null
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number | null
+          provider_detail_ultima_verificacion?: string | null
+          provider_reachable?: boolean | null
+          provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
+          purge_after?: string | null
+          radicado?: string | null
+          radicado_blocks?: Json | null
+          radicado_digits?: string | null
+          radicado_raw?: string | null
+          radicado_valid?: boolean | null
+          radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
+          service_object?: string | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"] | null
+          source_payload?: Json | null
+          source_platform?: string | null
+          source_reference?: string | null
+          stage?: string | null
+          stage_inference_enabled?: boolean | null
+          status?: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso?: string | null
+          sync_failure_streak?: number | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
+          title?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          tutela_code?: string | null
+          ubicacion_expediente?: string | null
+          updated_at?: string | null
+          workflow_type?: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source?: string | null
+        }
+        Update: {
+          acta_radicacion_url?: string | null
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
+          asunto?: string | null
+          atenia_health_score?: number | null
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          cgp_variant?: string | null
+          clase_proceso?: string | null
+          clase_proceso_disponible?: boolean | null
+          clase_proceso_last_attempt_at?: string | null
+          clase_proceso_last_read_case?: string | null
+          clase_proceso_motivo_ausencia?: string | null
+          clase_proceso_observed_at?: string | null
+          clase_proceso_procedencia?: Json | null
+          clase_proveedor?: Json | null
+          client_id?: string | null
+          client_party_represents?: string | null
+          client_party_role?: string | null
+          client_party_role_basis?: string | null
+          client_party_role_confidence?: number | null
+          client_party_role_confirmed_at?: string | null
+          client_party_role_confirmed_by?: string | null
+          client_party_role_overridden?: boolean | null
+          client_party_role_override_confidence?: number | null
+          client_party_role_proposed?: string | null
+          client_party_role_source?: string | null
+          closure_at?: string | null
+          closure_note?: string | null
+          closure_reason?: string | null
+          consecutive_404_count?: number | null
+          consecutive_failures?: number | null
+          consecutive_not_found?: number | null
+          corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string | null
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
+          courthouse_needs_review?: boolean | null
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          demandados?: string | null
+          demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
+          description?: string | null
+          despacho_competencia?: string | null
+          despacho_competencia_subjects?: string[] | null
+          email_linking_enabled?: boolean | null
+          etapa?: string | null
+          expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
+          filing_date?: string | null
+          formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
+          id?: string | null
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_attempted_sync_at?: string | null
+          last_checked_at?: string | null
+          last_cpnu_buscar_at?: string | null
+          last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_meta?: Json | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_inference_date?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
+          last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
+          last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_peticion_id?: string | null
+          lifecycle_actor?: string | null
+          lifecycle_actor_user?: string | null
+          lifecycle_changed_at?: string | null
+          lifecycle_changed_by?: string | null
+          lifecycle_reason?: string | null
+          lifecycle_state?:
+            | Database["public"]["Enums"]["work_item_lifecycle_state"]
+            | null
+          matter_id?: string | null
+          medida_cautelar?: string | null
+          migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
+          ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
+          naturaleza_proceso?: string | null
+          needs_cpnu_refresh?: boolean | null
+          notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
+          onedrive_url?: string | null
+          organization_id?: string | null
+          origen?: string | null
+          owner_id?: string | null
+          pipeline_stage?: number | null
+          ponente?: string | null
+          pp_estado?: string | null
+          pp_id?: number | null
+          pp_novedades_pendientes?: number | null
+          pp_ultima_sync?: string | null
+          provider_detail_desde?: string | null
+          provider_detail_exposure?: string | null
+          provider_detail_observed_at?: string | null
+          provider_detail_reason?: string | null
+          provider_detail_ttl_days?: number | null
+          provider_detail_ultima_verificacion?: string | null
+          provider_reachable?: boolean | null
+          provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
+          purge_after?: string | null
+          radicado?: string | null
+          radicado_blocks?: Json | null
+          radicado_digits?: string | null
+          radicado_raw?: string | null
+          radicado_valid?: boolean | null
+          radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
+          service_object?: string | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"] | null
+          source_payload?: Json | null
+          source_platform?: string | null
+          source_reference?: string | null
+          stage?: string | null
+          stage_inference_enabled?: boolean | null
+          status?: Database["public"]["Enums"]["item_status"] | null
+          subclase_proceso?: string | null
+          sync_failure_streak?: number | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
+          title?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          tutela_code?: string | null
+          ubicacion_expediente?: string | null
+          updated_at?: string | null
+          workflow_type?: Database["public"]["Enums"]["workflow_type"] | null
+          workflow_type_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_items_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_courthouse_directory_id_fkey"
+            columns: ["courthouse_directory_id"]
+            isOneToOne: false
+            referencedRelation: "courthouse_directory"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "work_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       work_item_timeline_v: {
         Row: {
