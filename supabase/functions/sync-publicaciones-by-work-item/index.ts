@@ -317,8 +317,10 @@ async function recordRescrapeTrigger(
 
 // ============= HELPERS =============
 
+// P0-B.3 refusal counters (in-isolate, no telemetry rows).
+const refusalCounters = { WORK_ITEM_DELETED: 0, MONITORING_DISABLED: 0 };
+
 function jsonResponse(data: object, status: number = 200): Response {
-  // P0-B.3 refusal counters (in-isolate, no telemetry rows).
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
