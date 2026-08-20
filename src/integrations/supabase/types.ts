@@ -11636,6 +11636,7 @@ export type Database = {
         Row: {
           correlation_id: string | null
           created_at: string
+          current_key: string
           duration_ms: number | null
           error_code: string | null
           error_message: string | null
@@ -11643,6 +11644,7 @@ export type Database = {
           finished_at: string | null
           id: string
           invoked_by: string
+          is_current: boolean
           job_name: string
           metadata: Json
           started_at: string
@@ -11654,6 +11656,7 @@ export type Database = {
         Insert: {
           correlation_id?: string | null
           created_at?: string
+          current_key?: string
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
@@ -11661,6 +11664,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           invoked_by?: string
+          is_current?: boolean
           job_name: string
           metadata?: Json
           started_at?: string
@@ -11672,6 +11676,7 @@ export type Database = {
         Update: {
           correlation_id?: string | null
           created_at?: string
+          current_key?: string
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
@@ -11679,6 +11684,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           invoked_by?: string
+          is_current?: boolean
           job_name?: string
           metadata?: Json
           started_at?: string

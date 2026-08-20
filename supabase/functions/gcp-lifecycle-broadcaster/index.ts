@@ -45,6 +45,28 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  // ── P1.2 NO-OP EARLY EXIT ──
+  // Head count first: an empty outbox ends the run with zero telemetry.
+  const { count: outboxDepth, error: depthErr } = await supabase
+    .from("gcp_lifecycle_outbox")
+    .select("id", { count: "exact", head: true })
+    .is("delivered_at", null);
+
+  if (depthErr) {
+    console.error("[gcp-lifecycle-broadcaster] depth check error:", depthErr);
+    return new Response(
+      JSON.stringify({ ok: false, error: depthErr.message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  if ((outboxDepth ?? 0) === 0) {
+    return new Response(
+      JSON.stringify({ ok: true, no_op: true, picked: 0, delivered: 0, failed: 0 }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
   const { data: pending, error } = await supabase
     .from("gcp_lifecycle_outbox")
     .select(

@@ -45,6 +45,21 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // === P1.2 NO-OP EARLY EXIT ===
+    // One head count over the whole retry queue. Empty queue => nothing to
+    // reap, nothing to dead-letter, nothing to run: exit without writing to
+    // atenia_cron_runs / sync_traces. Failures below still write in full.
+    {
+      const { count: queueDepth } = await (supabase.from('sync_retry_queue') as any)
+        .select('id', { count: 'exact', head: true });
+      if ((queueDepth ?? 0) === 0) {
+        return new Response(
+          JSON.stringify({ ok: true, no_op: true, reason: 'empty_retry_queue', processed: 0 }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     // === STALE LEASE DETECTION: Reset tasks stuck in RUNNING > 60 min ===
     const STALE_LEASE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
     const staleLeaseCutoff = new Date(Date.now() - STALE_LEASE_THRESHOLD_MS).toISOString();

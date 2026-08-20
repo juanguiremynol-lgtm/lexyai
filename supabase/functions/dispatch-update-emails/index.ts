@@ -69,6 +69,26 @@ Deno.serve(async (req) => {
   });
   const result = { processed: 0, emailsEnqueued: 0, errors: [] as string[], recipientsCount: 0, workItemsCount: 0 };
 
+  // ── P1.2 NO-OP EARLY EXIT ──
+  // Head count over pending alerts BEFORE any telemetry row is created.
+  // On an idle run nothing is written to notification_dispatch_runs or
+  // sync_traces. Failures below still log in full.
+  {
+    const noopCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { count: pendingAlerts, error: countErr } = await supabase
+      .from("alert_instances")
+      .select("id", { count: "exact", head: true })
+      .in("alert_type", ALERT_TYPES)
+      .eq("is_notified_email", false)
+      .gte("fired_at", noopCutoff);
+    if (!countErr && (pendingAlerts ?? 0) === 0) {
+      return new Response(
+        JSON.stringify({ ...result, no_op: true, message: "No alerts to dispatch" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   // Create run log entry
   const { data: runRow } = await supabase
     .from("notification_dispatch_runs")

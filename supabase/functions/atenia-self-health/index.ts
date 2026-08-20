@@ -7,6 +7,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { heartbeatNoOp, startHeartbeat, finishHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 import {
   aiVerifyLinkProbe,
   makeAiVerifyHealthSink,
@@ -58,7 +59,7 @@ Deno.serve(async (req) => {
     }
     checks.push({ name: "schema_access", ok: true, detail: verdict.reason });
 
-    // Check 1: Last heartbeat (any org) within 45 min
+    // Check 1: Last heartbeat (any org) within 8h (P1.1: server-heartbeat now runs every 6h)
     // Check both atenia_ai_actions (heartbeat_observe) AND atenia_cron_runs (HEARTBEAT)
     let heartbeatAge = Infinity;
 
@@ -91,7 +92,7 @@ Deno.serve(async (req) => {
 
     checks.push({
       name: "HEARTBEAT_ALIVE",
-      ok: heartbeatAge < 45 * 60 * 1000,
+      ok: heartbeatAge < 8 * 60 * 60 * 1000,
       detail:
         heartbeatAge < Infinity
           ? `Último heartbeat: hace ${Math.round(heartbeatAge / 60000)} min`
@@ -362,7 +363,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Log check
+    // P1.2: a healthy run is a no-op — no history row, only the single
+    // coalesced current-state heartbeat so the watchdog still sees liveness.
+    if (allHealthy) {
+      await heartbeatNoOp(supabase, "atenia-self-health", { checks: checks.length });
+      return new Response(
+        JSON.stringify({ ok: true, healthy: true, no_op: true, checks }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Unhealthy → full logging, as before.
     await supabase.from("atenia_ai_actions").insert({
       action_type: "SELF_HEALTH_CHECK",
       actor: "AI_AUTOPILOT",
@@ -384,6 +395,23 @@ Deno.serve(async (req) => {
       }
     );
   } catch (err) {
+    // Failures ALWAYS log, in full.
+    try {
+      const hb = await startHeartbeat(supabase, "atenia-self-health", "cron");
+      await finishHeartbeat(supabase, hb, "ERROR", {
+        errorMessage: (err as Error).message?.slice(0, 500),
+      });
+      await supabase.from("atenia_ai_actions").insert({
+        action_type: "SELF_HEALTH_FAILURE",
+        actor: "AI_AUTOPILOT",
+        scope: "PLATFORM",
+        autonomy_tier: "ACT",
+        reasoning: `Auto-diagnóstico abortó con error: ${(err as Error).message}`,
+        status: "FAILED",
+        action_result: "failed",
+        evidence: { error: (err as Error).message, checks },
+      });
+    } catch { /* non-fatal */ }
     return new Response(
       JSON.stringify({ ok: false, error: (err as Error).message }),
       {
