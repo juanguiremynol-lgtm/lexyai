@@ -19550,6 +19550,42 @@ export type Database = {
           },
         ]
       }
+      work_item_tombstones: {
+        Row: {
+          counts: Json
+          delete_reason: string | null
+          deleted_at: string | null
+          despacho: string | null
+          id: string
+          purged_at: string
+          radicado: string | null
+          titulo: string | null
+          workflow_type: string | null
+        }
+        Insert: {
+          counts?: Json
+          delete_reason?: string | null
+          deleted_at?: string | null
+          despacho?: string | null
+          id: string
+          purged_at?: string
+          radicado?: string | null
+          titulo?: string | null
+          workflow_type?: string | null
+        }
+        Update: {
+          counts?: Json
+          delete_reason?: string | null
+          deleted_at?: string | null
+          despacho?: string | null
+          id?: string
+          purged_at?: string
+          radicado?: string | null
+          titulo?: string | null
+          workflow_type?: string | null
+        }
+        Relationships: []
+      }
       work_item_tracks: {
         Row: {
           closed_at: string | null
@@ -22894,6 +22930,10 @@ export type Database = {
         Returns: number
       }
       purge_platform_telemetry: { Args: never; Returns: Json }
+      purge_soft_deleted_work_items: {
+        Args: { p_dry_run?: boolean; p_retention_days?: number }
+        Returns: Json
+      }
       purge_trashed_emails: { Args: never; Returns: number }
       purge_work_item_acts_and_pubs: {
         Args: { p_work_item_id: string }
