@@ -1407,7 +1407,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // canonical write path cannot silently mutate a paused item — no
     // external_sync_runs row is recorded either, so no false SUCCESS can
     // downstream trigger "novedad" artifacts.
-    // P0-B.3: deleted items are already refused with 409 above. This残 gate now
+    // P0-B.3: deleted items are already refused with 409 above. This gate now
     // only covers the CRON path for paused items; MANUAL callers may sync an
     // INACTIVE case on demand.
     if ((workItem as any).deleted_at || ((workItem as any).monitoring_enabled === false && invokedByBoundary === 'CRON')) {
