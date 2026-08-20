@@ -19558,6 +19558,7 @@ export type Database = {
       }
       work_item_tombstones: {
         Row: {
+          archived_record: Json | null
           counts: Json
           delete_reason: string | null
           deleted_at: string | null
@@ -19569,6 +19570,7 @@ export type Database = {
           workflow_type: string | null
         }
         Insert: {
+          archived_record?: Json | null
           counts?: Json
           delete_reason?: string | null
           deleted_at?: string | null
@@ -19580,6 +19582,7 @@ export type Database = {
           workflow_type?: string | null
         }
         Update: {
+          archived_record?: Json | null
           counts?: Json
           delete_reason?: string | null
           deleted_at?: string | null
@@ -22937,7 +22940,11 @@ export type Database = {
       }
       purge_platform_telemetry: { Args: never; Returns: Json }
       purge_soft_deleted_work_items: {
-        Args: { p_dry_run?: boolean; p_retention_days?: number }
+        Args: {
+          p_dry_run?: boolean
+          p_retention_days?: number
+          p_simulate_verify_failure?: boolean
+        }
         Returns: Json
       }
       purge_trashed_emails: { Args: never; Returns: number }
