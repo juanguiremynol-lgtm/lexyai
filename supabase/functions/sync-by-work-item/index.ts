@@ -93,6 +93,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trace-id',
 };
 
+// ============= P0-B.3 — SYNC BOUNDARY PRECONDITION =============
+// Lightweight in-isolate counters. Refusals must NOT become a new source of
+// telemetry exhaust, so they are counted and logged, never persisted.
+const refusalCounters = { WORK_ITEM_DELETED: 0, MONITORING_DISABLED: 0 };
+
 // ============= RETRY QUEUE HELPER =============
 
 function jitterMs(minMs: number, maxMs: number): number {
@@ -1335,6 +1340,35 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}, trace_id=${traceId}`);
 
+    // ============= P0-B.3 — HARD GUARD AT THE SYNC BOUNDARY =============
+    // FIRST work_item read: happens before any provider call and before any
+    // telemetry write (no logTrace, no external_sync_runs, no sync_traces).
+    //   Rule A  deleted_at IS NOT NULL            -> 409 WORK_ITEM_DELETED (always)
+    //   Rule B  monitoring_enabled = false        -> 409 MONITORING_DISABLED for CRON,
+    //                                                allowed for MANUAL callers.
+    const invokedByBoundary: 'CRON' | 'MANUAL' = _scheduled ? 'CRON' : 'MANUAL';
+    const { data: precondition } = await supabase
+      .from('work_items')
+      .select('id, deleted_at, monitoring_enabled')
+      .eq('id', work_item_id)
+      .maybeSingle();
+
+    if (precondition?.deleted_at) {
+      refusalCounters.WORK_ITEM_DELETED++;
+      console.log(
+        `[sync-by-work-item] REFUSED WORK_ITEM_DELETED wi=${work_item_id} invoked_by=${invokedByBoundary} count=${refusalCounters.WORK_ITEM_DELETED}`,
+      );
+      return errorResponse('WORK_ITEM_DELETED', 'Work item is soft-deleted; sync refused.', 409, traceId);
+    }
+
+    if (precondition && precondition.monitoring_enabled === false && invokedByBoundary === 'CRON') {
+      refusalCounters.MONITORING_DISABLED++;
+      console.log(
+        `[sync-by-work-item] REFUSED MONITORING_DISABLED wi=${work_item_id} invoked_by=CRON count=${refusalCounters.MONITORING_DISABLED}`,
+      );
+      return errorResponse('MONITORING_DISABLED', 'Monitoring is disabled for this work item; scheduled sync refused.', 409, traceId);
+    }
+
     // Log sync start
     await logTrace(supabase, {
       trace_id: traceId,
@@ -1373,7 +1407,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     // canonical write path cannot silently mutate a paused item — no
     // external_sync_runs row is recorded either, so no false SUCCESS can
     // downstream trigger "novedad" artifacts.
-    if ((workItem as any).monitoring_enabled === false || (workItem as any).deleted_at) {
+    // P0-B.3: deleted items are already refused with 409 above. This gate now
+    // only covers the CRON path for paused items; MANUAL callers may sync an
+    // INACTIVE case on demand.
+    if ((workItem as any).deleted_at || ((workItem as any).monitoring_enabled === false && invokedByBoundary === 'CRON')) {
       const reason = (workItem as any).deleted_at ? 'WORK_ITEM_DELETED' : 'MONITORING_PAUSED';
       console.log(`[sync-by-work-item] SKIP paused/deleted wi=${work_item_id} reason=${reason}`);
       await logTrace(supabase, {

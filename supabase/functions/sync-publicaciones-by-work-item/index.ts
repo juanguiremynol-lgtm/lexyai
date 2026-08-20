@@ -317,6 +317,9 @@ async function recordRescrapeTrigger(
 
 // ============= HELPERS =============
 
+// P0-B.3 refusal counters (in-isolate, no telemetry rows).
+const refusalCounters = { WORK_ITEM_DELETED: 0, MONITORING_DISABLED: 0 };
+
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -1229,6 +1232,28 @@ Deno.serve(withSyncTimeline(async (req) => {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, { stage: 'validate_input' });
     }
 
+    // ============= P0-B.3 — HARD GUARD AT THE SYNC BOUNDARY =============
+    // FIRST work_item read: before any provider call and before any telemetry
+    // write. Refusals are counted in-isolate, never persisted.
+    const invokedByBoundary: 'CRON' | 'MANUAL' = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
+    const { data: precondition } = await supabase
+      .from('work_items')
+      .select('id, deleted_at, monitoring_enabled')
+      .eq('id', work_item_id)
+      .maybeSingle();
+
+    if (precondition?.deleted_at) {
+      refusalCounters.WORK_ITEM_DELETED++;
+      console.log(`[sync-pub] REFUSED WORK_ITEM_DELETED wi=${work_item_id} invoked_by=${invokedByBoundary} count=${refusalCounters.WORK_ITEM_DELETED}`);
+      return errorResponse('WORK_ITEM_DELETED', 'Work item is soft-deleted; sync refused.', 409, { stage: 'precondition' });
+    }
+
+    if (precondition && precondition.monitoring_enabled === false && invokedByBoundary === 'CRON') {
+      refusalCounters.MONITORING_DISABLED++;
+      console.log(`[sync-pub] REFUSED MONITORING_DISABLED wi=${work_item_id} invoked_by=CRON count=${refusalCounters.MONITORING_DISABLED}`);
+      return errorResponse('MONITORING_DISABLED', 'Monitoring is disabled for this work item; scheduled sync refused.', 409, { stage: 'precondition' });
+    }
+
     let userId: string | null = null;
     
     // For scheduled jobs with service role, skip user auth and membership check
@@ -1267,7 +1292,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Symmetric with sync-by-work-item: a paused/deleted WI is not synced for
     // any data kind. No provider call, no persistence, no external_sync_runs
     // row, no false SUCCESS.
-    if ((workItem as any).monitoring_enabled === false || (workItem as any).deleted_at) {
+    // P0-B.3: deleted items refused with 409 above; MANUAL may sync an INACTIVE case.
+    if ((workItem as any).deleted_at || ((workItem as any).monitoring_enabled === false && invokedByBoundary === 'CRON')) {
       const reason = (workItem as any).deleted_at ? 'WORK_ITEM_DELETED' : 'MONITORING_PAUSED';
       console.log(`[sync-pub] SKIP paused/deleted wi=${work_item_id} reason=${reason}`);
       return jsonResponse({
