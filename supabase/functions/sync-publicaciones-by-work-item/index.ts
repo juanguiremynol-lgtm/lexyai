@@ -318,6 +318,7 @@ async function recordRescrapeTrigger(
 // ============= HELPERS =============
 
 function jsonResponse(data: object, status: number = 200): Response {
+  // P0-B.3 refusal counters (in-isolate, no telemetry rows).
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
