@@ -5060,6 +5060,39 @@ export type Database = {
           },
         ]
       }
+      cron_health_snapshot: {
+        Row: {
+          consecutive_failures: number
+          first_run: string | null
+          jobid: number
+          last_error: string | null
+          last_run: string | null
+          last_status: string | null
+          last_success: string | null
+          refreshed_at: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          first_run?: string | null
+          jobid: number
+          last_error?: string | null
+          last_run?: string | null
+          last_status?: string | null
+          last_success?: string | null
+          refreshed_at?: string
+        }
+        Update: {
+          consecutive_failures?: number
+          first_run?: string | null
+          jobid?: number
+          last_error?: string | null
+          last_run?: string | null
+          last_status?: string | null
+          last_success?: string | null
+          refreshed_at?: string
+        }
+        Relationships: []
+      }
       cron_state: {
         Row: {
           key: string
@@ -20626,6 +20659,7 @@ export type Database = {
         Args: { p_retention_days?: number }
         Returns: number
       }
+      purge_platform_telemetry: { Args: never; Returns: Json }
       purge_trashed_emails: { Args: never; Returns: number }
       purge_work_item_acts_and_pubs: {
         Args: { p_work_item_id: string }
@@ -20656,6 +20690,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
+      refresh_cron_health_snapshot: { Args: never; Returns: number }
       refresh_estados_coverage_signals: {
         Args: { p_alert?: boolean }
         Returns: Json
