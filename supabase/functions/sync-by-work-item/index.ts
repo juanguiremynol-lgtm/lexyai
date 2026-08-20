@@ -93,6 +93,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trace-id',
 };
 
+// ============= P0-B.3 — SYNC BOUNDARY PRECONDITION =============
+// Lightweight in-isolate counters. Refusals must NOT become a new source of
+// telemetry exhaust, so they are counted and logged, never persisted.
+const refusalCounters = { WORK_ITEM_DELETED: 0, MONITORING_DISABLED: 0 };
+
 // ============= RETRY QUEUE HELPER =============
 
 function jitterMs(minMs: number, maxMs: number): number {
