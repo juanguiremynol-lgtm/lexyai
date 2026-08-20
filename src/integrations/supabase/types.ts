@@ -23088,6 +23088,7 @@ export type Database = {
         Args: { _provider: string; _providers: string[] }
         Returns: boolean
       }
+      trg_probe_p0b: { Args: never; Returns: Json }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       unaccent_lower_safe: { Args: { p_text: string }; Returns: string }
       update_daily_sync_ledger: {
