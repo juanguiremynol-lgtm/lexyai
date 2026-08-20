@@ -45,6 +45,21 @@ Deno.serve(async (req) => {
     };
     if (cpnuApiKey) headers['x-api-key'] = cpnuApiKey;
 
+    // ── P1.2 NO-OP EARLY EXIT ──
+    // Sin jobs IN_PROGRESS no hay nada que expirar ni que sondear.
+    const { count: inProgressCount } = await supabase
+      .from('work_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('scrape_status', 'IN_PROGRESS')
+      .eq('scrape_provider', 'cpnu')
+      .not('scrape_job_id', 'is', null);
+
+    if ((inProgressCount ?? 0) === 0) {
+      return new Response(JSON.stringify({ ok: true, no_op: true, polled: 0 }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // ── Limpiar jobs expirados (más de 15 minutos en IN_PROGRESS) ──
     const timeoutCutoff = new Date(Date.now() - JOB_TIMEOUT_MINUTES * 60 * 1000).toISOString();
     const { data: expiredItems } = await supabase

@@ -385,6 +385,33 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // ─── P1.2 NO-OP EARLY EXIT ───────────────────────────────────────
+    // Two cheap head counts (no rows transferred). If there is nothing due
+    // and nothing in flight, the run ends here writing NO telemetry.
+    // Failures below still log in full.
+    {
+      const nowIso = new Date().toISOString();
+      const [{ count: dueCount }, { count: sendingCount }] = await Promise.all([
+        supabase
+          .from("email_outbox")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["PENDING", "FAILED"])
+          .lte("next_attempt_at", nowIso)
+          .lt("attempts", MAX_ATTEMPTS)
+          .eq("failed_permanent", false),
+        supabase
+          .from("email_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "SENDING"),
+      ]);
+      if ((dueCount ?? 0) === 0 && (sendingCount ?? 0) === 0) {
+        return new Response(
+          JSON.stringify({ ...result, no_op: true, reason: "empty_outbox" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // ─── Lease reaper: return dead claims to PENDING WITHOUT burning an
     // attempt. A claim that expired means the isolate died before reaching (or
     // while waiting on) the provider — that is an infrastructure event, not a

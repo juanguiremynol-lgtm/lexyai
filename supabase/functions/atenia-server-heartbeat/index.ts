@@ -1,7 +1,7 @@
 /**
  * atenia-server-heartbeat — Server-side heartbeat for ALL active orgs.
  *
- * Runs every 30 min via pg_cron. Ensures autonomy cycle coverage
+ * Runs every 6h via pg_cron (P1.1 frequency reduction). Ensures autonomy cycle coverage
  * even when no user has the app open.
  *
  * Dedup: Skips orgs that had a heartbeat within the last 10 min

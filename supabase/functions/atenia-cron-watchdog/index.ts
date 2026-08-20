@@ -13,7 +13,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { startHeartbeat, finishHeartbeat, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
+import { startHeartbeat, finishHeartbeat, heartbeatNoOp, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
 import { ONLINE_SYNC_ELIGIBLE_LIST } from "../_shared/onlineSyncEligibility.ts";
 
 const corsHeaders = {
@@ -97,8 +97,28 @@ Deno.serve(async (req) => {
   const timeUp = () => Date.now() - runStartMs > TIME_BUDGET_MS;
   (results as any).partial = false;
 
-  // ── Record watchdog platform heartbeat ──
-  const wdHbHandle = await startHeartbeat(admin, "atenia-cron-watchdog", "cron");
+  // ── P1.2: telemetry is LAZY ──
+  // The watchdog is a pure reader until it finds something. The heartbeat and
+  // the atenia_cron_runs row are only materialised when the run did something
+  // (alert, corrective action) or failed. `ensureTelemetry()` is idempotent.
+  let wdHbHandle: Awaited<ReturnType<typeof startHeartbeat>> = null;
+  let telemetryOpened = false;
+  let windowKeyForRun = "";
+  const ensureTelemetry = async () => {
+    if (telemetryOpened) return;
+    telemetryOpened = true;
+    wdHbHandle = await startHeartbeat(admin, "atenia-cron-watchdog", "cron");
+    await admin.from("atenia_cron_runs").upsert(
+      {
+        job_name: "WATCHDOG",
+        scheduled_for: windowKeyForRun,
+        started_at: new Date().toISOString(),
+        status: "RUNNING",
+        details: {},
+      },
+      { onConflict: "job_name,scheduled_for" },
+    );
+  };
 
   try {
     // ================================================================
@@ -110,17 +130,8 @@ Deno.serve(async (req) => {
       Math.floor(Date.now() / (10 * 60 * 1000)) * (10 * 60 * 1000)
     ).toISOString();
 
-    // Just log it directly (watchdog doesn't need the claim pattern for itself)
-    await admin.from("atenia_cron_runs").upsert(
-      {
-        job_name: "WATCHDOG",
-        scheduled_for: windowKey,
-        started_at: new Date().toISOString(),
-        status: "RUNNING",
-        details: {},
-      },
-      { onConflict: "job_name,scheduled_for" }
-    );
+    windowKeyForRun = windowKey;
+    // Telemetry deliberately NOT opened here — see ensureTelemetry().
 
     // ================================================================
     // 1) Ensure DAILY_ENQUEUE happened for today's Bogotá day
@@ -1379,8 +1390,26 @@ Deno.serve(async (req) => {
     results.alerts_fired = alerts.length;
 
     // ================================================================
-    // 7) Mark watchdog run complete
+    // 7) Mark watchdog run complete — only if the run actually did something
     // ================================================================
+    const didWork =
+      telemetryOpened ||
+      alerts.length > 0 ||
+      Boolean((results as any).daily_enqueue?.triggered) ||
+      Boolean((results as any).queue_drain) ||
+      Boolean((results as any).heartbeat?.triggered) ||
+      ((results as any).stale_cleaned?.length ?? 0) > 0 ||
+      Number((results as any).coverage_enqueued ?? 0) > 0;
+
+    if (!didWork) {
+      // Idle tick: single coalesced current-state marker, no history rows.
+      await heartbeatNoOp(admin, "atenia-cron-watchdog", { alerts_fired: 0 });
+      return new Response(JSON.stringify({ ok: true, no_op: true, ...results }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await ensureTelemetry();
     await admin.from("atenia_cron_runs").update({
       status: "OK",
       finished_at: new Date().toISOString(),
@@ -1399,7 +1428,8 @@ Deno.serve(async (req) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[watchdog] Fatal error:", msg);
 
-    // ── Record failure heartbeat ──
+    // ── Record failure heartbeat — failures ALWAYS log, in full ──
+    await ensureTelemetry();
     await finishHeartbeat(admin, wdHbHandle, "ERROR", { errorMessage: msg.slice(0, 500) });
 
     return new Response(JSON.stringify({ ok: false, error: msg.slice(0, 500) }), {

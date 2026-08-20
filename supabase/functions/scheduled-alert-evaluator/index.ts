@@ -53,6 +53,35 @@ Deno.serve(async (req) => {
     errors: [] as string[],
   };
 
+  // ── P1.2 NO-OP EARLY EXIT ──
+  // Two head counts. With no upcoming hearing and no overdue task there is
+  // nothing to evaluate: exit before writing any trace record.
+  try {
+    const [{ count: hearingCount }, { count: taskCount }] = await Promise.all([
+      supabase
+        .from("work_item_hearings")
+        .select("id", { count: "exact", head: true })
+        .gt("scheduled_at", new Date().toISOString())
+        .lt("scheduled_at", new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString())
+        .in("status", ["scheduled", "planned"]),
+      supabase
+        .from("work_item_tasks")
+        .select("id", { count: "exact", head: true })
+        .lt("due_date", new Date().toISOString().split("T")[0])
+        .neq("status", "COMPLETADA"),
+    ]);
+    if ((hearingCount ?? 0) === 0 && (taskCount ?? 0) === 0) {
+      return new Response(
+        JSON.stringify({ ok: true, no_op: true, ...results }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  } catch (noopErr) {
+    // A failed pre-check must never silence the run: fall through and let the
+    // normal path (which logs) execute.
+    console.warn("[scheduled-alert-evaluator] no-op pre-check failed:", noopErr);
+  }
+
   try {
     // ── 1. AUDIENCIA_PROXIMA ──────────────────────────────────
     // Find hearings in the next 72 hours (CANONICAL work_item_hearings)

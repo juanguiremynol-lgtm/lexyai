@@ -43,6 +43,15 @@ Deno.serve(async (req) => {
 
   try {
     const nowIso = new Date().toISOString();
+
+    // ── P1.2 NO-OP EARLY EXIT ── head count, zero telemetry on idle runs.
+    const { count: queueDepth, error: depthErr } = await supabase
+      .from("estado_attachment_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lte("next_retry_at", nowIso);
+    if (depthErr) return json({ ok: false, error: depthErr.message, run_id: runId }, 500);
+    if ((queueDepth ?? 0) === 0) return json({ ok: true, no_op: true, processed: 0, run_id: runId });
     const { data: pending, error } = await supabase
       .from("estado_attachment_queue")
       .select(
