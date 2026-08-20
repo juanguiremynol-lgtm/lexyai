@@ -19558,36 +19558,39 @@ export type Database = {
       }
       work_item_tombstones: {
         Row: {
-          archived_record: Json | null
           counts: Json
+          created_at: string | null
           delete_reason: string | null
           deleted_at: string | null
           despacho: string | null
           id: string
+          partes: string | null
           purged_at: string
           radicado: string | null
           titulo: string | null
           workflow_type: string | null
         }
         Insert: {
-          archived_record?: Json | null
           counts?: Json
+          created_at?: string | null
           delete_reason?: string | null
           deleted_at?: string | null
           despacho?: string | null
           id: string
+          partes?: string | null
           purged_at?: string
           radicado?: string | null
           titulo?: string | null
           workflow_type?: string | null
         }
         Update: {
-          archived_record?: Json | null
           counts?: Json
+          created_at?: string | null
           delete_reason?: string | null
           deleted_at?: string | null
           despacho?: string | null
           id?: string
+          partes?: string | null
           purged_at?: string
           radicado?: string | null
           titulo?: string | null
