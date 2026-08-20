@@ -48,10 +48,20 @@ Deno.serve(async (req) => {
   const url = `${CPNU_API_BASE}/work-items/${workItemId}/${action}`;
   const patchBody = razon ? { razon } : undefined;
 
+  // cpnu-read-api does not yet enforce auth, but the same middleware
+  // andromeda-read-api uses is coming. Sending the header now is harmless
+  // (unknown headers are ignored) and prevents a hard 401 the day it lands.
+  // Same resolution chain cpnuAdapter.ts / cpnu-job-poller already use.
+  const CPNU_KEY =
+    Deno.env.get("CPNU_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY") || "";
+
   try {
     const upstream = await fetch(url, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(CPNU_KEY ? { "X-API-Key": CPNU_KEY } : {}),
+      },
       ...(patchBody ? { body: JSON.stringify(patchBody) } : {}),
     });
 

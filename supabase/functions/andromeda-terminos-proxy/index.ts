@@ -67,6 +67,24 @@ Deno.serve(async (req) => {
     const notas = (body.notas || "").toString().slice(0, 500);
 
     // 1. Call upstream PATCH
+    //
+    // andromeda-read-api enforces X-API-Key on EVERY endpoint via app.use
+    // before routing — there are no path exceptions. Without this header the
+    // PATCH returns 401 and the upstream UPDATE
+    // (terminos_detectados SET estado='ATENDIDO') never runs. Same env var
+    // andromeda-proxy already uses against the same service.
+    const ANDROMEDA_API_KEY = Deno.env.get("ANDROMEDA_API_KEY") || "";
+    if (!ANDROMEDA_API_KEY) {
+      // Fail loudly: a missing key is a configuration bug, not a term that
+      // was attended. Never report success without an authenticated upstream.
+      return json({
+        ok: false,
+        error: "ANDROMEDA_API_KEY no está configurada; no se puede marcar el término como atendido.",
+        alerts_resolved: 0,
+        upstream_status: 0,
+      }, 200);
+    }
+
     let upstreamStatus = 0;
     let upstreamOk = false;
     let upstreamBody: unknown = null;
@@ -75,7 +93,10 @@ Deno.serve(async (req) => {
         `${ANDROMEDA_API_BASE}/terminos/${terminoId}/atender`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-Key": ANDROMEDA_API_KEY,
+          },
           body: JSON.stringify({ notas }),
         },
       );
@@ -97,10 +118,19 @@ Deno.serve(async (req) => {
       }, 200);
     }
 
+    // Non-2xx (or a body without ok:true) is an ERROR. We return before the
+    // alert-resolution block below, so nothing is marked attended locally and
+    // no alert is resolved when the upstream UPDATE did not happen.
     if (!upstreamOk) {
+      const detail = typeof upstreamBody === "string"
+        ? upstreamBody.slice(0, 200)
+        : JSON.stringify(upstreamBody ?? {}).slice(0, 200);
+      console.error(`[andromeda-terminos-proxy] upstream ${upstreamStatus}: ${detail}`);
       return json({
         ok: false,
-        error: `Andromeda API respondió ${upstreamStatus}`,
+        error: upstreamStatus === 401 || upstreamStatus === 403
+          ? `Andromeda API rechazó la solicitud (${upstreamStatus}): credencial inválida o ausente. El término NO fue marcado como atendido.`
+          : `Andromeda API respondió ${upstreamStatus}. El término NO fue marcado como atendido.`,
         alerts_resolved: 0,
         upstream_status: upstreamStatus,
       }, 200);
