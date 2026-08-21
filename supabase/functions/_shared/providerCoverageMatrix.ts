@@ -218,8 +218,9 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
     ESTADOS: new Set(["PUBLICACIONES"]),
   },
   CPACA: {
-    // CPACA actuaciones: SAMAI primary + CPNU fallback on empty/not_found.
-    ACTUACIONES: new Set(["SAMAI", "CPNU"]),
+    // BB1 — CPACA actuaciones: SAMAI exclusive (CPNU fallback retired).
+    ACTUACIONES: new Set(["SAMAI"]),
+
     ESTADOS: new Set(["SAMAI_ESTADOS"]),
   },
   TUTELA: {

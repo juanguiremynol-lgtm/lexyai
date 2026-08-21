@@ -37,7 +37,7 @@
  *
  * Hard corollaries — enforced by every dispatcher via this resolver:
  *   • CPACA NEVER queries PP (estados stay SAMAI_ESTADOS exclusivo).
- *   • CPACA MAY query CPNU only as EMPTY-fallback for actuaciones.
+ *   • CPACA NEVER queries CPNU (SAMAI exclusive since BB1, 2026-08-21).
  *   • CGP / LABORAL / PENAL_906 NEVER query SAMAI or SAMAI_ESTADOS.
  *   • TUTELA queries all four providers on every sync (UNION), and the
  *     four are all legitimate — never treat any of them as ROUTING_SKIP.
