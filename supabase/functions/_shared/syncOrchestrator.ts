@@ -437,8 +437,14 @@ export async function executeSyncChain(
   let totalSkipped = 0;
   let hasMetadataMatch = false;
   let hasData = false;
+  /**
+   * TRUE until some provider actually ANSWERS (success / empty / not_found).
+   * A timeout, 5xx, network error or rate limit leaves this TRUE, which yields
+   * UNAVAILABLE — never NOT_FOUND — and therefore never authorises fallback.
+   */
   let allFailed = true;
   let attemptCount = 0;
+
 
   const primaries = providers.filter((p) => p.role === "PRIMARY");
   const fallbacks = providers.filter((p) => p.role === "FALLBACK");
