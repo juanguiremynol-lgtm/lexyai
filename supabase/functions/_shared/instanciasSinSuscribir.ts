@@ -38,8 +38,12 @@ export interface InstanciaSinSuscribir {
 export type SubscriptionDecision =
   | "SUSCRIBIR"
   | "OMITIDO_BASE_INACTIVA"
+  /** CC4 — the base matter was deleted by the lawyer. Its appellate suffixes
+   *  are not unfinished business: never subscribed, never surfaced. */
+  | "OMITIDO_BASE_ELIMINADA"
   | "OMITIDO_SIN_WORK_ITEM"
   | "OMITIDO_ES_PRIMERA_INSTANCIA";
+
 
 function s(v: unknown): string | null {
   if (typeof v === "string" && v.trim()) return v.trim();
@@ -104,6 +108,10 @@ export function decideSubscription(
 ): SubscriptionDecision {
   if (inst.instancia !== "SEGUNDA") return "OMITIDO_ES_PRIMERA_INSTANCIA";
   if (!lifecycleState) return "OMITIDO_SIN_WORK_ITEM";
+  // CC4 — deletion is the lawyer's decision and needs no justification. A
+  // deleted base takes its appellate streams with it: not subscribed, and not
+  // reported as a signal anywhere.
+  if (lifecycleState === "DELETED") return "OMITIDO_BASE_ELIMINADA";
   if (lifecycleState !== "ACTIVE") return "OMITIDO_BASE_INACTIVA";
   return "SUSCRIBIR";
 }
@@ -112,3 +120,4 @@ export function decideSubscription(
 export function isSilentSuperiorActivity(decision: SubscriptionDecision): boolean {
   return decision === "OMITIDO_BASE_INACTIVA";
 }
+
