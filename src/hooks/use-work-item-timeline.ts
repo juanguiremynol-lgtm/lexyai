@@ -14,8 +14,8 @@ export type TimelineKind =
   | "CORREO"
   | "TERMINO"
   | "ETAPA"
-  | "CLASE"
-  | "EXPOSICION_DETALLE";
+  | "CLASE";
+
 
 export interface TimelineEntry {
   work_item_id: string;
