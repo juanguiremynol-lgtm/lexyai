@@ -364,18 +364,15 @@ Deno.serve(async (req) => {
       }
       const { alert_type, severity } = classifyTerm(bd);
 
-      const fingerprint = `deadline_${bucket}_${d.id}_${today}`;
-      const { error: insErr } = await supabase.from("alert_instances").insert({
-        owner_id: d.owner_id,
-        organization_id: d.organization_id,
-        entity_id: d.work_item_id,
-        entity_type: "WORK_ITEM",
+      const outcome = await upsertTermAlert({
+        deadlineId: d.id,
+        ownerId: d.owner_id,
+        organizationId: d.organization_id,
+        workItemId: d.work_item_id,
+        alertType: alert_type,
         severity,
-        alert_type,
         title,
         message: d.label,
-        status: "PENDING",
-        fingerprint,
         payload: {
           deadline_id: d.id,
           deadline_type: d.deadline_type,
@@ -387,13 +384,14 @@ Deno.serve(async (req) => {
         },
       });
 
-      if (insErr) {
-        if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
-        else { stats.errors++; console.error("[evaluate-deadline-alerts]", insErr); }
+      if (outcome === "error") {
+        stats.errors++;
       } else {
         stats.buckets[alert_type]++;
-        stats.alerts_created++;
+        if (outcome === "inserted") stats.alerts_created++;
+        else stats.alerts_updated++;
       }
+
     }
 
     // A term that is no longer our client's must stop alerting NOW, not after
