@@ -541,11 +541,17 @@ export async function executeSyncChain(
     }
   }
 
-  const foundStatus = determineFoundStatus(
-    hasMetadataMatch || attempts.some((a) => a.status !== "error" && a.status !== "timeout"),
-    hasData,
-    attempts.every((a) => a.status === "error" || a.status === "timeout"),
+  // An "answer" is success / empty / not_found. Anything else (error, timeout,
+  // skipped) is silence, and silence never becomes NOT_FOUND.
+  const someoneAnswered = attempts.some(
+    (a) => a.status === "success" || a.status === "empty" || a.status === "not_found",
   );
+  const foundStatus = determineFoundStatus(
+    hasMetadataMatch,
+    hasData,
+    !someoneAnswered,
+  );
+
 
   return { attempts, totalInserted, totalSkipped, foundStatus };
 }
