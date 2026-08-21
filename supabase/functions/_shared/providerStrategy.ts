@@ -157,13 +157,15 @@ export function getCategoryStrategy(workflowType: string): CategoryStrategy {
  *
  * @param hasMetadataMatch - At least one provider returned a radicado match (parties/despacho/fecha)
  * @param hasActuaciones - At least one provider returned actuaciones/estados data
- * @param allProvidersFailed - All providers returned errors (not just empty)
+ * @param allProvidersFailed - No provider ever answered (timeout/5xx/network/rate limit)
  */
 export function determineFoundStatus(
   hasMetadataMatch: boolean,
   hasActuaciones: boolean,
   allProvidersFailed: boolean,
 ): FoundStatus {
+  // A run where nobody answered asserts nothing about the expediente.
+  if (allProvidersFailed && !hasMetadataMatch && !hasActuaciones) return "UNAVAILABLE";
   if (!hasMetadataMatch && !hasActuaciones) return "NOT_FOUND";
   if (hasMetadataMatch && hasActuaciones) return "FOUND_COMPLETE";
   // Has metadata but no actuaciones (e.g., CPNU returned parties but actuaciones 406)
@@ -172,12 +174,17 @@ export function determineFoundStatus(
 
 /**
  * Determines if fallback should trigger.
- * Fallback triggers ONLY when primary returns NOT_FOUND (no match at all).
- * FOUND_PARTIAL does NOT trigger fallback.
+ *
+ * Founding invariant: fallback advances ONLY on an ANSWERED absence —
+ * NOT_FOUND (which subsumes an empty answer). It must NEVER advance on
+ * UNAVAILABLE, because accepting another provider's answer after the primary
+ * failed to answer converts "we could not ask" into "there are no novedades".
+ * FOUND_PARTIAL does NOT trigger fallback either.
  */
 export function shouldTriggerFallback(primaryStatus: FoundStatus): boolean {
   return primaryStatus === "NOT_FOUND";
 }
+
 
 /**
  * Returns all unique provider keys for a category (for Tutela: all providers).
