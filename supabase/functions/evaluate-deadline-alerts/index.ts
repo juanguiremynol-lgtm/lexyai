@@ -69,6 +69,7 @@ Deno.serve(async (req) => {
     alerts_created: 0,
     alerts_updated: 0,
     alerts_superseded: 0,
+    skipped_closed_by_lawyer: 0,
     skipped_dedup: 0,
     errors: 0,
     manual_review_alerts: 0,
