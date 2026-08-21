@@ -2644,12 +2644,15 @@ Deno.serve(withSyncTimeline(async (req) => {
           {
             provider: 'publicaciones',
             data_kind: 'ESTADOS',
-            status: result.ok ? 'success' : 'error',
+            // BB2 — declare the routing skip instead of asserting a PP read
+            // that never happened (CPACA estados are SAMAI_ESTADOS only).
+            status: shouldFetchPP ? (result.ok ? 'success' : 'error') : 'skipped',
+            result_code: shouldFetchPP ? result.result_code : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
             latency_ms: result.provider_latency_ms || 0,
             inserted_count: result.inserted_count,
             skipped_count: result.skipped_count,
-            result_code: result.result_code,
           },
+
           ...(result.samai_estados_summary
             ? [{
                 provider: 'samai_estados',
