@@ -284,12 +284,15 @@ Deno.serve(async (req) => {
       });
       if (outcome === "error") {
         stats.errors++;
+      } else if (outcome === "closed_by_lawyer") {
+        stats.skipped_closed_by_lawyer++;
       } else {
         stats.buckets[alert_type]++;
         stats.manual_review_alerts++;
         if (outcome === "inserted") stats.alerts_created++;
         else stats.alerts_updated++;
       }
+
 
     }
 
