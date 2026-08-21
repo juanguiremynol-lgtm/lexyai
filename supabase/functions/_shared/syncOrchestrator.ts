@@ -693,8 +693,20 @@ async function safeProviderFetch(
 
     clearTimeout(timer);
 
+    // AA1 — read GCP's explicit signal before trusting the adapter's flags.
+    // A 500 + success:false, or a 404 "Job no encontrado", is silence: it may
+    // never be recorded as empty or not_found.
+    const gcp = classifyGcpResponse({
+      httpStatus: result.httpStatus,
+      success: result.ok ? true : false,
+      found: result.found,
+      message: result.errorMessage,
+    });
+
     let status: ProviderAttemptResult["status"];
-    if (result.ok && !result.isEmpty) status = "success";
+    if (gcp.outcome === "UNAVAILABLE" || gcp.outcome === "UNCLASSIFIED") {
+      status = "error";
+    } else if (result.ok && !result.isEmpty) status = "success";
     else if (result.isEmpty) status = "empty";
     // An ANSWERED absence is not_found. Anything else that failed is an error:
     // a transient upstream failure is not an absence of the radicado and must
@@ -702,6 +714,7 @@ async function safeProviderFetch(
     else if (isAnsweredAbsence(result.errorCode) || (!result.found && !result.errorCode)) {
       status = "not_found";
     } else status = "error";
+
 
 
 
