@@ -22313,6 +22313,16 @@ export type Database = {
           run_id: string
         }[]
       }
+      backfill_deadline_audit_meta: {
+        Args: { p_status?: string }
+        Returns: {
+          deadline_id: string
+          deadline_type: string
+          differs: boolean
+          old_date: string
+          recomputed_date: string
+        }[]
+      }
       backfill_provider_hearings: {
         Args: { p_limit?: number }
         Returns: {
@@ -22356,6 +22366,17 @@ export type Database = {
       build_dedupe_key: {
         Args: { p_bucket?: string; p_entity_id: string; p_kind: string }
         Returns: string
+      }
+      build_term_audit: {
+        Args: {
+          p_anchor_source: string
+          p_day_type: string
+          p_days: number
+          p_legal_source: string
+          p_rule_anchor: string
+          p_rule_kind: string
+        }
+        Returns: Json
       }
       business_days_between_sql: {
         Args: { p_a: string; p_b: string }
@@ -22517,6 +22538,14 @@ export type Database = {
       }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
+        Returns: Json
+      }
+      deadline_anchor_kind: {
+        Args: { p_anchor_source: string }
+        Returns: string
+      }
+      deadline_business_day_walk: {
+        Args: { p_anchor: string; p_days: number }
         Returns: Json
       }
       derive_desfijacion: {
