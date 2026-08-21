@@ -88,6 +88,84 @@ export function isAnsweredAbsence(code: string | null | undefined): boolean {
 /** A transient failure may justify retrying the SAME provider. */
 export const isRetryableSameProvider = isTransientProviderFailure;
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * AA1 — GCP HTTP contract → attempt outcome.
+ *
+ * GCP's scraper distinguishes silence from absence, and that distinction was
+ * being discarded upstream. The mapping is EXPLICIT — never inferred from body
+ * shape when an explicit field exists:
+ *
+ *   500 + success:false               → UNAVAILABLE  (provider never answered)
+ *   200 + success:true  + found:false → ANSWERED_ABSENCE (genuine not-found)
+ *   200 + success:true  + found:true  → ANSWERED_DATA
+ *   404 "Job no encontrado"           → UNAVAILABLE  (job store lost the job to
+ *                                       autoscaling; retry the SAME provider)
+ *   404 (any other)                   → ANSWERED_ABSENCE
+ *   429 / 5xx / network               → UNAVAILABLE
+ *   200 + success:false               → UNAVAILABLE  (explicit failure flag wins)
+ * ────────────────────────────────────────────────────────────────────────── */
+
+export type GcpOutcome = "ANSWERED_DATA" | "ANSWERED_ABSENCE" | "UNAVAILABLE" | "UNCLASSIFIED";
+
+export interface GcpResponseShape {
+  httpStatus: number | null | undefined;
+  success?: boolean | null;
+  found?: boolean | null;
+  message?: string | null;
+}
+
+const JOB_LOST_RE = /job\s+no\s+encontrad|job\s+not\s+found/i;
+
+export function classifyGcpResponse(r: GcpResponseShape): {
+  outcome: GcpOutcome;
+  errorCode: string | null;
+  reason: string;
+} {
+  const s = r.httpStatus ?? null;
+
+  if (s === 404 && JOB_LOST_RE.test(r.message ?? "")) {
+    return { outcome: "UNAVAILABLE", errorCode: "PROVIDER_JOB_LOST", reason: "404 job store lost the job (autoscaling)" };
+  }
+  if (s === 404) {
+    return { outcome: "ANSWERED_ABSENCE", errorCode: "PROVIDER_NOT_FOUND", reason: "404 answered absence" };
+  }
+  if (s === 429) {
+    return { outcome: "UNAVAILABLE", errorCode: "PROVIDER_RATE_LIMITED", reason: "429 rate limited" };
+  }
+  if (s !== null && s >= 500) {
+    return { outcome: "UNAVAILABLE", errorCode: "UPSTREAM_ERROR", reason: `${s} + success:${r.success ?? "n/a"}` };
+  }
+  if (s === null) {
+    return { outcome: "UNAVAILABLE", errorCode: "NETWORK_ERROR", reason: "no HTTP response" };
+  }
+  if (s >= 200 && s < 300) {
+    // The explicit success flag is authoritative when present.
+    if (r.success === false) {
+      return { outcome: "UNAVAILABLE", errorCode: "PROVIDER_ERROR", reason: "200 + success:false" };
+    }
+    if (r.success === true || r.success == null) {
+      if (r.found === false) {
+        return { outcome: "ANSWERED_ABSENCE", errorCode: "PROVIDER_NOT_FOUND", reason: "200 + success:true + found:false" };
+      }
+      return { outcome: "ANSWERED_DATA", errorCode: null, reason: "200 + success:true" };
+    }
+  }
+  if (s === 401 || s === 403) {
+    return { outcome: "UNAVAILABLE", errorCode: "UPSTREAM_AUTH", reason: `${s} auth rejected` };
+  }
+  return { outcome: "UNCLASSIFIED", errorCode: "UNCLASSIFIED_PROVIDER_SHAPE", reason: `unmapped HTTP ${s}` };
+}
+
+/**
+ * UNCLASSIFIED must never be optimistically read as an absence — an unmapped
+ * shape asserts nothing, so it is handled exactly like UNAVAILABLE and is
+ * surfaced for review.
+ */
+export function gcpOutcomeAuthorisesFallback(o: GcpOutcome): boolean {
+  return o === "ANSWERED_ABSENCE";
+}
+
+
 
 export interface CategoryStrategy {
   /** If true, query all providers in parallel and merge. Used for TUTELA. */
