@@ -224,11 +224,17 @@ Deno.serve(async (req) => {
     results.push({
       work_item_id: wi.id,
       radicado,
+      anterior: wi.provider_detail_exposure ?? "DESCONOCIDO",
       estado: reading.expuesto ? "DETALLE_EXPUESTO" : "PROCESO_PRIVADO",
       cambio: (applied as { changed?: boolean } | null)?.changed ?? false,
       error: rpcErr?.message ?? null,
     });
   }
+
+  // Y3(c) — no-op discipline. A run in which no matter changed state writes no
+  // telemetry row at all: the per-matter verification stamp lives on the work
+  // item itself, and a quiet run is not an event worth recording.
+  const cambios = results.filter((r) => r.cambio).length;
 
   return json({
     ok: true,
@@ -237,7 +243,9 @@ Deno.serve(async (req) => {
     guardia_cambio_masivo: verdict.reason,
     evaluados: results.length,
     privados: results.filter((r) => r.estado === "PROCESO_PRIVADO").length,
-    cambios: results.filter((r) => r.cambio).length,
-    resultados: results.filter((r) => r.cambio || r.estado === "PROCESO_PRIVADO"),
+    cambios,
+    telemetria: cambios === 0 ? "ninguna (no-op)" : "historial",
+    resultados: results,
   });
 });
+
