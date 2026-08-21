@@ -138,15 +138,20 @@ Deno.serve(async (req) => {
 
   // ITER45 — exposure is not a penal concept: any matter can have its detail
   // withheld, so the portfolio pass is not restricted by workflow.
+  // Y3(b) — but the /reserva/estado registry belongs to CPNU and has NO
+  // authority over CPACA matters, which route to SAMAI exclusively. SAMAI
+  // offers no exposure contract, so CPACA stays DESCONOCIDO by omission.
   let query = supabase
     .from("work_items")
     .select("id, radicado, workflow_type, provider_detail_exposure")
     .is("deleted_at", null)
-    .not("radicado", "is", null);
+    .not("radicado", "is", null)
+    .neq("workflow_type", "CPACA");
   if (body.work_item_id) query = query.eq("id", body.work_item_id);
 
   const { data: items, error } = await query.limit(1000);
   if (error) return json({ ok: false, error: error.message }, 500);
+
 
   // ITER47 — bulk-flip guard. Before writing anything, ask what this ONE read
   // would do to the portfolio as a whole. The registry misreading we caught in
