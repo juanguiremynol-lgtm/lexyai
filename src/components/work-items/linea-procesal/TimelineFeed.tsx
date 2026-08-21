@@ -23,7 +23,6 @@ const FILTERS: Array<{ key: "TODO" | TimelineKind; label: string }> = [
   { key: "TERMINO", label: "Términos" },
   { key: "ETAPA", label: "Etapas" },
   { key: "CLASE", label: "Clase" },
-  { key: "EXPOSICION_DETALLE", label: "Detalle" },
 ];
 
 const KIND_ICON: Record<TimelineKind, typeof FileText> = {
@@ -33,8 +32,8 @@ const KIND_ICON: Record<TimelineKind, typeof FileText> = {
   TERMINO: CalendarClock,
   ETAPA: Route,
   CLASE: Scale,
-  EXPOSICION_DETALLE: Eye,
 };
+
 
 export function TimelineFeed({ workItemId }: { workItemId: string }) {
   const [filter, setFilter] = useState<"TODO" | TimelineKind>("TODO");

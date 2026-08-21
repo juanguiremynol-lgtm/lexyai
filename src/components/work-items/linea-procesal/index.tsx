@@ -198,7 +198,9 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         events={events?.termEvents ?? []}
         awaitingAnchorEvents={["EJECUTORIA_SENTENCIA", "NOTIFICACION_MANDAMIENTO_PAGO"]}
       />
+      <ExposicionDetalleStatus workItemId={workItemId} workflowType={workflowType} />
       <TimelineFeed workItemId={workItemId} />
+
     </section>
   );
 }
