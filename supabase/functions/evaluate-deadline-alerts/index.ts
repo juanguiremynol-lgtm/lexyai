@@ -134,19 +134,25 @@ Deno.serve(async (req) => {
     title: string;
     message: string | null;
     payload: Record<string, unknown>;
-  }): Promise<"inserted" | "updated" | "error"> {
+  }): Promise<"inserted" | "updated" | "error" | "closed_by_lawyer"> {
     const fingerprint = `deadline_TERM_${args.deadlineId}`;
 
-    const { data: live } = await supabase
+    const { data: prior } = await supabase
       .from("alert_instances")
       .select("id, alert_type, severity, title, status, payload, created_at")
-      .in("status", LIVE_STATUSES)
       .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
       .contains("payload", { deadline_id: args.deadlineId })
       .order("created_at", { ascending: true });
 
-    const rows = (live ?? []) as any[];
+    const all = (prior ?? []) as any[];
+    const rows = all.filter((r) => LIVE_STATUSES.includes(r.status));
+    // The lawyer already closed this term's alert: never resurrect it as a new
+    // row. Only a still-live alert is updated.
+    if (rows.length === 0 && all.some((r) => ["RESOLVED", "DISMISSED", "CANCELLED"].includes(r.status))) {
+      return "closed_by_lawyer";
+    }
     if (rows.length === 0) {
+
       const { error: insErr } = await supabase.from("alert_instances").insert({
         owner_id: args.ownerId,
         organization_id: args.organizationId,
