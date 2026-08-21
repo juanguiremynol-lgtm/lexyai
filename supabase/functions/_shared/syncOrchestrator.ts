@@ -694,12 +694,13 @@ async function safeProviderFetch(
     let status: ProviderAttemptResult["status"];
     if (result.ok && !result.isEmpty) status = "success";
     else if (result.isEmpty) status = "empty";
-    // A transient upstream failure is NOT an absence of the radicado. Classify
-    // it as an error so it can never be read as "the provider said no".
-    else if (isTransientProviderFailure(result.errorCode)) status = "error";
-    else if (!result.ok && result.errorCode && !result.found) status = "error";
-    else if (!result.found) status = "not_found";
-    else status = "error";
+    // An ANSWERED absence is not_found. Anything else that failed is an error:
+    // a transient upstream failure is not an absence of the radicado and must
+    // never be read as "the provider said no".
+    else if (isAnsweredAbsence(result.errorCode) || (!result.found && !result.errorCode)) {
+      status = "not_found";
+    } else status = "error";
+
 
 
     return {
