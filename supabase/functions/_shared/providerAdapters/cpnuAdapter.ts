@@ -43,6 +43,8 @@ import {
 import { parseCpnuSujetos } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { extractClaseProveedor, type ClaseProcesoContract } from '../claseProcesoContract.ts';
+import { classifyEmptyActuaciones, snapshotOrigenIsAuthoritative } from '../providerStrategy.ts';
+
 
 import {
   checkSnapshotFreshness,
@@ -344,8 +346,51 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     );
 
     if (actuaciones.length === 0) {
+      // ═══ CC1 — an empty list is three different facts, and GCP tells us which.
+      const snapshotOrigen = String(
+        (snapshotData.snapshot_origen ?? nestedData?.snapshot_origen ?? '') as string,
+      ) || null;
+      const restringido = (
+        snapshotData.restringido ?? nestedData?.restringido ?? detalle?.restringido
+      ) as boolean | null | undefined;
+      const erroresDetalle = (
+        (snapshotData.erroresDetalle ?? nestedData?.erroresDetalle ?? []) as unknown[]
+      );
+
+      const verdict = classifyEmptyActuaciones({
+        restringido: restringido ?? null,
+        erroresDetalle,
+      });
+
+      if (verdict === 'PROCESO_PRIVADO') {
+        return withClase(
+          makeErrorResult('PROCESO_PRIVADO', startTime, snapshotResponse.status),
+          snapshotClase,
+        );
+      }
+      if (verdict === 'PENDING_UPSTREAM') {
+        return withClase(
+          makeErrorResult('PENDING_UPSTREAM', startTime, snapshotResponse.status),
+          snapshotClase,
+        );
+      }
+
+      // CC1(d) — STALE SNAPSHOT TRAP. The corrected restricted shape is served
+      // only while the row is still in memory. A durable-origin snapshot that
+      // says "empty" is ADVISORY: it may be the pre-fix shape of a restricted
+      // matter. Never conclude absence from it — go and read it live.
+      if (!snapshotOrigenIsAuthoritative(snapshotOrigen) && options.allowBuscar !== false) {
+        console.log(
+          `[cpnu.snapshot_origen_advisory] origen=${snapshotOrigen ?? 'null'} → live re-read`,
+        );
+        return await handleScrapingFallback(
+          radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime, snapshotClase,
+        );
+      }
+
       return withClase(makeEmptyResult('No actuaciones found', startTime, snapshotResponse.status), snapshotClase);
     }
+
 
     // Handle pagination
     let allActuaciones = [...actuaciones];

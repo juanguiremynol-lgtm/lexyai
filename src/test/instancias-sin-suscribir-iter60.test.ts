@@ -61,7 +61,9 @@ describe("iter60 — instancias sin suscribir", () => {
   it("subscribes only when the base work item is ACTIVE", () => {
     const [live, archived] = parseInstanciasSinSuscribir(UPSTREAM);
     expect(decideSubscription(live, "ACTIVE")).toBe("SUSCRIBIR");
-    expect(decideSubscription(archived, "DELETED")).toBe("OMITIDO_BASE_INACTIVA");
+    // CC4 supersedes ITER60 here: a DELETED base is not "inactive", it is gone.
+    expect(decideSubscription(archived, "DELETED")).toBe("OMITIDO_BASE_ELIMINADA");
+    expect(decideSubscription(archived, "ARCHIVED")).toBe("OMITIDO_BASE_INACTIVA");
     expect(decideSubscription(live, null)).toBe("OMITIDO_SIN_WORK_ITEM");
   });
 

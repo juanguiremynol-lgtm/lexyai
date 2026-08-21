@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.log_work_item_deletion_ledger() FROM anon, authenticated, PUBLIC;
