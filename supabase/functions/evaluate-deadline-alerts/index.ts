@@ -67,6 +67,8 @@ Deno.serve(async (req) => {
   const stats = {
     evaluated: 0,
     alerts_created: 0,
+    alerts_updated: 0,
+    alerts_superseded: 0,
     skipped_dedup: 0,
     errors: 0,
     manual_review_alerts: 0,
