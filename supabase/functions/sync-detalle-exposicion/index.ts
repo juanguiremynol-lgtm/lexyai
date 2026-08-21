@@ -138,15 +138,20 @@ Deno.serve(async (req) => {
 
   // ITER45 — exposure is not a penal concept: any matter can have its detail
   // withheld, so the portfolio pass is not restricted by workflow.
+  // Y3(b) — but the /reserva/estado registry belongs to CPNU and has NO
+  // authority over CPACA matters, which route to SAMAI exclusively. SAMAI
+  // offers no exposure contract, so CPACA stays DESCONOCIDO by omission.
   let query = supabase
     .from("work_items")
     .select("id, radicado, workflow_type, provider_detail_exposure")
     .is("deleted_at", null)
-    .not("radicado", "is", null);
+    .not("radicado", "is", null)
+    .neq("workflow_type", "CPACA");
   if (body.work_item_id) query = query.eq("id", body.work_item_id);
 
   const { data: items, error } = await query.limit(1000);
   if (error) return json({ ok: false, error: error.message }, 500);
+
 
   // ITER47 — bulk-flip guard. Before writing anything, ask what this ONE read
   // would do to the portfolio as a whole. The registry misreading we caught in
@@ -219,11 +224,17 @@ Deno.serve(async (req) => {
     results.push({
       work_item_id: wi.id,
       radicado,
+      anterior: wi.provider_detail_exposure ?? "DESCONOCIDO",
       estado: reading.expuesto ? "DETALLE_EXPUESTO" : "PROCESO_PRIVADO",
       cambio: (applied as { changed?: boolean } | null)?.changed ?? false,
       error: rpcErr?.message ?? null,
     });
   }
+
+  // Y3(c) — no-op discipline. A run in which no matter changed state writes no
+  // telemetry row at all: the per-matter verification stamp lives on the work
+  // item itself, and a quiet run is not an event worth recording.
+  const cambios = results.filter((r) => r.cambio).length;
 
   return json({
     ok: true,
@@ -232,7 +243,9 @@ Deno.serve(async (req) => {
     guardia_cambio_masivo: verdict.reason,
     evaluados: results.length,
     privados: results.filter((r) => r.estado === "PROCESO_PRIVADO").length,
-    cambios: results.filter((r) => r.cambio).length,
-    resultados: results.filter((r) => r.cambio || r.estado === "PROCESO_PRIVADO"),
+    cambios,
+    telemetria: cambios === 0 ? "ninguna (no-op)" : "historial",
+    resultados: results,
   });
 });
+

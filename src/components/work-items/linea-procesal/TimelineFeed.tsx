@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarClock, Circle, ExternalLink, Eye, FileText, History, Mail, Newspaper, Route, Scale } from "lucide-react";
+import { CalendarClock, Circle, ExternalLink, FileText, History, Mail, Newspaper, Route, Scale } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,6 @@ const FILTERS: Array<{ key: "TODO" | TimelineKind; label: string }> = [
   { key: "TERMINO", label: "Términos" },
   { key: "ETAPA", label: "Etapas" },
   { key: "CLASE", label: "Clase" },
-  { key: "EXPOSICION_DETALLE", label: "Detalle" },
 ];
 
 const KIND_ICON: Record<TimelineKind, typeof FileText> = {
@@ -33,8 +32,8 @@ const KIND_ICON: Record<TimelineKind, typeof FileText> = {
   TERMINO: CalendarClock,
   ETAPA: Route,
   CLASE: Scale,
-  EXPOSICION_DETALLE: Eye,
 };
+
 
 export function TimelineFeed({ workItemId }: { workItemId: string }) {
   const [filter, setFilter] = useState<"TODO" | TimelineKind>("TODO");
