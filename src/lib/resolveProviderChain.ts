@@ -69,6 +69,8 @@ export type FallbackDecision =
   | "STOP_OK"
   | "STOP_PENDING"
   | "STOP_EMPTY"
+  /** No provider answered (timeout/5xx/network/rate limit). Never advance. */
+  | "STOP_UNAVAILABLE"
   | "STOP_ERROR";
 
 /** Policy for a workflow/scope */
@@ -365,16 +367,37 @@ export function resolveEffectivePolicyAndChain(
 
 // ────────────────────── Fallback decision ──────────────────────
 
-const RETRYABLE_CODES = new Set([
-  "SCRAPING_STUCK",
-  "PROVIDER_RATE_LIMITED",
-  "PROVIDER_NOT_FOUND",
-  "UPSTREAM_ROUTE_MISSING",
-  "UPSTREAM_ERROR",
+/**
+ * Codes that mean the provider NEVER ANSWERED.
+ *
+ * These are retryable against the SAME provider, but they must never advance
+ * the chain: accepting a different provider's answer after the primary failed
+ * to answer converts "we could not ask" into "there are no novedades".
+ * Retry semantics and fallback semantics are separate rules.
+ */
+const UNAVAILABLE_CODES = new Set([
   "PROVIDER_TIMEOUT",
+  "FORCED_TIMEOUT",
   "NETWORK_ERROR",
+  "UPSTREAM_ERROR",
+  "PROVIDER_ERROR",
+  "PROVIDER_RATE_LIMITED",
+  "SCRAPING_STUCK",
+  "UPSTREAM_ROUTE_MISSING",
   "UNKNOWN_ERROR",
 ]);
+
+/** Codes that mean the provider ANSWERED and had nothing. Fallback may advance. */
+const ANSWERED_ABSENCE_CODES = new Set([
+  "PROVIDER_NOT_FOUND",
+  "NOT_FOUND",
+  "RADICADO_NOT_FOUND",
+]);
+
+/** True when the same provider may be retried (never when another may be used). */
+export function isRetryableSameProvider(resultCode: string): boolean {
+  return UNAVAILABLE_CODES.has(resultCode);
+}
 
 export function decideFallback(
   resultCode: string,
@@ -386,6 +409,9 @@ export function decideFallback(
   if (resultCode === "PROVIDER_EMPTY_RESULT" || resultCode === "EMPTY") {
     return allowFallbackOnEmpty ? "CONTINUE" : "STOP_EMPTY";
   }
-  if (RETRYABLE_CODES.has(resultCode)) return "CONTINUE";
+  // Silence from the provider is never an absence of judicial activity.
+  if (UNAVAILABLE_CODES.has(resultCode)) return "STOP_UNAVAILABLE";
+  // An answered absence is the only error-shaped outcome that may advance.
+  if (ANSWERED_ABSENCE_CODES.has(resultCode)) return "CONTINUE";
   return "STOP_ERROR";
 }
