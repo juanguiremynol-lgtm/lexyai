@@ -45,9 +45,11 @@ import {
 } from "./genericRemoteAdapter.ts";
 import {
   determineFoundStatus,
+  isAnsweredAbsence,
   shouldTriggerFallback,
   type FoundStatus,
 } from "./providerStrategy.ts";
+
 
 // ═══════════════════════════════════════════
 // TYPES
@@ -437,8 +439,14 @@ export async function executeSyncChain(
   let totalSkipped = 0;
   let hasMetadataMatch = false;
   let hasData = false;
+  /**
+   * TRUE until some provider actually ANSWERS (success / empty / not_found).
+   * A timeout, 5xx, network error or rate limit leaves this TRUE, which yields
+   * UNAVAILABLE — never NOT_FOUND — and therefore never authorises fallback.
+   */
   let allFailed = true;
   let attemptCount = 0;
+
 
   const primaries = providers.filter((p) => p.role === "PRIMARY");
   const fallbacks = providers.filter((p) => p.role === "FALLBACK");
@@ -488,9 +496,14 @@ export async function executeSyncChain(
     }
   }
 
-  // Phase 2: Fallback providers (only if primary returned NOT_FOUND)
+  // Phase 2: Fallback providers.
+  // Fires ONLY when the primaries ANSWERED and the answer was an absence
+  // (NOT_FOUND / empty). If every primary timed out, 5xx'd or was rate
+  // limited, primaryStatus is UNAVAILABLE and no fallback is consulted:
+  // another provider's answer must never stand in for the one we could not get.
   const primaryStatus = determineFoundStatus(hasMetadataMatch, hasData, allFailed);
   if (shouldTriggerFallback(primaryStatus) && fallbacks.length > 0) {
+
     for (const provider of fallbacks) {
       if (attemptCount >= MAX_ATTEMPTS_PER_KIND) break;
       if (params.signal?.aborted) break;
@@ -530,11 +543,17 @@ export async function executeSyncChain(
     }
   }
 
-  const foundStatus = determineFoundStatus(
-    hasMetadataMatch || attempts.some((a) => a.status !== "error" && a.status !== "timeout"),
-    hasData,
-    attempts.every((a) => a.status === "error" || a.status === "timeout"),
+  // An "answer" is success / empty / not_found. Anything else (error, timeout,
+  // skipped) is silence, and silence never becomes NOT_FOUND.
+  const someoneAnswered = attempts.some(
+    (a) => a.status === "success" || a.status === "empty" || a.status === "not_found",
   );
+  const foundStatus = determineFoundStatus(
+    hasMetadataMatch,
+    hasData,
+    !someoneAnswered,
+  );
+
 
   return { attempts, totalInserted, totalSkipped, foundStatus };
 }
@@ -677,8 +696,14 @@ async function safeProviderFetch(
     let status: ProviderAttemptResult["status"];
     if (result.ok && !result.isEmpty) status = "success";
     else if (result.isEmpty) status = "empty";
-    else if (!result.found) status = "not_found";
-    else status = "error";
+    // An ANSWERED absence is not_found. Anything else that failed is an error:
+    // a transient upstream failure is not an absence of the radicado and must
+    // never be read as "the provider said no".
+    else if (isAnsweredAbsence(result.errorCode) || (!result.found && !result.errorCode)) {
+      status = "not_found";
+    } else status = "error";
+
+
 
     return {
       provider: provider.key,
@@ -1026,6 +1051,9 @@ export async function orchestrateSync(
   let totalInsertedPubs = 0;
   let totalSkippedPubs = 0;
   let overallFoundStatus: FoundStatus = "NOT_FOUND";
+  /** Per-kind "nobody answered" flags — a silent failure must surface as a failure. */
+  let actsUnavailable = false;
+  let estadosUnavailable = false;
 
   try {
     // Phase 1: Actuaciones — use override-aware coverage
@@ -1052,6 +1080,7 @@ export async function orchestrateSync(
       allAttempts.push(...actResult.attempts);
       totalInsertedActs = actResult.totalInserted;
       totalSkippedActs = actResult.totalSkipped;
+      actsUnavailable = actResult.foundStatus === "UNAVAILABLE";
       if (actResult.foundStatus !== "NOT_FOUND") {
         overallFoundStatus = actResult.foundStatus;
       }
@@ -1108,6 +1137,7 @@ export async function orchestrateSync(
         allAttempts.push(...estResult.attempts);
         totalInsertedPubs = estResult.totalInserted;
         totalSkippedPubs = estResult.totalSkipped;
+        estadosUnavailable = estResult.foundStatus === "UNAVAILABLE";
         if (estResult.foundStatus === "FOUND_COMPLETE" && overallFoundStatus !== "FOUND_COMPLETE") {
           overallFoundStatus = estResult.foundStatus;
         }
@@ -1159,6 +1189,17 @@ export async function orchestrateSync(
       status = "PARTIAL";
     }
 
+    // Z1(d): a data kind whose providers never answered is a FAILURE, not a
+    // successful run with no novedades. It must never roll up into SUCCESS,
+    // and the reason must be logged so the daily report shows it.
+    const anyUnavailable = actsUnavailable || estadosUnavailable;
+    if (anyUnavailable && status === "SUCCESS") status = "PARTIAL";
+    if (anyUnavailable && !hasSuccess && status !== "TIMEOUT") status = "FAILED";
+    const unavailableKinds = [
+      actsUnavailable ? "ACTUACIONES" : null,
+      estadosUnavailable ? "ESTADOS" : null,
+    ].filter(Boolean).join(", ");
+
     const result: SyncRunResult = {
       syncRunId,
       status,
@@ -1169,12 +1210,16 @@ export async function orchestrateSync(
       providerAttempts: allAttempts,
       errorCode: allAttempts.length === 0
         ? "NO_PROVIDER_ROUTE"
-        : (persistedZeroDespiteFeed ? "PERSIST_MISMATCH" : null),
+        : (persistedZeroDespiteFeed
+          ? "PERSIST_MISMATCH"
+          : (anyUnavailable ? "PROVIDER_UNAVAILABLE" : null)),
       errorMessage: allAttempts.length === 0
         ? `No provider was queried for workflow ${ctx.workflowType} — coverage matrix has no compatible route.`
         : (persistedZeroDespiteFeed
           ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
-          : null),
+          : (anyUnavailable
+            ? `No provider answered for ${unavailableKinds}. This run asserts nothing about the expediente — it is an absence of knowledge, not an absence of novedades.`
+            : null)),
       durationMs: Date.now() - startTime,
       foundStatus: overallFoundStatus,
     };

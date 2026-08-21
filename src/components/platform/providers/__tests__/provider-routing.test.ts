@@ -155,20 +155,20 @@ describe("decideFallback", () => {
     expect(decideFallback("PROVIDER_EMPTY_RESULT", false, true)).toBe("CONTINUE");
   });
 
-  it("SCRAPING_STUCK → CONTINUE", () => {
-    expect(decideFallback("SCRAPING_STUCK", false, false)).toBe("CONTINUE");
+  it("SCRAPING_STUCK → STOP_UNAVAILABLE", () => {
+    expect(decideFallback("SCRAPING_STUCK", false, false)).toBe("STOP_UNAVAILABLE");
   });
 
-  it("PROVIDER_RATE_LIMITED → CONTINUE", () => {
-    expect(decideFallback("PROVIDER_RATE_LIMITED", false, false)).toBe("CONTINUE");
+  it("PROVIDER_RATE_LIMITED → STOP_UNAVAILABLE", () => {
+    expect(decideFallback("PROVIDER_RATE_LIMITED", false, false)).toBe("STOP_UNAVAILABLE");
   });
 
-  it("PROVIDER_TIMEOUT → CONTINUE", () => {
-    expect(decideFallback("PROVIDER_TIMEOUT", false, false)).toBe("CONTINUE");
+  it("PROVIDER_TIMEOUT → STOP_UNAVAILABLE", () => {
+    expect(decideFallback("PROVIDER_TIMEOUT", false, false)).toBe("STOP_UNAVAILABLE");
   });
 
-  it("NETWORK_ERROR → CONTINUE", () => {
-    expect(decideFallback("NETWORK_ERROR", false, false)).toBe("CONTINUE");
+  it("NETWORK_ERROR → STOP_UNAVAILABLE", () => {
+    expect(decideFallback("NETWORK_ERROR", false, false)).toBe("STOP_UNAVAILABLE");
   });
 
   it("unknown non-retryable code → STOP_ERROR", () => {
