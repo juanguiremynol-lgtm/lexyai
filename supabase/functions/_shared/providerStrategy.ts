@@ -26,7 +26,50 @@
  */
 
 export type ProviderKey = "CPNU" | "SAMAI" | "TUTELAS" | "PUBLICACIONES" | "SAMAI_ESTADOS";
-export type FoundStatus = "FOUND_COMPLETE" | "FOUND_PARTIAL" | "NOT_FOUND";
+
+/**
+ * Outcome of consulting the provider set for one data kind.
+ *
+ *   FOUND_COMPLETE  — match + actuaciones/estados retrieved
+ *   FOUND_PARTIAL   — match (metadata/parties) but some endpoints failed/timed out
+ *   NOT_FOUND       — every provider ANSWERED and none had the radicado (incl. empty)
+ *   UNAVAILABLE     — no provider ever answered: timeout, 5xx, network error or
+ *                     rate limit. This is NOT an absence of judicial activity.
+ *                     It is an absence of knowledge and must never be collapsed
+ *                     into NOT_FOUND, because NOT_FOUND authorises fallback and
+ *                     reports "sin novedades" to the lawyer.
+ */
+export type FoundStatus = "FOUND_COMPLETE" | "FOUND_PARTIAL" | "NOT_FOUND" | "UNAVAILABLE";
+
+/**
+ * Error codes that mean "the provider did not answer", as opposed to
+ * "the provider answered and had nothing".
+ *
+ * Retry semantics and fallback semantics are SEPARATE: these codes justify
+ * retrying the SAME provider, they never justify accepting a DIFFERENT
+ * provider's answer as complete.
+ */
+export const TRANSIENT_ERROR_CODES: ReadonlySet<string> = new Set([
+  "PROVIDER_TIMEOUT",
+  "FORCED_TIMEOUT",
+  "NETWORK_ERROR",
+  "UPSTREAM_ERROR",
+  "PROVIDER_ERROR",
+  "PROVIDER_RATE_LIMITED",
+  "SCRAPING_STUCK",
+  "UPSTREAM_ROUTE_MISSING",
+  "UNKNOWN_ERROR",
+]);
+
+/** True when the code means the provider never delivered an answer. */
+export function isTransientProviderFailure(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return TRANSIENT_ERROR_CODES.has(code);
+}
+
+/** A transient failure may justify retrying the SAME provider. */
+export const isRetryableSameProvider = isTransientProviderFailure;
+
 
 export interface CategoryStrategy {
   /** If true, query all providers in parallel and merge. Used for TUTELA. */
