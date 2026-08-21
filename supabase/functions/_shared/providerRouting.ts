@@ -70,8 +70,9 @@ export interface ProviderRouting {
  * provider for that data kind (internal-only state, e.g. PETICION).
  */
 const ROUTING_TABLE: Record<string, ProviderRouting> = {
-  // CPACA — SAMAI primary, CPNU fallback on empty/not_found only.
-  CPACA:     { actuaciones: ["SAMAI", "CPNU"], estados: ["SAMAI_ESTADOS"],       eligible: true, reason: "CPACA_SAMAI_PRIMARY_CPNU_FALLBACK" },
+  // CPACA — SAMAI exclusive (BB1, 2026-08-21: CPNU fallback retired).
+  CPACA:     { actuaciones: ["SAMAI"],         estados: ["SAMAI_ESTADOS"],       eligible: true, reason: "CPACA_SAMAI_EXCLUSIVE" },
+
   CGP:       { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "CGP_ROUTE" },
   LABORAL:   { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "LABORAL_ROUTE" },
   PENAL_906: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "PENAL_906_ROUTE" },
