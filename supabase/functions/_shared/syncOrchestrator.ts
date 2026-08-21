@@ -206,6 +206,9 @@ async function createSyncRun(
         status: "RUNNING",
         debug_mode: debugMode,
         run_mode: runMode,
+        // BB6 — caller identity is recorded, never inferred.
+        details: ctx.callerTrace ? { caller: ctx.callerTrace } : {},
+
       })
       .select("id")
       .single();
