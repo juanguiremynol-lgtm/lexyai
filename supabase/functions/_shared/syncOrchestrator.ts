@@ -494,9 +494,14 @@ export async function executeSyncChain(
     }
   }
 
-  // Phase 2: Fallback providers (only if primary returned NOT_FOUND)
+  // Phase 2: Fallback providers.
+  // Fires ONLY when the primaries ANSWERED and the answer was an absence
+  // (NOT_FOUND / empty). If every primary timed out, 5xx'd or was rate
+  // limited, primaryStatus is UNAVAILABLE and no fallback is consulted:
+  // another provider's answer must never stand in for the one we could not get.
   const primaryStatus = determineFoundStatus(hasMetadataMatch, hasData, allFailed);
   if (shouldTriggerFallback(primaryStatus) && fallbacks.length > 0) {
+
     for (const provider of fallbacks) {
       if (attemptCount >= MAX_ATTEMPTS_PER_KIND) break;
       if (params.signal?.aborted) break;
