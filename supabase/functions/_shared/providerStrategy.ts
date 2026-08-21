@@ -123,10 +123,47 @@ export interface GcpResponseShape {
   message?: string | null;
   /** GCP scraper rev. 00024-kiw: explicit reason a matter yielded no detail. */
   motivoAusencia?: string | null;
+  /** CC1 — GCP's discriminator for an empty actuaciones list. Authoritative. */
+  restringido?: boolean | null;
+  erroresDetalle?: unknown[] | null;
+  /** CC1 — "memoria" | "cloudsql" | … Advisory unless it is "memoria". */
+  snapshotOrigen?: string | null;
+  detalleCompleto?: boolean | null;
 }
 
 const JOB_LOST_RE = /job\s+no\s+encontrad|job\s+not\s+found/i;
 const RESTRICTED_RE = /proceso[_\s-]?privado|reserva/i;
+
+/**
+ * CC1 (d) — STALE SNAPSHOT TRAP.
+ *
+ * `persistSnapshot` upstream refuses to let a `detalleCompleto:false` row
+ * overwrite a complete one, so the durable Cloud SQL rows of restricted
+ * matters are frozen in the pre-fix shape. The corrected shape is served ONLY
+ * while `snapshot_origen === "memoria"`. Any other origin is ADVISORY: it may
+ * be read for display, it may NEVER be treated as authoritative for
+ * `detalleCompleto` and it may never conclude that a matter is complete.
+ */
+export function snapshotOrigenIsAuthoritative(origen: string | null | undefined): boolean {
+  return String(origen ?? "").trim().toLowerCase() === "memoria";
+}
+
+/** true when the row must be re-read live (force=true, bypassing /snapshot). */
+export function requiresLiveReread(r: Pick<GcpResponseShape, "snapshotOrigen" | "detalleCompleto">): boolean {
+  return r.detalleCompleto != null && !snapshotOrigenIsAuthoritative(r.snapshotOrigen);
+}
+
+/**
+ * CC1 — GCP's three-state discriminator for an EMPTY actuaciones list.
+ * The restricted shape is HTTP 200 + success:true + found:true: a refusal is a
+ * successful read of a refusal, never an error and never an absence.
+ */
+export function classifyEmptyActuaciones(
+  r: Pick<GcpResponseShape, "restringido" | "erroresDetalle">,
+): "PROCESO_PRIVADO" | "PENDING_UPSTREAM" | "GENUINE_EMPTY" {
+  if (r.restringido === true) return "PROCESO_PRIVADO";
+  return (r.erroresDetalle?.length ?? 0) > 0 ? "PENDING_UPSTREAM" : "GENUINE_EMPTY";
+}
 
 export function classifyGcpResponse(r: GcpResponseShape): {
   outcome: GcpOutcome;
@@ -134,6 +171,16 @@ export function classifyGcpResponse(r: GcpResponseShape): {
   reason: string;
 } {
   const s = r.httpStatus ?? null;
+
+  // CC1 — `restringido` is the contract field and it keys on nothing else:
+  // not on transport status, not on body shape. A refusal is an answer.
+  if (r.restringido === true) {
+    return {
+      outcome: "RESTRICTED_BY_PROVIDER",
+      errorCode: "PROCESO_PRIVADO",
+      reason: "restringido=true",
+    };
+  }
 
   // The explicit reason field is authoritative wherever it appears — a
   // restricted matter is an answer, not silence and not an absence.
@@ -144,6 +191,18 @@ export function classifyGcpResponse(r: GcpResponseShape): {
       reason: `motivoAusencia=${r.motivoAusencia}`,
     };
   }
+
+  // CC1 — not restricted, but the provider reported detail errors: the read is
+  // incomplete, so it asserts no absence and authorises no fallback.
+  if (r.restringido === false && (r.erroresDetalle?.length ?? 0) > 0) {
+    return {
+      outcome: "UNAVAILABLE",
+      errorCode: "PENDING_UPSTREAM",
+      reason: `erroresDetalle=${r.erroresDetalle?.length}`,
+    };
+  }
+
+
 
 
   if (s === 404 && JOB_LOST_RE.test(r.message ?? "")) {

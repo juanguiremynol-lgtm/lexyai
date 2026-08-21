@@ -39,9 +39,11 @@ const corsHeaders = {
 const STATE_FOR_DECISION: Record<SubscriptionDecision, string> = {
   SUSCRIBIR: "PENDIENTE_ENTREGA",
   OMITIDO_BASE_INACTIVA: "OMITIDO_BASE_INACTIVA",
+  OMITIDO_BASE_ELIMINADA: "OMITIDO_BASE_ELIMINADA",
   OMITIDO_SIN_WORK_ITEM: "OMITIDO_SIN_WORK_ITEM",
   OMITIDO_ES_PRIMERA_INSTANCIA: "OMITIDO_ES_PRIMERA_INSTANCIA",
 };
+
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
