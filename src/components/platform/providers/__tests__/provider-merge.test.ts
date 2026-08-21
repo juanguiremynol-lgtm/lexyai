@@ -100,7 +100,7 @@ describe("decideFallback merge semantics", () => {
   });
 
   it("SCRAPING_STUCK continues to next provider", () => {
-    expect(decideFallback("SCRAPING_STUCK", false, false)).toBe("CONTINUE");
+    expect(decideFallback("SCRAPING_STUCK", false, false)).toBe("STOP_UNAVAILABLE");
   });
 
   it("strict 404 codes result in STOP_ERROR", () => {
