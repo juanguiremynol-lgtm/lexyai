@@ -103,7 +103,114 @@ Deno.serve(async (req) => {
     return d.toISOString().slice(0, 10);
   }
 
+  /**
+   * EE1 — ONE live alert per deadline, kept current.
+   *
+   * Deduplication key: `deadline_TERM_<deadline_id>`. It is stable because the
+   * deadline id is immutable for the lifetime of the term (the row is never
+   * re-created; only its date/status change), it is independent of the
+   * evaluation day, of the urgency bucket and of the alert_type, and it
+   * survives an escalation POR_VENCER → CRITICO → VENCIDO. The previous key
+   * embedded `bucket` and `today`, which is precisely why one term produced one
+   * new alert every morning.
+   *
+   * On escalation the SAME row is updated (alert_type, severity, title,
+   * message, payload) and the previous state is appended to
+   * `payload.escalation_history`, so the history is kept without multiplying
+   * rows. Any other still-live alert for the same deadline is marked
+   * SUPERSEDED — never RESOLVED, never DISMISSED, never deleted.
+   */
+  const LIVE_STATUSES = ["PENDING", "SENT", "ACKNOWLEDGED"];
+
+  async function upsertTermAlert(args: {
+    deadlineId: string;
+    ownerId: string;
+    organizationId: string | null;
+    workItemId: string;
+    alertType: string;
+    severity: string;
+    title: string;
+    message: string | null;
+    payload: Record<string, unknown>;
+  }): Promise<"inserted" | "updated" | "error"> {
+    const fingerprint = `deadline_TERM_${args.deadlineId}`;
+
+    const { data: live } = await supabase
+      .from("alert_instances")
+      .select("id, alert_type, severity, title, status, payload, created_at")
+      .in("status", LIVE_STATUSES)
+      .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+      .contains("payload", { deadline_id: args.deadlineId })
+      .order("created_at", { ascending: true });
+
+    const rows = (live ?? []) as any[];
+    if (rows.length === 0) {
+      const { error: insErr } = await supabase.from("alert_instances").insert({
+        owner_id: args.ownerId,
+        organization_id: args.organizationId,
+        entity_id: args.workItemId,
+        entity_type: "WORK_ITEM",
+        severity: args.severity,
+        alert_type: args.alertType,
+        title: args.title,
+        message: args.message,
+        status: "PENDING",
+        fingerprint,
+        payload: { ...args.payload, escalation_history: [] },
+      });
+      if (insErr) {
+        if ((insErr.message || "").includes("duplicate")) return "updated";
+        console.error("[evaluate-deadline-alerts:insert]", insErr);
+        return "error";
+      }
+      return "inserted";
+    }
+
+    // The earliest live alert is the one the lawyer has been looking at.
+    const keep = rows[0];
+    const history = Array.isArray(keep.payload?.escalation_history)
+      ? keep.payload.escalation_history
+      : [];
+    const changed = keep.alert_type !== args.alertType || keep.severity !== args.severity;
+    const nextHistory = changed
+      ? [
+          ...history,
+          {
+            at: new Date().toISOString(),
+            from_alert_type: keep.alert_type,
+            from_severity: keep.severity,
+            to_alert_type: args.alertType,
+            to_severity: args.severity,
+          },
+        ]
+      : history;
+
+    const { error: upErr } = await supabase
+      .from("alert_instances")
+      .update({
+        alert_type: args.alertType,
+        severity: args.severity,
+        title: args.title,
+        message: args.message,
+        fingerprint,
+        payload: { ...args.payload, escalation_history: nextHistory },
+      })
+      .eq("id", keep.id);
+    if (upErr) {
+      console.error("[evaluate-deadline-alerts:update]", upErr);
+      return "error";
+    }
+
+    // Collapse any older duplicates for the same deadline.
+    for (const extra of rows.slice(1)) {
+      await supabase.from("alert_instances").update({ status: "SUPERSEDED" }).eq("id", extra.id);
+      stats.alerts_superseded++;
+    }
+    return "updated";
+  }
+
   try {
+
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
     let manualQuery: any = supabase
