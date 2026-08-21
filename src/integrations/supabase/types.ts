@@ -19979,6 +19979,7 @@ export type Database = {
           tipo_proceso: string | null
           tipo_recurso: string | null
           title: string | null
+          title_source: string | null
           total_actuaciones: number | null
           total_sujetos_procesales: number | null
           tutela_code: string | null
@@ -20187,6 +20188,7 @@ export type Database = {
           tipo_proceso?: string | null
           tipo_recurso?: string | null
           title?: string | null
+          title_source?: string | null
           total_actuaciones?: number | null
           total_sujetos_procesales?: number | null
           tutela_code?: string | null
@@ -20395,6 +20397,7 @@ export type Database = {
           tipo_proceso?: string | null
           tipo_recurso?: string | null
           title?: string | null
+          title_source?: string | null
           total_actuaciones?: number | null
           total_sujetos_procesales?: number | null
           tutela_code?: string | null
@@ -22519,6 +22522,13 @@ export type Database = {
       derive_desfijacion: {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
+      }
+      derive_work_item_title: {
+        Args: { _demandados: string; _demandantes: string; _radicado: string }
+        Returns: {
+          title: string
+          title_source: string
+        }[]
       }
       despacho_competencia_for_radicado: {
         Args: { p_radicado: string }
