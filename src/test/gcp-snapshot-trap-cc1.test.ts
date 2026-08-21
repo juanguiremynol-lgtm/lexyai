@@ -53,7 +53,19 @@ describe("CC1(d) — stale snapshot trap", () => {
 });
 
 describe("CC4 — deleted origins", () => {
-  const inst = { instancia: "SEGUNDA" as const, radicado23: "0500131030052026001230001" };
+  const inst = {
+    radicado_23: "05001310300520260012300" + "01",
+    radicado_base_21: "050013103005202600123",
+    consecutivo: "01",
+    instancia: "SEGUNDA" as const,
+    despacho: null,
+    fecha_ultima_actuacion_proveedor: null,
+    descubierto_por: null,
+    acto_disparador: null,
+    workflow_type_base: "CGP",
+    base_activa_upstream: true,
+  };
+
   it("a deleted base is never subscribed", () => {
     expect(decideSubscription(inst, "DELETED")).toBe("OMITIDO_BASE_ELIMINADA");
   });
