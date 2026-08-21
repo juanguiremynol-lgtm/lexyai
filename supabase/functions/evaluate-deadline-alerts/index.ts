@@ -67,6 +67,9 @@ Deno.serve(async (req) => {
   const stats = {
     evaluated: 0,
     alerts_created: 0,
+    alerts_updated: 0,
+    alerts_superseded: 0,
+    skipped_closed_by_lawyer: 0,
     skipped_dedup: 0,
     errors: 0,
     manual_review_alerts: 0,
@@ -103,7 +106,120 @@ Deno.serve(async (req) => {
     return d.toISOString().slice(0, 10);
   }
 
+  /**
+   * EE1 — ONE live alert per deadline, kept current.
+   *
+   * Deduplication key: `deadline_TERM_<deadline_id>`. It is stable because the
+   * deadline id is immutable for the lifetime of the term (the row is never
+   * re-created; only its date/status change), it is independent of the
+   * evaluation day, of the urgency bucket and of the alert_type, and it
+   * survives an escalation POR_VENCER → CRITICO → VENCIDO. The previous key
+   * embedded `bucket` and `today`, which is precisely why one term produced one
+   * new alert every morning.
+   *
+   * On escalation the SAME row is updated (alert_type, severity, title,
+   * message, payload) and the previous state is appended to
+   * `payload.escalation_history`, so the history is kept without multiplying
+   * rows. Any other still-live alert for the same deadline is marked
+   * SUPERSEDED — never RESOLVED, never DISMISSED, never deleted.
+   */
+  const LIVE_STATUSES = ["PENDING", "SENT", "ACKNOWLEDGED"];
+
+  async function upsertTermAlert(args: {
+    deadlineId: string;
+    ownerId: string;
+    organizationId: string | null;
+    workItemId: string;
+    alertType: string;
+    severity: string;
+    title: string;
+    message: string | null;
+    payload: Record<string, unknown>;
+  }): Promise<"inserted" | "updated" | "error" | "closed_by_lawyer"> {
+    const fingerprint = `deadline_TERM_${args.deadlineId}`;
+
+    const { data: prior } = await supabase
+      .from("alert_instances")
+      .select("id, alert_type, severity, title, status, payload, created_at")
+      .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+      .contains("payload", { deadline_id: args.deadlineId })
+      .order("created_at", { ascending: true });
+
+    const all = (prior ?? []) as any[];
+    const rows = all.filter((r) => LIVE_STATUSES.includes(r.status));
+    // The lawyer already closed this term's alert: never resurrect it as a new
+    // row. Only a still-live alert is updated.
+    if (rows.length === 0 && all.some((r) => ["RESOLVED", "DISMISSED", "CANCELLED"].includes(r.status))) {
+      return "closed_by_lawyer";
+    }
+    if (rows.length === 0) {
+
+      const { error: insErr } = await supabase.from("alert_instances").insert({
+        owner_id: args.ownerId,
+        organization_id: args.organizationId,
+        entity_id: args.workItemId,
+        entity_type: "WORK_ITEM",
+        severity: args.severity,
+        alert_type: args.alertType,
+        title: args.title,
+        message: args.message,
+        status: "PENDING",
+        fingerprint,
+        payload: { ...args.payload, escalation_history: [] },
+      });
+      if (insErr) {
+        if ((insErr.message || "").includes("duplicate")) return "updated";
+        console.error("[evaluate-deadline-alerts:insert]", insErr);
+        return "error";
+      }
+      return "inserted";
+    }
+
+    // The earliest live alert is the one the lawyer has been looking at.
+    const keep = rows[0];
+    const history = Array.isArray(keep.payload?.escalation_history)
+      ? keep.payload.escalation_history
+      : [];
+    const changed = keep.alert_type !== args.alertType || keep.severity !== args.severity;
+    const nextHistory = changed
+      ? [
+          ...history,
+          {
+            at: new Date().toISOString(),
+            from_alert_type: keep.alert_type,
+            from_severity: keep.severity,
+            to_alert_type: args.alertType,
+            to_severity: args.severity,
+          },
+        ]
+      : history;
+
+    const { error: upErr } = await supabase
+      .from("alert_instances")
+      .update({
+        alert_type: args.alertType,
+        severity: args.severity,
+        title: args.title,
+        message: args.message,
+        fingerprint,
+        payload: { ...args.payload, escalation_history: nextHistory },
+      })
+      .eq("id", keep.id);
+    if (upErr) {
+      console.error("[evaluate-deadline-alerts:update]", upErr);
+      return "error";
+    }
+
+    // Collapse any older duplicates for the same deadline.
+    for (const extra of rows.slice(1)) {
+      await supabase.from("alert_instances").update({ status: "SUPERSEDED" }).eq("id", extra.id);
+      stats.alerts_superseded++;
+    }
+    return "updated";
+  }
+
   try {
+
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
     let manualQuery: any = supabase
@@ -145,17 +261,15 @@ Deno.serve(async (req) => {
         days && d.trigger_date ? addBusinessDays(String(d.trigger_date), days) : null;
       const bd = provisionalDate ? bdRemaining(provisionalDate) : null;
       const { alert_type, severity } = classifyTerm(bd);
-      const { error: insErr } = await supabase.from("alert_instances").insert({
-        owner_id: d.owner_id,
-        organization_id: d.organization_id,
-        entity_id: d.work_item_id,
-        entity_type: "WORK_ITEM",
+      const outcome = await upsertTermAlert({
+        deadlineId: d.id,
+        ownerId: d.owner_id,
+        organizationId: d.organization_id,
+        workItemId: d.work_item_id,
+        alertType: alert_type,
         severity,
-        alert_type,
         title: "Término requiere verificación manual — sin fecha de fijación confirmada",
         message: d.label,
-        status: "PENDING",
-        fingerprint: `deadline_MANUAL_REVIEW_${d.id}`,
         payload: {
           deadline_id: d.id,
           deadline_type: d.deadline_type,
@@ -169,14 +283,18 @@ Deno.serve(async (req) => {
           rule: d.calculation_meta ?? null,
         },
       });
-      if (insErr) {
-        if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
-        else { stats.errors++; console.error("[evaluate-deadline-alerts:manual]", insErr); }
+      if (outcome === "error") {
+        stats.errors++;
+      } else if (outcome === "closed_by_lawyer") {
+        stats.skipped_closed_by_lawyer++;
       } else {
         stats.buckets[alert_type]++;
         stats.manual_review_alerts++;
-        stats.alerts_created++;
+        if (outcome === "inserted") stats.alerts_created++;
+        else stats.alerts_updated++;
       }
+
+
     }
 
     const notOwnDeadlineIds: string[] = [];
@@ -258,18 +376,15 @@ Deno.serve(async (req) => {
       }
       const { alert_type, severity } = classifyTerm(bd);
 
-      const fingerprint = `deadline_${bucket}_${d.id}_${today}`;
-      const { error: insErr } = await supabase.from("alert_instances").insert({
-        owner_id: d.owner_id,
-        organization_id: d.organization_id,
-        entity_id: d.work_item_id,
-        entity_type: "WORK_ITEM",
+      const outcome = await upsertTermAlert({
+        deadlineId: d.id,
+        ownerId: d.owner_id,
+        organizationId: d.organization_id,
+        workItemId: d.work_item_id,
+        alertType: alert_type,
         severity,
-        alert_type,
         title,
         message: d.label,
-        status: "PENDING",
-        fingerprint,
         payload: {
           deadline_id: d.id,
           deadline_type: d.deadline_type,
@@ -281,13 +396,17 @@ Deno.serve(async (req) => {
         },
       });
 
-      if (insErr) {
-        if ((insErr.message || "").includes("duplicate")) stats.skipped_dedup++;
-        else { stats.errors++; console.error("[evaluate-deadline-alerts]", insErr); }
+      if (outcome === "error") {
+        stats.errors++;
+      } else if (outcome === "closed_by_lawyer") {
+        stats.skipped_closed_by_lawyer++;
       } else {
         stats.buckets[alert_type]++;
-        stats.alerts_created++;
+        if (outcome === "inserted") stats.alerts_created++;
+        else stats.alerts_updated++;
       }
+
+
     }
 
     // A term that is no longer our client's must stop alerting NOW, not after
