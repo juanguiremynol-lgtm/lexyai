@@ -361,12 +361,20 @@ async function writePublicacionesAttemptRow(
         {
           provider: 'publicaciones',
           data_kind: 'ESTADOS',
-          status: outcome,
+          // BB2 — PP is NOT in the CPACA estados chain. Recording a
+          // 'publicaciones' attempt as success/empty for CPACA mislabels the
+          // provenance of a read that never happened; declare the skip.
+          status: resolveProviders(workItem?.workflow_type).estados.includes('PP')
+            ? outcome
+            : 'skipped',
+          result_code: resolveProviders(workItem?.workflow_type).estados.includes('PP')
+            ? result?.result_code
+            : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
           latency_ms: result?.provider_latency_ms || 0,
           inserted_count: result?.inserted_count || 0,
           skipped_count: result?.skipped_count || 0,
-          result_code: result?.result_code,
         },
+
         // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
         // every early-return path (empty / error) still records per-provider
         // trace evidence for audit ("cuántos trajo cada proveedor").

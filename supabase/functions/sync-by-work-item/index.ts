@@ -1594,7 +1594,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         forwarded_for: req.headers.get('x-forwarded-for'),
         invoker_fn: req.headers.get('x-invoker-function') ?? req.headers.get('x-caller'),
         scheduled_flag: !!_scheduled,
-        is_service_role: isServiceRole,
+        auth_kind: _scheduled ? 'SCHEDULED' : 'USER',
         observed_at: new Date().toISOString(),
       };
       const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar, callerTrace);
