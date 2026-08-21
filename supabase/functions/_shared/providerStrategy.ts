@@ -67,6 +67,24 @@ export function isTransientProviderFailure(code: string | null | undefined): boo
   return TRANSIENT_ERROR_CODES.has(code);
 }
 
+/**
+ * Codes that mean the provider ANSWERED and had nothing for this radicado.
+ * Only these authorise the NOT_FOUND verdict (and therefore fallback).
+ */
+export const ANSWERED_ABSENCE_CODES: ReadonlySet<string> = new Set([
+  "NOT_FOUND",
+  "PROVIDER_NOT_FOUND",
+  "RADICADO_NOT_FOUND",
+  "PROVIDER_EMPTY_RESULT",
+  "EMPTY",
+  "NO_RESULTS",
+]);
+
+export function isAnsweredAbsence(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return ANSWERED_ABSENCE_CODES.has(code);
+}
+
 /** A transient failure may justify retrying the SAME provider. */
 export const isRetryableSameProvider = isTransientProviderFailure;
 
