@@ -1051,6 +1051,9 @@ export async function orchestrateSync(
   let totalInsertedPubs = 0;
   let totalSkippedPubs = 0;
   let overallFoundStatus: FoundStatus = "NOT_FOUND";
+  /** Per-kind "nobody answered" flags — a silent failure must surface as a failure. */
+  let actsUnavailable = false;
+  let estadosUnavailable = false;
 
   try {
     // Phase 1: Actuaciones — use override-aware coverage
@@ -1077,6 +1080,7 @@ export async function orchestrateSync(
       allAttempts.push(...actResult.attempts);
       totalInsertedActs = actResult.totalInserted;
       totalSkippedActs = actResult.totalSkipped;
+      actsUnavailable = actResult.foundStatus === "UNAVAILABLE";
       if (actResult.foundStatus !== "NOT_FOUND") {
         overallFoundStatus = actResult.foundStatus;
       }
@@ -1133,6 +1137,7 @@ export async function orchestrateSync(
         allAttempts.push(...estResult.attempts);
         totalInsertedPubs = estResult.totalInserted;
         totalSkippedPubs = estResult.totalSkipped;
+        estadosUnavailable = estResult.foundStatus === "UNAVAILABLE";
         if (estResult.foundStatus === "FOUND_COMPLETE" && overallFoundStatus !== "FOUND_COMPLETE") {
           overallFoundStatus = estResult.foundStatus;
         }
@@ -1184,6 +1189,17 @@ export async function orchestrateSync(
       status = "PARTIAL";
     }
 
+    // Z1(d): a data kind whose providers never answered is a FAILURE, not a
+    // successful run with no novedades. It must never roll up into SUCCESS,
+    // and the reason must be logged so the daily report shows it.
+    const anyUnavailable = actsUnavailable || estadosUnavailable;
+    if (anyUnavailable && status === "SUCCESS") status = "PARTIAL";
+    if (anyUnavailable && !hasSuccess && status !== "TIMEOUT") status = "FAILED";
+    const unavailableKinds = [
+      actsUnavailable ? "ACTUACIONES" : null,
+      estadosUnavailable ? "ESTADOS" : null,
+    ].filter(Boolean).join(", ");
+
     const result: SyncRunResult = {
       syncRunId,
       status,
@@ -1194,12 +1210,16 @@ export async function orchestrateSync(
       providerAttempts: allAttempts,
       errorCode: allAttempts.length === 0
         ? "NO_PROVIDER_ROUTE"
-        : (persistedZeroDespiteFeed ? "PERSIST_MISMATCH" : null),
+        : (persistedZeroDespiteFeed
+          ? "PERSIST_MISMATCH"
+          : (anyUnavailable ? "PROVIDER_UNAVAILABLE" : null)),
       errorMessage: allAttempts.length === 0
         ? `No provider was queried for workflow ${ctx.workflowType} — coverage matrix has no compatible route.`
         : (persistedZeroDespiteFeed
           ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
-          : null),
+          : (anyUnavailable
+            ? `No provider answered for ${unavailableKinds}. This run asserts nothing about the expediente — it is an absence of knowledge, not an absence of novedades.`
+            : null)),
       durationMs: Date.now() - startTime,
       foundStatus: overallFoundStatus,
     };
