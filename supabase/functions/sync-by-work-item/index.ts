@@ -1083,7 +1083,9 @@ async function executeViaOrchestrator(
   releaseGate?: { force_empty_provider?: string; force_empty_once?: boolean },
   force_refresh?: boolean,
   allow_buscar?: boolean,
+  callerTrace?: Record<string, unknown>,
 ): Promise<OrchestratorExecResult> {
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -1120,7 +1122,9 @@ async function executeViaOrchestrator(
     radicado: normalizedRadicado || workItem.tutela_code || "",
     invokedBy: isScheduled ? "CRON" : "MANUAL",
     triggerSource: "sync-by-work-item",
+    callerTrace: { trace_id: traceId, ...(callerTrace ?? {}) },
   };
+
 
   console.log(`[sync-by-work-item] ORCHESTRATOR: Executing via orchestrateSync() for ${workItem.workflow_type}`);
 
@@ -1580,7 +1584,21 @@ Deno.serve(withSyncTimeline(async (req) => {
         }
       }
 
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar);
+      // BB6 — record WHO called us verbatim (no inference) so unattributed
+      // sweeps can be traced back to their real invoker.
+      const callerTrace: Record<string, unknown> = {
+        user_agent: req.headers.get('user-agent'),
+        x_client_info: req.headers.get('x-client-info'),
+        origin: req.headers.get('origin'),
+        referer: req.headers.get('referer'),
+        forwarded_for: req.headers.get('x-forwarded-for'),
+        invoker_fn: req.headers.get('x-invoker-function') ?? req.headers.get('x-caller'),
+        scheduled_flag: !!_scheduled,
+        auth_kind: _scheduled ? 'SCHEDULED' : 'USER',
+        observed_at: new Date().toISOString(),
+      };
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar, callerTrace);
+
 
       // Transfer orchestrator results into SyncResult
       result.provider_attempts = orchExec.providerAttempts;

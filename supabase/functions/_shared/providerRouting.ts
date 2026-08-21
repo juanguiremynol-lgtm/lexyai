@@ -7,7 +7,7 @@
  *   ┌──────────┬──────────────────────────┬──────────────────────────────┐
  *   │ Workflow │ Actuaciones providers    │ Estados providers            │
  *   ├──────────┼──────────────────────────┼──────────────────────────────┤
- *   │ CPACA    │ [SAMAI → CPNU] (fb empty)│ [SAMAI_ESTADOS]              │
+ *   │ CPACA    │ [SAMAI] (exclusive)      │ [SAMAI_ESTADOS]              │
  *   │ CGP      │ [CPNU]                   │ [PP]                         │
  *   │ PENAL_906│ [CPNU]                   │ [PP]                         │
  *   │ LABORAL  │ [CPNU]                   │ [PP]                         │
@@ -15,15 +15,14 @@
  *   └──────────┴──────────────────────────┴──────────────────────────────┘
  *
  * Semantics of the returned arrays:
- *   • For CGP / LABORAL / PENAL_906 the array has EXACTLY ONE element —
- *     the exclusive provider for that workflow.
- *   • For CPACA the array is [SAMAI, CPNU] with CASCADE (not UNION)
- *     semantics: SAMAI is queried first; CPNU is queried ONLY when SAMAI
- *     returns EMPTY / NOT_FOUND. Transient errors on SAMAI (timeout/5xx)
- *     DO NOT trigger the CPNU fallback — SAMAI is retried instead.
- *     Ratified by the Doctor 2026-07-15 (caso 05001333301520260011300 —
- *     juzgados administrativos con expediente aún no migrado a SAMAI que
- *     sí existen en CPNU). Espejo exacto de la regla de fallback de tutelas.
+ *   • For CGP / LABORAL / PENAL_906 / EJECUTIVO / CPACA the array has EXACTLY
+ *     ONE element — the exclusive provider for that workflow.
+ *   • CPACA is SAMAI-exclusive for actuaciones. The CPNU fallback ratified
+ *     2026-07-15 was RETIRED on 2026-08-21 (BB1): SAMAI began serving the
+ *     administrative expedientes that motivated it on 2026-07-21, so the
+ *     fallback could only add cross-jurisdiction noise. Historical
+ *     CPNU-sourced rows stay as evidence; no new CPNU reads for CPACA.
+
  *   • For TUTELA the array lists MULTIPLE providers with UNION semantics:
  *     every provider MUST be queried on every sync and their results are
  *     merged + deduplicated by hash_fingerprint. This is NOT a cascade —
@@ -38,7 +37,7 @@
  *
  * Hard corollaries — enforced by every dispatcher via this resolver:
  *   • CPACA NEVER queries PP (estados stay SAMAI_ESTADOS exclusivo).
- *   • CPACA MAY query CPNU only as EMPTY-fallback for actuaciones.
+ *   • CPACA NEVER queries CPNU (SAMAI exclusive since BB1, 2026-08-21).
  *   • CGP / LABORAL / PENAL_906 NEVER query SAMAI or SAMAI_ESTADOS.
  *   • TUTELA queries all four providers on every sync (UNION), and the
  *     four are all legitimate — never treat any of them as ROUTING_SKIP.
@@ -70,8 +69,9 @@ export interface ProviderRouting {
  * provider for that data kind (internal-only state, e.g. PETICION).
  */
 const ROUTING_TABLE: Record<string, ProviderRouting> = {
-  // CPACA — SAMAI primary, CPNU fallback on empty/not_found only.
-  CPACA:     { actuaciones: ["SAMAI", "CPNU"], estados: ["SAMAI_ESTADOS"],       eligible: true, reason: "CPACA_SAMAI_PRIMARY_CPNU_FALLBACK" },
+  // CPACA — SAMAI exclusive (BB1, 2026-08-21: CPNU fallback retired).
+  CPACA:     { actuaciones: ["SAMAI"],         estados: ["SAMAI_ESTADOS"],       eligible: true, reason: "CPACA_SAMAI_EXCLUSIVE" },
+
   CGP:       { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "CGP_ROUTE" },
   LABORAL:   { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "LABORAL_ROUTE" },
   PENAL_906: { actuaciones: ["CPNU"],          estados: ["PP"],                  eligible: true, reason: "PENAL_906_ROUTE" },

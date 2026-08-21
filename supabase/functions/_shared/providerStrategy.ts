@@ -105,16 +105,28 @@ export const isRetryableSameProvider = isTransientProviderFailure;
  *   200 + success:false               → UNAVAILABLE  (explicit failure flag wins)
  * ────────────────────────────────────────────────────────────────────────── */
 
-export type GcpOutcome = "ANSWERED_DATA" | "ANSWERED_ABSENCE" | "UNAVAILABLE" | "UNCLASSIFIED";
+export type GcpOutcome =
+  | "ANSWERED_DATA"
+  | "ANSWERED_ABSENCE"
+  /** BB3c — the provider answered that the matter exists but is legally
+   *  restricted (reserva / proceso privado). This is NOT an absence: nothing
+   *  is missing, the detail is lawfully withheld. It never authorises a
+   *  fallback and it must never be recorded as EMPTY. */
+  | "RESTRICTED_BY_PROVIDER"
+  | "UNAVAILABLE"
+  | "UNCLASSIFIED";
 
 export interface GcpResponseShape {
   httpStatus: number | null | undefined;
   success?: boolean | null;
   found?: boolean | null;
   message?: string | null;
+  /** GCP scraper rev. 00024-kiw: explicit reason a matter yielded no detail. */
+  motivoAusencia?: string | null;
 }
 
 const JOB_LOST_RE = /job\s+no\s+encontrad|job\s+not\s+found/i;
+const RESTRICTED_RE = /proceso[_\s-]?privado|reserva/i;
 
 export function classifyGcpResponse(r: GcpResponseShape): {
   outcome: GcpOutcome;
@@ -122,6 +134,17 @@ export function classifyGcpResponse(r: GcpResponseShape): {
   reason: string;
 } {
   const s = r.httpStatus ?? null;
+
+  // The explicit reason field is authoritative wherever it appears — a
+  // restricted matter is an answer, not silence and not an absence.
+  if (RESTRICTED_RE.test(r.motivoAusencia ?? "")) {
+    return {
+      outcome: "RESTRICTED_BY_PROVIDER",
+      errorCode: "PROCESO_PRIVADO",
+      reason: `motivoAusencia=${r.motivoAusencia}`,
+    };
+  }
+
 
   if (s === 404 && JOB_LOST_RE.test(r.message ?? "")) {
     return { outcome: "UNAVAILABLE", errorCode: "PROVIDER_JOB_LOST", reason: "404 job store lost the job (autoscaling)" };

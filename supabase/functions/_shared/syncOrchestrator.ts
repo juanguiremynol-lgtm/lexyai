@@ -74,7 +74,13 @@ export interface SyncRunContext {
   radicado: string;
   invokedBy: InvokedBy;
   triggerSource: string; // e.g. 'sync-by-work-item', 'scheduled-daily-sync'
+  /** BB6 — who actually issued this run. Stamped verbatim into
+   *  external_sync_runs.details.caller so an unattributed sweep (e.g. the
+   *  05:00 UTC wave that is in no pg_cron schedule) can be traced to its
+   *  real invoker instead of being guessed from `invoked_by`. */
+  callerTrace?: Record<string, unknown>;
 }
+
 
 export interface ProviderAttemptResult {
   provider: string;
@@ -200,6 +206,9 @@ async function createSyncRun(
         status: "RUNNING",
         debug_mode: debugMode,
         run_mode: runMode,
+        // BB6 — caller identity is recorded, never inferred.
+        details: ctx.callerTrace ? { caller: ctx.callerTrace } : {},
+
       })
       .select("id")
       .single();

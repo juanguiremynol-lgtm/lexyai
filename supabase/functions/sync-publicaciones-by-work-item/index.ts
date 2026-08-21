@@ -361,12 +361,20 @@ async function writePublicacionesAttemptRow(
         {
           provider: 'publicaciones',
           data_kind: 'ESTADOS',
-          status: outcome,
+          // BB2 — PP is NOT in the CPACA estados chain. Recording a
+          // 'publicaciones' attempt as success/empty for CPACA mislabels the
+          // provenance of a read that never happened; declare the skip.
+          status: resolveProviders(workItem?.workflow_type).estados.includes('PP')
+            ? outcome
+            : 'skipped',
+          result_code: resolveProviders(workItem?.workflow_type).estados.includes('PP')
+            ? result?.result_code
+            : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
           latency_ms: result?.provider_latency_ms || 0,
           inserted_count: result?.inserted_count || 0,
           skipped_count: result?.skipped_count || 0,
-          result_code: result?.result_code,
         },
+
         // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
         // every early-return path (empty / error) still records per-provider
         // trace evidence for audit ("cuántos trajo cada proveedor").
@@ -2636,12 +2644,15 @@ Deno.serve(withSyncTimeline(async (req) => {
           {
             provider: 'publicaciones',
             data_kind: 'ESTADOS',
-            status: result.ok ? 'success' : 'error',
+            // BB2 — declare the routing skip instead of asserting a PP read
+            // that never happened (CPACA estados are SAMAI_ESTADOS only).
+            status: shouldFetchPP ? (result.ok ? 'success' : 'error') : 'skipped',
+            result_code: shouldFetchPP ? result.result_code : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
             latency_ms: result.provider_latency_ms || 0,
             inserted_count: result.inserted_count,
             skipped_count: result.skipped_count,
-            result_code: result.result_code,
           },
+
           ...(result.samai_estados_summary
             ? [{
                 provider: 'samai_estados',
