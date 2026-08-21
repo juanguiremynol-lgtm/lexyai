@@ -45,9 +45,11 @@ import {
 } from "./genericRemoteAdapter.ts";
 import {
   determineFoundStatus,
+  isAnsweredAbsence,
   shouldTriggerFallback,
   type FoundStatus,
 } from "./providerStrategy.ts";
+
 
 // ═══════════════════════════════════════════
 // TYPES
