@@ -22976,6 +22976,10 @@ export type Database = {
         Args: { p_provider: string; p_source: string }
         Returns: boolean
       }
+      pub_text_is_estado_boilerplate: {
+        Args: { p_text: string }
+        Returns: boolean
+      }
       purge_old_data_access_logs: {
         Args: { p_retention_days?: number }
         Returns: number
@@ -23025,6 +23029,14 @@ export type Database = {
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
+      resolve_published_auto: {
+        Args: { p_pub_id: string }
+        Returns: {
+          auto_act_id: string
+          auto_source: string
+          auto_text: string
+        }[]
+      }
       resume_work_item_monitoring: {
         Args: { p_work_item_id: string }
         Returns: Json
