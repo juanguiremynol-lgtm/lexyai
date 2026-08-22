@@ -402,6 +402,7 @@ export default function WorkItemDetail() {
           <RechazoPresuntoBanner workItemId={workItem.id} />
           <SucesionBanner workItemId={workItem.id} />
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
+          <DeadlineDischargeCard workItemId={workItem.id} />
           <LineaProcesal
             workItemId={workItem.id}
             workflowType={workItem.workflow_type as WorkflowType}
