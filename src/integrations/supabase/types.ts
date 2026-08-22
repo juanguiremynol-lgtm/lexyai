@@ -5528,6 +5528,149 @@ export type Database = {
         }
         Relationships: []
       }
+      deadline_discharge_patterns: {
+        Row: {
+          act_pattern_regex: string
+          created_at: string
+          deadline_type: string
+          description: string | null
+          discharge_label: string
+          id: string
+          is_active: boolean
+          norma: string | null
+          priority: number
+          workflow_scope: string[] | null
+        }
+        Insert: {
+          act_pattern_regex: string
+          created_at?: string
+          deadline_type: string
+          description?: string | null
+          discharge_label: string
+          id?: string
+          is_active?: boolean
+          norma?: string | null
+          priority?: number
+          workflow_scope?: string[] | null
+        }
+        Update: {
+          act_pattern_regex?: string
+          created_at?: string
+          deadline_type?: string
+          description?: string | null
+          discharge_label?: string
+          id?: string
+          is_active?: boolean
+          norma?: string | null
+          priority?: number
+          workflow_scope?: string[] | null
+        }
+        Relationships: []
+      }
+      deadline_discharge_suggestions: {
+        Row: {
+          act_date: string | null
+          act_id: string | null
+          act_text: string | null
+          created_at: string
+          deadline_id: string
+          decided_at: string | null
+          decided_by: string | null
+          discharge_label: string
+          id: string
+          norma: string | null
+          organization_id: string | null
+          owner_id: string
+          pattern_id: string
+          status: string
+          work_item_id: string
+        }
+        Insert: {
+          act_date?: string | null
+          act_id?: string | null
+          act_text?: string | null
+          created_at?: string
+          deadline_id: string
+          decided_at?: string | null
+          decided_by?: string | null
+          discharge_label: string
+          id?: string
+          norma?: string | null
+          organization_id?: string | null
+          owner_id: string
+          pattern_id: string
+          status?: string
+          work_item_id: string
+        }
+        Update: {
+          act_date?: string | null
+          act_id?: string | null
+          act_text?: string | null
+          created_at?: string
+          deadline_id?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          discharge_label?: string
+          id?: string
+          norma?: string | null
+          organization_id?: string | null
+          owner_id?: string
+          pattern_id?: string
+          status?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deadline_discharge_suggestions_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "deadline_discharge_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deadline_rules: {
         Row: {
           bound_party_role: string | null
@@ -22548,6 +22691,10 @@ export type Database = {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
       }
+      decide_deadline_discharge: {
+        Args: { p_confirm: boolean; p_suggestion_id: string }
+        Returns: Json
+      }
       derive_desfijacion: {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
@@ -22910,6 +23057,10 @@ export type Database = {
         Args: { p_link_id: string; p_work_item_id: string }
         Returns: string
       }
+      match_deadline_discharges: {
+        Args: { p_work_item_id?: string }
+        Returns: Json
+      }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
       normalize_party_name: { Args: { p: string }; Returns: string }
       normalize_source_health_streak: {
@@ -22976,6 +23127,10 @@ export type Database = {
         Args: { p_provider: string; p_source: string }
         Returns: boolean
       }
+      pub_text_is_estado_boilerplate: {
+        Args: { p_text: string }
+        Returns: boolean
+      }
       purge_old_data_access_logs: {
         Args: { p_retention_days?: number }
         Returns: number
@@ -23025,6 +23180,14 @@ export type Database = {
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
+      resolve_published_auto: {
+        Args: { p_pub_id: string }
+        Returns: {
+          auto_act_id: string
+          auto_source: string
+          auto_text: string
+        }[]
+      }
       resume_work_item_monitoring: {
         Args: { p_work_item_id: string }
         Returns: Json
