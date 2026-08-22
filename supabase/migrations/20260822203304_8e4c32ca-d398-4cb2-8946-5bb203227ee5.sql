@@ -1,0 +1,1 @@
+SELECT cron.schedule('match-deadline-discharges-daily', '50 11 * * *', $$SELECT public.match_deadline_discharges();$$);
