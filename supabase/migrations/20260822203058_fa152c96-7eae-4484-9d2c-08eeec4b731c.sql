@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.match_deadline_discharges(uuid) FROM authenticated;
