@@ -55,6 +55,7 @@ import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 import CpacaDetailModule from "./CpacaDetailModule";
 import { WorkItemDeadlinesBanner } from "@/components/work-items/WorkItemDeadlinesBanner";
+import { DeadlineDischargeCard } from "@/components/work-items/DeadlineDischargeCard";
 import { RechazoPresuntoBanner } from "@/components/work-items/RechazoPresuntoBanner";
 import { SucesionBanner } from "@/components/work-items/SucesionBanner";
 import { LineaProcesal } from "@/components/work-items/linea-procesal";
