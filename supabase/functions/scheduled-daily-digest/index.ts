@@ -348,6 +348,13 @@ Deno.serve(async (req) => {
             description: a.description, act_type: a.act_type,
             annotation: a.event_summary ?? null, despacho: a.despacho,
             documents: docs,
+            // KK3(a) — the provider always returns a list; only
+            // `documentos_observados_en` proves it was ever consulted.
+            document_availability: docs.length
+              ? "DISPONIBLE"
+              : (a as { documentos_observados_en?: string | null }).documentos_observados_en
+              ? "SIN_DOCUMENTO"
+              : "NO_CONSULTADO",
           };
         });
 
@@ -368,8 +375,16 @@ Deno.serve(async (req) => {
             fecha_actuacion: p.fecha_providencia ?? null,
             detected_at: p.detected_at, observacion: p.annotation,
             documents: docs,
+            // For estados, `pdf_available IS NULL` is the unasked state:
+            // an explicit `false` is the provider answering "no PDF".
+            document_availability: docs.length
+              ? "DISPONIBLE"
+              : p.pdf_available === null || p.pdf_available === undefined
+              ? "NO_CONSULTADO"
+              : "SIN_DOCUMENTO",
           };
         });
+
 
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
         const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
