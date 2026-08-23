@@ -207,12 +207,19 @@ Deno.serve(async (req) => {
 
         const ids = items.map((i) => i.id);
         const wiMap = new Map<string, WorkItemInfo>(items.map((i) => [i.id, i]));
+        // JJ3 — PETICION / GOV_PROCEDURE are not judicial: no provider ever
+        // reads them, so they are never queried against provider tables and
+        // never counted with the judicial portfolio.
+        const judicialItems = items.filter((i) => !isNonJudicial(i.workflow_type));
+        const nonJudicialItems = items.filter((i) => isNonJudicial(i.workflow_type));
+        const judicialIds = judicialItems.map((i) => i.id);
+        const nonJudicialIds = new Set(nonJudicialItems.map((i) => i.id));
 
         // ── Novedades: actuaciones (acts in the expediente) ──
         const { data: rawActs, error: actErr } = await supabase
           .from("work_item_acts")
           .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, organization_id")
-          .in("work_item_id", ids)
+          .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
           .lte("detected_at", nowIso)
