@@ -6,7 +6,9 @@
  * never rendered identically.
  * HH2(d): both dates are shown and labelled — "fecha de actuación" (the act's
  * date in the expediente) and "fecha de fijación" (when the estado was posted).
- * HH3(c): a row with no document says "sin documento adjunto"; it is not hidden.
+ * HH3(c) / KK3(b): a row with no document says "sin documento adjunto" only
+ * when the provider was asked; otherwise "aún no consultado". Never hidden.
+
  */
 
 import {
@@ -14,6 +16,7 @@ import {
   estadoSourceLabel,
   type ActuacionRow,
   type ConnectionIssueRow,
+  type DocumentAvailability,
   type DeadlineRow,
   type DigestDocument,
   type DigestPayload,
@@ -54,8 +57,17 @@ function fmtDateTime(v: string | null | undefined): string {
   });
 }
 
-function docsCell(docs: DigestDocument[], expiryDays: number): string {
+function docsCell(
+  docs: DigestDocument[],
+  expiryDays: number,
+  availability: DocumentAvailability = "SIN_DOCUMENTO",
+): string {
   if (!docs.length) {
+    // KK3(b) — "sin documento adjunto" is only said when the provider was
+    // actually asked. Otherwise the honest statement is that nobody asked.
+    if (availability === "NO_CONSULTADO") {
+      return `<span style="color:${MUTED};font-style:italic;">Aún no consultado con el proveedor</span>`;
+    }
     return `<span style="color:${MUTED};font-style:italic;">Sin documento adjunto</span>`;
   }
   return docs
@@ -66,6 +78,7 @@ function docsCell(docs: DigestDocument[], expiryDays: number): string {
     .join("<br/>") +
     `<div style="color:${MUTED};font-size:11px;margin-top:3px;">Enlace válido ${expiryDays} días</div>`;
 }
+
 
 function th(label: string, accent: string): string {
   return `<th style="text-align:left;padding:7px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:${accent};border-bottom:1px solid ${BORDER};white-space:nowrap;">${esc(label)}</th>`;
@@ -112,7 +125,7 @@ function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
         ${td(esc(r.description || r.act_type || "—"))}
         ${td(esc(r.annotation || "—"))}
         ${td(`<span style="color:${ACT_ACCENT};">${esc(actuacionSourceLabel(r.source))}</span>`)}
-        ${td(docsCell(r.documents, expiryDays))}
+        ${td(docsCell(r.documents, expiryDays, r.document_availability))}
       </tr>`).join("")}
     </tbody>
   </table>`;
@@ -138,7 +151,7 @@ function estadosTable(rows: EstadoRow[], expiryDays: number): string {
         ${td(esc(r.title || "—"))}
         ${td(esc(r.observacion || "—"))}
         ${td(`<span style="color:${EST_ACCENT};">${esc(estadoSourceLabel(r.source))}</span>`)}
-        ${td(docsCell(r.documents, expiryDays))}
+        ${td(docsCell(r.documents, expiryDays, r.document_availability))}
       </tr>`).join("")}
     </tbody>
   </table>`;
