@@ -6,7 +6,9 @@
  * never rendered identically.
  * HH2(d): both dates are shown and labelled — "fecha de actuación" (the act's
  * date in the expediente) and "fecha de fijación" (when the estado was posted).
-  * HH3(c) / KK3(b): a row with no document says "sin documento adjunto" only when\n * the provider was asked; otherwise "aún no consultado". It is never hidden.
+ * HH3(c) / KK3(b): a row with no document says "sin documento adjunto" only
+ * when the provider was asked; otherwise "aún no consultado". Never hidden.
+
  */
 
 import {
