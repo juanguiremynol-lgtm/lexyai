@@ -54,8 +54,17 @@ function fmtDateTime(v: string | null | undefined): string {
   });
 }
 
-function docsCell(docs: DigestDocument[], expiryDays: number): string {
+function docsCell(
+  docs: DigestDocument[],
+  expiryDays: number,
+  availability: DocumentAvailability = "SIN_DOCUMENTO",
+): string {
   if (!docs.length) {
+    // KK3(b) — "sin documento adjunto" is only said when the provider was
+    // actually asked. Otherwise the honest statement is that nobody asked.
+    if (availability === "NO_CONSULTADO") {
+      return `<span style="color:${MUTED};font-style:italic;">Aún no consultado con el proveedor</span>`;
+    }
     return `<span style="color:${MUTED};font-style:italic;">Sin documento adjunto</span>`;
   }
   return docs
@@ -66,6 +75,7 @@ function docsCell(docs: DigestDocument[], expiryDays: number): string {
     .join("<br/>") +
     `<div style="color:${MUTED};font-size:11px;margin-top:3px;">Enlace válido ${expiryDays} días</div>`;
 }
+
 
 function th(label: string, accent: string): string {
   return `<th style="text-align:left;padding:7px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:${accent};border-bottom:1px solid ${BORDER};white-space:nowrap;">${esc(label)}</th>`;
