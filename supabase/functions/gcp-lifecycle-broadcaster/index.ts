@@ -161,8 +161,9 @@ Deno.serve(async (req) => {
 
     const body = {
       work_item_id: row.work_item_id,
-      radicado: row.radicado,
-      workflow_type: row.workflow_type,
+      radicado: key,
+      workflow_type: workflowType,
+
       prev_state: row.prev_state,
       new_state: row.new_state,
       reason: row.reason,
