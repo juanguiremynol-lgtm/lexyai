@@ -22674,6 +22674,10 @@ export type Database = {
         }
         Returns: Json
       }
+      bump_digest_token_usage: {
+        Args: { p_token_id: string }
+        Returns: undefined
+      }
       business_days_between_sql: {
         Args: { p_a: string; p_b: string }
         Returns: number
