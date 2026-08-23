@@ -340,6 +340,7 @@ Deno.serve(async (req) => {
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
+          if (body?.preview === true) previews.push(html);
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             error_summary: "dry_run",
