@@ -89,6 +89,36 @@ export type Database = {
         }
         Relationships: []
       }
+      _iter_gg_resync_snapshot: {
+        Row: {
+          acts_before: number | null
+          max_act_before: string | null
+          max_pub_before: string | null
+          pubs_before: number | null
+          radicado: string
+          taken_at: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          acts_before?: number | null
+          max_act_before?: string | null
+          max_pub_before?: string | null
+          pubs_before?: number | null
+          radicado: string
+          taken_at?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          acts_before?: number | null
+          max_act_before?: string | null
+          max_pub_before?: string | null
+          pubs_before?: number | null
+          radicado?: string
+          taken_at?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       _iter10_alert_purge_report: {
         Row: {
           alert_type: string | null
