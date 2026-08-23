@@ -707,10 +707,20 @@ async function safeProviderFetch(
     // AA1 — read GCP's explicit signal before trusting the adapter's flags.
     // A 500 + success:false, or a 404 "Job no encontrado", is silence: it may
     // never be recorded as empty or not_found.
+    //
+    // An adapter signals an ANSWERED ABSENCE with ok:false + HTTP 200 (empty
+    // list, radicado not on file). That is an answer, not silence: mapping it
+    // to `success:false` would classify a routine "sin novedades" read as
+    // UNAVAILABLE, mark the run PARTIAL/FAILED and suppress the fallback
+    // provider. The adapter's own verdict decides here; the classifier only
+    // adjudicates transport-level outcomes.
+    const answeredAbsence = result.isEmpty === true || isAnsweredAbsence(result.errorCode);
+    const answered = result.ok === true || answeredAbsence;
     const gcp = classifyGcpResponse({
-      httpStatus: result.httpStatus,
-      success: result.ok ? true : false,
-      found: result.found,
+      // A missing httpStatus on an answered read is not "no HTTP response".
+      httpStatus: result.httpStatus ?? (answered ? 200 : null),
+      success: answered,
+      found: answeredAbsence ? false : result.found,
       message: result.errorMessage,
     });
 

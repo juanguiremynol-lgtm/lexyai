@@ -80,10 +80,20 @@ export async function executeDeepDive(
   try {
     // STEP 1: ITEM_PROFILE
     const s1 = Date.now();
-    const { data: item } = await (supabase.from("work_items") as any)
-      .select("id, radicado, workflow_type, monitoring_enabled, deleted_at, freshness_tier, last_successful_sync_at, sync_failure_streak, consecutive_not_found, consecutive_other_errors, last_error_code, created_at")
-      .eq("id", workItemId)
-      .single();
+    // The failure counters live on `atenia_ai_work_item_state`, keyed by
+    // work_item_id — selecting them off `work_items` aborts the whole dive
+    // with "column does not exist" before any diagnosis is produced.
+    const [{ data: itemRow }, { data: aiState }] = await Promise.all([
+      (supabase.from("work_items") as any)
+        .select("id, radicado, workflow_type, monitoring_enabled, deleted_at, freshness_tier, last_successful_sync_at, sync_failure_streak, created_at")
+        .eq("id", workItemId)
+        .maybeSingle(),
+      (supabase.from("atenia_ai_work_item_state") as any)
+        .select("consecutive_not_found, consecutive_timeouts, consecutive_other_errors, last_error_code")
+        .eq("work_item_id", workItemId)
+        .maybeSingle(),
+    ]);
+    const item = itemRow ? { ...itemRow, ...(aiState ?? {}) } : null;
 
     if (!item) {
       await completeDive(dive.id, steps, "Item no encontrado en la base de datos.", "ITEM_NOT_FOUND", "CRITICAL", startTime);

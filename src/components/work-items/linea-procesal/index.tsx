@@ -88,7 +88,10 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
           .limit(300),
         supabase
           .from("work_item_publicaciones")
-          .select("id, title, annotation, fecha_fijacion, published_at, created_at, is_archived")
+          // `fecha_providencia` is the date of the auto the estado publishes.
+          // Without it the estado-only mandamiento carries no providencia date
+          // and its reposición / pagar-excepcionar anchors are never emitted.
+          .select("id, title, annotation, fecha_fijacion, fecha_providencia, published_at, created_at, is_archived")
           .eq("work_item_id", workItemId)
           .order("fecha_fijacion", { ascending: true })
           .limit(300),
