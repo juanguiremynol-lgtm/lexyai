@@ -28,6 +28,7 @@ import {
   documentosEnrichmentPatch,
 } from "../_shared/actDocumentos.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
+import { attemptIsAnsweredAbsence } from "../_shared/providerStrategy.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
@@ -1153,6 +1154,8 @@ async function executeViaOrchestrator(
   const warnings: string[] = [];
   let scrapingInitiated = false;
   let scrapingResult: FetchResult | null = null;
+  let answeredAbsence = false;
+  let answeredAbsenceProvider: string | null = null;
 
   for (const attempt of orchResult.providerAttempts) {
     const legacyResult = extractLegacyResult(attempt.metadata as Record<string, unknown>);
@@ -1169,6 +1172,14 @@ async function executeViaOrchestrator(
       message: attempt.error_message || undefined,
       actuacionesCount: legacyResult?.actuaciones?.length || 0,
     });
+
+    // RR1 — an answered absence is a COMPLETE read with no novedades.
+    // The orchestrator already classifies it correctly; this extraction used to
+    // drop it, leaving fetchResult null and reporting "All providers failed".
+    if (attemptIsAnsweredAbsence(attempt.status, (attempt as { error_code?: string | null }).error_code)) {
+      answeredAbsence = true;
+      if (!answeredAbsenceProvider) answeredAbsenceProvider = attempt.provider.toLowerCase();
+    }
 
     if (legacyResult) {
       if (legacyResult.ok && legacyResult.actuaciones.length > 0) {
@@ -1197,6 +1208,20 @@ async function executeViaOrchestrator(
     fetchResult = allFetchResults.reduce((best, curr) =>
       curr.actuaciones.length > best.actuaciones.length ? curr : best
     );
+  }
+
+  // RR1 — no data, but a provider ANSWERED with nothing: synthesise a clean
+  // empty read so the pipeline takes the "sin novedades" path instead of the
+  // failure handler. Silence (error/timeout/scraping) never reaches here.
+  if (!fetchResult && answeredAbsence && !scrapingInitiated) {
+    fetchResult = {
+      ok: true,
+      actuaciones: [],
+      provider: answeredAbsenceProvider || "cpnu",
+      isEmpty: true,
+      latencyMs: 0,
+      httpStatus: 200,
+    } as FetchResult;
   }
 
   const providerOrderReason = orchResult.providerAttempts.length > 0
