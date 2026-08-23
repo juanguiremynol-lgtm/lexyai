@@ -25,12 +25,15 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 import { buildDigestHtml } from "./html.ts";
+import { isNonJudicial } from "./types.ts";
 import type {
   ActuacionRow,
+  ConnectionIssueRow,
   DeadlineRow,
   DigestDocument,
   EstadoRow,
   HearingRow,
+  SuspendedItemRow,
   WorkItemInfo,
 } from "./types.ts";
 
@@ -204,12 +207,19 @@ Deno.serve(async (req) => {
 
         const ids = items.map((i) => i.id);
         const wiMap = new Map<string, WorkItemInfo>(items.map((i) => [i.id, i]));
+        // JJ3 — PETICION / GOV_PROCEDURE are not judicial: no provider ever
+        // reads them, so they are never queried against provider tables and
+        // never counted with the judicial portfolio.
+        const judicialItems = items.filter((i) => !isNonJudicial(i.workflow_type));
+        const nonJudicialItems = items.filter((i) => isNonJudicial(i.workflow_type));
+        const judicialIds = judicialItems.map((i) => i.id);
+        const nonJudicialIds = new Set(nonJudicialItems.map((i) => i.id));
 
         // ── Novedades: actuaciones (acts in the expediente) ──
         const { data: rawActs, error: actErr } = await supabase
           .from("work_item_acts")
           .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, organization_id")
-          .in("work_item_id", ids)
+          .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
           .lte("detected_at", nowIso)
@@ -221,7 +231,7 @@ Deno.serve(async (req) => {
         const { data: rawPubs, error: pubErr } = await supabase
           .from("work_item_publicaciones")
           .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, organization_id")
-          .in("work_item_id", ids)
+          .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
           .lte("detected_at", nowIso)
@@ -250,6 +260,68 @@ Deno.serve(async (req) => {
           .eq("status", "PENDING")
           .lte("deadline_date", dueBy)
           .order("deadline_date", { ascending: true });
+
+        // ── JJ1(c): estado del canal de correo de la firma ──
+        const { data: rawConns } = await supabase
+          .from("user_email_connections")
+          .select("ms_account_email, status, token_expires_at, failure_code, last_sync_at, revoked_at")
+          .eq("user_id", ownerId);
+
+        const connectionIssues: ConnectionIssueRow[] = [];
+        for (const c of rawConns ?? []) {
+          const expires = c.token_expires_at ? new Date(c.token_expires_at).getTime() : null;
+          const expired = expires !== null && expires < Date.now();
+          const expiringSoon = expires !== null && !expired && expires < Date.now() + 7 * 86_400_000;
+          if (c.status === "ERROR" || c.status === "REVOKED" || c.revoked_at) {
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: c.revoked_at ? "REVOCADA" : String(c.status),
+              severity: "CRITICAL",
+              headline: "La conexión con su buzón está caída",
+              detail:
+                "Ningún correo del despacho se está vinculando a los expedientes. La evidencia de lo que hizo la firma no se está capturando desde que la conexión falló.",
+              since: c.token_expires_at ?? c.last_sync_at ?? null,
+            });
+          } else if (expired) {
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: "PERMISO CADUCADO",
+              severity: "CRITICAL",
+              headline: "El permiso del buzón caducó",
+              detail: "La vinculación de correspondencia está detenida hasta que reconecte el buzón.",
+              since: c.token_expires_at ?? null,
+            });
+          } else if (expiringSoon) {
+            // JJ1(d): avisar ANTES del vencimiento.
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: "POR VENCER",
+              severity: "WARNING",
+              headline: "El permiso del buzón vence en menos de 7 días",
+              detail: "Reconéctelo antes de esa fecha para no perder correspondencia del despacho.",
+              since: c.token_expires_at ?? null,
+            });
+          }
+        }
+
+        // ── JJ2(c): asuntos con monitoreo suspendido (sección sobre su AUSENCIA) ──
+        const { data: rawSuspended } = await supabase
+          .from("work_items")
+          .select("id, radicado, title, workflow_type, monitoring_suspended_at, monitoring_suspended_reason")
+          .eq("owner_id", ownerId)
+          .is("deleted_at", null)
+          .eq("monitoring_enabled", true)
+          .not("monitoring_suspended_at", "is", null)
+          .order("monitoring_suspended_at", { ascending: true });
+
+        const suspended: SuspendedItemRow[] = (rawSuspended ?? []).map((s) => ({
+          id: s.id,
+          radicado: s.radicado,
+          title: s.title,
+          workflow_type: s.workflow_type,
+          suspended_at: s.monitoring_suspended_at,
+          reason: s.monitoring_suspended_reason,
+        }));
 
         // ── HH3: build download tokens ──
         const tokens: TokenSpec[] = [];
@@ -300,29 +372,33 @@ Deno.serve(async (req) => {
         });
 
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
-        const deadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
+        const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
           );
           return { ...d, overdue: days < 0, days_left: days } as DeadlineRow;
         });
+        // JJ3(b) — non-judicial deadlines are rendered apart, never merged.
+        const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
+        const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
         const hasContent =
-          actuaciones.length + estados.length + hearings.length + deadlines.length > 0;
+          actuaciones.length + estados.length + hearings.length + allDeadlines.length +
+            connectionIssues.length > 0;
 
         if (!hasContent) {
           summary.empty++;
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             window_from: windowFrom,
-            monitored_count: items.length,
+            monitored_count: judicialItems.length,
             recipient_email: email,
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
           continue;
         }
 
-        const silentCount = items.filter((i) =>
+        const silentCount = judicialItems.filter((i) =>
           !i.last_successful_sync_at ||
           Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
         ).length;
@@ -330,16 +406,23 @@ Deno.serve(async (req) => {
         const html = buildDigestHtml({
           recipientName: profile?.full_name ?? null,
           windowFrom, windowTo: nowIso,
-          monitoredCount: items.length,
+          monitoredCount: judicialItems.length,
+          nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
+          nonJudicialDeadlines,
+          connectionIssues,
+          suspended,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
         });
 
         const novedades = actuaciones.length + estados.length;
-        const subject = novedades > 0
+        const critical = connectionIssues.some((c) => c.severity === "CRITICAL");
+        const subject = critical
+          ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
+          : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
           : `Andromeda — Resumen diario: audiencias y términos`;
 
@@ -349,11 +432,11 @@ Deno.serve(async (req) => {
             status: "EMPTY_NO_EMAIL",
             error_summary: "dry_run",
             window_from: windowFrom,
-            monitored_count: items.length,
+            monitored_count: judicialItems.length,
             actuaciones_count: actuaciones.length,
             estados_count: estados.length,
             hearings_count: hearings.length,
-            deadlines_count: deadlines.length,
+            deadlines_count: allDeadlines.length,
             documents_linked: tokens.length,
             recipient_email: email,
             finished_at: new Date().toISOString(),
@@ -387,11 +470,11 @@ Deno.serve(async (req) => {
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
-          monitored_count: items.length,
+          monitored_count: judicialItems.length,
           actuaciones_count: actuaciones.length,
           estados_count: estados.length,
           hearings_count: hearings.length,
-          deadlines_count: deadlines.length,
+          deadlines_count: allDeadlines.length,
           documents_linked: tokens.length,
           recipient_email: email,
           email_outbox_id: outbox?.id ?? null,

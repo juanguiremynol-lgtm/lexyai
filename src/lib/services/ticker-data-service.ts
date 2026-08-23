@@ -259,12 +259,20 @@ export async function getTickerItems(
           workflow_type,
           organization_id,
           authority_name,
+          deleted_at,
+          monitoring_enabled,
+          monitoring_suspended_at,
           client:clients (
             name
           )
         )
       `)
       .eq('work_items.organization_id', organizationId)
+      // JJ5(a) — same predicate as `v_monitored_work_items`: deleted, paused
+      // and suspended matters never reach the ticker.
+      .is('work_items.deleted_at', null)
+      .eq('work_items.monitoring_enabled', true)
+      .is('work_items.monitoring_suspended_at', null)
       .eq('is_archived', false)
       .gte('created_at', bounds.created_start)
       .lte('created_at', bounds.created_end)
@@ -293,12 +301,20 @@ export async function getTickerItems(
           workflow_type,
           organization_id,
           authority_name,
+          deleted_at,
+          monitoring_enabled,
+          monitoring_suspended_at,
           client:clients (
             name
           )
         )
       `)
       .eq('work_items.organization_id', organizationId)
+      // JJ5(a) — same predicate as `v_monitored_work_items`: deleted, paused
+      // and suspended matters never reach the ticker.
+      .is('work_items.deleted_at', null)
+      .eq('work_items.monitoring_enabled', true)
+      .is('work_items.monitoring_suspended_at', null)
       .eq('is_archived', false)
       .gte('fecha_fijacion', bounds.date_start)
       .lte('fecha_fijacion', bounds.date_end)
@@ -323,12 +339,20 @@ export async function getTickerItems(
           workflow_type,
           organization_id,
           authority_name,
+          deleted_at,
+          monitoring_enabled,
+          monitoring_suspended_at,
           client:clients (
             name
           )
         )
       `)
       .eq('work_items.organization_id', organizationId)
+      // JJ5(a) — same predicate as `v_monitored_work_items`: deleted, paused
+      // and suspended matters never reach the ticker.
+      .is('work_items.deleted_at', null)
+      .eq('work_items.monitoring_enabled', true)
+      .is('work_items.monitoring_suspended_at', null)
       .eq('is_archived', false)
       .gte('created_at', bounds.created_start)
       .lte('created_at', bounds.created_end)

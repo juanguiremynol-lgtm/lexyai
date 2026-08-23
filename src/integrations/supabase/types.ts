@@ -22887,6 +22887,15 @@ export type Database = {
       }
       detalle_exposicion_report: { Args: never; Returns: Json }
       detect_despacho_coverage_recovery: { Args: never; Returns: number }
+      detect_email_connection_failures: {
+        Args: { p_silence_hours?: number; p_warn_days?: number }
+        Returns: {
+          alert_type: string
+          connection_id: string
+          detail: string
+          user_id: string
+        }[]
+      }
       detect_stale_monitoring: {
         Args: { p_threshold_days?: number }
         Returns: {
