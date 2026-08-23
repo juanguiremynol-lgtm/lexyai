@@ -75,7 +75,8 @@ Deno.serve(async (req) => {
 
   for (const wi of items ?? []) {
     const rad = String(wi.radicado ?? "").replace(/\D/g, "");
-    if (!rad) continue;
+    // KK1 — only a canonical 23-digit radicado addresses anything upstream.
+    if (!/^\d{23}$/.test(rad)) continue;
     const upstreamActivo = upstreamByRadicado.get(rad);
     // Absent from the inventory is not the same as deactivated: no assertion.
     if (upstreamActivo === undefined) continue;
@@ -91,11 +92,14 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: { ...upstreamHeaders("andromeda_read"), "Content-Type": "application/json" },
           // Contract verified live (iter46): the endpoint rejects anything
-          // without all four of these fields.
+          // without all four of these fields. KK2 — workflow_type is always
+          // sent: upstream validates workflow only when it is present, so
+          // omitting it skips the guard and defaults the matter to CGP.
           body: JSON.stringify({
             work_item_id: wi.id,
             radicado: rad,
             new_state: "ACTIVE",
+            workflow_type: String(wi.workflow_type ?? "").trim() || "INDETERMINADO",
             occurred_at: new Date().toISOString(),
           }),
         });
@@ -106,6 +110,7 @@ Deno.serve(async (req) => {
       // Never auto-deactivate locally on an upstream claim.
       resolution = "REVISION_MANUAL_UPSTREAM_ACTIVO";
     }
+
 
     const row = {
       work_item_id: wi.id,
