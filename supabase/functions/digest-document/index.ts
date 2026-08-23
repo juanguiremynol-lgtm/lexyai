@@ -76,7 +76,9 @@ Deno.serve(async (req) => {
     return page("No disponible", "Este documento ya no está disponible.", 404);
   }
 
-  await admin.rpc("bump_digest_token_usage", { p_token_id: row.id }).catch(() => {});
+  try {
+    await admin.rpc("bump_digest_token_usage", { p_token_id: row.id });
+  } catch (_e) { /* usage telemetry must never block a download */ }
 
 
   // ── ACTUACIÓN documents: provider-authoritative URL captured at send time. ──
