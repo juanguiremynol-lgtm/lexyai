@@ -470,11 +470,11 @@ Deno.serve(async (req) => {
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
-          monitored_count: items.length,
+          monitored_count: judicialItems.length,
           actuaciones_count: actuaciones.length,
           estados_count: estados.length,
           hearings_count: hearings.length,
-          deadlines_count: deadlines.length,
+          deadlines_count: allDeadlines.length,
           documents_linked: tokens.length,
           recipient_email: email,
           email_outbox_id: outbox?.id ?? null,
