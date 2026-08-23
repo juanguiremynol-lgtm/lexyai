@@ -76,11 +76,8 @@ Deno.serve(async (req) => {
     return page("No disponible", "Este documento ya no está disponible.", 404);
   }
 
-  await admin.from("digest_document_tokens").update({
-    used_count: undefined as unknown as number, // keep type-safe: bump below
-    last_used_at: new Date().toISOString(),
-  }).eq("id", row.id);
-  await admin.rpc("noop_placeholder").catch(() => {});
+  await admin.rpc("bump_digest_token_usage", { p_token_id: row.id }).catch(() => {});
+
 
   // ── ACTUACIÓN documents: provider-authoritative URL captured at send time. ──
   if (row.kind === "ACTUACION") {
