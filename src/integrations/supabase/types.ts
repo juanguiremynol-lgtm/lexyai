@@ -21095,6 +21095,7 @@ export type Database = {
           attribution: string | null
           bound_party_role: string | null
           bound_party_source: string | null
+          calculation_meta: Json | null
           client_party_represents: string | null
           client_party_role: string | null
           client_party_role_source: string | null
