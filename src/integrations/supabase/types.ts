@@ -5408,6 +5408,72 @@ export type Database = {
           },
         ]
       }
+      daily_digest_runs: {
+        Row: {
+          actuaciones_count: number
+          created_at: string
+          deadlines_count: number
+          digest_date: string
+          documents_linked: number
+          email_outbox_id: string | null
+          error_summary: string | null
+          estados_count: number
+          finished_at: string | null
+          hearings_count: number
+          id: string
+          metadata: Json
+          monitored_count: number
+          organization_id: string | null
+          recipient_email: string | null
+          recipient_user_id: string
+          status: string
+          window_from: string | null
+          window_to: string | null
+        }
+        Insert: {
+          actuaciones_count?: number
+          created_at?: string
+          deadlines_count?: number
+          digest_date: string
+          documents_linked?: number
+          email_outbox_id?: string | null
+          error_summary?: string | null
+          estados_count?: number
+          finished_at?: string | null
+          hearings_count?: number
+          id?: string
+          metadata?: Json
+          monitored_count?: number
+          organization_id?: string | null
+          recipient_email?: string | null
+          recipient_user_id: string
+          status?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Update: {
+          actuaciones_count?: number
+          created_at?: string
+          deadlines_count?: number
+          digest_date?: string
+          documents_linked?: number
+          email_outbox_id?: string | null
+          error_summary?: string | null
+          estados_count?: number
+          finished_at?: string | null
+          hearings_count?: number
+          id?: string
+          metadata?: Json
+          monitored_count?: number
+          organization_id?: string | null
+          recipient_email?: string | null
+          recipient_user_id?: string
+          status?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Relationships: []
+      }
       daily_welcome_log: {
         Row: {
           activity_count: number | null
@@ -6356,6 +6422,93 @@ export type Database = {
           workflow_inferido?: string | null
         }
         Relationships: []
+      }
+      digest_document_tokens: {
+        Row: {
+          act_id: string | null
+          created_at: string
+          doc_label: string | null
+          doc_url: string | null
+          expires_at: string
+          id: string
+          kind: string
+          last_used_at: string | null
+          organization_id: string | null
+          publicacion_id: string | null
+          recipient_user_id: string
+          token: string
+          used_count: number
+          work_item_id: string | null
+        }
+        Insert: {
+          act_id?: string | null
+          created_at?: string
+          doc_label?: string | null
+          doc_url?: string | null
+          expires_at: string
+          id?: string
+          kind: string
+          last_used_at?: string | null
+          organization_id?: string | null
+          publicacion_id?: string | null
+          recipient_user_id: string
+          token: string
+          used_count?: number
+          work_item_id?: string | null
+        }
+        Update: {
+          act_id?: string | null
+          created_at?: string
+          doc_label?: string | null
+          doc_url?: string | null
+          expires_at?: string
+          id?: string
+          kind?: string
+          last_used_at?: string | null
+          organization_id?: string | null
+          publicacion_id?: string | null
+          recipient_user_id?: string
+          token?: string
+          used_count?: number
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       document_configurations: {
         Row: {
@@ -22520,6 +22673,10 @@ export type Database = {
           p_rule_kind: string
         }
         Returns: Json
+      }
+      bump_digest_token_usage: {
+        Args: { p_token_id: string }
+        Returns: undefined
       }
       business_days_between_sql: {
         Args: { p_a: string; p_b: string }
