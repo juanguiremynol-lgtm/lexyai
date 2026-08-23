@@ -1203,6 +1203,12 @@ export async function orchestrateSync(
     // Determine overall status
     const hasSuccess = allAttempts.some((a) => a.status === "success");
     const hasErrors = allAttempts.some((a) => a.status === "error" || a.status === "timeout");
+    // RR1 — an attempt that ANSWERED and had nothing is a complete read. It
+    // used to fall through to FAILED, so a routine "sin novedades" CGP sync was
+    // persisted as a failed run and reported as "All providers failed".
+    const hasAnsweredAbsence = allAttempts.some((a) =>
+      attemptIsAnsweredAbsence(a.status, a.error_code)
+    );
     // BUG 1c: providers reported data but nothing persisted → PERSIST_MISMATCH.
     // Any attempt whose inserted_count is 0 while its metadata indicates the
     // feed did return rows must not roll up into a plain SUCCESS.
@@ -1215,10 +1221,11 @@ export async function orchestrateSync(
     const persistedZeroDespiteFeed = feedHadData && totalInsertedActs === 0;
     let status: SyncRunResult["status"];
     if (allAttempts.length === 0) status = "FAILED";
-    else if (hasSuccess && !hasErrors) status = "SUCCESS";
-    else if (hasSuccess) status = "PARTIAL";
+    else if ((hasSuccess || hasAnsweredAbsence) && !hasErrors) status = "SUCCESS";
+    else if (hasSuccess || hasAnsweredAbsence) status = "PARTIAL";
     else if (allAttempts.every((a) => a.status === "timeout")) status = "TIMEOUT";
     else status = "FAILED";
+
     if (persistedZeroDespiteFeed && (status === "SUCCESS" || status === "PARTIAL")) {
       status = "PARTIAL";
     }
