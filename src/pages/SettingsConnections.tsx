@@ -188,36 +188,7 @@ function OutlookConnectionCard() {
           </div>
         ) : (
           <div className="space-y-3">
-            {failure && (
-              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium text-destructive">{failure.title}</p>
-                <p className="text-muted-foreground">{connection?.failure_detail || failure.detail}</p>
-                {failure.action === "ADMIN_CONSENT" && (
-                  <div className="space-y-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        requestAdminConsent.mutate(undefined, {
-                          onSuccess: (url) => {
-                            void navigator.clipboard.writeText(url);
-                            toast.success("Enlace copiado. Envíelo a quien administra su correo.");
-                          },
-                        });
-                      }}
-                      disabled={requestAdminConsent.isPending}
-                    >
-                      <ShieldCheck className="mr-2 h-4 w-4" aria-hidden />
-                      {requestAdminConsent.isPending ? "Generando…" : failure.actionLabel}
-                    </Button>
-                    {adminUrl && (
-                      <p className="break-all rounded bg-muted p-2 text-xs text-muted-foreground">
-                        {adminUrl}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+            {failureBlock}
             )}
             {!failure && connection?.status === "ERROR" && connection.last_error && (
               <p className="text-sm text-destructive">
