@@ -15,6 +15,9 @@ export type EmailFailureCode =
   | "TOKEN_EXPIRED"
   | "USER_DECLINED"
   | "UNVERIFIED_PUBLISHER"
+  | "APP_NOT_MULTITENANT"
+  | "TENANT_NOT_FOUND"
+  | "PROVIDER_UNAVAILABLE"
   | "UNKNOWN";
 
 export interface FailurePresentation {
@@ -24,6 +27,7 @@ export interface FailurePresentation {
   action: "RECONNECT" | "ADMIN_CONSENT" | "NONE";
   actionLabel: string;
 }
+
 
 const PRESENTATION: Record<EmailFailureCode, FailurePresentation> = {
   ADMIN_CONSENT_REQUIRED: {
