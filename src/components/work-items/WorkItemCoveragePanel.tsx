@@ -192,6 +192,10 @@ export function WorkItemCoveragePanel({
               <PauseCircle className="h-4 w-4" />
               Monitoreo oculto (se sigue leyendo)
             </div>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Este asunto sigue consultándose con sus proveedores y todo lo que publiquen se guarda; solo se oculta del resumen diario. Pausar el monitoreo sí detiene la consulta.
+            </p>
+
             {monitoringDisabledReason && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 Razón: {monitoringDisabledReason}
