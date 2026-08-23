@@ -260,7 +260,9 @@ export interface StoredConnection {
   refresh_token_nonce: string | null;
   token_expires_at: string | null;
   scopes?: string[] | null;
+  refresh_failure_count?: number | null;
 }
+
 
 /** Thrown when the grant is dead: the caller must stop retrying. */
 export class ConnectionRevokedError extends Error {
