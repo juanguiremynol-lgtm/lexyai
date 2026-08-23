@@ -416,6 +416,7 @@ Deno.serve(async (req) => {
 
         if (!hasContent) {
           summary.empty++;
+          if (dryRun) { await releaseClaim(); continue; }
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             window_from: windowFrom,
