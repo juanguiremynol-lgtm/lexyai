@@ -111,6 +111,13 @@ Deno.serve(async (req) => {
   let delivered = 0;
   let failed = 0;
   let skipped_no_radicado = 0;
+  let refused_malformed = 0;
+
+  /** KK1(d) — a key GCP cannot address is never sent. */
+  const canonicalKey = (raw: unknown): string | null => {
+    const digits = String(raw ?? "").replace(/\D/g, "");
+    return /^\d{23}$/.test(digits) ? digits : null;
+  };
 
   for (const row of pending ?? []) {
     // Skip work items without radicado: GCP scraper never had a counterpart
@@ -131,6 +138,26 @@ Deno.serve(async (req) => {
       skipped_no_radicado++;
       continue;
     }
+
+    // KK1(d)/KK2(a) — refuse rather than emit something silently ignored.
+    const key = canonicalKey(row.radicado);
+    const workflowType = String(row.workflow_type ?? "").trim();
+    if (!key || !workflowType) {
+      refused_malformed++;
+      const why = !key
+        ? `CLAVE_NO_CANONICA: '${row.radicado}' no es un radicado de 23 dígitos`
+        : "WORKFLOW_TYPE_AUSENTE: /lifecycle omitiría su guarda de workflow";
+      console.error(`[gcp-lifecycle-broadcaster] refused id=${row.id}: ${why}`);
+      await supabase
+        .from("gcp_lifecycle_outbox")
+        .update({
+          delivery_attempts: (row.delivery_attempts ?? 0) + 1,
+          last_delivery_error: why,
+        })
+        .eq("id", row.id);
+      continue;
+    }
+
 
     const body = {
       work_item_id: row.work_item_id,
