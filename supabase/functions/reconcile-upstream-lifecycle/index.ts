@@ -37,9 +37,12 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  let body: { repair?: boolean } = {};
+  let body: { repair?: boolean; inspeccionar?: string[] } = {};
   try { body = await req.json(); } catch { /* report-only */ }
   const repair = body.repair === true;
+  // Read-only inspection list: echoes the upstream flag for named radicados so
+  // GCP's current state can be reported per matter without writing anywhere.
+  const inspect = (body.inspeccionar ?? []).map((r) => String(r).replace(/\D/g, ""));
 
   const base = upstreamBaseUrl("andromeda_read");
   let inventory: Array<Record<string, unknown>> = [];
@@ -133,8 +136,15 @@ Deno.serve(async (req) => {
     await supabase.from("upstream_lifecycle_divergences").insert(row);
   }
 
+  const inspeccion = inspect.map((rad) => ({
+    radicado: rad,
+    upstream_presente: upstreamByRadicado.has(rad),
+    upstream_activo: upstreamByRadicado.get(rad) ?? null,
+  }));
+
   return json({
     ok: true,
+    inspeccion,
     inventario_upstream: upstreamByRadicado.size,
     inventario_sin_bandera: inventory.length - upstreamByRadicado.size,
     cartera_evaluada: items?.length ?? 0,
