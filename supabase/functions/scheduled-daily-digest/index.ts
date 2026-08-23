@@ -141,6 +141,7 @@ Deno.serve(async (req) => {
     const nowIso = new Date().toISOString();
 
     for (const [ownerId, items] of byOwner) {
+      let claimedRunId: string | null = null;
       try {
         // ── Idempotency lock: the unique index does the work. ──
         const { data: claimed, error: claimErr } = await supabase
