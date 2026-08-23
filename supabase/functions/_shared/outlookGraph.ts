@@ -363,7 +363,10 @@ export async function ensureAccessToken(
     failure_detail: null,
     revoked_at: null,
     last_refresh_at: new Date().toISOString(),
+    last_refresh_outcome: "SUCCESS",
+    refresh_failure_count: 0,
   };
+
   if (scopes.length > 0) {
     patch.scopes = scopes;
     patch.can_send = grantsSend(scopes);
