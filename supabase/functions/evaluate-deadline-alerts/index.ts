@@ -317,53 +317,22 @@ Deno.serve(async (req) => {
     const notOwnDeadlineIds: string[] = [];
 
     let pendingQuery: any = supabase
-      .from("work_item_deadlines")
-      .select(
-        "id, work_item_id, owner_id, organization_id, deadline_type, label, deadline_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(client_party_role, client_party_represents)",
-      )
+      .from("v_deadline_attribution")
+      .select(VIEW_COLS)
       .eq("status", "PENDING")
       .not("deadline_date", "is", null)
       .lte("deadline_date", new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10));
     if (scopedWorkItemId) pendingQuery = pendingQuery.eq("work_item_id", scopedWorkItemId);
-    const { data: deadlines, error } = await pendingQuery;
+    const { data: deadlinesRaw, error } = await pendingQuery;
 
     if (error) throw error;
+    const deadlines = ((deadlinesRaw ?? []) as any[]).map((r) => ({ ...r, id: r.deadline_id }));
 
     for (const d of (deadlines ?? []) as any[]) {
-      // ITER50/51 — a term bound to the counterparty or to the court is
-      // informative for the litigator; it must never alert our client. A term
-      // with no resolvable bound party is unattributed and must not alert
-      // either: it is surfaced in the UI for the user to attribute.
-      const bound = String(
-        d.bound_party_role ??
-          (d.calculation_meta as Record<string, unknown> | null)?.bound_party_role ??
-          "DESCONOCIDO",
-      ).toUpperCase();
-      const attribution = String(
-        (d.calculation_meta as Record<string, unknown> | null)?.attribution ?? "",
-      ).toUpperCase();
-      const wi = Array.isArray(d.work_items) ? d.work_items[0] : d.work_items;
-      const clientRole = String(wi?.client_party_role ?? "").toUpperCase();
-      const represents = String(wi?.client_party_represents ?? "").toUpperCase();
-      const clientSide =
-        clientRole === "DEMANDANTE" || clientRole === "ACCIONANTE"
-          ? "ACTIVA"
-          : clientRole === "DEMANDADO" || clientRole === "ACCIONADO"
-            ? "PASIVA"
-            : clientRole === "APODERADO_DE_OFICIO" && represents
-              ? represents === "DEMANDANTE" ? "ACTIVA" : "PASIVA"
-              : null;
-      const own =
-        bound === "AMBAS" ||
-        (bound === "DEMANDANTE" && clientSide === "ACTIVA") ||
-        (bound === "DEMANDADO" && clientSide === "PASIVA");
-      const notOwn =
-        attribution === "CONTRAPARTE" ||
-        attribution === "JUEZ" ||
-        bound === "JUEZ" ||
-        d.is_judge_side === true ||
-        !own;
-      if (notOwn) {
+      // NN2 — one attribution, computed by the database. A term of the
+      // counterparty, of the court, or with an undetermined party never alerts:
+      // it is tracked and listed apart, never presented as his obligation.
+      if (d.attribution !== "PROPIO") {
         stats.not_own_party_skipped = (stats.not_own_party_skipped ?? 0) + 1;
         notOwnDeadlineIds.push(String(d.id));
         continue;
