@@ -486,19 +486,9 @@ Deno.serve(async (req) => {
 
         if (dryRun) {
           if (body?.preview === true) previews.push(html);
-          await supabase.from("daily_digest_runs").update({
-            status: "EMPTY_NO_EMAIL",
-            error_summary: "dry_run",
-            window_from: windowFrom,
-            monitored_count: judicialItems.length,
-            actuaciones_count: actuaciones.length,
-            estados_count: estados.length,
-            hearings_count: hearings.length,
-            deadlines_count: allDeadlines.length,
-            documents_linked: tokens.length,
-            recipient_email: email,
-            finished_at: new Date().toISOString(),
-          }).eq("id", runId);
+          // No ledger row, no window advance, no consumed slot: the preview is
+          // read-only with respect to the day's real digest.
+          await releaseClaim();
           summary.documents_linked += tokens.length;
           continue;
         }
