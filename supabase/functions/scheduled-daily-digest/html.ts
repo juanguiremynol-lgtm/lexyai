@@ -13,11 +13,13 @@ import {
   actuacionSourceLabel,
   estadoSourceLabel,
   type ActuacionRow,
+  type ConnectionIssueRow,
   type DeadlineRow,
   type DigestDocument,
   type DigestPayload,
   type EstadoRow,
   type HearingRow,
+  type SuspendedItemRow,
   type WorkItemInfo,
 } from "./types.ts";
 
