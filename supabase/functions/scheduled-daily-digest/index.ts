@@ -372,29 +372,33 @@ Deno.serve(async (req) => {
         });
 
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
-        const deadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
+        const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
           );
           return { ...d, overdue: days < 0, days_left: days } as DeadlineRow;
         });
+        // JJ3(b) — non-judicial deadlines are rendered apart, never merged.
+        const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
+        const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
         const hasContent =
-          actuaciones.length + estados.length + hearings.length + deadlines.length > 0;
+          actuaciones.length + estados.length + hearings.length + allDeadlines.length +
+            connectionIssues.length > 0;
 
         if (!hasContent) {
           summary.empty++;
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             window_from: windowFrom,
-            monitored_count: items.length,
+            monitored_count: judicialItems.length,
             recipient_email: email,
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
           continue;
         }
 
-        const silentCount = items.filter((i) =>
+        const silentCount = judicialItems.filter((i) =>
           !i.last_successful_sync_at ||
           Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
         ).length;
@@ -402,9 +406,13 @@ Deno.serve(async (req) => {
         const html = buildDigestHtml({
           recipientName: profile?.full_name ?? null,
           windowFrom, windowTo: nowIso,
-          monitoredCount: items.length,
+          monitoredCount: judicialItems.length,
+          nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
+          nonJudicialDeadlines,
+          connectionIssues,
+          suspended,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
