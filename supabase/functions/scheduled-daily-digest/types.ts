@@ -8,6 +8,14 @@
  * email is deliberately absent: it must never be rendered as a court act.
  */
 
+/**
+ * KK3 — document presence is THREE states, never two.
+ * The provider returns COALESCE(documentos,'[]'), so an empty list means
+ * either "no documents" or "nobody asked". Only the observation timestamp
+ * (actuaciones) / an explicit availability flag (estados) separates them.
+ */
+export type DocumentAvailability = "DISPONIBLE" | "SIN_DOCUMENTO" | "NO_CONSULTADO";
+
 /** An act in the expediente. Distinct evidence class from an estado. */
 export interface ActuacionRow {
   id: string;
@@ -21,6 +29,7 @@ export interface ActuacionRow {
   annotation: string | null;
   despacho: string | null;
   documents: DigestDocument[];
+  document_availability: DocumentAvailability;
 }
 
 /** A publication fixed on the list. Distinct evidence class from an actuación. */
@@ -35,6 +44,7 @@ export interface EstadoRow {
   detected_at: string | null;
   observacion: string | null;
   documents: DigestDocument[];
+  document_availability: DocumentAvailability;
 }
 
 export interface DigestDocument {
@@ -42,6 +52,8 @@ export interface DigestDocument {
   /** Tokenised download URL served by the `digest-document` function. */
   url: string;
 }
+
+
 
 export interface HearingRow {
   id: string;
