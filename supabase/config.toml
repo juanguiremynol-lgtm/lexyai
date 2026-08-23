@@ -386,3 +386,9 @@ verify_jwt = false
 
 [functions.whatsapp-agent]
 verify_jwt = false
+
+[functions.scheduled-daily-digest]
+verify_jwt = false
+
+[functions.digest-document]
+verify_jwt = false
