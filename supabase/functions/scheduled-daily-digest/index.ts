@@ -25,12 +25,15 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 import { buildDigestHtml } from "./html.ts";
+import { isNonJudicial } from "./types.ts";
 import type {
   ActuacionRow,
+  ConnectionIssueRow,
   DeadlineRow,
   DigestDocument,
   EstadoRow,
   HearingRow,
+  SuspendedItemRow,
   WorkItemInfo,
 } from "./types.ts";
 
