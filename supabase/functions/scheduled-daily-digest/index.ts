@@ -166,6 +166,7 @@ Deno.serve(async (req) => {
         }
         const runId = claimed?.id as string | undefined;
         if (!runId) { summary.skipped_already_ran++; continue; }
+        claimedRunId = runId;
 
         // A preview must never consume the day. The claim row exists only to
         // hold the unique index while the run composes; on a dry run it is
@@ -532,6 +533,11 @@ Deno.serve(async (req) => {
       } catch (ownerErr) {
         summary.failed++;
         summary.errors.push(`${ownerId}: ${String(ownerErr)}`);
+        // A preview that crashed must not leave a RUNNING row holding the
+        // day's unique slot against the real digest.
+        if (dryRun && claimedRunId) {
+          await supabase.from("daily_digest_runs").delete().eq("id", claimedRunId);
+        }
       }
     }
 
