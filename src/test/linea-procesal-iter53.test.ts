@@ -33,12 +33,15 @@ describe("B — each cited date comes from the event it names", () => {
     expect(anchor.basis).toContain("estado el 2026-08-03");
   });
 
-  it("never cites an auto date it does not hold", () => {
-    expect(
-      resolveAnchorsFromEvents([
-        { at: "2026-08-03", text: "Fijación Estado — mandamiento de pago", source: "ESTADO" },
-      ]),
-    ).toHaveLength(0);
+  it("still anchors on the fijación, without citing an auto date it does not hold", () => {
+    const [anchor] = resolveAnchorsFromEvents([
+      { at: "2026-08-03", text: "Fijación Estado — mandamiento de pago", source: "ESTADO" },
+    ]);
+    // The term runs from the fijación, so the anchor must survive; only the
+    // narrative changes.
+    expect(anchor.date).toBe("2026-08-04");
+    expect(anchor.basis).toContain("fecha de la providencia no registrada");
+    expect(anchor.basis).not.toMatch(/del \d{4}-\d{2}-\d{2}/);
   });
 });
 
