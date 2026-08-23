@@ -95,6 +95,29 @@ function partes(wi: WorkItemInfo | undefined): string {
   return `${esc(a || "—")} <span style="color:${MUTED}">vs.</span> ${esc(b || "—")}`;
 }
 
+/**
+ * LL1(b) — per-provider tallies. Actuaciones and estados are counted in
+ * separate groups and labelled with their own provider names (HH2 intact).
+ */
+function providerTally(wi: WorkItemInfo | undefined): string {
+  const c = wi?.providerCounts;
+  if (!c) return "";
+  const acts = Object.entries(c.acts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([s, n]) => `${esc(actuacionSourceLabel(s))}: ${n}`);
+  const ests = Object.entries(c.estados)
+    .sort((a, b) => b[1] - a[1])
+    .map(([s, n]) => `${esc(estadoSourceLabel(s))}: ${n}`);
+  if (!acts.length && !ests.length) return "";
+  return `
+      <div style="font-size:11px;color:${MUTED};margin-top:4px;">
+        ${acts.length ? `<span style="color:${ACT_ACCENT};">Actuaciones</span> — ${acts.join(" · ")}` : ""}
+        ${acts.length && ests.length ? "<br/>" : ""}
+        ${ests.length ? `<span style="color:${EST_ACCENT};">Estados</span> — ${ests.join(" · ")}` : ""}
+        <br/><span style="font-style:italic;">Totales históricos registrados en Andromeda (filas vigentes), no del período.</span>
+      </div>`;
+}
+
 function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string): string {
   return `
     <div style="padding:10px 12px;background:#16233f;border-bottom:1px solid ${BORDER};">
@@ -103,6 +126,10 @@ function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string
         ${esc(wi?.radicado || "Sin radicado")} · ${esc(wi?.authority_name || "Despacho no registrado")}
       </div>
       <div style="font-size:12px;color:${MUTED};margin-top:2px;">${partes(wi)}</div>
+      <div style="font-size:12px;color:${MUTED};margin-top:2px;">
+        Clase de proceso: ${esc(wi?.clase_proceso || "No informada")}${wi?.workflow_type ? ` · ${esc(wi.workflow_type)}` : ""}
+      </div>
+      ${providerTally(wi)}
       <a href="${appBaseUrl}/app/work-item/${esc(id)}" style="font-size:12px;color:${ACT_ACCENT};">Abrir en Andromeda →</a>
     </div>`;
 }
