@@ -197,7 +197,9 @@ Deno.serve(async (req) => {
           .order("digest_date", { ascending: false })
           .limit(1)
           .maybeSingle();
-        const windowFrom = prevRun?.window_to ??
+        // `window_from` in the request body is a dry-run/backfill aid only.
+        const windowFrom = (typeof body?.window_from === "string" ? body.window_from : null) ??
+          prevRun?.window_to ??
           new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
 
         const ids = items.map((i) => i.id);
