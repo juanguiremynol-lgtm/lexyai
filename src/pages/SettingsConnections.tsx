@@ -189,7 +189,7 @@ function OutlookConnectionCard() {
         ) : (
           <div className="space-y-3">
             {failureBlock}
-            )}
+
             {!failure && connection?.status === "ERROR" && connection.last_error && (
               <p className="text-sm text-destructive">
                 La última sincronización falló: {connection.last_error}
