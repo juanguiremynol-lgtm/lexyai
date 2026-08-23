@@ -218,7 +218,7 @@ Deno.serve(async (req) => {
         // ── Novedades: actuaciones (acts in the expediente) ──
         const { data: rawActs, error: actErr } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, organization_id")
+          .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id")
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
