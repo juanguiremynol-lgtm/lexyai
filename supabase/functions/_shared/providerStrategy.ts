@@ -85,8 +85,30 @@ export function isAnsweredAbsence(code: string | null | undefined): boolean {
   return ANSWERED_ABSENCE_CODES.has(code);
 }
 
+/**
+ * RR1 — attempt-level reading of the same rule.
+ *
+ * The orchestrator records each provider attempt with a coarse status string.
+ * An attempt that ANSWERED and had nothing ("empty" / "not_found", or an
+ * answered-absence error code) is a complete read, not a failure. Silence
+ * ("error", "timeout") is never an absence. Callers that build their own
+ * fetch result from `providerAttempts` MUST use this — collapsing an answered
+ * absence into "no result" is how a clean read gets reported as
+ * "All providers failed".
+ */
+export function attemptIsAnsweredAbsence(
+  status: string | null | undefined,
+  errorCode?: string | null,
+): boolean {
+  const s = (status ?? "").toLowerCase();
+  if (s === "empty" || s === "not_found") return true;
+  if (s === "error" || s === "timeout") return false;
+  return isAnsweredAbsence(errorCode);
+}
+
 /** A transient failure may justify retrying the SAME provider. */
 export const isRetryableSameProvider = isTransientProviderFailure;
+
 
 /* ────────────────────────────────────────────────────────────────────────────
  * AA1 — GCP HTTP contract → attempt outcome.
