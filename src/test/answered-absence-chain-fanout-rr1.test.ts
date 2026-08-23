@@ -22,6 +22,7 @@ import {
 import { resolveProviders } from "../../supabase/functions/_shared/providerRouting.ts";
 
 const syncByWorkItem = readFileSync("supabase/functions/sync-by-work-item/index.ts", "utf8");
+const orchestrator = readFileSync("supabase/functions/_shared/syncOrchestrator.ts", "utf8");
 
 const JUDICIAL_WORKFLOWS = [
   "CGP",
@@ -121,5 +122,26 @@ describe("RR1 — sync-by-work-item extraction no longer drops answered absences
 
   it("never synthesises one when scraping was initiated (still in flight)", () => {
     expect(syncByWorkItem).not.toMatch(/if \(!fetchResult && answeredAbsence\)\s*\{/);
+  });
+});
+
+describe("RR1 — run status rollup", () => {
+  it("an all-empty run rolls up to SUCCESS, not FAILED", () => {
+    expect(orchestrator).toMatch(
+      /else if \(\(hasSuccess \|\| hasAnsweredAbsence\) && !hasErrors\) status = "SUCCESS";/,
+    );
+  });
+
+  it("an answered absence alongside an unavailable kind is PARTIAL, never FAILED", () => {
+    expect(orchestrator).toMatch(
+      /anyUnavailable && !hasSuccess && !hasAnsweredAbsence && status !== "TIMEOUT"/,
+    );
+    expect(orchestrator).toMatch(
+      /anyUnavailable && hasAnsweredAbsence && status === "SUCCESS"\) status = "PARTIAL"/,
+    );
+  });
+
+  it("derives the flag from the shared classifier", () => {
+    expect(orchestrator).toMatch(/attemptIsAnsweredAbsence\(a\.status, a\.error_code\)/);
   });
 });
