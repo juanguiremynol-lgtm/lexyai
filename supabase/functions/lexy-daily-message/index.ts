@@ -255,12 +255,12 @@ Deno.serve(async (req) => {
         organization_id: m.organization_id,
       }));
     } else {
-      // All users with active monitored work items
+      // JJ5(a) — canonical source: `v_monitored_work_items`. Reading
+      // `work_items` directly let deleted / suspended matters decide who
+      // received a message. One source of truth for "what is monitored".
       const { data: activeItems } = await supabase
-        .from("work_items")
+        .from("v_monitored_work_items")
         .select("organization_id")
-        .eq("monitoring_enabled", true)
-        .eq("status", "ACTIVE")
         .not("organization_id", "is", null);
 
       const activeOrgIds = [...new Set((activeItems || []).map((i: any) => i.organization_id))];
