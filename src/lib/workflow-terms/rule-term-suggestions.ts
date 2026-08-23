@@ -87,13 +87,20 @@ export function resolveAnchorsFromEvents(events: TermEvent[]): ResolvedAnchor[] 
     const fijacion = sorted.find(
       (e) => FIJACION_RE.test(normalize(e.text)) && iso(e.at) >= iso(autoDate ?? mandamiento.at),
     ) ?? (mandamientoAct ? undefined : mandamiento);
-    if (fijacion && autoDate) {
+    // The term runs from the fijación, so a missing providencia date changes
+    // the WORDING of the basis, never the arithmetic. Withholding the anchor
+    // because the auto's own date is not on file would silently drop the
+    // reposición and pagar/excepcionar terms on estado-only mandamientos.
+    if (fijacion) {
       const notificationDate = nextBusinessDay(iso(fijacion.at));
+      const autoPhrase = autoDate
+        ? `Auto que libra mandamiento de pago del ${autoDate}`
+        : "Auto que libra mandamiento de pago (fecha de la providencia no registrada)";
       out.push({
         type: "ANCHOR_NOTIFICACION",
         event: "NOTIFICACION_MANDAMIENTO_PAGO",
         date: notificationDate,
-        basis: `Auto que libra mandamiento de pago del ${autoDate}, fijado en estado el ${iso(
+        basis: `${autoPhrase}, fijado en estado el ${iso(
           fijacion.at,
         )}; la notificación por estado surte efectos el día hábil siguiente (${notificationDate}).`,
       });
