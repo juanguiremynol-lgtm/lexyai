@@ -30,7 +30,29 @@ export interface FailurePresentation {
 
 
 const PRESENTATION: Record<EmailFailureCode, FailurePresentation> = {
+  APP_NOT_MULTITENANT: {
+    title: "Estamos corrigiendo la conexión con Microsoft",
+    detail:
+      "La autorización quedó bloqueada por una configuración de Andromeda, no por algo de su cuenta ni de su firma. Ya estamos corrigiéndola; no necesita hacer nada y le avisaremos cuando pueda conectar su buzón.",
+    action: "NONE",
+    actionLabel: "Sin acción requerida",
+  },
+  TENANT_NOT_FOUND: {
+    title: "Microsoft no reconoció ese dominio de correo",
+    detail:
+      "Verifique que está conectando la cuenta corporativa de Microsoft 365 de su firma y no una cuenta personal o un alias.",
+    action: "RECONNECT",
+    actionLabel: "Intentar con otra cuenta",
+  },
+  PROVIDER_UNAVAILABLE: {
+    title: "Microsoft no respondió en el último intento",
+    detail:
+      "No es un problema de sus permisos: el servicio de Microsoft no contestó. Andromeda reintenta automáticamente cada pocos minutos.",
+    action: "NONE",
+    actionLabel: "Reintento automático",
+  },
   ADMIN_CONSENT_REQUIRED: {
+
     title: "Su organización debe autorizar Andromeda",
     detail:
       "El correo de su firma está configurado para que sólo un administrador autorice aplicaciones externas. Comparta el enlace de autorización con quien administra el correo; basta con que lo apruebe una vez para toda la firma.",
