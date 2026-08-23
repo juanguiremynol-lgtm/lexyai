@@ -279,12 +279,20 @@ export class ConnectionRevokedError extends Error {
  * plain-Spanish reason and the caller stops — a connection that no longer works
  * must never keep reporting as connected.
  */
+/**
+ * Refresh skew: Microsoft tokens live ~1h, so renewing 20 minutes before expiry
+ * keeps a long-running sweep from expiring mid-flight and gives the proactive
+ * refresher room to run before anything user-facing breaks.
+ */
+export const REFRESH_SKEW_MS = 20 * 60_000;
+const REFRESH_BACKOFF_MS = [0, 1_000, 4_000];
+
 export async function ensureAccessToken(
   admin: { from: (t: string) => any },
   conn: StoredConnection,
 ): Promise<string> {
   const expiresAt = conn.token_expires_at ? Date.parse(conn.token_expires_at) : 0;
-  if (expiresAt > Date.now() + 60_000) {
+  if (expiresAt > Date.now() + REFRESH_SKEW_MS) {
     const token = await decryptToken(conn.access_token_cipher, conn.access_token_nonce);
     if (token) return token;
   }
@@ -295,11 +303,28 @@ export async function ensureAccessToken(
     ? [...SEND_SCOPES]
     : [...CONNECT_SCOPES];
 
-  let tokens: TokenResponse;
-  try {
-    tokens = await refreshTokens(refresh, requested);
-  } catch (e) {
-    const failure = classifyMsError(e);
+  let tokens: TokenResponse | null = null;
+  let lastError: unknown = null;
+  let failure = classifyMsError("");
+  // Transient refusals (Microsoft outage, throttling) are retried with backoff;
+  // a terminal refusal is never retried — the grant is dead, not flaky.
+  for (const wait of REFRESH_BACKOFF_MS) {
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      tokens = await refreshTokens(refresh, requested);
+      lastError = null;
+      break;
+    } catch (e) {
+      lastError = e;
+      failure = classifyMsError(e);
+      if (failure.terminal || failure.resolution === "VENDOR_FIX") break;
+    }
+  }
+
+  if (!tokens) {
+    const e = lastError;
+    // Every attempt is stamped, success or failure: silence is what hid the
+    // 17-day outage. The detail never contains a token, only Microsoft's text.
     await admin
       .from("user_email_connections")
       .update({
@@ -307,6 +332,9 @@ export async function ensureAccessToken(
         failure_code: failure.code,
         failure_detail: e instanceof Error ? e.message.slice(0, 800) : String(e).slice(0, 800),
         last_error: failure.message,
+        last_refresh_at: new Date().toISOString(),
+        last_refresh_outcome: "FAILED",
+        refresh_failure_count: (conn.refresh_failure_count ?? 0) + 1,
         ...(failure.terminal
           ? {
               revoked_at: new Date().toISOString(),
@@ -321,6 +349,7 @@ export async function ensureAccessToken(
       .eq("id", conn.id);
     throw new ConnectionRevokedError(failure.code, failure.message);
   }
+
 
   const access = await encryptToken(tokens.access_token);
   const scopes = parseScopes(tokens.scope);
