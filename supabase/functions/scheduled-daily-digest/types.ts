@@ -75,16 +75,57 @@ export interface WorkItemInfo {
   last_successful_sync_at: string | null;
 }
 
+/**
+ * JJ1(c) — the firm-side evidence channel. An expired mailbox connection means
+ * the class of evidence that proves what the FIRM did is blind. It is rendered
+ * at the very top of the digest, never as a background condition.
+ */
+export interface ConnectionIssueRow {
+  mailbox: string | null;
+  status: string;
+  severity: "CRITICAL" | "WARNING";
+  headline: string;
+  detail: string;
+  since: string | null;
+}
+
+/**
+ * JJ2(c) — matters the lawyer believes are monitored and are NOT. This is a
+ * section ABOUT their absence; they never appear in novedades.
+ */
+export interface SuspendedItemRow {
+  id: string;
+  radicado: string | null;
+  title: string | null;
+  workflow_type: string | null;
+  suspended_at: string | null;
+  reason: string | null;
+}
+
+/** JJ3 — PETICION / GOV_PROCEDURE are not judicial and get no scraper. */
+export const NON_JUDICIAL_WORKFLOWS = ["PETICION", "GOV_PROCEDURE"] as const;
+
+export function isNonJudicial(wt: string | null | undefined): boolean {
+  return !!wt && (NON_JUDICIAL_WORKFLOWS as readonly string[]).includes(wt);
+}
+
 export interface DigestPayload {
   recipientName: string | null;
   windowFrom: string;
   windowTo: string;
+  /** Judicial matters under provider monitoring. */
   monitoredCount: number;
+  /** JJ3(d) — counted separately, NEVER merged with the judicial figure. */
+  nonJudicialCount: number;
   silentCount: number;
   actuaciones: ActuacionRow[];
   estados: EstadoRow[];
   hearings: HearingRow[];
   deadlines: DeadlineRow[];
+  /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
+  nonJudicialDeadlines: DeadlineRow[];
+  connectionIssues: ConnectionIssueRow[];
+  suspended: SuspendedItemRow[];
   workItems: Map<string, WorkItemInfo>;
   appBaseUrl: string;
   linkExpiryDays: number;
