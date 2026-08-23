@@ -84,7 +84,17 @@ export interface WorkItemInfo {
   demandantes: string | null;
   demandados: string | null;
   workflow_type: string | null;
+  /** LL1(a) — clase de proceso as reported by the provider / registry. */
+  clase_proceso: string | null;
   last_successful_sync_at: string | null;
+  /**
+   * LL1(b) — live, non-archived tallies per provider, computed from Supabase's
+   * own act/publication rows. Acts and estados stay in separate buckets (HH2).
+   */
+  providerCounts?: {
+    acts: Record<string, number>;
+    estados: Record<string, number>;
+  };
 }
 
 /**

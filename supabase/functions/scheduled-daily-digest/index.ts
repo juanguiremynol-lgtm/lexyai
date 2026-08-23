@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     const { data: monitored, error: monErr } = await supabase
       .from("v_monitored_work_items")
       .select(
-        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, last_successful_sync_at",
+        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at",
       );
     if (monErr) throw monErr;
 
@@ -411,6 +411,35 @@ Deno.serve(async (req) => {
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
           continue;
+        }
+
+        // ── LL1(b): per-provider act/estado tallies for the matters that show
+        // novedades. Computed from Supabase's own rows (live, non-archived);
+        // this is the authoritative figure for the recipient.
+        const novedadIds = [...new Set([
+          ...actuaciones.map((a) => a.work_item_id),
+          ...estados.map((e) => e.work_item_id),
+        ])];
+        const providerCounts = new Map<string, { acts: Record<string, number>; estados: Record<string, number> }>();
+        if (novedadIds.length) {
+          const [{ data: actSrc }, { data: pubSrc }] = await Promise.all([
+            supabase.from("work_item_acts").select("work_item_id, source")
+              .in("work_item_id", novedadIds).eq("is_archived", false).limit(5000),
+            supabase.from("work_item_publicaciones").select("work_item_id, source")
+              .in("work_item_id", novedadIds).eq("is_archived", false).limit(5000),
+          ]);
+          const bump = (id: string, kind: "acts" | "estados", src: string | null) => {
+            const entry = providerCounts.get(id) ?? { acts: {}, estados: {} };
+            const key = src ?? "sin fuente";
+            entry[kind][key] = (entry[kind][key] ?? 0) + 1;
+            providerCounts.set(id, entry);
+          };
+          for (const r of actSrc ?? []) bump(r.work_item_id, "acts", r.source);
+          for (const r of pubSrc ?? []) bump(r.work_item_id, "estados", r.source);
+        }
+        for (const [id, counts] of providerCounts) {
+          const wi = wiMap.get(id);
+          if (wi) wiMap.set(id, { ...wi, providerCounts: counts });
         }
 
         const silentCount = judicialItems.filter((i) =>
