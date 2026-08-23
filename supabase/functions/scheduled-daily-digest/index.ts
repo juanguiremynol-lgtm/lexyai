@@ -93,6 +93,8 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body?.dry_run === true;
+  /** Dry-run only: return the rendered HTML instead of enqueuing it. */
+  const previews: string[] = [];
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
   const hb = await startHeartbeat(supabase, "scheduled-daily-digest", String(body?.source ?? "cron"), {
