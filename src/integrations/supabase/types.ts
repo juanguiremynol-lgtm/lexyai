@@ -16134,6 +16134,7 @@ export type Database = {
           id: string
           last_error: string | null
           last_refresh_at: string | null
+          last_refresh_outcome: string | null
           last_sync_at: string | null
           ms_account_email: string | null
           ms_tenant_id: string | null
@@ -16142,6 +16143,7 @@ export type Database = {
           pkce_verifier_cipher: string | null
           pkce_verifier_nonce: string | null
           provider: string
+          refresh_failure_count: number
           refresh_token_cipher: string | null
           refresh_token_nonce: string | null
           revoked_at: string | null
@@ -16165,6 +16167,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_refresh_at?: string | null
+          last_refresh_outcome?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null
@@ -16173,6 +16176,7 @@ export type Database = {
           pkce_verifier_cipher?: string | null
           pkce_verifier_nonce?: string | null
           provider?: string
+          refresh_failure_count?: number
           refresh_token_cipher?: string | null
           refresh_token_nonce?: string | null
           revoked_at?: string | null
@@ -16196,6 +16200,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_refresh_at?: string | null
+          last_refresh_outcome?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null
@@ -16204,6 +16209,7 @@ export type Database = {
           pkce_verifier_cipher?: string | null
           pkce_verifier_nonce?: string | null
           provider?: string
+          refresh_failure_count?: number
           refresh_token_cipher?: string | null
           refresh_token_nonce?: string | null
           revoked_at?: string | null
