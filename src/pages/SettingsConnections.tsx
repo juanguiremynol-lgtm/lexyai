@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
-import { useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
+import { connectionHealth, useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
 import { presentFailure } from "@/lib/email-connection-failures";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
@@ -44,6 +44,17 @@ function fmt(value?: string | null) {
   return new Date(value).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" });
 }
 
+const HEALTH_BADGE: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  ACTIVA: { label: "Conectado", variant: "secondary" },
+  POR_VENCER: { label: "Renovación pendiente", variant: "outline" },
+  CONECTANDO: { label: "Conectando…", variant: "outline" },
+  ERROR: { label: "Con error", variant: "destructive" },
+  NO_CONECTADO: { label: "Sin conectar", variant: "outline" },
+};
+
 /** Outlook mailbox: read-only metadata linking, per subscriber. */
 function OutlookConnectionCard() {
   const {
@@ -57,8 +68,44 @@ function OutlookConnectionCard() {
     requestAdminConsent,
   } = useEmailConnection();
   const connected = connection?.status === "CONNECTED";
+  const health = connectionHealth(connection ?? null);
+  const badge = HEALTH_BADGE[health];
   const failure = presentFailure(failureCode);
   const adminUrl = requestAdminConsent.data ?? connection?.admin_consent_url ?? null;
+
+  const failureBlock = failure ? (
+    <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+      <p className="font-medium text-destructive">{failure.title}</p>
+      <p className="text-muted-foreground">{connection?.failure_detail || failure.detail}</p>
+      {failure.action === "ADMIN_CONSENT" && (
+        <div className="space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              requestAdminConsent.mutate(undefined, {
+                onSuccess: (url) => {
+                  void navigator.clipboard.writeText(url);
+                  toast.success("Enlace copiado. Envíelo a quien administra su correo.");
+                },
+              });
+            }}
+            disabled={requestAdminConsent.isPending}
+          >
+            <ShieldCheck className="mr-2 h-4 w-4" aria-hidden />
+            {requestAdminConsent.isPending ? "Generando…" : failure.actionLabel}
+          </Button>
+          {adminUrl && (
+            <p className="break-all rounded bg-muted p-2 text-xs text-muted-foreground">{adminUrl}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            La autorización se concede una sola vez para toda la firma: después, cada abogado conecta
+            su propio buzón con un clic y sólo ve sus propios correos.
+          </p>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <Card>
@@ -72,9 +119,7 @@ function OutlookConnectionCard() {
             Conecta tu buzón de Outlook para que Andromeda vincule los correos a tus expedientes.
           </CardDescription>
         </div>
-        {connected && (
-          <Badge variant="secondary" className="shrink-0">Conectado</Badge>
-        )}
+        <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-start gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
@@ -89,11 +134,16 @@ function OutlookConnectionCard() {
           <p className="text-sm text-muted-foreground">Cargando conexión…</p>
         ) : connected ? (
           <div className="space-y-3">
+            {health === "POR_VENCER" && failureBlock}
             <div className="space-y-1 text-sm">
               <p className="font-medium">{connection?.ms_account_email ?? "Cuenta de Outlook"}</p>
               <p className="text-xs text-muted-foreground">Conectada el {fmt(connection?.connected_at)}</p>
               <p className="text-xs text-muted-foreground">
                 Última sincronización: {fmt(connection?.last_sync_at)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Última renovación automática del permiso: {fmt(connection?.last_refresh_at)}
+                {connection?.last_refresh_outcome === "FAILED" && " — falló, se reintenta sola"}
               </p>
               <p className="text-xs text-muted-foreground">
                 Permisos: lectura de buzón
@@ -102,6 +152,7 @@ function OutlookConnectionCard() {
                   : " (sin envío)"}
               </p>
             </div>
+
             {needsReconnectForSend && (
               <div className="rounded-md border border-dashed p-3 text-sm">
                 <p className="text-muted-foreground">
@@ -137,37 +188,8 @@ function OutlookConnectionCard() {
           </div>
         ) : (
           <div className="space-y-3">
-            {failure && (
-              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium text-destructive">{failure.title}</p>
-                <p className="text-muted-foreground">{connection?.failure_detail || failure.detail}</p>
-                {failure.action === "ADMIN_CONSENT" && (
-                  <div className="space-y-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        requestAdminConsent.mutate(undefined, {
-                          onSuccess: (url) => {
-                            void navigator.clipboard.writeText(url);
-                            toast.success("Enlace copiado. Envíelo a quien administra su correo.");
-                          },
-                        });
-                      }}
-                      disabled={requestAdminConsent.isPending}
-                    >
-                      <ShieldCheck className="mr-2 h-4 w-4" aria-hidden />
-                      {requestAdminConsent.isPending ? "Generando…" : failure.actionLabel}
-                    </Button>
-                    {adminUrl && (
-                      <p className="break-all rounded bg-muted p-2 text-xs text-muted-foreground">
-                        {adminUrl}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {failureBlock}
+
             {!failure && connection?.status === "ERROR" && connection.last_error && (
               <p className="text-sm text-destructive">
                 La última sincronización falló: {connection.last_error}
@@ -182,14 +204,22 @@ function OutlookConnectionCard() {
                 <li>Puede desconectar el buzón cuando quiera, desde esta misma pantalla.</li>
               </ul>
             </div>
-            <Button size="sm" onClick={() => connect.mutate()} disabled={connect.isPending}>
+            <Button
+              size="sm"
+              onClick={() => connect.mutate()}
+              /* A vendor-side block cannot be cleared by retrying: don't invite it. */
+              disabled={connect.isPending || failure?.action === "NONE"}
+            >
               <Mail className="mr-2 h-4 w-4" aria-hidden />
               {connect.isPending
                 ? "Abriendo Microsoft…"
-                : failure?.action === "RECONNECT"
+                : failure?.action === "NONE"
                   ? failure.actionLabel
-                  : "Conectar Outlook"}
+                  : failure?.action === "RECONNECT"
+                    ? failure.actionLabel
+                    : "Conectar Outlook"}
             </Button>
+
           </div>
         )}
       </CardContent>

@@ -392,3 +392,6 @@ verify_jwt = false
 
 [functions.digest-document]
 verify_jwt = false
+
+[functions.outlook-token-refresh]
+verify_jwt = false
