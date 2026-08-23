@@ -16,6 +16,11 @@
  * (recipient_user_id, digest_date). The insert is the lock: a second run on the
  * same Bogotá day loses the race and exits without enqueuing anything.
  *
+ * A dry run (`dry_run: true`) takes the same lock while it composes and then
+ * DELETES it. A preview leaves no row: it neither consumes the day's slot nor
+ * advances `window_to`, so the real 06:30 digest still goes out with the whole
+ * window intact.
+ *
  * EMPTY vs FAILED (HH1d): an empty day still writes a run row with status
  * EMPTY_NO_EMAIL and no email is sent. A crashed day either writes FAILED or
  * leaves no row at all — both are visibly different from EMPTY_NO_EMAIL, and
@@ -141,6 +146,7 @@ Deno.serve(async (req) => {
     const nowIso = new Date().toISOString();
 
     for (const [ownerId, items] of byOwner) {
+      let claimedRunId: string | null = null;
       try {
         // ── Idempotency lock: the unique index does the work. ──
         const { data: claimed, error: claimErr } = await supabase
@@ -165,10 +171,20 @@ Deno.serve(async (req) => {
         }
         const runId = claimed?.id as string | undefined;
         if (!runId) { summary.skipped_already_ran++; continue; }
+        claimedRunId = runId;
+
+        // A preview must never consume the day. The claim row exists only to
+        // hold the unique index while the run composes; on a dry run it is
+        // released, so the real 06:30 digest still runs and its window still
+        // starts where the last SENT digest ended.
+        const releaseClaim = async () => {
+          await supabase.from("daily_digest_runs").delete().eq("id", runId);
+        };
 
         const fail = async (msg: string) => {
           summary.failed++;
           summary.errors.push(`${ownerId}: ${msg}`);
+          if (dryRun) { await releaseClaim(); return; }
           await supabase.from("daily_digest_runs")
             .update({ status: "FAILED", error_summary: msg.slice(0, 500), finished_at: new Date().toISOString() })
             .eq("id", runId);
@@ -407,6 +423,7 @@ Deno.serve(async (req) => {
 
         if (!hasContent) {
           summary.empty++;
+          if (dryRun) { await releaseClaim(); continue; }
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             window_from: windowFrom,
@@ -476,19 +493,9 @@ Deno.serve(async (req) => {
 
         if (dryRun) {
           if (body?.preview === true) previews.push(html);
-          await supabase.from("daily_digest_runs").update({
-            status: "EMPTY_NO_EMAIL",
-            error_summary: "dry_run",
-            window_from: windowFrom,
-            monitored_count: judicialItems.length,
-            actuaciones_count: actuaciones.length,
-            estados_count: estados.length,
-            hearings_count: hearings.length,
-            deadlines_count: allDeadlines.length,
-            documents_linked: tokens.length,
-            recipient_email: email,
-            finished_at: new Date().toISOString(),
-          }).eq("id", runId);
+          // No ledger row, no window advance, no consumed slot: the preview is
+          // read-only with respect to the day's real digest.
+          await releaseClaim();
           summary.documents_linked += tokens.length;
           continue;
         }
@@ -531,6 +538,11 @@ Deno.serve(async (req) => {
       } catch (ownerErr) {
         summary.failed++;
         summary.errors.push(`${ownerId}: ${String(ownerErr)}`);
+        // A preview that crashed must not leave a RUNNING row holding the
+        // day's unique slot against the real digest.
+        if (dryRun && claimedRunId) {
+          await supabase.from("daily_digest_runs").delete().eq("id", claimedRunId);
+        }
       }
     }
 
