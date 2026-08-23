@@ -220,6 +220,84 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
     (porVencer.length ? `<div style="font-size:12px;font-weight:700;color:#fb923c;margin-bottom:6px;">POR VENCER — próximos 7 días (${porVencer.length})</div>${table(porVencer, "#fb923c")}` : "");
 }
 
+/**
+ * JJ1(c) — mailbox connection status, rendered FIRST. Losing the firm-side
+ * evidence class is a headline condition, not a footnote.
+ */
+function connectionBlock(rows: ConnectionIssueRow[], appBaseUrl: string): string {
+  if (!rows.length) return "";
+  const critical = rows.some((r) => r.severity === "CRITICAL");
+  const accent = critical ? "#f87171" : "#fbbf24";
+  return `
+  <div style="border:2px solid ${accent};border-radius:8px;background:#2a1216;padding:14px 16px;margin:18px 0 6px;">
+    <div style="font-size:15px;font-weight:800;color:${accent};">
+      ${critical ? "⚠ CORREO DE LA FIRMA — CONEXIÓN CAÍDA" : "CORREO DE LA FIRMA — ATENCIÓN"}
+    </div>
+    ${rows.map((r) => `
+      <div style="margin-top:10px;">
+        <div style="font-size:14px;font-weight:700;color:#f8fafc;">${esc(r.headline)}</div>
+        <div style="font-size:13px;color:${TEXT};margin-top:3px;">${esc(r.detail)}</div>
+        <div style="font-size:12px;color:${MUTED};margin-top:3px;">
+          Buzón: ${esc(r.mailbox || "no registrado")} · Estado: ${esc(r.status)}${r.since ? ` · desde ${fmtDate(r.since)}` : ""}
+        </div>
+      </div>`).join("")}
+    <div style="font-size:12px;color:${MUTED};margin-top:10px;">
+      Mientras la conexión esté caída, la correspondencia del despacho no se vincula a los expedientes:
+      la evidencia de lo que hizo <em>la firma</em> no se está capturando. Los proveedores judiciales siguen
+      funcionando y lo reportado abajo no se ve afectado.
+    </div>
+    <a href="${appBaseUrl}/app/email" style="display:inline-block;margin-top:10px;font-size:13px;font-weight:700;color:${accent};">Reconectar el buzón →</a>
+  </div>`;
+}
+
+/** JJ2(c) — matters believed monitored that are not being consulted. */
+function suspendedBlock(rows: SuspendedItemRow[], appBaseUrl: string): string {
+  if (!rows.length) return "";
+  return sectionTitle(
+    `Monitoreo suspendido — no se está consultando (${rows.length})`,
+    "#fbbf24",
+    "Estos asuntos NO se consultan con ningún proveedor. No aparecen en las novedades porque no se está leyendo nada de ellos.",
+  ) +
+  `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+    <thead><tr>${th("Radicado", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Tipo", "#fbbf24")}${th("Suspendido", "#fbbf24")}${th("Motivo registrado", "#fbbf24")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:#fbbf24;">${esc(r.radicado || "Sin radicado")}</a>`)}
+      ${td(esc(r.title || "—"))}
+      ${td(esc(r.workflow_type || "—"))}
+      ${td(fmtDate(r.suspended_at))}
+      ${td(esc(r.reason || "No registrado"))}
+    </tr>`).join("")}</tbody>
+  </table>
+  <div style="font-size:12px;color:${MUTED};margin-top:6px;">Reactivarlos es una decisión suya; Andromeda no los reactiva por su cuenta.</div>`;
+}
+
+/** JJ3(b) — non-judicial matters live in their own section, on their own terms. */
+function nonJudicialBlock(rows: DeadlineRow[], p: DigestPayload): string {
+  if (!p.nonJudicialCount) return "";
+  const body = rows.length
+    ? `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+        <thead><tr>${th("Vence", "#34d399")}${th("Asunto", "#34d399")}${th("Término", "#34d399")}${th("Estado", "#34d399")}</tr></thead>
+        <tbody>${rows.map((d) => {
+          const wi = p.workItems.get(d.work_item_id);
+          return `<tr>
+            ${td(fmtDate(d.deadline_date))}
+            ${td(esc(wi?.title || wi?.radicado || "—"))}
+            ${td(esc(d.label || d.deadline_type || "—"))}
+            ${td(d.overdue
+              ? `<span style="color:#f87171;font-weight:700;">Vencido hace ${Math.abs(d.days_left)} día(s)</span>`
+              : `<span style="color:#34d399;">Faltan ${d.days_left} día(s)</span>`)}
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`
+    : `<div style="font-size:13px;color:${MUTED};">Sin términos por vencer en los próximos 7 días.</div>`;
+
+  return sectionTitle(
+    `Peticiones y actuaciones administrativas (${p.nonJudicialCount})`,
+    "#34d399",
+    "No son procesos judiciales: no tienen radicado en la Rama Judicial y ningún proveedor los consulta. Sus términos son propios (Ley 1755 y normas administrativas).",
+  ) + body;
+}
+
 export function buildDigestHtml(p: DigestPayload): string {
   const total = p.actuaciones.length + p.estados.length;
   const greeting = p.recipientName ? `Buenos días, ${esc(p.recipientName)}.` : "Buenos días.";
@@ -231,13 +309,21 @@ export function buildDigestHtml(p: DigestPayload): string {
       ${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)}.
     </div>
 
+    ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${novedadesBlock(p)}
     ${hearingsBlock(p.hearings, p)}
     ${deadlinesBlock(p.deadlines, p)}
+    ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
+    ${suspendedBlock(p.suspended, p.appBaseUrl)}
 
     <div style="margin-top:28px;padding-top:14px;border-top:1px solid ${BORDER};font-size:12px;color:${MUTED};line-height:1.6;">
-      <div><strong style="color:${TEXT};">${p.monitoredCount}</strong> asuntos en monitoreo activo en Andromeda al momento de generar este resumen.
-      Los asuntos eliminados, pausados o archivados no se incluyen ni se cuentan.</div>
+      <div><strong style="color:${TEXT};">${p.monitoredCount}</strong> asuntos judiciales en monitoreo activo con proveedores.
+      ${p.nonJudicialCount > 0
+        ? `<strong style="color:${TEXT};">${p.nonJudicialCount}</strong> asuntos no judiciales (peticiones / actuaciones administrativas), que no se consultan con ningún proveedor.`
+        : "Sin asuntos no judiciales activos."}
+      Las dos cifras no se suman: son universos distintos.</div>
+      <div>Los asuntos eliminados, pausados o archivados no se incluyen ni se cuentan.</div>
+      ${p.suspended.length > 0 ? `<div>${p.suspended.length} asunto(s) con monitoreo suspendido — ver la sección correspondiente.</div>` : ""}
       ${p.silentCount > 0 ? `<div>${p.silentCount} asunto(s) sin lectura exitosa del proveedor en más de 72 horas.</div>` : ""}
       <div style="margin-top:8px;">
         <strong style="color:${TEXT};">Nota sobre fechas.</strong> La <em>fecha de actuación</em> es la fecha del acto en el
