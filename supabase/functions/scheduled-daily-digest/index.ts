@@ -261,6 +261,68 @@ Deno.serve(async (req) => {
           .lte("deadline_date", dueBy)
           .order("deadline_date", { ascending: true });
 
+        // ── JJ1(c): estado del canal de correo de la firma ──
+        const { data: rawConns } = await supabase
+          .from("user_email_connections")
+          .select("ms_account_email, status, token_expires_at, failure_code, last_sync_at, revoked_at")
+          .eq("user_id", ownerId);
+
+        const connectionIssues: ConnectionIssueRow[] = [];
+        for (const c of rawConns ?? []) {
+          const expires = c.token_expires_at ? new Date(c.token_expires_at).getTime() : null;
+          const expired = expires !== null && expires < Date.now();
+          const expiringSoon = expires !== null && !expired && expires < Date.now() + 7 * 86_400_000;
+          if (c.status === "ERROR" || c.status === "REVOKED" || c.revoked_at) {
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: c.revoked_at ? "REVOCADA" : String(c.status),
+              severity: "CRITICAL",
+              headline: "La conexión con su buzón está caída",
+              detail:
+                "Ningún correo del despacho se está vinculando a los expedientes. La evidencia de lo que hizo la firma no se está capturando desde que la conexión falló.",
+              since: c.token_expires_at ?? c.last_sync_at ?? null,
+            });
+          } else if (expired) {
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: "PERMISO CADUCADO",
+              severity: "CRITICAL",
+              headline: "El permiso del buzón caducó",
+              detail: "La vinculación de correspondencia está detenida hasta que reconecte el buzón.",
+              since: c.token_expires_at ?? null,
+            });
+          } else if (expiringSoon) {
+            // JJ1(d): avisar ANTES del vencimiento.
+            connectionIssues.push({
+              mailbox: c.ms_account_email ?? null,
+              status: "POR VENCER",
+              severity: "WARNING",
+              headline: "El permiso del buzón vence en menos de 7 días",
+              detail: "Reconéctelo antes de esa fecha para no perder correspondencia del despacho.",
+              since: c.token_expires_at ?? null,
+            });
+          }
+        }
+
+        // ── JJ2(c): asuntos con monitoreo suspendido (sección sobre su AUSENCIA) ──
+        const { data: rawSuspended } = await supabase
+          .from("work_items")
+          .select("id, radicado, title, workflow_type, monitoring_suspended_at, monitoring_suspended_reason")
+          .eq("owner_id", ownerId)
+          .is("deleted_at", null)
+          .eq("monitoring_enabled", true)
+          .not("monitoring_suspended_at", "is", null)
+          .order("monitoring_suspended_at", { ascending: true });
+
+        const suspended: SuspendedItemRow[] = (rawSuspended ?? []).map((s) => ({
+          id: s.id,
+          radicado: s.radicado,
+          title: s.title,
+          workflow_type: s.workflow_type,
+          suspended_at: s.monitoring_suspended_at,
+          reason: s.monitoring_suspended_reason,
+        }));
+
         // ── HH3: build download tokens ──
         const tokens: TokenSpec[] = [];
         const expiresAt = new Date(Date.now() + LINK_EXPIRY_DAYS * 86_400_000).toISOString();
