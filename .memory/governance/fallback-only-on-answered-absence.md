@@ -25,7 +25,19 @@ Two implementations must stay in lockstep:
 - `supabase/functions/_shared/providerStrategy.ts` (`determineFoundStatus`, `shouldTriggerFallback`)
 - `src/lib/resolveProviderChain.ts` (`decideFallback` → `STOP_UNAVAILABLE`)
 
-Parity is guarded by `src/test/fallback-unavailable-z1.test.ts`.
+**RR1 corollary — an answered absence is a COMPLETE read on every layer.**
+Any code that reads `providerAttempts` must classify with
+`attemptIsAnsweredAbsence(status, error_code)` from `providerStrategy.ts`.
+Never infer "no result" from `ok && rows > 0`:
+- `sync-by-work-item`'s orchestrator extraction synthesises an empty
+  `fetchResult` when a provider answered with nothing (never when scraping is
+  still in flight), so the run takes the "sin novedades" path.
+- `syncOrchestrator`'s rollup treats an all-empty run as `SUCCESS`
+  (`PARTIAL` only when another data kind was genuinely UNAVAILABLE).
+
+Parity is guarded by `src/test/fallback-unavailable-z1.test.ts` and
+`src/test/answered-absence-chain-fanout-rr1.test.ts` (CHAIN and FANOUT routes).
+
 
 **Why:** a missed actuación silently becomes a missed término. Collapsing
 "we could not ask" into "there is nothing" is the most dangerous failure mode in the
