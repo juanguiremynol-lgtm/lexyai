@@ -220,19 +220,35 @@ Deno.serve(async (req) => {
 
   try {
 
+    // NN2 — attribution is read from `v_deadline_attribution`, the ONE place
+    // that decides whether a term is the client's, the counterparty's, the
+    // court's, or undetermined. The evaluator never re-derives it.
+    const VIEW_COLS =
+      "deadline_id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, deadline_date, calculation_meta, bound_party_role, is_judge_side, attribution";
+
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
     let manualQuery: any = supabase
-      .from("work_item_deadlines")
-      .select(
-        "id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, calculation_meta, bound_party_role, is_judge_side, work_items!inner(workflow_type)",
-      )
+      .from("v_deadline_attribution")
+      .select(VIEW_COLS)
       .eq("status", "REQUIERE_REVISION_MANUAL")
       .is("deadline_date", null);
     if (scopedWorkItemId) manualQuery = manualQuery.eq("work_item_id", scopedWorkItemId);
-    const { data: manualReview, error: mrErr } = await manualQuery;
+    const { data: manualReviewRaw, error: mrErr } = await manualQuery;
 
     if (mrErr) throw mrErr;
+    const manualReview = ((manualReviewRaw ?? []) as any[]).map((r) => ({ ...r, id: r.deadline_id }));
+
+    // Workflow type per matter — needed only to size a provisional term.
+    const wfIds = Array.from(new Set(manualReview.map((d: any) => d.work_item_id)));
+    const wfById = new Map<string, string>();
+    if (wfIds.length) {
+      const { data: wfRows } = await supabase
+        .from("work_items")
+        .select("id, workflow_type")
+        .in("id", wfIds);
+      for (const w of (wfRows ?? []) as any[]) wfById.set(String(w.id), String(w.workflow_type ?? ""));
+    }
 
     // Rule catalogue: gives the provisional length of a term whose anchor could
     // not be confirmed, so urgency is estimated rather than flattened.
@@ -248,13 +264,14 @@ Deno.serve(async (req) => {
     }
 
     for (const d of (manualReview ?? []) as any[]) {
-      // A term borne by the court is informative and never alerts (iter 50 C3).
-      if (d.is_judge_side === true || String(d.bound_party_role ?? "").toUpperCase() === "JUEZ") {
-        stats.judge_side_skipped++;
+      // Only a term attributed to our client may alert. JUEZ / CONTRAPARTE /
+      // DESCONOCIDO are informative and live in their own lists (NN2 c/d).
+      if (d.attribution !== "PROPIO") {
+        if (d.attribution === "JUEZ") stats.judge_side_skipped++;
+        else stats.not_own_party_skipped++;
         continue;
       }
-      const wfm = Array.isArray(d.work_items) ? d.work_items[0] : d.work_items;
-      const wf = String(wfm?.workflow_type ?? "");
+      const wf = wfById.get(String(d.work_item_id)) ?? "";
       const days =
         ruleDays.get(`${wf}|${d.deadline_type}`) ?? ruleDays.get(`GENERIC|${d.deadline_type}`) ?? null;
       const provisionalDate =
