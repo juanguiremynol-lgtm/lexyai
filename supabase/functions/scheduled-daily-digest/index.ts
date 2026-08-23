@@ -16,6 +16,11 @@
  * (recipient_user_id, digest_date). The insert is the lock: a second run on the
  * same Bogotá day loses the race and exits without enqueuing anything.
  *
+ * A dry run (`dry_run: true`) takes the same lock while it composes and then
+ * DELETES it. A preview leaves no row: it neither consumes the day's slot nor
+ * advances `window_to`, so the real 06:30 digest still goes out with the whole
+ * window intact.
+ *
  * EMPTY vs FAILED (HH1d): an empty day still writes a run row with status
  * EMPTY_NO_EMAIL and no email is sent. A crashed day either writes FAILED or
  * leaves no row at all — both are visibly different from EMPTY_NO_EMAIL, and
