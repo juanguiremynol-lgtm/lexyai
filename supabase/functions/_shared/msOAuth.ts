@@ -60,7 +60,13 @@ export type MsFailureCode =
   | "TOKEN_EXPIRED"
   | "USER_DECLINED"
   | "UNVERIFIED_PUBLISHER"
+  | "APP_NOT_MULTITENANT"
+  | "TENANT_NOT_FOUND"
+  | "PROVIDER_UNAVAILABLE"
   | "UNKNOWN";
+
+/** Who must act for the connection to work again. */
+export type MsResolution = "USER_RECONNECT" | "ADMIN_CONSENT" | "VENDOR_FIX" | "AUTOMATIC";
 
 export interface MsFailure {
   code: MsFailureCode;
@@ -68,10 +74,26 @@ export interface MsFailure {
   message: string;
   /** True when the stored grant is dead and retrying is pointless. */
   terminal: boolean;
+  /** The raw AADSTS identifier, kept for support forensics only (never shown). */
+  aadsts: string | null;
+  /** Who can unblock it. Drives the UI action and prevents useless retries. */
+  resolution: MsResolution;
 }
 
 /** AADSTS codes are the only reliable discriminator; text is a fallback. */
 const RULES: Array<{ code: MsFailureCode; codes: string[]; re?: RegExp }> = [
+  {
+    // The Andromeda app registration itself is misconfigured (single-tenant
+    // while the code authenticates against /common). Only we can fix it.
+    code: "APP_NOT_MULTITENANT",
+    codes: ["AADSTS50194", "AADSTS700016", "AADSTS50020"],
+    re: /not configured as a multi-?tenant application|application with identifier .* was not found/i,
+  },
+  {
+    code: "TENANT_NOT_FOUND",
+    codes: ["AADSTS90002"],
+    re: /tenant .* not found/i,
+  },
   {
     code: "ADMIN_CONSENT_REQUIRED",
     codes: ["AADSTS65001", "AADSTS90094", "AADSTS900941", "AADSTS650056", "AADSTS650057"],
@@ -94,13 +116,24 @@ const RULES: Array<{ code: MsFailureCode; codes: string[]; re?: RegExp }> = [
   },
   {
     code: "CONSENT_REVOKED",
-    codes: ["AADSTS65004", "AADSTS70000", "AADSTS700003", "AADSTS50020", "AADSTS90008"],
+    codes: ["AADSTS65004", "AADSTS70000", "AADSTS700003", "AADSTS90008"],
     re: /invalid_grant|revoked|consent.*(revoked|withdrawn)/i,
   },
-  { code: "TOKEN_EXPIRED", codes: ["AADSTS700082", "AADSTS50078"], re: /token.*expired/i },
+  {
+    code: "TOKEN_EXPIRED",
+    codes: ["AADSTS700082", "AADSTS50078", "AADSTS700084"],
+    re: /token.*expired|refresh token has expired/i,
+  },
   { code: "USER_DECLINED", codes: ["AADSTS65004"], re: /access_denied|did not consent|user declined/i },
   { code: "UNVERIFIED_PUBLISHER", codes: ["AADSTS500011"], re: /unverified publisher/i },
+  {
+    // Transport / Microsoft-side outage: never a statement about the grant.
+    code: "PROVIDER_UNAVAILABLE",
+    codes: ["AADSTS90033"],
+    re: /temporarily unavailable|service unavailable|\b(429|500|502|503|504)\b|timed? ?out|network error/i,
+  },
 ];
+
 
 const MESSAGES: Record<MsFailureCode, { message: string; terminal: boolean }> = {
   ADMIN_CONSENT_REQUIRED: {
