@@ -204,14 +204,22 @@ function OutlookConnectionCard() {
                 <li>Puede desconectar el buzón cuando quiera, desde esta misma pantalla.</li>
               </ul>
             </div>
-            <Button size="sm" onClick={() => connect.mutate()} disabled={connect.isPending}>
+            <Button
+              size="sm"
+              onClick={() => connect.mutate()}
+              /* A vendor-side block cannot be cleared by retrying: don't invite it. */
+              disabled={connect.isPending || failure?.action === "NONE"}
+            >
               <Mail className="mr-2 h-4 w-4" aria-hidden />
               {connect.isPending
                 ? "Abriendo Microsoft…"
-                : failure?.action === "RECONNECT"
+                : failure?.action === "NONE"
                   ? failure.actionLabel
-                  : "Conectar Outlook"}
+                  : failure?.action === "RECONNECT"
+                    ? failure.actionLabel
+                    : "Conectar Outlook"}
             </Button>
+
           </div>
         )}
       </CardContent>
