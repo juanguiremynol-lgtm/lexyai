@@ -295,10 +295,11 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
               )}
               <div className="space-y-1 flex-1">
                 <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
-                  Monitoreo Suspendido
+                  Monitoreo oculto
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Este asunto no está siendo sincronizado automáticamente.
+                  Este asunto sigue leyéndose todos los días; solo está oculto de los
+                  resúmenes y alertas. No se está perdiendo información.
                 </p>
                 {workItem.demonitor_reason && (
                   <p className="text-xs text-muted-foreground">
