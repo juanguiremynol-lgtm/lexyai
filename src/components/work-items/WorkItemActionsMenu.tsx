@@ -113,7 +113,7 @@ export function WorkItemActionsMenu({
   const confirmCopy: Record<Exclude<Confirm, null>, { title: string; description: string; label: string; destructive?: boolean }> = {
     pausar: {
       title: "Pausar monitoreo",
-      description: "Se detendrá la sincronización automática. Podrás reactivarla en cualquier momento.",
+      description: "Pausar detiene la consulta a los proveedores: lo que el despacho publique mientras esté pausado no se capturará y quedará un vacío en el expediente. Ocultar el asunto del resumen no detiene la lectura. Podrás reactivarlo en cualquier momento.",
       label: "Pausar",
     },
     reactivar: {
