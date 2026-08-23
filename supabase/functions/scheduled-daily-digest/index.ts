@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
         const { data: rawPubs, error: pubErr } = await supabase
           .from("work_item_publicaciones")
           .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, organization_id")
-          .in("work_item_id", ids)
+          .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
           .lte("detected_at", nowIso)
