@@ -250,12 +250,16 @@ Deno.serve(async (req) => {
           .lte("scheduled_at", horizon)
           .order("scheduled_at", { ascending: true });
 
-        // ── Términos: vencidos + por vencer (7 días) ──
+        // ── Términos: vencidos (dentro de la gracia) + por vencer (7 días) ──
+        // NN1(b): a term that expired more than 3 business days ago has been
+        // drained to VENCIDO_SIN_ACTUACION and is no longer PENDING, so it
+        // leaves this section on its own. NN2: attribution comes from the
+        // shared view; his terms and the counterparty's are never mixed.
         const today = bogotaDate();
         const dueBy = new Date(Date.now() + DEADLINE_HORIZON_DAYS * 86_400_000).toISOString().slice(0, 10);
         const { data: rawDeadlines } = await supabase
-          .from("work_item_deadlines")
-          .select("id, work_item_id, label, deadline_type, deadline_date, status")
+          .from("v_deadline_attribution")
+          .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role")
           .in("work_item_id", ids)
           .eq("status", "PENDING")
           .lte("deadline_date", dueBy)
