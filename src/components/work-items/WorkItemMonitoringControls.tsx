@@ -206,7 +206,7 @@ export function WorkItemMonitoringControls({
   const dialogConfig: Record<string, { title: string; description: string; confirmLabel: string; variant: "destructive" | "default" }> = {
     pausar: {
       title: "Pausar monitoreo",
-      description: "El monitoreo se detendrá temporalmente. Puede reactivarlo en cualquier momento.",
+      description: "Pausar detiene la consulta a los proveedores: lo que el despacho publique mientras esté pausado no se capturará y quedará un vacío en el expediente. Es distinto de ocultar el asunto del resumen, que no detiene la lectura. Puede reactivarlo en cualquier momento.",
       confirmLabel: "Pausar",
       variant: "destructive",
     },

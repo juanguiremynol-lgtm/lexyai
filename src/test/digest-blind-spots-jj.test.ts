@@ -36,12 +36,30 @@ describe("JJ1 — mailbox connection is a headline condition", () => {
   });
 });
 
-describe("JJ2 — suspended matters are surfaced as an absence", () => {
-  it("queries suspended matters and never mixes them into novedades", () => {
+describe("OO1 — hidden matters are surfaced accurately (still being read)", () => {
+  it("queries hidden matters and never mixes them into novedades", () => {
     expect(digestIndex).toMatch(/not\("monitoring_suspended_at", "is", null\)/);
     expect(digestIndex).toMatch(/is\("deleted_at", null\)/);
-    expect(digestHtml).toMatch(/Monitoreo suspendido — no se está consultando/);
+    expect(digestHtml).toMatch(/Monitoreo oculto — no aparecen en este resumen/);
   });
+
+  it("states plainly that nothing is being lost, and never claims reading stopped", () => {
+    expect(digestHtml).toMatch(/se siguen consultando con sus proveedores/);
+    expect(digestHtml).not.toMatch(/no se está consultando/);
+  });
+
+  it("warns about an accumulating gap only when ingestion is off", () => {
+    expect(digestHtml).toMatch(/No — lectura detenida/);
+    expect(digestHtml).toMatch(/acumulando un vacío/);
+    expect(digestIndex).toMatch(/reading_active: s\.lifecycle_state === "ACTIVE"/);
+  });
+
+  it("reports movement accumulated since the matter was hidden", () => {
+    expect(digestHtml).toMatch(/Movimiento desde entonces/);
+    expect(digestIndex).toMatch(/acts_since/);
+    expect(digestIndex).toMatch(/estados_since/);
+  });
+
 
   it("does not offer to reactivate anything", () => {
     expect(digestHtml).not.toMatch(/reactivar ahora|Reactivar →/i);

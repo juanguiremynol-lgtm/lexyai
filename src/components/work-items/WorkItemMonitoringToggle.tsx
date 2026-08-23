@@ -100,7 +100,7 @@ export function WorkItemMonitoringToggle({
           disabled={saving}
         />
         <span className="text-sm font-medium">
-          {monitoringEnabled ? 'Monitoreo activo' : 'Monitoreo suspendido'}
+          {monitoringEnabled ? 'Monitoreo activo' : 'Monitoreo oculto (se sigue leyendo)'}
         </span>
       </div>
 

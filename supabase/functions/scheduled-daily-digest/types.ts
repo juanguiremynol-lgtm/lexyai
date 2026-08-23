@@ -125,8 +125,13 @@ export interface ConnectionIssueRow {
 }
 
 /**
- * JJ2(c) — matters the lawyer believes are monitored and are NOT. This is a
- * section ABOUT their absence; they never appear in novedades.
+ * OO1 — matters hidden from this digest by `monitoring_suspended_at`.
+ *
+ * SEMANTICS (OO2a): `monitoring_suspended_at` gates VISIBILITY only. The
+ * provider is still consulted and everything it publishes is still stored,
+ * as long as `lifecycle_state = 'ACTIVE'` (which is what gates INGESTION).
+ * `reading_active` carries that distinction into the render: when it is false
+ * a real gap IS accumulating for that matter and the row must say so.
  */
 export interface SuspendedItemRow {
   id: string;
@@ -135,7 +140,15 @@ export interface SuspendedItemRow {
   workflow_type: string | null;
   suspended_at: string | null;
   reason: string | null;
+  /** lifecycle_state === 'ACTIVE' → the provider is still being read. */
+  reading_active: boolean;
+  lifecycle_state: string | null;
+  /** Movement accumulated since the suspension date (by event date). */
+  acts_since: number;
+  estados_since: number;
+  last_movement_at: string | null;
 }
+
 
 /** JJ3 — PETICION / GOV_PROCEDURE are not judicial and get no scraper. */
 export const NON_JUDICIAL_WORKFLOWS = ["PETICION", "GOV_PROCEDURE"] as const;

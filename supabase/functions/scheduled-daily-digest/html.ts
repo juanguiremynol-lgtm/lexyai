@@ -325,26 +325,45 @@ function connectionBlock(rows: ConnectionIssueRow[], appBaseUrl: string): string
   </div>`;
 }
 
-/** JJ2(c) — matters believed monitored that are not being consulted. */
+/**
+ * OO1 — matters hidden from this digest. They ARE still being read (unless
+ * their lifecycle stopped ingestion); the section says so plainly.
+ */
 function suspendedBlock(rows: SuspendedItemRow[], appBaseUrl: string): string {
   if (!rows.length) return "";
+  const anyStopped = rows.some((r) => !r.reading_active);
   return sectionTitle(
-    `Monitoreo suspendido — no se está consultando (${rows.length})`,
+    `Monitoreo oculto — no aparecen en este resumen (${rows.length})`,
     "#fbbf24",
-    "Estos asuntos NO se consultan con ningún proveedor. No aparecen en las novedades porque no se está leyendo nada de ellos.",
+    "Estos asuntos se siguen consultando con sus proveedores y todo lo que publiquen se sigue guardando: no se está perdiendo nada. Lo único que ocurre es que sus novedades no se muestran en este resumen.",
   ) +
   `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-    <thead><tr>${th("Radicado", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Tipo", "#fbbf24")}${th("Suspendido", "#fbbf24")}${th("Motivo registrado", "#fbbf24")}</tr></thead>
-    <tbody>${rows.map((r) => `<tr>
+    <thead><tr>${th("Radicado", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Tipo", "#fbbf24")}${th("Oculto desde", "#fbbf24")}${th("Motivo registrado", "#fbbf24")}${th("Lectura del proveedor", "#fbbf24")}${th("Movimiento desde entonces", "#fbbf24")}</tr></thead>
+    <tbody>${rows.map((r) => {
+      const total = r.acts_since + r.estados_since;
+      const parts: string[] = [];
+      if (r.acts_since) parts.push(`${r.acts_since} actuación(es)`);
+      if (r.estados_since) parts.push(`${r.estados_since} estado(s)`);
+      const movement = total
+        ? `<span style="color:#fbbf24;font-weight:700;">${parts.join(" + ")}</span>${r.last_movement_at ? ` · última ${fmtDate(r.last_movement_at)}` : ""}`
+        : `<span style="color:${MUTED};">Sin movimiento registrado</span>`;
+      const reading = r.reading_active
+        ? `<span style="color:#34d399;">Sí — se sigue leyendo y guardando</span>`
+        : `<span style="color:#f87171;font-weight:700;">No — lectura detenida</span><div style="font-size:11px;color:#f87171;">Se está acumulando un vacío: lo que el despacho publique mientras tanto no se está capturando.</div>`;
+      return `<tr>
       ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:#fbbf24;">${esc(r.radicado || "Sin radicado")}</a>`)}
       ${td(esc(r.title || "—"))}
       ${td(esc(r.workflow_type || "—"))}
       ${td(fmtDate(r.suspended_at))}
       ${td(esc(r.reason || "No registrado"))}
-    </tr>`).join("")}</tbody>
+      ${td(reading)}
+      ${td(movement)}
+    </tr>`;
+    }).join("")}</tbody>
   </table>
-  <div style="font-size:12px;color:${MUTED};margin-top:6px;">Reactivarlos es una decisión suya; Andromeda no los reactiva por su cuenta.</div>`;
+  <div style="font-size:12px;color:${MUTED};margin-top:6px;">El movimiento se cuenta desde la fecha en que el asunto se ocultó y no se detalla aquí: ábralo para verlo. Volver a mostrarlos en el resumen es una decisión suya; Andromeda no los reactiva por su cuenta.${anyStopped ? " Las filas marcadas «lectura detenida» sí tienen un vacío real: en esas la consulta al proveedor está apagada." : ""}</div>`;
 }
+
 
 /** JJ3(b) — non-judicial matters live in their own section, on their own terms. */
 function nonJudicialBlock(rows: DeadlineRow[], p: DigestPayload): string {
