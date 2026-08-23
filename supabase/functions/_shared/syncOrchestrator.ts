@@ -1235,7 +1235,10 @@ export async function orchestrateSync(
     // and the reason must be logged so the daily report shows it.
     const anyUnavailable = actsUnavailable || estadosUnavailable;
     if (anyUnavailable && status === "SUCCESS") status = "PARTIAL";
-    if (anyUnavailable && !hasSuccess && status !== "TIMEOUT") status = "FAILED";
+    if (anyUnavailable && !hasSuccess && !hasAnsweredAbsence && status !== "TIMEOUT") status = "FAILED";
+    // A kind that answered empty alongside a kind that never answered is a
+    // PARTIAL read, not a total failure.
+    if (anyUnavailable && hasAnsweredAbsence && status === "SUCCESS") status = "PARTIAL";
     const unavailableKinds = [
       actsUnavailable ? "ACTUACIONES" : null,
       estadosUnavailable ? "ESTADOS" : null,
