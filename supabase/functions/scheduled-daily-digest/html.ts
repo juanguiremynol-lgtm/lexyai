@@ -122,7 +122,7 @@ function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
         ${td(esc(r.description || r.act_type || "—"))}
         ${td(esc(r.annotation || "—"))}
         ${td(`<span style="color:${ACT_ACCENT};">${esc(actuacionSourceLabel(r.source))}</span>`)}
-        ${td(docsCell(r.documents, expiryDays))}
+        ${td(docsCell(r.documents, expiryDays, r.document_availability))}
       </tr>`).join("")}
     </tbody>
   </table>`;
@@ -148,7 +148,7 @@ function estadosTable(rows: EstadoRow[], expiryDays: number): string {
         ${td(esc(r.title || "—"))}
         ${td(esc(r.observacion || "—"))}
         ${td(`<span style="color:${EST_ACCENT};">${esc(estadoSourceLabel(r.source))}</span>`)}
-        ${td(docsCell(r.documents, expiryDays))}
+        ${td(docsCell(r.documents, expiryDays, r.document_availability))}
       </tr>`).join("")}
     </tbody>
   </table>`;
