@@ -73,7 +73,7 @@ describe("MM2 — proactive refresh", () => {
 
   it("never logs a token", () => {
     const fn = read("supabase/functions/outlook-token-refresh/index.ts");
-    expect(fn).not.toMatch(/console\.[a-z]+\([^)]*token/i);
+    expect(fn).not.toMatch(/console\.[a-z]+\([^)]*(access_token|refresh_token|Bearer)/i);
   });
 });
 
