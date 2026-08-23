@@ -413,7 +413,7 @@ Deno.serve(async (req) => {
       errorMessage: summary.errors.slice(0, 3).join("; ") || undefined,
       metadata: summary as unknown as Record<string, unknown>,
     });
-    return json({ ok: true, ...summary });
+    return json({ ok: true, ...summary, previews: previews.length ? previews : undefined });
   } catch (err) {
     console.error("[scheduled-daily-digest] fatal", err);
     await finishHeartbeat(supabase, hb, "ERROR", { errorMessage: String(err) });
