@@ -18262,6 +18262,63 @@ export type Database = {
           },
         ]
       }
+      work_item_lifecycle_ledger: {
+        Row: {
+          actor: string
+          actor_user_id: string | null
+          emitted_to_gcp: boolean
+          from_state: string | null
+          gcp_acknowledged_at: string | null
+          gcp_outbox_id: string | null
+          id: string
+          metadata: Json
+          occurred_at: string
+          radicado: string | null
+          reason: string | null
+          record_origin: string
+          recorded_at: string
+          to_state: string
+          work_item_id: string
+          workflow_type: string | null
+        }
+        Insert: {
+          actor?: string
+          actor_user_id?: string | null
+          emitted_to_gcp?: boolean
+          from_state?: string | null
+          gcp_acknowledged_at?: string | null
+          gcp_outbox_id?: string | null
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          radicado?: string | null
+          reason?: string | null
+          record_origin?: string
+          recorded_at?: string
+          to_state: string
+          work_item_id: string
+          workflow_type?: string | null
+        }
+        Update: {
+          actor?: string
+          actor_user_id?: string | null
+          emitted_to_gcp?: boolean
+          from_state?: string | null
+          gcp_acknowledged_at?: string | null
+          gcp_outbox_id?: string | null
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          radicado?: string | null
+          reason?: string | null
+          record_origin?: string
+          recorded_at?: string
+          to_state?: string
+          work_item_id?: string
+          workflow_type?: string | null
+        }
+        Relationships: []
+      }
       work_item_parties: {
         Row: {
           address: string | null
