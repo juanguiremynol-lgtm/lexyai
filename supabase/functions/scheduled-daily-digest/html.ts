@@ -12,6 +12,7 @@
  */
 
 import {
+  BOUND_PARTY_SHORT,
   actuacionSourceLabel,
   estadoSourceLabel,
   type ActuacionRow,
