@@ -25,6 +25,30 @@ export interface EmailConnection {
   /** Tenant-wide consent URL to hand to the firm's IT administrator. */
   admin_consent_url: string | null;
   revoked_at: string | null;
+  /** When the current Microsoft access token stops working. */
+  token_expires_at: string | null;
+  /** Stamped on every renewal attempt, successful or not. */
+  last_refresh_at: string | null;
+  last_refresh_outcome: "SUCCESS" | "FAILED" | null;
+}
+
+/** Single, user-facing health state derived from the stored connection row. */
+export type EmailConnectionHealth =
+  | "NO_CONECTADO"
+  | "CONECTANDO"
+  | "ACTIVA"
+  | "POR_VENCER"
+  | "ERROR";
+
+/** 24 h without a successful renewal while the token is dead = degraded. */
+export function connectionHealth(c: EmailConnection | null): EmailConnectionHealth {
+  if (!c) return "NO_CONECTADO";
+  if (c.status === "PENDING") return "CONECTANDO";
+  if (c.status === "ERROR" || c.status === "REVOKED") return "ERROR";
+  if (c.last_refresh_outcome === "FAILED") return "POR_VENCER";
+  const expires = c.token_expires_at ? Date.parse(c.token_expires_at) : null;
+  if (expires !== null && expires < Date.now()) return "POR_VENCER";
+  return "ACTIVA";
 }
 
 /**
@@ -79,7 +103,7 @@ export function useEmailConnection() {
     queryFn: async (): Promise<EmailConnection | null> => {
       const { data, error } = await supabase
         .from("user_email_connections")
-        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at")
+        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at, token_expires_at, last_refresh_at, last_refresh_outcome")
         .eq("provider", "outlook")
         .maybeSingle();
       if (error) throw error;
