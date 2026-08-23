@@ -220,7 +220,9 @@ Deno.serve(async (req) => {
       delivered,
       failed,
       skipped_no_radicado,
+      refused_malformed,
     }),
+
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
