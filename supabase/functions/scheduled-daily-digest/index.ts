@@ -419,7 +419,10 @@ Deno.serve(async (req) => {
         });
 
         const novedades = actuaciones.length + estados.length;
-        const subject = novedades > 0
+        const critical = connectionIssues.some((c) => c.severity === "CRITICAL");
+        const subject = critical
+          ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
+          : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
           : `Andromeda — Resumen diario: audiencias y términos`;
 
@@ -429,11 +432,11 @@ Deno.serve(async (req) => {
             status: "EMPTY_NO_EMAIL",
             error_summary: "dry_run",
             window_from: windowFrom,
-            monitored_count: items.length,
+            monitored_count: judicialItems.length,
             actuaciones_count: actuaciones.length,
             estados_count: estados.length,
             hearings_count: hearings.length,
-            deadlines_count: deadlines.length,
+            deadlines_count: allDeadlines.length,
             documents_linked: tokens.length,
             recipient_email: email,
             finished_at: new Date().toISOString(),
