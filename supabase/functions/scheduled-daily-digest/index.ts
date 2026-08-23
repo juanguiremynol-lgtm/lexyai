@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     const { data: monitored, error: monErr } = await supabase
       .from("v_monitored_work_items")
       .select(
-        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, last_successful_sync_at",
+        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at",
       );
     if (monErr) throw monErr;
 
