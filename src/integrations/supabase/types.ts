@@ -5690,6 +5690,13 @@ export type Database = {
             foreignKeyName: "deadline_discharge_suggestions_deadline_id_fkey"
             columns: ["deadline_id"]
             isOneToOne: false
+            referencedRelation: "v_deadline_attribution"
+            referencedColumns: ["deadline_id"]
+          },
+          {
+            foreignKeyName: "deadline_discharge_suggestions_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
             referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
@@ -21083,6 +21090,78 @@ export type Database = {
         }
         Relationships: []
       }
+      v_deadline_attribution: {
+        Row: {
+          attribution: string | null
+          bound_party_role: string | null
+          bound_party_source: string | null
+          calculation_meta: Json | null
+          client_party_represents: string | null
+          client_party_role: string | null
+          client_party_role_source: string | null
+          deadline_date: string | null
+          deadline_id: string | null
+          deadline_type: string | null
+          is_judge_side: boolean | null
+          label: string | null
+          organization_id: string | null
+          owner_id: string | null
+          status: string | null
+          trigger_date: string | null
+          work_item_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_deadlines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_live_work_items: {
         Row: {
           acta_radicacion_url: string | null
@@ -22850,6 +22929,17 @@ export type Database = {
         Args: { p_anchor_source: string }
         Returns: string
       }
+      deadline_attribution: {
+        Args: {
+          p_bound: string
+          p_bound_source: string
+          p_client_role: string
+          p_client_role_source: string
+          p_is_judge: boolean
+          p_represents: string
+        }
+        Returns: string
+      }
       deadline_business_day_walk: {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
@@ -22913,6 +23003,10 @@ export type Database = {
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
+      drain_expired_deadlines: {
+        Args: { p_grace_business_days?: number }
+        Returns: Json
+      }
       email_outbox_health: {
         Args: { _hours?: number }
         Returns: {
@@ -23352,6 +23446,10 @@ export type Database = {
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
+      reopen_drained_deadline: {
+        Args: { p_deadline_id: string; p_reason?: string }
+        Returns: Json
+      }
       resolve_published_auto: {
         Args: { p_pub_id: string }
         Returns: {

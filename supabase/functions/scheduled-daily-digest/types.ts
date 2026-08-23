@@ -74,7 +74,20 @@ export interface DeadlineRow {
   status: string;
   overdue: boolean;
   days_left: number;
+  /** NN2 — computed by `public.v_deadline_attribution`, never re-derived here. */
+  attribution: "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO" | string;
+  bound_party_role: string | null;
 }
+
+export const BOUND_PARTY_SHORT: Record<string, string> = {
+  DEMANDANTE: "demandante",
+  DEMANDADO: "demandado",
+  RECURRENTE: "recurrente",
+  OPOSITOR: "no recurrente",
+  JUEZ: "despacho",
+  AMBAS: "ambas partes",
+  DESCONOCIDO: "parte no determinada",
+};
 
 export interface WorkItemInfo {
   id: string;

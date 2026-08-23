@@ -12,6 +12,7 @@
  */
 
 import {
+  BOUND_PARTY_SHORT,
   actuacionSourceLabel,
   estadoSourceLabel,
   type ActuacionRow,
@@ -234,20 +235,34 @@ function hearingsBlock(rows: HearingRow[], p: DigestPayload): string {
     </table>`;
 }
 
+/**
+ * NN1(b) / NN2(c)(d) — three lists, never one.
+ *
+ * "Sus términos" are the only obligations. Counterparty terms are tracked and
+ * shown apart (an unopposed mandamiento advances, and he may want to exploit
+ * that) but are never counted as his. Terms whose party is undetermined say so
+ * instead of defaulting to him. Expired terms only survive here for the 3
+ * business-day grace: after that they drain out of the mail entirely.
+ */
 function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
   if (!rows.length) return "";
-  const vencidos = rows.filter((d) => d.overdue);
-  const porVencer = rows.filter((d) => !d.overdue);
+  const propios = rows.filter((d) => d.attribution === "PROPIO");
+  const contraparte = rows.filter((d) => d.attribution === "CONTRAPARTE");
+  const sinDeterminar = rows.filter(
+    (d) => d.attribution !== "PROPIO" && d.attribution !== "CONTRAPARTE",
+  );
 
-  const table = (list: DeadlineRow[], accent: string) =>
+  const table = (list: DeadlineRow[], accent: string, withParty = false) =>
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:14px;">
-      <thead><tr>${th("Vence", accent)}${th("Asunto", accent)}${th("Término", accent)}${th("Estado", accent)}</tr></thead>
+      <thead><tr>${th("Vence", accent)}${th("Asunto", accent)}${th("Término", accent)}${withParty ? th("A cargo de", accent) : ""}${th("Estado", accent)}</tr></thead>
       <tbody>${list.map((d) => {
         const wi = p.workItems.get(d.work_item_id);
+        const party = BOUND_PARTY_SHORT[String(d.bound_party_role ?? "DESCONOCIDO")] ?? "parte no determinada";
         return `<tr>
           ${td(fmtDate(d.deadline_date))}
           ${td(esc(wi?.radicado || wi?.title || "—"))}
           ${td(esc(d.label || d.deadline_type || "—"))}
+          ${withParty ? td(esc(party)) : ""}
           ${td(d.overdue
             ? `<span style="color:#f87171;font-weight:700;">Vencido hace ${Math.abs(d.days_left)} día(s)</span>`
             : `<span style="color:${accent};">Faltan ${d.days_left} día(s)</span>`)}
@@ -255,9 +270,29 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
       }).join("")}</tbody>
     </table>`;
 
+  const misVencidos = propios.filter((d) => d.overdue);
+  const misPorVencer = propios.filter((d) => !d.overdue);
+
+  const propioBlock = propios.length
+    ? `<div style="font-size:12px;font-weight:700;color:#e2e8f0;margin-bottom:6px;">SUS TÉRMINOS (${propios.length})</div>` +
+      (misVencidos.length
+        ? `<div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:6px;">VENCIDOS — dentro de los 3 días hábiles de gracia (${misVencidos.length})</div>${table(misVencidos, "#f87171")}`
+        : "") +
+      (misPorVencer.length
+        ? `<div style="font-size:12px;font-weight:700;color:#fb923c;margin-bottom:6px;">POR VENCER — próximos 7 días (${misPorVencer.length})</div>${table(misPorVencer, "#fb923c")}`
+        : "")
+    : "";
+
+  const contraparteBlock = contraparte.length
+    ? `<div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:6px;">TÉRMINOS DE LA CONTRAPARTE (${contraparte.length}) — seguimiento, no son obligaciones suyas</div>${table(contraparte, "#38bdf8", true)}`
+    : "";
+
+  const sinBlock = sinDeterminar.length
+    ? `<div style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px;">PARTE NO DETERMINADA (${sinDeterminar.length}) — confirme la calidad de su cliente en el expediente</div>${table(sinDeterminar, "#94a3b8", true)}`
+    : "";
+
   return sectionTitle("Términos", "#f87171", "Cálculo de Andromeda sobre días hábiles colombianos.") +
-    (vencidos.length ? `<div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:6px;">VENCIDOS (${vencidos.length})</div>${table(vencidos, "#f87171")}` : "") +
-    (porVencer.length ? `<div style="font-size:12px;font-weight:700;color:#fb923c;margin-bottom:6px;">POR VENCER — próximos 7 días (${porVencer.length})</div>${table(porVencer, "#fb923c")}` : "");
+    propioBlock + contraparteBlock + sinBlock;
 }
 
 /**

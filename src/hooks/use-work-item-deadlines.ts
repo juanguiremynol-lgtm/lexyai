@@ -32,6 +32,9 @@ export interface WorkItemDeadline {
     | "FULFILLED_BY_EMAIL_EVIDENCE"
     | "INVALID_NO_TERM"
     | "VENCIDO_SIN_SUBSANAR"
+    /** NN1 — expired with no subsequent actuación; drained out of the alerting
+     *  surfaces after a 3 business-day grace. The row is kept in full. */
+    | "VENCIDO_SIN_ACTUACION"
     | "PRESUNCION_DESCARTADA_POR_AVANCE"
     | "DISMISSED"
     | "CANCELLED";
