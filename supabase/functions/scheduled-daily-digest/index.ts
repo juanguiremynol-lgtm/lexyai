@@ -166,9 +166,18 @@ Deno.serve(async (req) => {
         const runId = claimed?.id as string | undefined;
         if (!runId) { summary.skipped_already_ran++; continue; }
 
+        // A preview must never consume the day. The claim row exists only to
+        // hold the unique index while the run composes; on a dry run it is
+        // released, so the real 06:30 digest still runs and its window still
+        // starts where the last SENT digest ended.
+        const releaseClaim = async () => {
+          await supabase.from("daily_digest_runs").delete().eq("id", runId);
+        };
+
         const fail = async (msg: string) => {
           summary.failed++;
           summary.errors.push(`${ownerId}: ${msg}`);
+          if (dryRun) { await releaseClaim(); return; }
           await supabase.from("daily_digest_runs")
             .update({ status: "FAILED", error_summary: msg.slice(0, 500), finished_at: new Date().toISOString() })
             .eq("id", runId);
