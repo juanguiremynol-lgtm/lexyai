@@ -391,11 +391,11 @@ Deno.serve(async (req) => {
 
 
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
-        const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d) => {
+        const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d: Record<string, unknown>) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
           );
-          return { ...d, overdue: days < 0, days_left: days } as DeadlineRow;
+          return { ...d, id: d.deadline_id, overdue: days < 0, days_left: days } as unknown as DeadlineRow;
         });
         // JJ3(b) — non-judicial deadlines are rendered apart, never merged.
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
