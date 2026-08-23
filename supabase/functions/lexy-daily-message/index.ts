@@ -315,18 +315,28 @@ Deno.serve(async (req) => {
         // Retroactive registrations (old legal date, first detected today in a
         // normal daily run) are NEWS and MUST count toward the headline.
         const NEWS_DISCOVERY = ["NOVEDAD", "ACTUACION_RETROACTIVA"];
+        // JJ5(a)/(b) — the embedded predicate reproduces
+        // `v_monitored_work_items` exactly (deleted / suspended / unmonitored
+        // matters are structurally out), so Lexy and the consolidated digest
+        // can never disagree about what counts as a novedad.
         const { data: novedadActs } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, description, act_date, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title)")
+          .select("id, work_item_id, description, act_date, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title, deleted_at, monitoring_enabled, monitoring_suspended_at)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
+          .is("work_items.deleted_at", null)
+          .eq("work_items.monitoring_enabled", true)
+          .is("work_items.monitoring_suspended_at", null)
           .in("discovery_type", NEWS_DISCOVERY)
           .gte("detected_at", dayStart);
         const { data: novedadPubs } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title)")
+          .select("id, work_item_id, tipo_publicacion, fecha_fijacion, fecha_desfijacion, detected_at, discovery_type, retro_gap_days, work_items!inner(radicado, title, deleted_at, monitoring_enabled, monitoring_suspended_at)")
           .eq("organization_id", organization_id)
           .eq("is_notifiable", true)
+          .is("work_items.deleted_at", null)
+          .eq("work_items.monitoring_enabled", true)
+          .is("work_items.monitoring_suspended_at", null)
           .in("discovery_type", NEWS_DISCOVERY)
           .gte("detected_at", dayStart);
         const retroCount =
