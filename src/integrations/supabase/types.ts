@@ -5787,6 +5787,7 @@ export type Database = {
           is_judge_side: boolean
           norma: string | null
           requires_manual_review: boolean
+          term_class: Database["public"]["Enums"]["term_class"]
           updated_at: string
           workflow_type: string
         }
@@ -5802,6 +5803,7 @@ export type Database = {
           is_judge_side?: boolean
           norma?: string | null
           requires_manual_review?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
           updated_at?: string
           workflow_type: string
         }
@@ -5817,6 +5819,7 @@ export type Database = {
           is_judge_side?: boolean
           norma?: string | null
           requires_manual_review?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
           updated_at?: string
           workflow_type?: string
         }
@@ -9436,6 +9439,42 @@ export type Database = {
           },
         ]
       }
+      holiday_calendar_coverage: {
+        Row: {
+          country: string
+          coverage_status: string
+          created_at: string
+          generated_at: string
+          id: string
+          notes: string | null
+          updated_at: string
+          verified_at: string | null
+          year: number
+        }
+        Insert: {
+          country?: string
+          coverage_status?: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          verified_at?: string | null
+          year: number
+        }
+        Update: {
+          country?: string
+          coverage_status?: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          notes?: string | null
+          updated_at?: string
+          verified_at?: string | null
+          year?: number
+        }
+        Relationships: []
+      }
       icarus_import_rows: {
         Row: {
           created_at: string
@@ -11619,6 +11658,288 @@ export type Database = {
             columns: ["peticion_id"]
             isOneToOne: false
             referencedRelation: "peticiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      peticion_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deadline_id: string | null
+          event_code: string
+          event_date: string
+          id: string
+          legal_effect: string | null
+          metadata: Json
+          notes: string | null
+          organization_id: string | null
+          owner_id: string | null
+          source: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deadline_id?: string | null
+          event_code: string
+          event_date?: string
+          id?: string
+          legal_effect?: string | null
+          metadata?: Json
+          notes?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          source?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deadline_id?: string | null
+          event_code?: string
+          event_date?: string
+          id?: string
+          legal_effect?: string | null
+          metadata?: Json
+          notes?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          source?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "peticion_events_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "v_deadline_attribution"
+            referencedColumns: ["deadline_id"]
+          },
+          {
+            foreignKeyName: "peticion_events_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      peticion_subtypes: {
+        Row: {
+          active: boolean
+          allows_org_duration_override: boolean
+          code: string
+          created_at: string
+          default_silence_effect: string
+          display_order: number
+          duration_unit: string
+          duration_value: number | null
+          id: string
+          is_system: boolean
+          label: string
+          legal_basis: string
+          requires_silence_effect: boolean
+          requires_user_term: boolean
+          term_class: Database["public"]["Enums"]["term_class"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          allows_org_duration_override?: boolean
+          code: string
+          created_at?: string
+          default_silence_effect?: string
+          display_order?: number
+          duration_unit?: string
+          duration_value?: number | null
+          id?: string
+          is_system?: boolean
+          label: string
+          legal_basis: string
+          requires_silence_effect?: boolean
+          requires_user_term?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          allows_org_duration_override?: boolean
+          code?: string
+          created_at?: string
+          default_silence_effect?: string
+          display_order?: number
+          duration_unit?: string
+          duration_value?: number | null
+          id?: string
+          is_system?: boolean
+          label?: string
+          legal_basis?: string
+          requires_silence_effect?: boolean
+          requires_user_term?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      peticion_work_item_state: {
+        Row: {
+          anchor_provenance_note: string | null
+          anchor_source: string | null
+          attention_status: string | null
+          authority_email_domain: string | null
+          authority_name: string | null
+          authority_radicado: string | null
+          authority_received_at: string | null
+          competent_authority_received_at: string | null
+          created_at: string
+          deadline_status: string | null
+          id: string
+          is_inter_authority: boolean
+          legal_effect: string | null
+          organization_id: string | null
+          owner_id: string | null
+          requires_manual_review: boolean
+          sent_at: string | null
+          silence_effect: string
+          special_legal_basis: string | null
+          special_norm_citation: string | null
+          special_term_unit: string | null
+          special_term_value: number | null
+          subtype_code: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          anchor_provenance_note?: string | null
+          anchor_source?: string | null
+          attention_status?: string | null
+          authority_email_domain?: string | null
+          authority_name?: string | null
+          authority_radicado?: string | null
+          authority_received_at?: string | null
+          competent_authority_received_at?: string | null
+          created_at?: string
+          deadline_status?: string | null
+          id?: string
+          is_inter_authority?: boolean
+          legal_effect?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          requires_manual_review?: boolean
+          sent_at?: string | null
+          silence_effect?: string
+          special_legal_basis?: string | null
+          special_norm_citation?: string | null
+          special_term_unit?: string | null
+          special_term_value?: number | null
+          subtype_code: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          anchor_provenance_note?: string | null
+          anchor_source?: string | null
+          attention_status?: string | null
+          authority_email_domain?: string | null
+          authority_name?: string | null
+          authority_radicado?: string | null
+          authority_received_at?: string | null
+          competent_authority_received_at?: string | null
+          created_at?: string
+          deadline_status?: string | null
+          id?: string
+          is_inter_authority?: boolean
+          legal_effect?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          requires_manual_review?: boolean
+          sent_at?: string | null
+          silence_effect?: string
+          special_legal_basis?: string | null
+          special_norm_citation?: string | null
+          special_term_unit?: string | null
+          special_term_value?: number | null
+          subtype_code?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "peticion_work_item_state_subtype_code_fkey"
+            columns: ["subtype_code"]
+            isOneToOne: false
+            referencedRelation: "peticion_subtypes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -17417,6 +17738,9 @@ export type Database = {
       }
       work_item_deadlines: {
         Row: {
+          anchor_kind: string | null
+          anchor_provenance_note: string | null
+          anchor_source: string | null
           bound_party_role: string | null
           bound_party_source: string | null
           business_days_count: number | null
@@ -17424,22 +17748,31 @@ export type Database = {
           closure_reason: string | null
           created_at: string
           deadline_date: string | null
+          deadline_status: string | null
           deadline_type: string
           description: string | null
+          extension_validity: string | null
           id: string
           is_judge_side: boolean
           label: string
+          legal_effect: string | null
           met_at: string | null
           notes: string | null
           organization_id: string | null
           owner_id: string
+          requires_manual_review: boolean
           status: string
+          supersedes_deadline_id: string | null
+          term_class: Database["public"]["Enums"]["term_class"]
           trigger_date: string
           trigger_event: string
           updated_at: string
           work_item_id: string
         }
         Insert: {
+          anchor_kind?: string | null
+          anchor_provenance_note?: string | null
+          anchor_source?: string | null
           bound_party_role?: string | null
           bound_party_source?: string | null
           business_days_count?: number | null
@@ -17447,22 +17780,31 @@ export type Database = {
           closure_reason?: string | null
           created_at?: string
           deadline_date?: string | null
+          deadline_status?: string | null
           deadline_type: string
           description?: string | null
+          extension_validity?: string | null
           id?: string
           is_judge_side?: boolean
           label: string
+          legal_effect?: string | null
           met_at?: string | null
           notes?: string | null
           organization_id?: string | null
           owner_id: string
+          requires_manual_review?: boolean
           status?: string
+          supersedes_deadline_id?: string | null
+          term_class?: Database["public"]["Enums"]["term_class"]
           trigger_date: string
           trigger_event: string
           updated_at?: string
           work_item_id: string
         }
         Update: {
+          anchor_kind?: string | null
+          anchor_provenance_note?: string | null
+          anchor_source?: string | null
           bound_party_role?: string | null
           bound_party_source?: string | null
           business_days_count?: number | null
@@ -17470,16 +17812,22 @@ export type Database = {
           closure_reason?: string | null
           created_at?: string
           deadline_date?: string | null
+          deadline_status?: string | null
           deadline_type?: string
           description?: string | null
+          extension_validity?: string | null
           id?: string
           is_judge_side?: boolean
           label?: string
+          legal_effect?: string | null
           met_at?: string | null
           notes?: string | null
           organization_id?: string | null
           owner_id?: string
+          requires_manual_review?: boolean
           status?: string
+          supersedes_deadline_id?: string | null
+          term_class?: Database["public"]["Enums"]["term_class"]
           trigger_date?: string
           trigger_event?: string
           updated_at?: string
@@ -17498,6 +17846,20 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_supersedes_deadline_id_fkey"
+            columns: ["supersedes_deadline_id"]
+            isOneToOne: false
+            referencedRelation: "v_deadline_attribution"
+            referencedColumns: ["deadline_id"]
+          },
+          {
+            foreignKeyName: "work_item_deadlines_supersedes_deadline_id_fkey"
+            columns: ["supersedes_deadline_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
           {
@@ -19424,6 +19786,7 @@ export type Database = {
           owner_id: string
           reason: string | null
           source_type: string
+          stage_id: string | null
           status: string
           suggested_cgp_phase: string | null
           suggested_pipeline_stage: string | null
@@ -19447,6 +19810,7 @@ export type Database = {
           owner_id: string
           reason?: string | null
           source_type: string
+          stage_id?: string | null
           status?: string
           suggested_cgp_phase?: string | null
           suggested_pipeline_stage?: string | null
@@ -19470,6 +19834,7 @@ export type Database = {
           owner_id?: string
           reason?: string | null
           source_type?: string
+          stage_id?: string | null
           status?: string
           suggested_cgp_phase?: string | null
           suggested_pipeline_stage?: string | null
@@ -19504,6 +19869,13 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_stages_global"
             referencedColumns: ["id"]
           },
           {
@@ -20990,6 +21362,138 @@ export type Database = {
           },
         ]
       }
+      workflow_definitions: {
+        Row: {
+          active: boolean
+          catalog_governed: boolean
+          created_at: string
+          id: string
+          is_system: boolean
+          label: string
+          legal_basis: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          catalog_governed?: boolean
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          catalog_governed?: boolean
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label?: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
+      workflow_event_catalog: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          description: string | null
+          event_kind: string
+          id: string
+          is_excluded_from_inference: boolean
+          is_system: boolean
+          label: string
+          legal_basis: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          description?: string | null
+          event_kind?: string
+          id?: string
+          is_excluded_from_inference?: boolean
+          is_system?: boolean
+          label: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          description?: string | null
+          event_kind?: string
+          id?: string
+          is_excluded_from_inference?: boolean
+          is_system?: boolean
+          label?: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
+      workflow_event_stage_patterns: {
+        Row: {
+          active: boolean
+          base_confidence: number
+          created_at: string
+          event_code: string
+          id: string
+          is_excluded: boolean
+          is_system: boolean
+          notes: string | null
+          pattern_keywords: string[]
+          pattern_regex: string | null
+          priority: number
+          suggested_stage_code: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          base_confidence?: number
+          created_at?: string
+          event_code: string
+          id?: string
+          is_excluded?: boolean
+          is_system?: boolean
+          notes?: string | null
+          pattern_keywords?: string[]
+          pattern_regex?: string | null
+          priority?: number
+          suggested_stage_code?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          base_confidence?: number
+          created_at?: string
+          event_code?: string
+          id?: string
+          is_excluded?: boolean
+          is_system?: boolean
+          notes?: string | null
+          pattern_keywords?: string[]
+          pattern_regex?: string | null
+          priority?: number
+          suggested_stage_code?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       workflow_missing_rules: {
         Row: {
           created_at: string
@@ -21034,6 +21538,143 @@ export type Database = {
           workflow_type?: string
         }
         Relationships: []
+      }
+      workflow_stage_transitions: {
+        Row: {
+          active: boolean
+          allowed_by_suggestion: boolean
+          created_at: string
+          from_stage_code: string
+          id: string
+          is_regression_allowed: boolean
+          is_system: boolean
+          legal_basis: string | null
+          notes: string | null
+          requires_explicit_user_action: boolean
+          to_stage_code: string
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          allowed_by_suggestion?: boolean
+          created_at?: string
+          from_stage_code: string
+          id?: string
+          is_regression_allowed?: boolean
+          is_system?: boolean
+          legal_basis?: string | null
+          notes?: string | null
+          requires_explicit_user_action?: boolean
+          to_stage_code: string
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          allowed_by_suggestion?: boolean
+          created_at?: string
+          from_stage_code?: string
+          id?: string
+          is_regression_allowed?: boolean
+          is_system?: boolean
+          legal_basis?: string | null
+          notes?: string | null
+          requires_explicit_user_action?: boolean
+          to_stage_code?: string
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
+      workflow_stages_global: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          display_order: number
+          expected_next_event: string | null
+          id: string
+          is_procedurally_live: boolean
+          is_system: boolean
+          is_terminal: boolean
+          label: string
+          legal_basis: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          display_order?: number
+          expected_next_event?: string | null
+          id?: string
+          is_procedurally_live?: boolean
+          is_system?: boolean
+          is_terminal?: boolean
+          label: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          display_order?: number
+          expected_next_event?: string | null
+          id?: string
+          is_procedurally_live?: boolean
+          is_system?: boolean
+          is_terminal?: boolean
+          label?: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
+      workflow_stages_org_override: {
+        Row: {
+          alert_preferences: Json
+          created_at: string
+          display_order: number | null
+          id: string
+          label: string | null
+          organization_id: string
+          stage_id: string
+          updated_at: string
+        }
+        Insert: {
+          alert_preferences?: Json
+          created_at?: string
+          display_order?: number | null
+          id?: string
+          label?: string | null
+          organization_id: string
+          stage_id: string
+          updated_at?: string
+        }
+        Update: {
+          alert_preferences?: Json
+          created_at?: string
+          display_order?: number | null
+          id?: string
+          label?: string | null
+          organization_id?: string
+          stage_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_stages_org_override_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_stages_global"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -22653,10 +23294,16 @@ export type Database = {
         Returns: boolean
       }
       act_is_stage_bearing: { Args: { p_text: string }; Returns: boolean }
-      add_business_days_sql: {
-        Args: { p_days: number; p_start: string }
-        Returns: string
-      }
+      add_business_days_sql:
+        | { Args: { p_days: number; p_start: string }; Returns: string }
+        | {
+            Args: {
+              p_days: number
+              p_start: string
+              p_term_class: Database["public"]["Enums"]["term_class"]
+            }
+            Returns: string
+          }
       admin_archive_record: {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
@@ -22905,6 +23552,7 @@ export type Database = {
         Args: { p_client_id: string; p_organization_id: string }
         Returns: Json
       }
+      check_holiday_coverage_runway: { Args: never; Returns: Json }
       check_inference_rate_limit: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
@@ -23127,6 +23775,7 @@ export type Database = {
         Returns: string
       }
       estados_signal_norm: { Args: { p_text: string }; Returns: string }
+      evaluate_peticion_system_events: { Args: never; Returns: Json }
       event_text_indicates_regresion: {
         Args: { p_text: string }
         Returns: boolean
@@ -23333,6 +23982,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      holiday_coverage_ok: {
+        Args: { p_from: string; p_to: string }
+        Returns: boolean
+      }
       insert_notification: {
         Args: {
           p_audience_scope: string
@@ -23358,7 +24011,15 @@ export type Database = {
         Returns: boolean
       }
       is_beta_enrollment_open: { Args: never; Returns: boolean }
-      is_business_day_sql: { Args: { p_date: string }; Returns: boolean }
+      is_business_day_sql:
+        | { Args: { p_date: string }; Returns: boolean }
+        | {
+            Args: {
+              p_date: string
+              p_term_class: Database["public"]["Enums"]["term_class"]
+            }
+            Returns: boolean
+          }
       is_business_org_admin: { Args: { _org_id: string }; Returns: boolean }
       is_historico_by_legal_date: {
         Args: { p_legal_date: string }
@@ -23954,6 +24615,7 @@ export type Database = {
         | "REVIEW_PROCESS"
         | "REVIEW_FILING"
         | "IMPORT_ESTADOS"
+      term_class: "JUDICIAL" | "ADMINISTRATIVO"
       work_item_lifecycle_state:
         | "ACTIVE"
         | "PAUSED"
@@ -24364,6 +25026,7 @@ export const Constants = {
         "REVIEW_FILING",
         "IMPORT_ESTADOS",
       ],
+      term_class: ["JUDICIAL", "ADMINISTRATIVO"],
       work_item_lifecycle_state: [
         "ACTIVE",
         "PAUSED",
