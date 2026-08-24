@@ -28,6 +28,14 @@ import {
   isKnownJudicialType,
   validateAlertPayload,
 } from "../_shared/alertTypeConstants.ts";
+import {
+  type ImmediateEventKey,
+  immediateAllowed,
+  type LedgerEntry,
+  notYetDispatched,
+  recordDispatch,
+  resolveChannelPolicy,
+} from "../_shared/notificationChannel.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -249,7 +257,7 @@ Deno.serve(async (req) => {
     if (pubIds.length > 0) {
       const { data: pubDetails } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, published_at, source, pdf_url, fecha_fijacion")
+        .select("id, title, published_at, source, pdf_url, pdf_storage_path, pdf_available, fecha_fijacion, work_item_id, organization_id")
         .in("id", pubIds);
       for (const pub of pubDetails || []) {
         pubDetailMap.set(pub.id, pub);
@@ -373,11 +381,17 @@ Deno.serve(async (req) => {
           payload.fecha_fijacion = payload.fecha_fijacion || detail.fecha_fijacion || detail.published_at || "";
           payload.observacion = payload.observacion || detail.observacion || "";
           payload.source = payload.source || detail.source || "";
-          // Emails may only carry absolute provider URLs. A storage path would
-          // be concatenated onto the app origin by the mail client → 404.
+          // D5 — the estado's PDF usually lives in our own storage, and a
+          // storage path in an email resolves against the mail client's origin
+          // → dead link. Mint a recipient-bound token and point the email at
+          // `digest-document`, which resolves storage OR provider URL. The raw
+          // provider URL is kept only when there is nothing to mint from.
           payload.pdf_url = /^https?:\/\//i.test(String(detail.pdf_url ?? ""))
             ? String(detail.pdf_url)
             : "";
+          payload.__pub_has_document = Boolean(
+            detail.pdf_storage_path || detail.pdf_available || payload.pdf_url,
+          );
         }
       }
     }
