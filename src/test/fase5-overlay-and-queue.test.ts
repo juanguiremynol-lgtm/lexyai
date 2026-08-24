@@ -29,7 +29,8 @@ describe("Fase 5 / A.2 — active queue vs. passive repository", () => {
   });
 
   it("never raises attention from weak-only evidence", () => {
-    expect(raisesAttention("repositorio_pasivo")).toBe(false);
-    expect(raisesAttention("cola_activa")).toBe(true);
+    expect(raisesAttention({ outcome: "SUGGEST", queue: "repositorio_pasivo" })).toBe(false);
+    expect(raisesAttention({ outcome: "SUGGEST", queue: "cola_activa" })).toBe(true);
+    expect(raisesAttention({ outcome: "NO_CANDIDATE", queue: "cola_activa" })).toBe(false);
   });
 });
