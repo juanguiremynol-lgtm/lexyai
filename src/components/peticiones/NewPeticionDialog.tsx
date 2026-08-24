@@ -44,6 +44,7 @@ interface NewPeticionDialogProps {
 export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewPeticionDialogProps) {
   const queryClient = useQueryClient();
   const [entityName, setEntityName] = useState("");
+  const [authorityId, setAuthorityId] = useState<string | null>(null);
   const [entityType, setEntityType] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
   const [entityEmail, setEntityEmail] = useState("");
   const [entityAddress, setEntityAddress] = useState("");
@@ -179,15 +180,16 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defau
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Entity Information */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="entityName">Nombre de la Entidad *</Label>
-              <Input
-                id="entityName"
-                value={entityName}
-                onChange={(e) => setEntityName(e.target.value)}
-                placeholder="Ej: Ministerio de Hacienda"
-              />
-            </div>
+            <AuthoritySelector
+              label="Nombre de la Entidad"
+              required
+              authorityId={authorityId}
+              freeTextName={entityName}
+              onChange={({ authorityId: id, freeTextName }) => {
+                setAuthorityId(id);
+                setEntityName(freeTextName);
+              }}
+            />
             <div className="space-y-2">
               <Label htmlFor="entityType">Tipo de Entidad</Label>
               <Select value={entityType} onValueChange={(v) => setEntityType(v as "PUBLIC" | "PRIVATE")}>
