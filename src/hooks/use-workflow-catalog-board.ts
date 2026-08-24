@@ -11,6 +11,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { assertCatalogRows } from "@/lib/workflow/catalog-access";
 
 export type LifecycleBand =
   | "EN_PREPARACION"

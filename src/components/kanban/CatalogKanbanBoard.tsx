@@ -37,9 +37,14 @@ export function CatalogKanbanBoard({
   invalidateQueries,
 }: CatalogKanbanBoardProps) {
   const navigate = useNavigate();
-  const { data: stages = [], isLoading: stagesLoading } = useCatalogStages(workflowType);
-  const { data: transitions = [] } = useCatalogTransitions(workflowType);
+  const {
+    data: stages = [],
+    isLoading: stagesLoading,
+    error: stagesError,
+  } = useCatalogStages(workflowType);
+  const { data: transitions = [], error: transitionsError } = useCatalogTransitions(workflowType);
   const { data: conditions = [] } = useAttentionConditions(workflowType);
+  const catalogError = stagesError ?? transitionsError;
 
   const byItem = useMemo(() => {
     const map = new Map<string, AttentionCondition[]>();
