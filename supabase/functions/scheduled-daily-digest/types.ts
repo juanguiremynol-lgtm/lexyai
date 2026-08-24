@@ -172,6 +172,9 @@ export interface DigestPayload {
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
+  /** D3 — rows detected in the window that are initial import, not novedad. */
+  importedHistory: ImportedHistoryRow[];
+
   connectionIssues: ConnectionIssueRow[];
   suspended: SuspendedItemRow[];
   workItems: Map<string, WorkItemInfo>;
