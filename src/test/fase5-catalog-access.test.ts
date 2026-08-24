@@ -66,7 +66,13 @@ describe("Fase 5 / A.1 — catalog access fails loudly", () => {
     expect(error).toBeNull();
   });
 
-  it.each(CATALOG_TABLES)("%s is not readable without a session", async (table) => {
+  /**
+   * `peticion_subtypes` is deliberately public (the demo surface reads it), so
+   * it is excluded here — the rest of the catalog is session-only.
+   */
+  const SESSION_ONLY = CATALOG_TABLES.filter((t) => t !== "peticion_subtypes");
+
+  it.each(SESSION_ONLY)("%s is not readable without a session", async (table) => {
     const { data, error } = await supabase.from(table as never).select("*").limit(1);
     expect(UNREACHABLE_CODES).not.toContain(error?.code);
     expect(data ?? []).toHaveLength(0);
