@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -172,7 +173,26 @@ export default function Dashboard() {
 
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-        <div className="overflow-x-auto -mx-1 px-1">
+        <div className="md:hidden">
+          <label className="mb-2 block text-sm font-medium readable-text-strong" htmlFor="dashboard-board-selector">
+            Tablero
+          </label>
+          <Select value={activeTab} onValueChange={handleTabChange}>
+            <SelectTrigger id="dashboard-board-selector" aria-label="Seleccionar tablero">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {boards.map((b) => (
+                <SelectItem key={b.tab} value={b.tab}>
+                  {b.label}
+                </SelectItem>
+              ))}
+              <SelectItem value={UNCLASSIFIED_TAB}>Por clasificar</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="hidden overflow-x-auto -mx-1 px-1 md:block">
           <TabsList className="inline-flex whitespace-nowrap">
             {boards.map((b) => (
               <TabsTrigger key={b.tab} value={b.tab}>

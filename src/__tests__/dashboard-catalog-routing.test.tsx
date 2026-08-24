@@ -181,6 +181,14 @@ describe("Dashboard route renders the database catalog", () => {
     expect(screen.getAllByText("En curso").length).toBeGreaterThan(0);
   });
 
+  it("exposes both catalog boards in the mobile board selector", async () => {
+    currentWorkflow = "PETICION";
+    mount("peticiones");
+    await waitFor(() => expect(screen.getByLabelText("Seleccionar tablero")).toBeDefined());
+    expect(screen.getAllByText("Peticiones").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Procesos Administrativos").length).toBeGreaterThan(0);
+  });
+
   it("attention is a card badge and never a column; the five card fields render", async () => {
     currentWorkflow = "PETICION";
     mount("peticiones");
