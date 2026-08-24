@@ -11428,6 +11428,42 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_dispatch_ledger: {
+        Row: {
+          channel: string
+          created_at: string
+          dispatched_at: string
+          entity_id: string
+          entity_kind: string
+          id: string
+          organization_id: string | null
+          recipient_user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          dispatched_at?: string
+          entity_id: string
+          entity_kind: string
+          id?: string
+          organization_id?: string | null
+          recipient_user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          dispatched_at?: string
+          entity_id?: string
+          entity_kind?: string
+          id?: string
+          organization_id?: string | null
+          recipient_user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       notification_dispatch_runs: {
         Row: {
           alerts_found: number
@@ -21412,6 +21448,7 @@ export type Database = {
           needs_cpnu_refresh: boolean
           notes: string | null
           notification_effective_date: string | null
+          notification_override: string | null
           notification_substatus: string | null
           onedrive_url: string | null
           organization_id: string | null
@@ -21622,6 +21659,7 @@ export type Database = {
           needs_cpnu_refresh?: boolean
           notes?: string | null
           notification_effective_date?: string | null
+          notification_override?: string | null
           notification_substatus?: string | null
           onedrive_url?: string | null
           organization_id?: string | null
@@ -21832,6 +21870,7 @@ export type Database = {
           needs_cpnu_refresh?: boolean
           notes?: string | null
           notification_effective_date?: string | null
+          notification_override?: string | null
           notification_substatus?: string | null
           onedrive_url?: string | null
           organization_id?: string | null
