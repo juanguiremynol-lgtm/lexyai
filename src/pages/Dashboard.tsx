@@ -223,10 +223,10 @@ function BoardBody({ workflow }: { workflow: WorkflowType }) {
       return <PenalPipeline />;
     case "CPACA":
       return <CpacaPipeline />;
+    // Catalog-governed workflows: columns come from workflow_stages_global.
     case "GOV_PROCEDURE":
-      return <AdminPipeline />;
     case "PETICION":
-      return <PeticionesPipeline />;
+      return <CatalogBoardContainer workflowType={workflow} />;
     case "TUTELA":
       return <TutelasPipeline />;
     default:
