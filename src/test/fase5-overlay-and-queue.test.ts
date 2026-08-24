@@ -16,11 +16,11 @@ import {
 
 describe("Fase 5 / A.2 — active queue vs. passive repository", () => {
   const cases: Array<{ signals: string[]; queue: MatchQueue }> = [
-    { signals: ["RADICADO"], queue: "cola_activa" },
-    { signals: ["RADICADO", "CLIENTE"], queue: "cola_activa" },
-    { signals: ["DESPACHO_DOMAIN"], queue: "cola_activa" },
+    { signals: ["IDENTIFIER_EXACT"], queue: "cola_activa" },
+    { signals: ["IDENTIFIER_FUZZY", "CLIENTE"], queue: "cola_activa" },
+    { signals: ["VERIFIED_AUTHORITY_DOMAIN"], queue: "cola_activa" },
     { signals: ["CLIENTE"], queue: "repositorio_pasivo" },
-    { signals: ["PARTE", "CLIENTE"], queue: "repositorio_pasivo" },
+    { signals: ["PARTE", "CLIENTE", "OBSERVED_AUTHORITY_DOMAIN"], queue: "repositorio_pasivo" },
     { signals: [], queue: "repositorio_pasivo" },
   ];
 
