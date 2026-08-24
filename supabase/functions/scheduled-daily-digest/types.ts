@@ -157,6 +157,20 @@ export function isNonJudicial(wt: string | null | undefined): boolean {
   return !!wt && (NON_JUDICIAL_WORKFLOWS as readonly string[]).includes(wt);
 }
 
+/**
+ * D3 — a matter whose provider history landed inside the digest window
+ * because it was read for the first time (or reactivated). These rows are
+ * NOT novedades: they are the expediente's past arriving late.
+ */
+export interface ImportedHistoryRow {
+  work_item_id: string;
+  rows: number;
+  acts: number;
+  estados: number;
+  from_year: number | null;
+  to_year: number | null;
+}
+
 export interface DigestPayload {
   recipientName: string | null;
   windowFrom: string;
@@ -172,6 +186,9 @@ export interface DigestPayload {
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
+  /** D3 — rows detected in the window that are initial import, not novedad. */
+  importedHistory: ImportedHistoryRow[];
+
   connectionIssues: ConnectionIssueRow[];
   suspended: SuspendedItemRow[];
   workItems: Map<string, WorkItemInfo>;

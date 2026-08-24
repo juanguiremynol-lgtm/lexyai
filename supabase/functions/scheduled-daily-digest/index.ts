@@ -29,6 +29,11 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
+import {
+  type LedgerEntry,
+  notYetDispatched,
+  recordDispatch,
+} from "../_shared/notificationChannel.ts";
 import { buildDigestHtml } from "./html.ts";
 import { isNonJudicial } from "./types.ts";
 import type {
@@ -232,9 +237,15 @@ Deno.serve(async (req) => {
         const nonJudicialIds = new Set(nonJudicialItems.map((i) => i.id));
 
         // ── Novedades: actuaciones (acts in the expediente) ──
-        const { data: rawActs, error: actErr } = await supabase
+        // D3 — `is_notifiable` is the DB's own verdict on "novedad real vs
+        // importación inicial" (handle_actuacion_notifiability): false while
+        // the matter has no `acts_initial_sync_completed_at`, or when the act
+        // predates the matter. The digest MUST honour it; counting by
+        // `detected_at` alone turns a reactivated expediente's whole history
+        // into today's news.
+        const { data: rawActsAll, error: actErr } = await supabase
           .from("work_item_acts")
-          .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id")
+          .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id, is_notifiable")
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
@@ -244,9 +255,9 @@ Deno.serve(async (req) => {
         if (actErr) { await fail(`acts: ${actErr.message}`); continue; }
 
         // ── Novedades: estados (publications fixed on the list) ──
-        const { data: rawPubs, error: pubErr } = await supabase
+        const { data: rawPubsAll, error: pubErr } = await supabase
           .from("work_item_publicaciones")
-          .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, organization_id")
+          .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, organization_id, is_notifiable")
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
@@ -254,6 +265,23 @@ Deno.serve(async (req) => {
           .order("detected_at", { ascending: false })
           .limit(400);
         if (pubErr) { await fail(`publicaciones: ${pubErr.message}`); continue; }
+
+        // D3 — historial importado: everything detected in the window that the
+        // DB does not consider a novedad. Reported apart, never counted.
+        const historyActs = (rawActsAll ?? []).filter((a) => a.is_notifiable !== true);
+        const historyPubs = (rawPubsAll ?? []).filter((p) => p.is_notifiable !== true);
+
+        // D1 — a movement already mailed by the per-event channel is not
+        // repeated here. The ledger is the shared record of both channels.
+        const notifiableActs = (rawActsAll ?? []).filter((a) => a.is_notifiable === true);
+        const notifiablePubs = (rawPubsAll ?? []).filter((p) => p.is_notifiable === true);
+        const [pendingActIds, pendingPubIds] = await Promise.all([
+          notYetDispatched(supabase, ownerId, "ACT", notifiableActs.map((a) => a.id)),
+          notYetDispatched(supabase, ownerId, "PUB", notifiablePubs.map((p) => p.id)),
+        ]);
+        const rawActs = notifiableActs.filter((a) => pendingActIds.has(a.id));
+        const rawPubs = notifiablePubs.filter((p) => pendingPubIds.has(p.id));
+
 
         // ── Próximas audiencias (7 días) ──
         const horizon = new Date(Date.now() + HEARING_HORIZON_DAYS * 86_400_000).toISOString();
@@ -460,9 +488,32 @@ Deno.serve(async (req) => {
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
         const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
+        // D3 — «historial importado»: one line per matter, with the span of
+        // the imported rows. A reactivated expediente produces ONE fact — that
+        // it was reactivated — plus its history; never N novedades.
+        const historyByItem = new Map<string, { acts: number; estados: number; years: number[] }>();
+        const bumpHistory = (wid: string, kind: "acts" | "estados", date: string | null) => {
+          const entry = historyByItem.get(wid) ?? { acts: 0, estados: 0, years: [] };
+          entry[kind]++;
+          const y = date ? Number(String(date).slice(0, 4)) : NaN;
+          if (Number.isFinite(y)) entry.years.push(y);
+          historyByItem.set(wid, entry);
+        };
+        for (const a of historyActs) bumpHistory(a.work_item_id, "acts", a.act_date);
+        for (const p of historyPubs) bumpHistory(p.work_item_id, "estados", p.fecha_fijacion);
+        const importedHistory = [...historyByItem.entries()].map(([wid, e]) => ({
+          work_item_id: wid,
+          rows: e.acts + e.estados,
+          acts: e.acts,
+          estados: e.estados,
+          from_year: e.years.length ? Math.min(...e.years) : null,
+          to_year: e.years.length ? Math.max(...e.years) : null,
+        }));
+
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length > 0;
+            connectionIssues.length + importedHistory.length > 0;
+
 
         if (!hasContent) {
           summary.empty++;
@@ -518,6 +569,8 @@ Deno.serve(async (req) => {
           nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
+          importedHistory,
+
           nonJudicialDeadlines,
           connectionIssues,
           suspended,
@@ -565,6 +618,29 @@ Deno.serve(async (req) => {
 
         summary.sent++;
         summary.documents_linked += tokens.length;
+
+        // D1 — record every movement this digest carried, so the per-event
+        // channel never mails it again.
+        const ledgerRows: LedgerEntry[] = [
+          ...actuaciones.map((a) => ({
+            recipient_user_id: ownerId,
+            organization_id: orgOf.get(ownerId) ?? null,
+            work_item_id: a.work_item_id,
+            entity_kind: "ACT" as const,
+            entity_id: a.id,
+            channel: "DIGEST" as const,
+          })),
+          ...estados.map((e) => ({
+            recipient_user_id: ownerId,
+            organization_id: orgOf.get(ownerId) ?? null,
+            work_item_id: e.work_item_id,
+            entity_kind: "PUB" as const,
+            entity_id: e.id,
+            channel: "DIGEST" as const,
+          })),
+        ];
+        await recordDispatch(supabase, ledgerRows);
+
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
