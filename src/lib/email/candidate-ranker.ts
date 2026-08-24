@@ -11,10 +11,38 @@ import {
   classOf,
   confidenceCeiling,
   hasDeterministic,
+  hasStrong,
   scoreCandidate,
 } from "./signal-taxonomy";
 
 export type MatchOutcome = "AUTO_LINK" | "SUGGEST" | "NO_CANDIDATE";
+
+/**
+ * Fase 5 / A.2 — where a proposal lands.
+ *
+ * Measured on the historical corpus: of 616 name-class candidates only 14 were
+ * ever confirmed (2.3%). Keeping them out of the queue that raises attention is
+ * therefore the correct treatment — but they are not discarded either, since
+ * those 14 confirmations must stay recoverable. Hence two surfaces:
+ *
+ *   cola_activa       — deterministic or strong evidence; raises an attention
+ *                       condition and shows on the card.
+ *   repositorio_pasivo — weak-only evidence; searchable from the work item,
+ *                       raises nothing, notifies nothing.
+ */
+export type MatchQueue = "cola_activa" | "repositorio_pasivo";
+
+/** Weak-only evidence never reaches the active queue, whatever its score. */
+export function queueFor(signals: SignalCode[]): MatchQueue {
+  return hasDeterministic(signals) || hasStrong(signals)
+    ? "cola_activa"
+    : "repositorio_pasivo";
+}
+
+/** Only the active queue may raise an attention condition (B.3 dimension). */
+export function raisesAttention(result: Pick<RankingResult, "outcome" | "queue">): boolean {
+  return result.outcome !== "NO_CANDIDATE" && result.queue === "cola_activa";
+}
 
 export interface MatchingThresholds {
   workflowType: string;
@@ -70,6 +98,8 @@ export interface RankingResult {
   candidates: RankedCandidate[];
   ambiguous: boolean;
   conflict: boolean;
+  /** A.2: which surface the proposal belongs to. */
+  queue: MatchQueue;
   /** Human-readable reason the top candidate did not auto-link. */
   reason: string;
 }
@@ -108,6 +138,7 @@ export function rankCandidates(
   if (!top || top.score < weakFloor) {
     return {
       outcome: "NO_CANDIDATE",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: false,
@@ -120,6 +151,7 @@ export function rankCandidates(
     // A.3: weak-only evidence is still shown, always as a proposal.
     return {
       outcome: "SUGGEST",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: false,
@@ -138,6 +170,7 @@ export function rankCandidates(
   if (ambiguous) {
     return {
       outcome: "SUGGEST",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: true,
@@ -149,6 +182,7 @@ export function rankCandidates(
   if (top.conflict) {
     return {
       outcome: "SUGGEST",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: false,
@@ -160,6 +194,7 @@ export function rankCandidates(
   if (thresholds.requiresDeterministicForAutoLink && !deterministic) {
     return {
       outcome: "SUGGEST",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: false,
@@ -171,6 +206,7 @@ export function rankCandidates(
   if (top.score < thresholds.autoLinkFloor) {
     return {
       outcome: "SUGGEST",
+      queue: top ? queueFor(top.signals.map((s) => s.code)) : "repositorio_pasivo",
       top,
       candidates: ranked,
       ambiguous: false,
@@ -181,6 +217,7 @@ export function rankCandidates(
 
   return {
     outcome: "AUTO_LINK",
+    queue: queueFor(top.signals.map((s) => s.code)),
     top,
     candidates: ranked,
     ambiguous: false,
