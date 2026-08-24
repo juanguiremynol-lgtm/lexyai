@@ -436,13 +436,6 @@ export type Database = {
             foreignKeyName: "actuaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "actuaciones_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -566,6 +559,7 @@ export type Database = {
           alert_rule_id: string | null
           alert_source: string | null
           alert_type: string
+          condition_class: string
           created_at: string
           dismissal_reason: string | null
           dismissed_at: string | null
@@ -579,10 +573,13 @@ export type Database = {
           message: string
           next_fire_at: string | null
           notified_email_at: string | null
+          object_id: string | null
+          object_kind: string | null
           organization_id: string | null
           owner_id: string
           payload: Json | null
           read_at: string | null
+          resolution_mode: string
           resolved_at: string | null
           seen_at: string | null
           sent_at: string | null
@@ -598,6 +595,7 @@ export type Database = {
           alert_rule_id?: string | null
           alert_source?: string | null
           alert_type?: string
+          condition_class?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -611,10 +609,13 @@ export type Database = {
           message: string
           next_fire_at?: string | null
           notified_email_at?: string | null
+          object_id?: string | null
+          object_kind?: string | null
           organization_id?: string | null
           owner_id: string
           payload?: Json | null
           read_at?: string | null
+          resolution_mode?: string
           resolved_at?: string | null
           seen_at?: string | null
           sent_at?: string | null
@@ -630,6 +631,7 @@ export type Database = {
           alert_rule_id?: string | null
           alert_source?: string | null
           alert_type?: string
+          condition_class?: string
           created_at?: string
           dismissal_reason?: string | null
           dismissed_at?: string | null
@@ -643,10 +645,13 @@ export type Database = {
           message?: string
           next_fire_at?: string | null
           notified_email_at?: string | null
+          object_id?: string | null
+          object_kind?: string | null
           organization_id?: string | null
           owner_id?: string
           payload?: Json | null
           read_at?: string | null
+          resolution_mode?: string
           resolved_at?: string | null
           seen_at?: string | null
           sent_at?: string | null
@@ -1048,13 +1053,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1487,13 +1485,6 @@ export type Database = {
             foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -1700,13 +1691,6 @@ export type Database = {
             foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -1773,13 +1757,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: true
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: true
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -1882,13 +1859,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -2004,13 +1974,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -2220,13 +2183,6 @@ export type Database = {
             foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -2316,13 +2272,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -2437,13 +2386,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -2767,6 +2709,7 @@ export type Database = {
           verification_source: string | null
           verification_status: string
           verified_at: string | null
+          verified_by: string | null
         }
         Insert: {
           authority_id: string
@@ -2779,6 +2722,7 @@ export type Database = {
           verification_source?: string | null
           verification_status?: string
           verified_at?: string | null
+          verified_by?: string | null
         }
         Update: {
           authority_id?: string
@@ -2791,6 +2735,7 @@ export type Database = {
           verification_source?: string | null
           verification_status?: string
           verified_at?: string | null
+          verified_by?: string | null
         }
         Relationships: [
           {
@@ -3731,13 +3676,6 @@ export type Database = {
             foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "bridge_inventory_ledger_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -3849,13 +3787,6 @@ export type Database = {
             foreignKeyName: "cgp_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -3952,13 +3883,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -4315,13 +4239,6 @@ export type Database = {
             foreignKeyName: "cgp_milestones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "cgp_milestones_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -4465,13 +4382,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -6026,13 +5936,6 @@ export type Database = {
             foreignKeyName: "deadline_discharge_suggestions_deadline_id_fkey"
             columns: ["deadline_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["deadline_id"]
-          },
-          {
-            foreignKeyName: "deadline_discharge_suggestions_deadline_id_fkey"
-            columns: ["deadline_id"]
-            isOneToOne: false
             referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
@@ -6055,13 +5958,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "deadline_discharge_suggestions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -6398,13 +6294,6 @@ export type Database = {
             foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
             columns: ["linked_work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
-            columns: ["linked_work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -6494,13 +6383,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "despacho_census_requests_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -6855,13 +6737,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "digest_document_tokens_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -7720,6 +7595,7 @@ export type Database = {
           suggest_floor: number
           updated_at: string
           weak_only_ceiling: number
+          weak_suggest_floor: number
           workflow_type: string
         }
         Insert: {
@@ -7733,6 +7609,7 @@ export type Database = {
           suggest_floor?: number
           updated_at?: string
           weak_only_ceiling?: number
+          weak_suggest_floor?: number
           workflow_type: string
         }
         Update: {
@@ -7746,6 +7623,7 @@ export type Database = {
           suggest_floor?: number
           updated_at?: string
           weak_only_ceiling?: number
+          weak_suggest_floor?: number
           workflow_type?: string
         }
         Relationships: [
@@ -7906,13 +7784,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "email_outbox_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -8283,13 +8154,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "estado_sin_documento_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -8753,13 +8617,6 @@ export type Database = {
             foreignKeyName: "external_sync_runs_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "external_sync_runs_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -9042,13 +8899,6 @@ export type Database = {
             foreignKeyName: "generated_documents_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "generated_documents_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -9235,13 +9085,6 @@ export type Database = {
             foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -9335,13 +9178,6 @@ export type Database = {
             foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -9419,13 +9255,6 @@ export type Database = {
             foreignKeyName: "gov_procedure_recursos_deadline_id_fkey"
             columns: ["deadline_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["deadline_id"]
-          },
-          {
-            foreignKeyName: "gov_procedure_recursos_deadline_id_fkey"
-            columns: ["deadline_id"]
-            isOneToOne: false
             referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
@@ -9441,13 +9270,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -9729,13 +9551,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: true
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: true
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -10343,13 +10158,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "hearings_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -11389,13 +11197,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "memorial_history_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -12547,64 +12348,6 @@ export type Database = {
           },
         ]
       }
-      peticion_alerts: {
-        Row: {
-          alert_type: string
-          created_at: string
-          id: string
-          is_read: boolean | null
-          message: string
-          owner_id: string
-          peticion_id: string
-          sent_at: string | null
-          severity: string
-        }
-        Insert: {
-          alert_type: string
-          created_at?: string
-          id?: string
-          is_read?: boolean | null
-          message: string
-          owner_id: string
-          peticion_id: string
-          sent_at?: string | null
-          severity: string
-        }
-        Update: {
-          alert_type?: string
-          created_at?: string
-          id?: string
-          is_read?: boolean | null
-          message?: string
-          owner_id?: string
-          peticion_id?: string
-          sent_at?: string | null
-          severity?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "peticion_alerts_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "email_recipients_by_org"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "peticion_alerts_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "peticion_alerts_peticion_id_fkey"
-            columns: ["peticion_id"]
-            isOneToOne: false
-            referencedRelation: "peticiones"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       peticion_events: {
         Row: {
           created_at: string
@@ -12663,13 +12406,6 @@ export type Database = {
             foreignKeyName: "peticion_events_deadline_id_fkey"
             columns: ["deadline_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["deadline_id"]
-          },
-          {
-            foreignKeyName: "peticion_events_deadline_id_fkey"
-            columns: ["deadline_id"]
-            isOneToOne: false
             referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
@@ -12685,13 +12421,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "peticion_events_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -12876,13 +12605,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: true
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "peticion_work_item_state_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: true
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -13844,13 +13566,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "process_events_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -15162,13 +14877,6 @@ export type Database = {
             foreignKeyName: "provider_source_health_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "provider_source_health_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -15787,13 +15495,6 @@ export type Database = {
             foreignKeyName: "support_bundles_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "support_bundles_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -15902,13 +15603,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "sync_audit_log_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -16094,13 +15788,6 @@ export type Database = {
             foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: true
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: true
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -16271,13 +15958,6 @@ export type Database = {
             foreignKeyName: "sync_retry_queue_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -16396,13 +16076,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "sync_traces_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -16546,13 +16219,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "sync_watches_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -17299,13 +16965,6 @@ export type Database = {
             foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "upstream_lifecycle_divergences_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -17479,13 +17138,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "user_data_alerts_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -18039,13 +17691,6 @@ export type Database = {
             foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
             columns: ["selected_work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "whatsapp_conversations_selected_work_item_id_fkey"
-            columns: ["selected_work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -18587,13 +18232,6 @@ export type Database = {
             foreignKeyName: "work_item_acts_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_acts_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -18669,13 +18307,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_clase_proceso_audit_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -18766,13 +18397,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -18921,13 +18545,6 @@ export type Database = {
             foreignKeyName: "work_item_deadlines_supersedes_deadline_id_fkey"
             columns: ["supersedes_deadline_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["deadline_id"]
-          },
-          {
-            foreignKeyName: "work_item_deadlines_supersedes_deadline_id_fkey"
-            columns: ["supersedes_deadline_id"]
-            isOneToOne: false
             referencedRelation: "work_item_deadlines"
             referencedColumns: ["id"]
           },
@@ -18943,13 +18560,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -19031,13 +18641,6 @@ export type Database = {
             foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_reserva_historial_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -19107,13 +18710,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_email_events_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -19196,13 +18792,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_email_link_effects_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -19363,13 +18952,6 @@ export type Database = {
             foreignKeyName: "work_item_email_links_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_email_links_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -19481,13 +19063,6 @@ export type Database = {
             foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: true
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_estados_signal_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: true
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -19565,13 +19140,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_external_links_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -19732,13 +19300,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_hearings_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -19936,13 +19497,6 @@ export type Database = {
             foreignKeyName: "work_item_parties_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_parties_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -20006,13 +19560,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_provider_enrollment_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -20263,13 +19810,6 @@ export type Database = {
             foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -20375,13 +19915,6 @@ export type Database = {
             foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_recurso_streams_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -20475,13 +20008,6 @@ export type Database = {
             foreignKeyName: "work_item_reminders_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_reminders_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -20560,13 +20086,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -20677,13 +20196,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -20825,13 +20337,6 @@ export type Database = {
             foreignKeyName: "work_item_sources_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_sources_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -20940,13 +20445,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -21099,13 +20597,6 @@ export type Database = {
             foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -21220,13 +20711,6 @@ export type Database = {
             foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
             columns: ["origin_work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_successions_origin_work_item_id_fkey"
-            columns: ["origin_work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -21256,13 +20740,6 @@ export type Database = {
             columns: ["successor_work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_successions_successor_work_item_id_fkey"
-            columns: ["successor_work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -21368,13 +20845,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_sync_timeline_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -21536,13 +21006,6 @@ export type Database = {
             foreignKeyName: "work_item_tasks_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_tasks_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -21678,13 +21141,6 @@ export type Database = {
             foreignKeyName: "work_item_tracks_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_tracks_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -21766,13 +21222,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "monitoring_coverage_v"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_workflow_suggestions_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
             referencedColumns: ["work_item_id"]
           },
           {
@@ -22791,6 +22240,36 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_stage_code_mappings: {
+        Row: {
+          created_at: string
+          id: string
+          new_code: string
+          old_code: string
+          reason: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          new_code: string
+          old_code: string
+          reason?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          new_code?: string
+          old_code?: string
+          reason?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       workflow_stage_transitions: {
         Row: {
           active: boolean
@@ -22852,6 +22331,7 @@ export type Database = {
           is_terminal: boolean
           label: string
           legal_basis: string | null
+          lifecycle_band: string | null
           updated_at: string
           workflow_type: string
         }
@@ -22867,6 +22347,7 @@ export type Database = {
           is_terminal?: boolean
           label: string
           legal_basis?: string | null
+          lifecycle_band?: string | null
           updated_at?: string
           workflow_type: string
         }
@@ -22882,6 +22363,7 @@ export type Database = {
           is_terminal?: boolean
           label?: string
           legal_basis?: string | null
+          lifecycle_band?: string | null
           updated_at?: string
           workflow_type?: string
         }
@@ -23123,13 +22605,6 @@ export type Database = {
             foreignKeyName: "work_item_deadlines_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
-            referencedRelation: "v_gov_procedure_expired_background_timers"
-            referencedColumns: ["work_item_id"]
-          },
-          {
-            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
-            columns: ["work_item_id"]
-            isOneToOne: false
             referencedRelation: "v_live_work_items"
             referencedColumns: ["id"]
           },
@@ -23145,61 +22620,6 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      v_gov_procedure_expired_background_timers: {
-        Row: {
-          anchor_date: string | null
-          days_elapsed: number | null
-          deadline_id: string | null
-          expired_on: string | null
-          legal_effect: string | null
-          organization_id: string | null
-          owner_id: string | null
-          radicado: string | null
-          recurso_id: string | null
-          regime_code: string | null
-          stage_code: string | null
-          timer_type: string | null
-          title: string | null
-          work_item_id: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "gov_procedure_work_item_state_regime_code_fkey"
-            columns: ["regime_code"]
-            isOneToOne: false
-            referencedRelation: "gov_procedure_regimes"
-            referencedColumns: ["code"]
-          },
-          {
-            foreignKeyName: "work_items_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "email_recipients_by_org"
-            referencedColumns: ["organization_id"]
-          },
-          {
-            foreignKeyName: "work_items_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "work_items_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "email_recipients_by_org"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "work_items_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -24570,6 +23990,25 @@ export type Database = {
           },
         ]
       }
+      v_work_item_attention_conditions: {
+        Row: {
+          condition_type: string | null
+          detail: string | null
+          object_id: string | null
+          object_kind: string | null
+          organization_id: string | null
+          owner_id: string | null
+          raised_at: string | null
+          raised_by: string | null
+          reference_date: string | null
+          resolution_mode: string | null
+          severity: string | null
+          stage_code: string | null
+          work_item_id: string | null
+          workflow_type: string | null
+        }
+        Relationships: []
+      }
       work_item_timeline_v: {
         Row: {
           kind: string | null
@@ -24669,6 +24108,15 @@ export type Database = {
       apply_rechazo_presunto_rule: {
         Args: { p_work_item_id?: string }
         Returns: Json
+      }
+      apply_system_computed_stage: {
+        Args: {
+          p_metadata?: Json
+          p_new_stage: string
+          p_reason: string
+          p_work_item_id: string
+        }
+        Returns: boolean
       }
       atenia_ai_claim_queue: {
         Args: { _limit?: number }
@@ -25677,6 +25125,15 @@ export type Database = {
       user_has_accepted_current_terms: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      validate_prorroga_peticion: {
+        Args: {
+          p_communicated_on: string
+          p_extended_term_days: number
+          p_original_due_date: string
+          p_original_term_days: number
+        }
+        Returns: Json
       }
       work_item_appellate_blindspot: {
         Args: { p_work_item_id: string }

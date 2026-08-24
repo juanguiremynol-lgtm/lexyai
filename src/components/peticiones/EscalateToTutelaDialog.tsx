@@ -82,14 +82,9 @@ export function EscalateToTutelaDialog({
 
       if (updateError) throw updateError;
 
-      // Create alert for the escalation
-      await supabase.from("peticion_alerts").insert({
-        owner_id: user.user.id,
-        peticion_id: peticion.id,
-        alert_type: "UNANSWERED_ESCALATE",
-        severity: "CRITICAL",
-        message: `Petición escalada a Tutela: ${peticion.subject}`,
-      });
+      // Fase 4 / B.2: the legacy `peticion_alerts` table was retired.
+      // Attention conditions live in the unified alert layer.
+
 
       return workItem;
     },

@@ -48,19 +48,19 @@ export function ArchivePromptDialog({
     mutate: () => {
       if (!itemId) return;
       if (itemType === "peticion") {
-        // Peticiones are a separate table; soft-delete doesn't apply
-        supabase.from("peticion_alerts").delete().eq("peticion_id", itemId).then(() => {
-          supabase.from("peticiones").delete().eq("id", itemId).then(({ error }) => {
-            if (error) {
-              toast.error("Error al eliminar: " + error.message);
-            } else {
-              queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-              toast.success("Registro eliminado exitosamente");
-              onOpenChange(false);
-              onDeleted?.();
-            }
-          });
+        // Peticiones are a separate table; soft-delete doesn't apply.
+        // Fase 4 / B.2: the legacy `peticion_alerts` table was retired.
+        supabase.from("peticiones").delete().eq("id", itemId).then(({ error }) => {
+          if (error) {
+            toast.error("Error al eliminar: " + error.message);
+          } else {
+            queryClient.invalidateQueries({ queryKey: ["peticiones"] });
+            toast.success("Registro eliminado exitosamente");
+            onOpenChange(false);
+            onDeleted?.();
+          }
         });
+
       } else {
         // Use soft-delete for work_items
         archiveSingle(itemId);

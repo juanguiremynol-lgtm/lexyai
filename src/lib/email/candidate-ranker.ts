@@ -20,6 +20,12 @@ export interface MatchingThresholds {
   workflowType: string;
   autoLinkFloor: number;
   suggestFloor: number;
+  /**
+   * Fase 4 / A.3: name-class evidence is capped by a *ceiling*, never erased.
+   * A candidate carrying only weak signals still reaches the lawyer as a
+   * suggestion — it simply can never auto-link.
+   */
+  weakSuggestFloor: number;
   ambiguityMargin: number;
   weakOnlyCeiling: number;
   strongOnlyCeiling: number;
@@ -30,6 +36,7 @@ export const FALLBACK_THRESHOLDS: MatchingThresholds = {
   workflowType: "DEFAULT",
   autoLinkFloor: 0.9,
   suggestFloor: 0.35,
+  weakSuggestFloor: 0.05,
   ambiguityMargin: 0.1,
   weakOnlyCeiling: 0.45,
   strongOnlyCeiling: 0.85,
@@ -96,7 +103,9 @@ export function rankCandidates(
   const top = ranked[0] ?? null;
   const second = ranked[1] ?? null;
 
-  if (!top || top.score < thresholds.suggestFloor) {
+  const weakFloor = thresholds.weakSuggestFloor ?? FALLBACK_THRESHOLDS.weakSuggestFloor;
+
+  if (!top || top.score < weakFloor) {
     return {
       outcome: "NO_CANDIDATE",
       top,
@@ -104,6 +113,19 @@ export function rankCandidates(
       ambiguous: false,
       conflict: top?.conflict ?? false,
       reason: "Ningún candidato alcanza el piso mínimo de evidencia.",
+    };
+  }
+
+  if (top.score < thresholds.suggestFloor) {
+    // A.3: weak-only evidence is still shown, always as a proposal.
+    return {
+      outcome: "SUGGEST",
+      top,
+      candidates: ranked,
+      ambiguous: false,
+      conflict: top.conflict,
+      reason:
+        "Evidencia únicamente de nombre: se propone para revisión, nunca se vincula automáticamente.",
     };
   }
 
