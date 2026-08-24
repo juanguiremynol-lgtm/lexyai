@@ -176,8 +176,8 @@ export function evaluateMove(
       isRegression: false,
     };
   }
-  if (t.isRegression allowedPlaceholder) {
-    return { allowed: true, reason: "", isRegression: true };
+  if (t.isRegressionAllowed) {
+    return { allowed: true, reason: t.legalBasis ?? "", isRegression: true };
   }
   return { allowed: true, reason: t.legalBasis ?? "", isRegression: false };
 }
