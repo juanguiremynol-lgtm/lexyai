@@ -7,7 +7,7 @@ import { caducidadAnchor, addCalendarYears } from "@/lib/gov-procedure/backgroun
 const RESERVED_PREFIXES = ["TERMINO_", "ALERTA_"];
 
 const ALL_CATALOG_STAGES: Array<{ workflow: string; code: string }> = [
-  ...GOV_PROCEDURE_STAGES.map((s) => ({ workflow: "GOV_PROCEDURE", code: s.code as string })),
+  ...GOV_STAGES.map((s) => ({ workflow: "GOV_PROCEDURE", code: s.code as string })),
   ...PETICION_STAGES.map((s) => ({ workflow: "PETICION", code: (s as { code: string }).code })),
 ];
 
