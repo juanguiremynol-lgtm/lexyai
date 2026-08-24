@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { AuthoritySelector } from "@/components/authorities/AuthoritySelector";
 import {
   Dialog,
   DialogContent,
@@ -89,6 +90,9 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defau
           owner_id: user.user.id,
           entity_name: entityName,
           entity_type: entityType,
+          authority_id: authorityId,
+          // Fase 5 / B: the recipient type is an overlay attribute, not a workflow.
+          recipient_type: entityType === "PRIVATE" ? "PARTICULAR" : "AUTORIDAD",
           entity_email: entityEmail || null,
           entity_address: entityAddress || null,
           subject,
