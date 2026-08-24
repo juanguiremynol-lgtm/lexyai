@@ -31,7 +31,7 @@ export type GovStageCode =
   | "MERITOS_COMUNICADOS"
   | "CARGOS_FORMULADOS"
   | "CARGOS_NOTIFICADOS"
-  | "TERMINO_DESCARGOS"
+  | "EN_TERMINO_DESCARGOS"
   | "DESCARGOS_PRESENTADOS"
   | "PRUEBAS_DECRETADAS"
   | "PERIODO_PROBATORIO"
@@ -61,7 +61,7 @@ export const GOV_STAGES: GovStageDef[] = [
   { code: "MERITOS_COMUNICADOS", label: "Mérito comunicado al interesado", order: 20, isTerminal: false, legalBasis: "CPACA art. 47" },
   { code: "CARGOS_FORMULADOS", label: "Cargos formulados", order: 30, isTerminal: false, legalBasis: "CPACA art. 47" },
   { code: "CARGOS_NOTIFICADOS", label: "Cargos notificados", order: 40, isTerminal: false, legalBasis: "CPACA art. 47" },
-  { code: "TERMINO_DESCARGOS", label: "En término de descargos", order: 50, isTerminal: false, legalBasis: "CPACA art. 47" },
+  { code: "EN_TERMINO_DESCARGOS", label: "En término de descargos", order: 50, isTerminal: false, legalBasis: "CPACA art. 47" },
   { code: "DESCARGOS_PRESENTADOS", label: "Descargos presentados", order: 60, isTerminal: false, legalBasis: "CPACA art. 47" },
   { code: "PRUEBAS_DECRETADAS", label: "Pruebas decretadas", order: 70, isTerminal: false, legalBasis: "CPACA art. 48" },
   { code: "PERIODO_PROBATORIO", label: "Período probatorio", order: 80, isTerminal: false, legalBasis: "CPACA art. 48" },
