@@ -103,7 +103,9 @@ export function rankCandidates(
   const top = ranked[0] ?? null;
   const second = ranked[1] ?? null;
 
-  if (!top || top.score < thresholds.suggestFloor) {
+  const weakFloor = thresholds.weakSuggestFloor ?? FALLBACK_THRESHOLDS.weakSuggestFloor;
+
+  if (!top || top.score < weakFloor) {
     return {
       outcome: "NO_CANDIDATE",
       top,
@@ -111,6 +113,19 @@ export function rankCandidates(
       ambiguous: false,
       conflict: top?.conflict ?? false,
       reason: "Ningún candidato alcanza el piso mínimo de evidencia.",
+    };
+  }
+
+  if (top.score < thresholds.suggestFloor) {
+    // A.3: weak-only evidence is still shown, always as a proposal.
+    return {
+      outcome: "SUGGEST",
+      top,
+      candidates: ranked,
+      ambiguous: false,
+      conflict: top.conflict,
+      reason:
+        "Evidencia únicamente de nombre: se propone para revisión, nunca se vincula automáticamente.",
     };
   }
 
