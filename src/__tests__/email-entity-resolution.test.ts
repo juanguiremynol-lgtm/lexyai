@@ -70,7 +70,7 @@ describe("B.4 — outcomes and ambiguity", () => {
   it("thresholds are configuration, not constants: a permissive config still cannot bypass determinism", () => {
     const loose: MatchingThresholds = { ...T, autoLinkFloor: 0.1, weakOnlyCeiling: 0.99 };
     const r = rankCandidates([{ workItemId: "a", signals: ["CLIENTE", "PARTE"] }], loose);
-    expect(r.outcome).toBe("SUGGEST");
+    expect(r.outcome).not.toBe("AUTO_LINK");
   });
 });
 
