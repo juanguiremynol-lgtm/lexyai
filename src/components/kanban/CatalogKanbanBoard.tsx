@@ -8,6 +8,8 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UnifiedKanbanBoard, type KanbanStage } from "./UnifiedKanbanBoard";
 import { CatalogKanbanCard, type CatalogCardItem } from "./CatalogKanbanCard";
 import {
@@ -68,6 +70,21 @@ export function CatalogKanbanBoard({
       })),
     [stages],
   );
+
+  // A.1: the board never renders a partial or invented catalog.
+  if (catalogError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>No se pudo cargar el catálogo de etapas</AlertTitle>
+        <AlertDescription>
+          El tablero no se muestra porque el catálogo de <strong>{workflowType}</strong> no
+          respondió. No se dibujan columnas provisionales: lo que ve aquí sería una invención.
+          Vuelva a intentarlo; si persiste, el equipo ya recibió el aviso.
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <UnifiedKanbanBoard
