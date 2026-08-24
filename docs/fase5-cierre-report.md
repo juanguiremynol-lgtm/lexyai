@@ -19,12 +19,18 @@ Sitios auditados:
 | `src/lib/peticion/catalog.ts`, `src/lib/gov-procedure/catalog.ts` | espejos compilados | **aceptable** — quedan solo como constantes tipadas para el test de deriva; ningún hook los usa como valor por defecto |
 | `useAttentionConditions` | `data ?? []` | **aceptable** — es un modelo de lectura derivado, no un catálogo; vacío es un estado legítimo |
 
-Cobertura en CI: `src/__tests__/fase5-catalog-access.test.ts` recorre las tablas de catálogo
-por el mismo cliente que usa la aplicación, de modo que un `GRANT` o una política faltante
-rompen la construcción en vez de degradar la pantalla en silencio.
+Cobertura en CI: `src/test/fase5-catalog-access.test.ts` recorre las tablas de catálogo
+por el mismo cliente que usa la aplicación: un `GRANT` retirado o una tabla ausente rompen la
+construcción en vez de degradar la pantalla en silencio. La suite corre sin sesión, así que
+cero filas es correcto por RLS y no se confunde con inalcanzable; el contenido del catálogo
+(todo extremo de transición existe como etapa activa — verificado: 0 huérfanos) lo garantiza
+la base de datos, no una lectura sin sesión.
 
-**Observación no solicitada:** `anon` conserva `SELECT` sobre las tablas de catálogo, es
-decir, el catálogo es legible sin sesión. No se cambió en esta fase; queda reportado.
+**Hallazgo corregido en el camino:** `workflow_stage_transitions` tenía su política de
+lectura abierta a `public`, es decir, el grafo de transiciones era legible sin sesión mientras
+el resto del catálogo exigía sesión. Se alineó a `authenticated`. `peticion_subtypes` sigue
+siendo público a propósito (lo lee la superficie de demostración) y así queda declarado en el
+test.
 
 ### A.2 Medición antes del cambio
 
@@ -44,7 +50,8 @@ Fase 4 quiso evitar. Por eso el piso no se toca y se separa la superficie:
 - `repositorio_pasivo` — evidencia solo de nombre. Consultable desde el asunto, no levanta
   nada, no notifica nada.
 
-`queueFor()` y `raisesAttention()` en `src/lib/email/candidate-ranker.ts`. La precisión de la
+`queueFor()` y `raisesAttention()` en `src/lib/email/candidate-ranker.ts`, con cobertura en
+`src/test/fase5-overlay-and-queue.test.ts`. La precisión de la
 cola activa no se "sube" ajustando umbrales: se logra sacando del camino de atención lo que
 nunca debió estar ahí.
 
