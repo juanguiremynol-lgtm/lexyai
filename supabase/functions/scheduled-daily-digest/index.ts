@@ -569,6 +569,8 @@ Deno.serve(async (req) => {
           nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
+          importedHistory,
+
           nonJudicialDeadlines,
           connectionIssues,
           suspended,
@@ -616,6 +618,29 @@ Deno.serve(async (req) => {
 
         summary.sent++;
         summary.documents_linked += tokens.length;
+
+        // D1 — record every movement this digest carried, so the per-event
+        // channel never mails it again.
+        const ledgerRows: LedgerEntry[] = [
+          ...actuaciones.map((a) => ({
+            recipient_user_id: ownerId,
+            organization_id: orgOf.get(ownerId) ?? null,
+            work_item_id: a.work_item_id,
+            entity_kind: "ACT" as const,
+            entity_id: a.id,
+            channel: "DIGEST" as const,
+          })),
+          ...estados.map((e) => ({
+            recipient_user_id: ownerId,
+            organization_id: orgOf.get(ownerId) ?? null,
+            work_item_id: e.work_item_id,
+            entity_kind: "PUB" as const,
+            entity_id: e.id,
+            channel: "DIGEST" as const,
+          })),
+        ];
+        await recordDispatch(supabase, ledgerRows);
+
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
