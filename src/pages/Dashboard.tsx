@@ -10,7 +10,7 @@ import { UNCLASSIFIED_TAB, visibleBoards } from "@/lib/dashboard-boards";
 import { WorkflowSuggestionsPanel } from "@/components/pipeline/WorkflowSuggestionsPanel";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { usePracticeAreas } from "@/hooks/use-practice-areas";
-import { PeticionesPipeline } from "@/components/peticiones";
+
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
 import { CreateWorkItemWizard } from "@/components/workflow";
