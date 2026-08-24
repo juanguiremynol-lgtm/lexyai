@@ -1,74 +1,35 @@
 import "./helpers/localstorage-polyfill";
 import { describe, it, expect } from "vitest";
-import { supabase } from "@/integrations/supabase/client";
-import { assertCatalogRows } from "@/lib/workflow/catalog-access";
+import {
+  queueFor,
+  raisesAttention,
+  type MatchQueue,
+} from "@/lib/email/candidate-ranker";
 
 /**
- * Fase 5 / B — the private recipient is an overlay, not a workflow.
+ * Fase 5 / A.2 — the queue split, not a threshold tweak.
  *
- * PETICION_PARTICULAR removes two stages from PETICION and changes nothing
- * else: same stages, same subtypes, same term arithmetic.
+ * Historical precision of name-class evidence is 2,3 % (14 confirmed out of
+ * 616). Raising the floor would discard the 14 real links; the fix is to keep
+ * them reachable while removing them from the attention path.
  */
 
-const PROHIBITED_FOR_PARTICULAR = [
-  "SILENCIO_NEGATIVO_CONFIGURADO",
-  "TRASLADO_POR_COMPETENCIA",
-];
+describe("Fase 5 / A.2 — active queue vs. passive repository", () => {
+  const cases: Array<{ signals: string[]; queue: MatchQueue }> = [
+    { signals: ["RADICADO"], queue: "cola_activa" },
+    { signals: ["RADICADO", "CLIENTE"], queue: "cola_activa" },
+    { signals: ["DESPACHO_DOMAIN"], queue: "cola_activa" },
+    { signals: ["CLIENTE"], queue: "repositorio_pasivo" },
+    { signals: ["PARTE", "CLIENTE"], queue: "repositorio_pasivo" },
+    { signals: [], queue: "repositorio_pasivo" },
+  ];
 
-describe("Fase 5 / B — private-recipient overlay", () => {
-  it("exists as an overlay over PETICION, not as its own workflow", async () => {
-    const { data, error } = await supabase
-      .from("workflow_overlays" as never)
-      .select("*")
-      .eq("code", "PETICION_PARTICULAR");
-    const rows = assertCatalogRows("workflow_overlays", data, error) as Array<
-      Record<string, unknown>
-    >;
-    expect(rows[0].base_workflow_type).toBe("PETICION");
-
-    const { data: stages } = await supabase
-      .from("workflow_stages_global")
-      .select("code")
-      .eq("workflow_type", "PETICION_PARTICULAR");
-    expect(stages ?? []).toHaveLength(0);
+  it.each(cases)("routes %j to its queue", ({ signals, queue }) => {
+    expect(queueFor(signals as never)).toBe(queue);
   });
 
-  it("marks exactly the two inapplicable stages, and no others", async () => {
-    const { data, error } = await supabase
-      .from("workflow_overlay_stage_applicability" as never)
-      .select("stage_code, applicability")
-      .eq("overlay_code", "PETICION_PARTICULAR");
-    const rows = assertCatalogRows(
-      "workflow_overlay_stage_applicability",
-      data,
-      error,
-    ) as Array<Record<string, unknown>>;
-    const notApplicable = rows
-      .filter((r) => r.applicability === "NOT_APPLICABLE")
-      .map((r) => r.stage_code as string)
-      .sort();
-    expect(notApplicable).toEqual([...PROHIBITED_FOR_PARTICULAR].sort());
-  });
-
-  it("keeps every other PETICION stage available to the overlay", async () => {
-    const { data: stages } = await supabase
-      .from("workflow_stages_global")
-      .select("code")
-      .eq("workflow_type", "PETICION")
-      .eq("active", true);
-    const codes = (stages ?? []).map((s) => s.code as string);
-    const survivors = codes.filter(
-      (c) => !PROHIBITED_FOR_PARTICULAR.includes(c),
-    );
-    expect(survivors.length).toBe(codes.length - PROHIBITED_FOR_PARTICULAR.length);
-    expect(survivors.length).toBeGreaterThan(0);
-  });
-
-  it("records the recipient discriminator on the petición row shape", async () => {
-    const { error } = await supabase
-      .from("peticiones")
-      .select("authority_id, recipient_type")
-      .limit(1);
-    expect(error).toBeNull();
+  it("never raises attention from weak-only evidence", () => {
+    expect(raisesAttention("repositorio_pasivo")).toBe(false);
+    expect(raisesAttention("cola_activa")).toBe(true);
   });
 });

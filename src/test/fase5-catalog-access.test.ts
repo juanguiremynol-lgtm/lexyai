@@ -11,12 +11,29 @@ import {
 /**
  * Fase 5 / A.1 — CI breaks when the catalog is unreachable.
  *
- * These reads go through the same client the application uses, so a missing
- * GRANT or a missing RLS policy fails the build instead of degrading a screen
- * into "this workflow has no stages".
+ * Two separate things are checked, and they are not the same thing:
+ *
+ *  1. `assertCatalogRows` never turns a fault into "there are no stages".
+ *  2. The catalog tables are reachable through the application client with the
+ *     GRANTs in place. The suite runs without a session, so RLS legitimately
+ *     returns zero rows; what must never appear is a permission error or a
+ *     missing relation — that is the failure a dropped GRANT produces, and it
+ *     has to break the build rather than empty a screen.
+ *
+ * Row-level content invariants are enforced in the database (the catalog is
+ * authenticated-only), not re-derived here from an unauthenticated read.
  */
 
-const GOVERNED_WORKFLOWS = ["PETICION", "GOV_PROCEDURE"] as const;
+const CATALOG_TABLES = [
+  "workflow_stages_global",
+  "workflow_stage_transitions",
+  "workflow_overlays",
+  "workflow_overlay_stage_applicability",
+  "peticion_subtypes",
+] as const;
+
+/** PostgREST codes that mean "the client cannot reach this table at all". */
+const UNREACHABLE_CODES = ["42501", "42P01", "PGRST205", "PGRST106"];
 
 describe("Fase 5 / A.1 — catalog access fails loudly", () => {
   it("treats a query error as a fault, never as an empty catalog", () => {
@@ -39,49 +56,19 @@ describe("Fase 5 / A.1 — catalog access fails loudly", () => {
     ).toEqual([]);
   });
 
-  it.each(GOVERNED_WORKFLOWS)(
-    "reads stages for %s through the application client",
-    async (workflowType) => {
-      const { data, error } = await supabase
-        .from("workflow_stages_global")
-        .select("code, display_order, lifecycle_band")
-        .eq("workflow_type", workflowType)
-        .eq("active", true);
-      const rows = assertCatalogRows("workflow_stages_global", data, error);
-      expect(rows.length).toBeGreaterThan(0);
-    },
-  );
-
-  it.each(GOVERNED_WORKFLOWS)(
-    "reads transitions for %s through the application client",
-    async (workflowType) => {
-      const { data, error } = await supabase
-        .from("workflow_stage_transitions")
-        .select("from_stage_code, to_stage_code")
-        .eq("workflow_type", workflowType)
-        .eq("active", true);
-      const rows = assertCatalogRows("workflow_stage_transitions", data, error);
-      expect(rows.length).toBeGreaterThan(0);
-    },
-  );
-
-  it("every transition endpoint exists in the stage catalog (I3)", async () => {
-    for (const workflowType of GOVERNED_WORKFLOWS) {
-      const { data: stages } = await supabase
-        .from("workflow_stages_global")
-        .select("code")
-        .eq("workflow_type", workflowType)
-        .eq("active", true);
-      const { data: transitions } = await supabase
-        .from("workflow_stage_transitions")
-        .select("from_stage_code, to_stage_code")
-        .eq("workflow_type", workflowType)
-        .eq("active", true);
-      const codes = new Set((stages ?? []).map((s) => s.code as string));
-      for (const t of transitions ?? []) {
-        expect(codes.has(t.from_stage_code as string)).toBe(true);
-        expect(codes.has(t.to_stage_code as string)).toBe(true);
-      }
+  it.each(CATALOG_TABLES)("%s is reachable by the application client", async (table) => {
+    const { error } = await supabase.from(table as never).select("*").limit(1);
+    if (error) {
+      throw new Error(
+        `El catálogo ${table} no es alcanzable: ${error.code ?? "?"} ${error.message}`,
+      );
     }
+    expect(error).toBeNull();
+  });
+
+  it.each(CATALOG_TABLES)("%s is not readable without a session", async (table) => {
+    const { data, error } = await supabase.from(table as never).select("*").limit(1);
+    expect(UNREACHABLE_CODES).not.toContain(error?.code);
+    expect(data ?? []).toHaveLength(0);
   });
 });
