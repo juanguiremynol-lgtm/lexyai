@@ -5776,6 +5776,7 @@ export type Database = {
       }
       deadline_rules: {
         Row: {
+          anchor_kind: string
           bound_party_role: string | null
           created_at: string
           day_type: string
@@ -5792,6 +5793,7 @@ export type Database = {
           workflow_type: string
         }
         Insert: {
+          anchor_kind?: string
           bound_party_role?: string | null
           created_at?: string
           day_type: string
@@ -5808,6 +5810,7 @@ export type Database = {
           workflow_type: string
         }
         Update: {
+          anchor_kind?: string
           bound_party_role?: string | null
           created_at?: string
           day_type?: string
@@ -8827,6 +8830,478 @@ export type Database = {
             foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gov_procedure_notifications: {
+        Row: {
+          acto_code: string
+          created_at: string
+          effective_date: string | null
+          effective_date_confidence: string
+          evidence: Json
+          id: string
+          issuance_date: string | null
+          manual_review_reason: string | null
+          modality: string
+          organization_id: string | null
+          owner_id: string | null
+          requires_manual_review: boolean
+          sent_date: string | null
+          source: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          acto_code: string
+          created_at?: string
+          effective_date?: string | null
+          effective_date_confidence?: string
+          evidence?: Json
+          id?: string
+          issuance_date?: string | null
+          manual_review_reason?: string | null
+          modality: string
+          organization_id?: string | null
+          owner_id?: string | null
+          requires_manual_review?: boolean
+          sent_date?: string | null
+          source?: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          acto_code?: string
+          created_at?: string
+          effective_date?: string | null
+          effective_date_confidence?: string
+          evidence?: Json
+          id?: string
+          issuance_date?: string | null
+          manual_review_reason?: string | null
+          modality?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          requires_manual_review?: boolean
+          sent_date?: string | null
+          source?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_notifications_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gov_procedure_recursos: {
+        Row: {
+          created_at: string
+          deadline_id: string | null
+          filed_date: string
+          filed_timely: boolean
+          id: string
+          notes: string | null
+          organization_id: string | null
+          outcome: string | null
+          owner_id: string | null
+          recurso_type: string
+          resolved_date: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          deadline_id?: string | null
+          filed_date: string
+          filed_timely?: boolean
+          id?: string
+          notes?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          owner_id?: string | null
+          recurso_type: string
+          resolved_date?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          deadline_id?: string | null
+          filed_date?: string
+          filed_timely?: boolean
+          id?: string
+          notes?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          owner_id?: string | null
+          recurso_type?: string
+          resolved_date?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gov_procedure_recursos_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "v_deadline_attribution"
+            referencedColumns: ["deadline_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_recursos_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gov_procedure_regime_stage_applicability: {
+        Row: {
+          active: boolean
+          applicability: string
+          created_at: string
+          id: string
+          is_system: boolean
+          label_override: string | null
+          notes: string | null
+          regime_code: string
+          stage_code: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          applicability: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label_override?: string | null
+          notes?: string | null
+          regime_code: string
+          stage_code: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          applicability?: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label_override?: string | null
+          notes?: string | null
+          regime_code?: string
+          stage_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gov_procedure_regime_stage_applicability_regime_code_fkey"
+            columns: ["regime_code"]
+            isOneToOne: false
+            referencedRelation: "gov_procedure_regimes"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      gov_procedure_regime_terms: {
+        Row: {
+          active: boolean
+          anchor_event_code: string | null
+          anchor_kind: string
+          created_at: string
+          day_type: string
+          deadline_type: string
+          duration_value: number | null
+          extension_condition: string | null
+          id: string
+          is_background_timer: boolean
+          is_system: boolean
+          label: string
+          max_extension_value: number | null
+          norma: string | null
+          notes: string | null
+          regime_code: string
+          requires_manual_review: boolean
+          term_class: Database["public"]["Enums"]["term_class"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          anchor_event_code?: string | null
+          anchor_kind: string
+          created_at?: string
+          day_type?: string
+          deadline_type: string
+          duration_value?: number | null
+          extension_condition?: string | null
+          id?: string
+          is_background_timer?: boolean
+          is_system?: boolean
+          label: string
+          max_extension_value?: number | null
+          norma?: string | null
+          notes?: string | null
+          regime_code: string
+          requires_manual_review?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          anchor_event_code?: string | null
+          anchor_kind?: string
+          created_at?: string
+          day_type?: string
+          deadline_type?: string
+          duration_value?: number | null
+          extension_condition?: string | null
+          id?: string
+          is_background_timer?: boolean
+          is_system?: boolean
+          label?: string
+          max_extension_value?: number | null
+          norma?: string | null
+          notes?: string | null
+          regime_code?: string
+          requires_manual_review?: boolean
+          term_class?: Database["public"]["Enums"]["term_class"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gov_procedure_regime_terms_regime_code_fkey"
+            columns: ["regime_code"]
+            isOneToOne: false
+            referencedRelation: "gov_procedure_regimes"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      gov_procedure_regimes: {
+        Row: {
+          active: boolean
+          code: string
+          contested_points: Json
+          created_at: string
+          id: string
+          is_system: boolean
+          label: string
+          legal_basis: string | null
+          notes: string | null
+          requires_manual_review: boolean
+          updated_at: string
+          verified: boolean
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          contested_points?: Json
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label: string
+          legal_basis?: string | null
+          notes?: string | null
+          requires_manual_review?: boolean
+          updated_at?: string
+          verified?: boolean
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          contested_points?: Json
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          label?: string
+          legal_basis?: string | null
+          notes?: string | null
+          requires_manual_review?: boolean
+          updated_at?: string
+          verified?: boolean
+        }
+        Relationships: []
+      }
+      gov_procedure_work_item_state: {
+        Row: {
+          attention_status: string | null
+          authority_email_domain: string | null
+          authority_expediente: string | null
+          authority_name: string | null
+          cessation_date: string | null
+          conducta_continuada: boolean
+          created_at: string
+          fact_date: string | null
+          hubo_periodo_probatorio: boolean
+          id: string
+          investigados_count: number | null
+          manual_review_reason: string | null
+          notes: string | null
+          organization_id: string | null
+          owner_id: string | null
+          prueba_en_exterior: boolean
+          regime_code: string
+          requires_manual_review: boolean
+          sancion_notificada_at: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          attention_status?: string | null
+          authority_email_domain?: string | null
+          authority_expediente?: string | null
+          authority_name?: string | null
+          cessation_date?: string | null
+          conducta_continuada?: boolean
+          created_at?: string
+          fact_date?: string | null
+          hubo_periodo_probatorio?: boolean
+          id?: string
+          investigados_count?: number | null
+          manual_review_reason?: string | null
+          notes?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          prueba_en_exterior?: boolean
+          regime_code?: string
+          requires_manual_review?: boolean
+          sancion_notificada_at?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          attention_status?: string | null
+          authority_email_domain?: string | null
+          authority_expediente?: string | null
+          authority_name?: string | null
+          cessation_date?: string | null
+          conducta_continuada?: boolean
+          created_at?: string
+          fact_date?: string | null
+          hubo_periodo_probatorio?: boolean
+          id?: string
+          investigados_count?: number | null
+          manual_review_reason?: string | null
+          notes?: string | null
+          organization_id?: string | null
+          owner_id?: string | null
+          prueba_en_exterior?: boolean
+          regime_code?: string
+          requires_manual_review?: boolean
+          sancion_notificada_at?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gov_procedure_work_item_state_regime_code_fkey"
+            columns: ["regime_code"]
+            isOneToOne: false
+            referencedRelation: "gov_procedure_regimes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gov_procedure_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
