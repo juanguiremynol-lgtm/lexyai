@@ -578,6 +578,20 @@ Deno.serve(async (req) => {
       } catch (supErr) {
         console.warn("[daily-sync] Supervisor invoke failed:", (supErr as Error).message);
       }
+
+      // D2 — the digest is CHAINED to the sync, not scheduled against it.
+      // A fixed 06:30 send ran before the 07:00 sync, so the day's real
+      // movements were reported the following morning. Now the sync itself
+      // kicks the digest once every organisation's queue has drained; the
+      // cron entry remains only as a late fallback for days the sync never
+      // completes. The digest's own daily claim keeps this idempotent.
+      try {
+        await supabase.functions.invoke("scheduled-daily-digest", {
+          body: { trigger_source: "DAILY_SYNC_CHAIN" },
+        });
+      } catch (digErr) {
+        console.warn("[daily-sync] Digest chain invoke failed:", (digErr as Error).message);
+      }
     }
 
     responsePayload = {
