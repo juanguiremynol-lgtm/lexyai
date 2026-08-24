@@ -21281,6 +21281,7 @@ export type Database = {
           authority_city: string | null
           authority_department: string | null
           authority_email: string | null
+          authority_id: string | null
           authority_name: string | null
           auto_admisorio_date: string | null
           auto_admisorio_url: string | null
@@ -21490,6 +21491,7 @@ export type Database = {
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
           auto_admisorio_url?: string | null
@@ -21699,6 +21701,7 @@ export type Database = {
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
           auto_admisorio_url?: string | null
@@ -21899,6 +21902,13 @@ export type Database = {
           workflow_type_source?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "work_items_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "work_items_client_id_fkey"
             columns: ["client_id"]
