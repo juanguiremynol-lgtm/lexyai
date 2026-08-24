@@ -18,3 +18,4 @@ export type { UnifiedItem } from "./UnifiedPipelineCard";
 export type { StageConfig, StageType } from "./UnifiedPipelineColumn";
 export type { WorkItemPipelineItem } from "./WorkItemPipelineCard";
 export type { WorkItemStageConfig } from "./WorkItemPipelineColumn";
+export { CatalogBoardContainer } from "./CatalogBoardContainer";

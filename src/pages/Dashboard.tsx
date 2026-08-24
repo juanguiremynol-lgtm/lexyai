@@ -5,12 +5,12 @@ import { Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard } from "@/components/pipeline";
+import { WorkItemPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard, CatalogBoardContainer } from "@/components/pipeline";
 import { UNCLASSIFIED_TAB, visibleBoards } from "@/lib/dashboard-boards";
 import { WorkflowSuggestionsPanel } from "@/components/pipeline/WorkflowSuggestionsPanel";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { usePracticeAreas } from "@/hooks/use-practice-areas";
-import { PeticionesPipeline } from "@/components/peticiones";
+
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
 import { CreateWorkItemWizard } from "@/components/workflow";
@@ -223,10 +223,10 @@ function BoardBody({ workflow }: { workflow: WorkflowType }) {
       return <PenalPipeline />;
     case "CPACA":
       return <CpacaPipeline />;
+    // Catalog-governed workflows: columns come from workflow_stages_global.
     case "GOV_PROCEDURE":
-      return <AdminPipeline />;
     case "PETICION":
-      return <PeticionesPipeline />;
+      return <CatalogBoardContainer workflowType={workflow} />;
     case "TUTELA":
       return <TutelasPipeline />;
     default:
