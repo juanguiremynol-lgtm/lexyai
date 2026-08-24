@@ -1,0 +1,1 @@
+GRANT SELECT ON public.workflow_stage_transitions TO anon;
