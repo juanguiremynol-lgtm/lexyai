@@ -2622,6 +2622,200 @@ export type Database = {
         }
         Relationships: []
       }
+      authorities: {
+        Row: {
+          active: boolean
+          aliases: string[]
+          authority_kind: string
+          canonical_name: string
+          created_at: string
+          id: string
+          is_system: boolean
+          nit: string | null
+          organization_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          aliases?: string[]
+          authority_kind?: string
+          canonical_name: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          nit?: string | null
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          aliases?: string[]
+          authority_kind?: string
+          canonical_name?: string
+          created_at?: string
+          id?: string
+          is_system?: boolean
+          nit?: string | null
+          organization_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authorities_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "authorities_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      authority_addresses: {
+        Row: {
+          address_role: string
+          authority_id: string
+          created_at: string
+          email: string
+          id: string
+          observed_count: number
+          organization_id: string | null
+          updated_at: string
+          verification_source: string | null
+          verification_status: string
+        }
+        Insert: {
+          address_role?: string
+          authority_id: string
+          created_at?: string
+          email: string
+          id?: string
+          observed_count?: number
+          organization_id?: string | null
+          updated_at?: string
+          verification_source?: string | null
+          verification_status?: string
+        }
+        Update: {
+          address_role?: string
+          authority_id?: string
+          created_at?: string
+          email?: string
+          id?: string
+          observed_count?: number
+          organization_id?: string | null
+          updated_at?: string
+          verification_source?: string | null
+          verification_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authority_addresses_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "authority_addresses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "authority_addresses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      authority_domain_blocklist: {
+        Row: {
+          created_at: string
+          domain: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+          reason?: string
+        }
+        Relationships: []
+      }
+      authority_domains: {
+        Row: {
+          authority_id: string
+          created_at: string
+          domain: string
+          id: string
+          observed_count: number
+          organization_id: string | null
+          updated_at: string
+          verification_source: string | null
+          verification_status: string
+          verified_at: string | null
+        }
+        Insert: {
+          authority_id: string
+          created_at?: string
+          domain: string
+          id?: string
+          observed_count?: number
+          organization_id?: string | null
+          updated_at?: string
+          verification_source?: string | null
+          verification_status?: string
+          verified_at?: string | null
+        }
+        Update: {
+          authority_id?: string
+          created_at?: string
+          domain?: string
+          id?: string
+          observed_count?: number
+          organization_id?: string | null
+          updated_at?: string
+          verification_source?: string | null
+          verification_status?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "authority_domains_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "authority_domains_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "authority_domains_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       auto_sync_daily_ledger: {
         Row: {
           chain_id: string | null
@@ -7513,6 +7707,63 @@ export type Database = {
           value?: number
         }
         Relationships: []
+      }
+      email_matching_thresholds: {
+        Row: {
+          ambiguity_margin: number
+          auto_link_floor: number
+          created_at: string
+          id: string
+          organization_id: string | null
+          requires_deterministic_for_auto_link: boolean
+          strong_only_ceiling: number
+          suggest_floor: number
+          updated_at: string
+          weak_only_ceiling: number
+          workflow_type: string
+        }
+        Insert: {
+          ambiguity_margin?: number
+          auto_link_floor?: number
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          requires_deterministic_for_auto_link?: boolean
+          strong_only_ceiling?: number
+          suggest_floor?: number
+          updated_at?: string
+          weak_only_ceiling?: number
+          workflow_type: string
+        }
+        Update: {
+          ambiguity_margin?: number
+          auto_link_floor?: number
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          requires_deterministic_for_auto_link?: boolean
+          strong_only_ceiling?: number
+          suggest_floor?: number
+          updated_at?: string
+          weak_only_ceiling?: number
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_matching_thresholds_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "email_matching_thresholds_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       email_outbox: {
         Row: {
@@ -18982,7 +19233,10 @@ export type Database = {
           ai_classified: boolean
           ai_classified_at: string | null
           attachment_names: string[] | null
+          candidate_rank: number | null
           confidence: number
+          confidence_ceiling: number | null
+          conflict_flag: boolean
           connection_id: string | null
           conversation_id: string | null
           created_at: string
@@ -18995,6 +19249,7 @@ export type Database = {
           internet_message_id: string | null
           link_status: string
           low_content: boolean
+          match_outcome: string | null
           matched_by: string
           matched_value: string | null
           memorial_subtype: string | null
@@ -19003,6 +19258,7 @@ export type Database = {
           received_at: string | null
           recipients: string[] | null
           sender: string | null
+          signal_class: string | null
           subject: string | null
           updated_at: string
           user_id: string
@@ -19013,7 +19269,10 @@ export type Database = {
           ai_classified?: boolean
           ai_classified_at?: string | null
           attachment_names?: string[] | null
+          candidate_rank?: number | null
           confidence: number
+          confidence_ceiling?: number | null
+          conflict_flag?: boolean
           connection_id?: string | null
           conversation_id?: string | null
           created_at?: string
@@ -19026,6 +19285,7 @@ export type Database = {
           internet_message_id?: string | null
           link_status?: string
           low_content?: boolean
+          match_outcome?: string | null
           matched_by: string
           matched_value?: string | null
           memorial_subtype?: string | null
@@ -19034,6 +19294,7 @@ export type Database = {
           received_at?: string | null
           recipients?: string[] | null
           sender?: string | null
+          signal_class?: string | null
           subject?: string | null
           updated_at?: string
           user_id: string
@@ -19044,7 +19305,10 @@ export type Database = {
           ai_classified?: boolean
           ai_classified_at?: string | null
           attachment_names?: string[] | null
+          candidate_rank?: number | null
           confidence?: number
+          confidence_ceiling?: number | null
+          conflict_flag?: boolean
           connection_id?: string | null
           conversation_id?: string | null
           created_at?: string
@@ -19057,6 +19321,7 @@ export type Database = {
           internet_message_id?: string | null
           link_status?: string
           low_content?: boolean
+          match_outcome?: string | null
           matched_by?: string
           matched_value?: string | null
           memorial_subtype?: string | null
@@ -19065,6 +19330,7 @@ export type Database = {
           received_at?: string | null
           recipients?: string[] | null
           sender?: string | null
+          signal_class?: string | null
           subject?: string | null
           updated_at?: string
           user_id?: string
