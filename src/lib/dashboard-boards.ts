@@ -81,9 +81,22 @@ export const DASHBOARD_BOARDS: DashboardBoard[] = [
   },
 ];
 
+/**
+ * Workflows whose columns live in the database catalog
+ * (`workflow_stages_global`), not in the compiled phase catalogue. Their board
+ * exists regardless of what the code-side catalogue says.
+ */
+export const CATALOG_GOVERNED_WORKFLOWS: WorkflowType[] = ["PETICION", "GOV_PROCEDURE"];
+
+export function isCatalogGoverned(workflow: WorkflowType): boolean {
+  return CATALOG_GOVERNED_WORKFLOWS.includes(workflow);
+}
+
 /** A workflow can only own a board when it has columns to render. */
 export function hasPhaseCatalogue(workflow: WorkflowType): boolean {
-  return getWorkflowPhases(workflow).length > 0 && workflow !== "INDETERMINADO";
+  if (workflow === "INDETERMINADO") return false;
+  if (isCatalogGoverned(workflow)) return true;
+  return getWorkflowPhases(workflow).length > 0;
 }
 
 /** practice_areas ∩ workflows with a phase catalogue, in display order. */
