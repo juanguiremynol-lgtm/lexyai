@@ -20,6 +20,12 @@ export interface MatchingThresholds {
   workflowType: string;
   autoLinkFloor: number;
   suggestFloor: number;
+  /**
+   * Fase 4 / A.3: name-class evidence is capped by a *ceiling*, never erased.
+   * A candidate carrying only weak signals still reaches the lawyer as a
+   * suggestion — it simply can never auto-link.
+   */
+  weakSuggestFloor: number;
   ambiguityMargin: number;
   weakOnlyCeiling: number;
   strongOnlyCeiling: number;
@@ -30,6 +36,7 @@ export const FALLBACK_THRESHOLDS: MatchingThresholds = {
   workflowType: "DEFAULT",
   autoLinkFloor: 0.9,
   suggestFloor: 0.35,
+  weakSuggestFloor: 0.05,
   ambiguityMargin: 0.1,
   weakOnlyCeiling: 0.45,
   strongOnlyCeiling: 0.85,
