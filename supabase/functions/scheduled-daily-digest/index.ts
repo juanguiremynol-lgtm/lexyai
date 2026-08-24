@@ -488,9 +488,32 @@ Deno.serve(async (req) => {
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
         const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
+        // D3 — «historial importado»: one line per matter, with the span of
+        // the imported rows. A reactivated expediente produces ONE fact — that
+        // it was reactivated — plus its history; never N novedades.
+        const historyByItem = new Map<string, { acts: number; estados: number; years: number[] }>();
+        const bumpHistory = (wid: string, kind: "acts" | "estados", date: string | null) => {
+          const entry = historyByItem.get(wid) ?? { acts: 0, estados: 0, years: [] };
+          entry[kind]++;
+          const y = date ? Number(String(date).slice(0, 4)) : NaN;
+          if (Number.isFinite(y)) entry.years.push(y);
+          historyByItem.set(wid, entry);
+        };
+        for (const a of historyActs) bumpHistory(a.work_item_id, "acts", a.act_date);
+        for (const p of historyPubs) bumpHistory(p.work_item_id, "estados", p.fecha_fijacion);
+        const importedHistory = [...historyByItem.entries()].map(([wid, e]) => ({
+          work_item_id: wid,
+          rows: e.acts + e.estados,
+          acts: e.acts,
+          estados: e.estados,
+          from_year: e.years.length ? Math.min(...e.years) : null,
+          to_year: e.years.length ? Math.max(...e.years) : null,
+        }));
+
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length > 0;
+            connectionIssues.length + importedHistory.length > 0;
+
 
         if (!hasContent) {
           summary.empty++;
