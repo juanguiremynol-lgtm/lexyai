@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { AuthoritySelector } from "@/components/authorities/AuthoritySelector";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ interface NewPeticionDialogProps {
 export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewPeticionDialogProps) {
   const queryClient = useQueryClient();
   const [entityName, setEntityName] = useState("");
+  const [authorityId, setAuthorityId] = useState<string | null>(null);
   const [entityType, setEntityType] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
   const [entityEmail, setEntityEmail] = useState("");
   const [entityAddress, setEntityAddress] = useState("");
@@ -88,6 +90,9 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defau
           owner_id: user.user.id,
           entity_name: entityName,
           entity_type: entityType,
+          authority_id: authorityId,
+          // Fase 5 / B: the recipient type is an overlay attribute, not a workflow.
+          recipient_type: entityType === "PRIVATE" ? "PARTICULAR" : "AUTORIDAD",
           entity_email: entityEmail || null,
           entity_address: entityAddress || null,
           subject,
@@ -179,15 +184,16 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defau
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Entity Information */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="entityName">Nombre de la Entidad *</Label>
-              <Input
-                id="entityName"
-                value={entityName}
-                onChange={(e) => setEntityName(e.target.value)}
-                placeholder="Ej: Ministerio de Hacienda"
-              />
-            </div>
+            <AuthoritySelector
+              label="Nombre de la Entidad"
+              required
+              authorityId={authorityId}
+              freeTextName={entityName}
+              onChange={({ authorityId: id, freeTextName }) => {
+                setAuthorityId(id);
+                setEntityName(freeTextName);
+              }}
+            />
             <div className="space-y-2">
               <Label htmlFor="entityType">Tipo de Entidad</Label>
               <Select value={entityType} onValueChange={(v) => setEntityType(v as "PUBLIC" | "PRIVATE")}>

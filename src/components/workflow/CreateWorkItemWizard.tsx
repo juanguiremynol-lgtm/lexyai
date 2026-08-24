@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useDisabledDocTypes } from "@/hooks/useDisabledDocTypes";
 import { supabase } from "@/integrations/supabase/client";
+import { AuthoritySelector } from "@/components/authorities/AuthoritySelector";
 import {
   Dialog,
   DialogContent,
@@ -188,6 +189,8 @@ export function CreateWorkItemWizard({
   // Peticion-specific
   const [filingDate, setFilingDate] = useState('');
   const [entityName, setEntityName] = useState('');
+  // Fase 5 / A.3: structured reference to `authorities`, alongside the free text.
+  const [authorityId, setAuthorityId] = useState<string | null>(null);
   
   // Tutela-specific
   const [accionado, setAccionado] = useState('');
@@ -515,6 +518,7 @@ export function CreateWorkItemWizard({
       radicado_raw: radicadoRaw !== radicado ? radicadoRaw : undefined,
       radicado_verified: !!(lookupResult?.found_in_source && radicado),
       authority_name: authorityName || entityName || undefined,
+      authority_id: authorityId || undefined,
       authority_city: authorityCity || undefined,
       authority_department: authorityDepartment || undefined,
       demandantes: demandantes || undefined,
@@ -1325,14 +1329,16 @@ export function CreateWorkItemWizard({
                 
                 {workflowType === 'PETICION' && (
                   <>
-                    <div className="space-y-2">
-                      <Label>Entidad Destinataria *</Label>
-                      <Input
-                        value={entityName}
-                        onChange={(e) => setEntityName(e.target.value)}
-                        placeholder="Ej: Ministerio de Salud"
-                      />
-                    </div>
+                    <AuthoritySelector
+                      label="Entidad Destinataria"
+                      required
+                      authorityId={authorityId}
+                      freeTextName={entityName}
+                      onChange={({ authorityId: id, freeTextName }) => {
+                        setAuthorityId(id);
+                        setEntityName(freeTextName);
+                      }}
+                    />
                     <div className="space-y-2">
                       <Label>Fecha de Radicación</Label>
                       <Input

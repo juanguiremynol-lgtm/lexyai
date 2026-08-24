@@ -11,6 +11,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { assertCatalogRows } from "@/lib/workflow/catalog-access";
 
 export type LifecycleBand =
   | "EN_PREPARACION"
@@ -72,6 +73,7 @@ export function useCatalogStages(workflowType: string | undefined) {
     queryKey: ["catalog-stages", workflowType],
     enabled: !!workflowType,
     staleTime: 5 * 60 * 1000,
+    retry: false,
     queryFn: async (): Promise<CatalogStage[]> => {
       const { data, error } = await supabase
         .from("workflow_stages_global")
@@ -81,8 +83,8 @@ export function useCatalogStages(workflowType: string | undefined) {
         .eq("workflow_type", workflowType!)
         .eq("active", true)
         .order("display_order", { ascending: true });
-      if (error) throw error;
-      return (data ?? []).map((r) => ({
+      // A.1: an empty catalog is a fault, never "this workflow has no stages".
+      return assertCatalogRows("workflow_stages_global", data, error).map((r) => ({
         id: r.id as string,
         code: r.code as string,
         label: r.label as string,
@@ -101,6 +103,7 @@ export function useCatalogTransitions(workflowType: string | undefined) {
     queryKey: ["catalog-transitions", workflowType],
     enabled: !!workflowType,
     staleTime: 5 * 60 * 1000,
+    retry: false,
     queryFn: async (): Promise<CatalogTransition[]> => {
       const { data, error } = await supabase
         .from("workflow_stage_transitions")
@@ -109,8 +112,7 @@ export function useCatalogTransitions(workflowType: string | undefined) {
         )
         .eq("workflow_type", workflowType!)
         .eq("active", true);
-      if (error) throw error;
-      return (data ?? []).map((r) => ({
+      return assertCatalogRows("workflow_stage_transitions", data, error).map((r) => ({
         fromStageCode: r.from_stage_code as string,
         toStageCode: r.to_stage_code as string,
         allowedBySuggestion: r.allowed_by_suggestion as boolean,

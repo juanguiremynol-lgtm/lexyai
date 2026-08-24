@@ -1,11 +1,14 @@
 /**
  * Reads the PETICION catalog from the database (single source of truth).
- * Falls back to the compiled mirror in `src/lib/peticion/catalog.ts` only if
- * the read fails, so the UI never invents stages.
+ *
+ * Fase 5 / A.1: there is no compiled fallback. If the catalog cannot be read,
+ * or answers empty, the hook throws — the UI shows the fault instead of
+ * inventing (or omitting) stages. The mirror in `src/lib/peticion/catalog.ts`
+ * remains only as typed constants for the drift test.
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { PETICION_STAGES, PETICION_SUBTYPES } from "@/lib/peticion/catalog";
+import { assertCatalogRows } from "@/lib/workflow/catalog-access";
 
 export interface CatalogStageRow {
   id: string;
@@ -32,6 +35,7 @@ export function usePeticionStages() {
   return useQuery({
     queryKey: ["workflow-stages", "PETICION"],
     staleTime: 5 * 60 * 1000,
+    retry: false,
     queryFn: async (): Promise<CatalogStageRow[]> => {
       const { data, error } = await supabase
         .from("workflow_stages_global")
@@ -39,18 +43,7 @@ export function usePeticionStages() {
         .eq("workflow_type", "PETICION")
         .eq("active", true)
         .order("display_order", { ascending: true });
-      if (error || !data || data.length === 0) {
-        return PETICION_STAGES.map((s) => ({
-          id: s.code,
-          code: s.code,
-          label: s.label,
-          display_order: s.order,
-          is_terminal: s.isTerminal,
-          is_procedurally_live: !s.isTerminal,
-          legal_basis: s.legalBasis,
-        }));
-      }
-      return data as CatalogStageRow[];
+      return assertCatalogRows("workflow_stages_global", data, error) as CatalogStageRow[];
     },
   });
 }
@@ -59,6 +52,7 @@ export function usePeticionSubtypes() {
   return useQuery({
     queryKey: ["peticion-subtypes"],
     staleTime: 5 * 60 * 1000,
+    retry: false,
     queryFn: async (): Promise<PeticionSubtypeRow[]> => {
       const { data, error } = await supabase
         .from("peticion_subtypes")
@@ -67,19 +61,7 @@ export function usePeticionSubtypes() {
         )
         .eq("active", true)
         .order("display_order", { ascending: true });
-      if (error || !data || data.length === 0) {
-        return Object.values(PETICION_SUBTYPES).map((s) => ({
-          code: s.code,
-          label: s.label,
-          duration_value: s.durationValue,
-          duration_unit: s.durationUnit,
-          term_class: s.termClass,
-          legal_basis: s.legalBasis,
-          requires_user_term: s.requiresUserTerm,
-          default_silence_effect: s.defaultSilenceEffect,
-        }));
-      }
-      return data as PeticionSubtypeRow[];
+      return assertCatalogRows("peticion_subtypes", data, error) as PeticionSubtypeRow[];
     },
   });
 }

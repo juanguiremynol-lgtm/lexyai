@@ -9466,6 +9466,7 @@ export type Database = {
           attention_status: string | null
           authority_email_domain: string | null
           authority_expediente: string | null
+          authority_id: string | null
           authority_name: string | null
           cessation_date: string | null
           conducta_continuada: boolean
@@ -9489,6 +9490,7 @@ export type Database = {
           attention_status?: string | null
           authority_email_domain?: string | null
           authority_expediente?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           cessation_date?: string | null
           conducta_continuada?: boolean
@@ -9512,6 +9514,7 @@ export type Database = {
           attention_status?: string | null
           authority_email_domain?: string | null
           authority_expediente?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           cessation_date?: string | null
           conducta_continuada?: boolean
@@ -9532,6 +9535,13 @@ export type Database = {
           work_item_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "gov_procedure_work_item_state_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "gov_procedure_work_item_state_regime_code_fkey"
             columns: ["regime_code"]
@@ -12632,6 +12642,7 @@ export type Database = {
       }
       peticiones: {
         Row: {
+          authority_id: string | null
           client_id: string | null
           constancia_received_at: string | null
           created_at: string
@@ -12654,6 +12665,7 @@ export type Database = {
           prorogation_requested: boolean | null
           prorogation_started_at: string | null
           radicado: string | null
+          recipient_type: string
           response_file_path: string | null
           response_received_at: string | null
           subject: string
@@ -12661,6 +12673,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          authority_id?: string | null
           client_id?: string | null
           constancia_received_at?: string | null
           created_at?: string
@@ -12683,6 +12696,7 @@ export type Database = {
           prorogation_requested?: boolean | null
           prorogation_started_at?: string | null
           radicado?: string | null
+          recipient_type?: string
           response_file_path?: string | null
           response_received_at?: string | null
           subject: string
@@ -12690,6 +12704,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          authority_id?: string | null
           client_id?: string | null
           constancia_received_at?: string | null
           created_at?: string
@@ -12712,6 +12727,7 @@ export type Database = {
           prorogation_requested?: boolean | null
           prorogation_started_at?: string | null
           radicado?: string | null
+          recipient_type?: string
           response_file_path?: string | null
           response_received_at?: string | null
           subject?: string
@@ -12719,6 +12735,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "peticiones_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "peticiones_client_id_fkey"
             columns: ["client_id"]
@@ -21258,6 +21281,7 @@ export type Database = {
           authority_city: string | null
           authority_department: string | null
           authority_email: string | null
+          authority_id: string | null
           authority_name: string | null
           auto_admisorio_date: string | null
           auto_admisorio_url: string | null
@@ -21467,6 +21491,7 @@ export type Database = {
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
           auto_admisorio_url?: string | null
@@ -21676,6 +21701,7 @@ export type Database = {
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
+          authority_id?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
           auto_admisorio_url?: string | null
@@ -21876,6 +21902,13 @@ export type Database = {
           workflow_type_source?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "work_items_authority_id_fkey"
+            columns: ["authority_id"]
+            isOneToOne: false
+            referencedRelation: "authorities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "work_items_client_id_fkey"
             columns: ["client_id"]
@@ -22235,6 +22268,77 @@ export type Database = {
           reason?: string
           regimen?: string | null
           retired_guess?: Json | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
+      workflow_overlay_stage_applicability: {
+        Row: {
+          active: boolean
+          applicability: string
+          created_at: string
+          id: string
+          notes: string | null
+          overlay_code: string
+          stage_code: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          applicability: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          overlay_code: string
+          stage_code: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          applicability?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          overlay_code?: string
+          stage_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_overlay_stage_applicability_overlay_code_fkey"
+            columns: ["overlay_code"]
+            isOneToOne: false
+            referencedRelation: "workflow_overlays"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      workflow_overlays: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          label: string
+          legal_basis: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          label: string
+          legal_basis?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          label?: string
+          legal_basis?: string | null
           updated_at?: string
           workflow_type?: string
         }
@@ -24864,6 +24968,10 @@ export type Database = {
           p_work_item_id: string
         }
         Returns: undefined
+      }
+      overlay_stage_applicability: {
+        Args: { _overlay_code: string; _stage_code: string }
+        Returns: string
       }
       party_name_match: { Args: { a: string; b: string }; Returns: number }
       platform_create_courtesy_voucher: {
