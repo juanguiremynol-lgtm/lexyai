@@ -33,6 +33,8 @@ export interface CreateWorkItemData {
   radicado_raw?: string;
   radicado_verified?: boolean;
   authority_name?: string;
+  /** Fase 5 / A.3: structured reference to `authorities`, when resolved. */
+  authority_id?: string;
   authority_city?: string;
   authority_department?: string;
   source_reference?: string;
@@ -124,6 +126,7 @@ export function useCreateWorkItem() {
         radicado_raw: data.radicado_raw || data.radicado || null,
         radicado_verified: data.radicado_verified ?? false,
         authority_name: data.authority_name || null,
+        authority_id: data.authority_id || null,
         authority_city: data.authority_city || null,
         authority_department: data.authority_department || null,
         
