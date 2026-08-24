@@ -2709,6 +2709,7 @@ export type Database = {
           verification_source: string | null
           verification_status: string
           verified_at: string | null
+          verified_by: string | null
         }
         Insert: {
           authority_id: string
@@ -2721,6 +2722,7 @@ export type Database = {
           verification_source?: string | null
           verification_status?: string
           verified_at?: string | null
+          verified_by?: string | null
         }
         Update: {
           authority_id?: string
@@ -2733,6 +2735,7 @@ export type Database = {
           verification_source?: string | null
           verification_status?: string
           verified_at?: string | null
+          verified_by?: string | null
         }
         Relationships: [
           {
@@ -7592,6 +7595,7 @@ export type Database = {
           suggest_floor: number
           updated_at: string
           weak_only_ceiling: number
+          weak_suggest_floor: number
           workflow_type: string
         }
         Insert: {
@@ -7605,6 +7609,7 @@ export type Database = {
           suggest_floor?: number
           updated_at?: string
           weak_only_ceiling?: number
+          weak_suggest_floor?: number
           workflow_type: string
         }
         Update: {
@@ -7618,6 +7623,7 @@ export type Database = {
           suggest_floor?: number
           updated_at?: string
           weak_only_ceiling?: number
+          weak_suggest_floor?: number
           workflow_type?: string
         }
         Relationships: [
