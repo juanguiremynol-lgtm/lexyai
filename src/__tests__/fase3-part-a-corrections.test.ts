@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GOV_PROCEDURE_STAGES } from "@/lib/gov-procedure/catalog";
+import { GOV_STAGES } from "@/lib/gov-procedure/catalog";
 import { PETICION_STAGES } from "@/lib/peticion/catalog";
 import { caducidadAnchor, addCalendarYears } from "@/lib/gov-procedure/background-timers";
 
