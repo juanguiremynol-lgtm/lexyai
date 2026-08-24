@@ -63,8 +63,11 @@ describe("B.4 — outcomes and ambiguity", () => {
     expect(r.outcome).toBe("SUGGEST");
   });
 
-  it("nothing above the suggestion floor becomes NO_CANDIDATE", () => {
-    expect(one(["DATE_PROXIMITY"]).outcome).toBe("NO_CANDIDATE");
+  // Fase 4 / A.3 amends this rule: weak evidence is capped by a ceiling, not
+  // excluded. Only evidence below the weak suggestion floor disappears.
+  it("nothing above the weak suggestion floor becomes NO_CANDIDATE", () => {
+    expect(one([]).outcome).toBe("NO_CANDIDATE");
+    expect(one(["DATE_PROXIMITY"]).outcome).toBe("SUGGEST");
   });
 
   it("thresholds are configuration, not constants: a permissive config still cannot bypass determinism", () => {
