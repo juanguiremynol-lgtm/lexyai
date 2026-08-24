@@ -3,3 +3,4 @@
 - [Run Provenance and Census Discipline](mem://architecture/run-provenance-and-census-discipline) — Provider run_type authority, cooldown gates the trigger not the read, census measurement status
 - [Succession and Remisión por Competencia](mem://architecture/succession-and-remision-competencia) — Typed matter successions, origin closure, no invented successors
 - [Recurso Streams](mem://architecture/recurso-streams-one-work-item) — 23-digit key vs base-21 identity, one work item per process, instancia tagging
+- [GOV_PROCEDURE Sancionatorio Model](mem://architecture/gov-procedure-sancionatorio-model) — CPACA 47-52 stages, regime overlays, caducidad/recurso background timers, three permanent invariants
