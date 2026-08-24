@@ -329,6 +329,38 @@ function connectionBlock(rows: ConnectionIssueRow[], appBaseUrl: string): string
  * OO1 — matters hidden from this digest. They ARE still being read (unless
  * their lifecycle stopped ingestion); the section says so plainly.
  */
+/**
+ * D3 — «historial importado». One line per matter: what arrived, and the span
+ * it covers. Never mixed with the novedad count, and never presented as news.
+ */
+function importedHistoryBlock(p: DigestPayload): string {
+  const rows = p.importedHistory ?? [];
+  if (!rows.length) return "";
+  return sectionTitle(
+    `Historial importado — no son novedades (${rows.length} asunto(s))`,
+    "#60a5fa",
+    "Estas filas llegaron hoy porque el proveedor entregó por primera vez la historia del expediente (lectura inicial o reactivación). Son actos pasados: no se cuentan como novedades del día.",
+  ) +
+  `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+    <thead><tr>${th("Radicado", "#60a5fa")}${th("Asunto", "#60a5fa")}${th("Filas importadas", "#60a5fa")}${th("Periodo cubierto", "#60a5fa")}</tr></thead>
+    <tbody>${rows.map((r) => {
+      const wi = p.workItems.get(r.work_item_id);
+      const parts: string[] = [];
+      if (r.acts) parts.push(`${r.acts} actuación(es)`);
+      if (r.estados) parts.push(`${r.estados} estado(s)`);
+      const span = r.from_year && r.to_year
+        ? (r.from_year === r.to_year ? String(r.from_year) : `${r.from_year} a ${r.to_year}`)
+        : "Sin fecha registrada";
+      return `<tr>
+        ${td(`<a href="${p.appBaseUrl}/app/work-item/${esc(r.work_item_id)}" style="color:#60a5fa;">${esc(wi?.radicado || "Sin radicado")}</a>`)}
+        ${td(esc(wi?.title || "—"))}
+        ${td(esc(parts.join(" + ") || String(r.rows)))}
+        ${td(esc(span))}
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+
 function suspendedBlock(rows: SuspendedItemRow[], appBaseUrl: string): string {
   if (!rows.length) return "";
   const anyStopped = rows.some((r) => !r.reading_active);
@@ -405,6 +437,7 @@ export function buildDigestHtml(p: DigestPayload): string {
 
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${novedadesBlock(p)}
+    ${importedHistoryBlock(p)}
     ${hearingsBlock(p.hearings, p)}
     ${deadlinesBlock(p.deadlines, p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
