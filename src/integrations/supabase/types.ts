@@ -24250,6 +24250,7 @@ export type Database = {
         Returns: string
       }
       estados_signal_norm: { Args: { p_text: string }; Returns: string }
+      evaluate_gov_procedure_background_timers: { Args: never; Returns: Json }
       evaluate_peticion_system_events: { Args: never; Returns: Json }
       event_text_indicates_regresion: {
         Args: { p_text: string }
