@@ -38,6 +38,8 @@ import {
 } from "../_shared/notificationChannel.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+/** Download links in per-event emails live as long as the digest's. */
+const LINK_EXPIRY_DAYS = 30;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const APP_BASE_URL = "https://lexyai.lovable.app";
 
@@ -405,7 +407,8 @@ Deno.serve(async (req) => {
     }
 
     // For each owner, get their email and enqueue a digest
-    for (const [ownerId, ownerAlerts] of byOwner) {
+    for (const [ownerId, ownerAlertsInitial] of byOwner) {
+      let ownerAlerts = ownerAlertsInitial;
       try {
         // Get user email — prefer alert_email from profile, fallback to auth email
         const [{ data: profile }, { data: userData }] = await Promise.all([
@@ -439,6 +442,68 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // ── D1: one fact, one channel ─────────────────────────────────
+        // The consolidated daily digest is the DEFAULT. This per-event sender
+        // only mails what the recipient (or the matter's own override) asked
+        // to receive immediately, and only if the digest has not mailed it.
+        const policy = resolveChannelPolicy(prefsObj);
+        const wiIdsForPolicy = [...new Set(ownerAlerts.map((a) => a.entity_id).filter(Boolean))];
+        const overrideByWi = new Map<string, string | null>();
+        if (wiIdsForPolicy.length > 0) {
+          const { data: ovRows } = await supabase
+            .from("work_items")
+            .select("id, notification_override")
+            .in("id", wiIdsForPolicy);
+          for (const r of ovRows ?? []) overrideByWi.set(r.id, r.notification_override ?? null);
+        }
+
+        const movementIdOf = (a: typeof ownerAlerts[number]) => {
+          const p = a.payload as Record<string, unknown> | null;
+          if (isActuacionType(a.alert_type) && p?.act_id) return { kind: "ACT" as const, id: String(p.act_id) };
+          if (isEstadoType(a.alert_type) && p?.pub_id) return { kind: "PUB" as const, id: String(p.pub_id) };
+          return null;
+        };
+
+        const [dispatchableActs, dispatchablePubs] = await Promise.all([
+          notYetDispatched(
+            supabase, ownerId, "ACT",
+            ownerAlerts.map(movementIdOf).filter((m) => m?.kind === "ACT").map((m) => m!.id),
+          ),
+          notYetDispatched(
+            supabase, ownerId, "PUB",
+            ownerAlerts.map(movementIdOf).filter((m) => m?.kind === "PUB").map((m) => m!.id),
+          ),
+        ]);
+
+        const deferred: typeof ownerAlerts = [];
+        const sendable: typeof ownerAlerts = [];
+        for (const a of ownerAlerts) {
+          const eventKey = (a.payload as Record<string, unknown> | null)?.immediate_event_key as
+            | ImmediateEventKey
+            | undefined;
+          const allowed = immediateAllowed(policy, overrideByWi.get(a.entity_id) ?? null, eventKey ?? null);
+          const mv = movementIdOf(a);
+          const alreadyMailed = mv
+            ? !(mv.kind === "ACT" ? dispatchableActs.has(mv.id) : dispatchablePubs.has(mv.id))
+            : false;
+          if (allowed && !alreadyMailed) sendable.push(a);
+          else deferred.push(a);
+        }
+
+        if (deferred.length > 0) {
+          // Deferred, not dropped: the digest reads acts/publicaciones
+          // directly, so these movements still reach the lawyer today.
+          await supabase
+            .from("alert_instances")
+            .update({ is_notified_email: true, notified_email_at: new Date().toISOString() })
+            .in("id", deferred.map((a) => a.id));
+          result.processed += deferred.length;
+          console.log(`[dispatch-update-emails] ${deferred.length} alert(s) deferred to daily digest for ${ownerId}`);
+        }
+
+        if (sendable.length === 0) continue;
+        ownerAlerts = sendable;
+
         // Get org ID
         const orgId = ownerAlerts[0]?.organization_id || null;
 
@@ -463,6 +528,45 @@ Deno.serve(async (req) => {
           subject = `⚖️ ${parts.join(' y ')}${rad}${actType ? `: ${actType}` : ''}`;
         } else {
           subject = `⚖️ ${parts.join(' y ')} nueva${ownerAlerts.length > 1 ? 's' : ''} en ${uniqueWiIds.length} procesos`;
+        }
+
+        // D5 — recipient-bound download links for estados with a document.
+        const docTokens: Record<string, unknown>[] = [];
+        const tokenExpiry = new Date(Date.now() + LINK_EXPIRY_DAYS * 86_400_000).toISOString();
+        for (const a of ownerAlerts) {
+          const p = a.payload as Record<string, unknown> | null;
+          if (!p || !isEstadoType(a.alert_type) || !p.pub_id) continue;
+          if (!p.__pub_has_document) continue;
+          const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+          docTokens.push({
+            token,
+            recipient_user_id: ownerId,
+            organization_id: a.organization_id ?? null,
+            work_item_id: a.entity_id,
+            kind: "ESTADO",
+            publicacion_id: String(p.pub_id),
+            act_id: null,
+            doc_url: typeof p.pdf_url === "string" && p.pdf_url ? p.pdf_url : null,
+            doc_label: "Documento del estado",
+            expires_at: tokenExpiry,
+          });
+          p.pdf_url = `${SUPABASE_URL}/functions/v1/digest-document?t=${token}`;
+          delete p.__pub_has_document;
+        }
+        if (docTokens.length > 0) {
+          const { error: tokErr } = await supabase.from("digest_document_tokens").insert(docTokens);
+          if (tokErr) {
+            console.error(`[dispatch-update-emails] token insert failed: ${tokErr.message}`);
+            // Without a valid token the link would 404; drop it instead.
+            for (const a of ownerAlerts) {
+              const p = a.payload as Record<string, unknown> | null;
+              if (p && typeof p.pdf_url === "string" && p.pdf_url.includes("digest-document?t=")) p.pdf_url = "";
+            }
+          }
+        }
+        for (const a of ownerAlerts) {
+          const p = a.payload as Record<string, unknown> | null;
+          if (p) delete p.__pub_has_document;
         }
 
         const html = buildDigestHtml(ownerAlerts, workItemMap, profile?.full_name || null);
@@ -495,6 +599,22 @@ Deno.serve(async (req) => {
             notified_email_at: new Date().toISOString(),
           })
           .in("id", alertIds);
+
+        // D1 — record what this channel mailed so the digest skips it.
+        const ledgerRows: LedgerEntry[] = [];
+        for (const a of ownerAlerts) {
+          const mv = movementIdOf(a);
+          if (!mv) continue;
+          ledgerRows.push({
+            recipient_user_id: ownerId,
+            organization_id: a.organization_id ?? null,
+            work_item_id: a.entity_id ?? null,
+            entity_kind: mv.kind,
+            entity_id: mv.id,
+            channel: "IMMEDIATE",
+          });
+        }
+        await recordDispatch(supabase, ledgerRows);
 
         result.emailsEnqueued++;
         result.recipientsCount++;
