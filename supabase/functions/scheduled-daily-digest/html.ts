@@ -203,30 +203,46 @@ function sectionTitle(text: string, accent: string, subtitle: string): string {
  */
 function sourceQualityBlock(p: DigestPayload): string {
   const rows = p.sourceQuality ?? [];
+  if (rows.length === 0) return "";
   const degraded = rows.filter((r) => !r.authoritative);
-  if (degraded.length === 0) return "";
 
   const novedadesOf = (source: string) =>
     p.actuaciones.filter((a) => a.source === source).length +
     p.estados.filter((e) => e.source === source).length;
 
+  // UU4(a) — the ratio is the message. A health word alone hides a chronic
+  // 10/38: every source is listed with its coverage fraction and percentage,
+  // degraded or not.
+  const accent = degraded.length > 0 ? "#fbbf24" : "#94a3b8";
+  const ratioOf = (r: typeof rows[number]) => {
+    const den = r.expected_count || r.attempted_count || 0;
+    if (!den) return "—";
+    const pct = Math.round((r.usable_confirmed_count / den) * 100);
+    return `${r.usable_confirmed_count}/${den} (${pct}%)`;
+  };
+
   return sectionTitle(
-    "Estado de las fuentes — cobertura incompleta",
-    "#fbbf24",
-    "Un cero en estas fuentes significa que no obtuvimos información autorizada, no que no haya novedades.",
+    degraded.length > 0
+      ? "Estado de las fuentes — cobertura incompleta"
+      : "Estado de las fuentes — cobertura",
+    accent,
+    degraded.length > 0
+      ? "Un cero en estas fuentes significa que no obtuvimos información autorizada, no que no haya novedades."
+      : "Cobertura = asuntos con lectura confirmada sobre asuntos esperados en la ventana.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fuente", "#fbbf24")}${th("Cobertura", "#fbbf24")}${th("Lectura del día", "#fbbf24")}</tr></thead>
-      <tbody>${degraded.map((r) => `<tr>
+      <thead><tr>${th("Fuente", accent)}${th("Cobertura", accent)}${th("Lectura del día", accent)}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>
         ${td(`<strong>${esc(r.label)}</strong>`)}
-        ${td(`${r.usable_confirmed_count}/${r.expected_count || r.attempted_count} confirmadas`)}
+        ${td(`${ratioOf(r)} confirmadas`)}
         ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
       </tr>`).join("")}</tbody>
     </table>
-    <div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
+    ${degraded.length > 0 ? `<div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
       No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
-    </div>`;
+    </div>` : ""}`;
 }
+
 
 function novedadesBlock(p: DigestPayload): string {
   const ids = new Set<string>([
