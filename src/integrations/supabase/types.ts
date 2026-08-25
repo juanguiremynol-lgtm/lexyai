@@ -8248,6 +8248,130 @@ export type Database = {
           },
         ]
       }
+      estados_monitor_run_items: {
+        Row: {
+          claimed_at: string | null
+          error_code: string | null
+          finished_at: string | null
+          ordinal: number
+          result: Json
+          run_id: string
+          status: string
+          work_item_id: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          error_code?: string | null
+          finished_at?: string | null
+          ordinal: number
+          result?: Json
+          run_id: string
+          status?: string
+          work_item_id: string
+        }
+        Update: {
+          claimed_at?: string | null
+          error_code?: string | null
+          finished_at?: string | null
+          ordinal?: number
+          result?: Json
+          run_id?: string
+          status?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estados_monitor_run_items_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "estados_monitor_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estados_monitor_run_items_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estados_monitor_run_items_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estados_monitor_run_items_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estados_monitor_run_items_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estados_monitor_run_items_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      estados_monitor_runs: {
+        Row: {
+          attempted_count: number
+          channel: string
+          depth_remaining: number
+          failed_count: number
+          finished_at: string | null
+          id: string
+          lease_expires_at: string
+          metadata: Json
+          run_date: string
+          selected_count: number
+          started_at: string
+          status: string
+          succeeded_count: number
+        }
+        Insert: {
+          attempted_count?: number
+          channel: string
+          depth_remaining?: number
+          failed_count?: number
+          finished_at?: string | null
+          id?: string
+          lease_expires_at?: string
+          metadata?: Json
+          run_date: string
+          selected_count?: number
+          started_at?: string
+          status?: string
+          succeeded_count?: number
+        }
+        Update: {
+          attempted_count?: number
+          channel?: string
+          depth_remaining?: number
+          failed_count?: number
+          finished_at?: string | null
+          id?: string
+          lease_expires_at?: string
+          metadata?: Json
+          run_date?: string
+          selected_count?: number
+          started_at?: string
+          status?: string
+          succeeded_count?: number
+        }
+        Relationships: []
+      }
       estados_staleness_alerts: {
         Row: {
           alert_created_at: string
@@ -15292,6 +15416,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      source_coverage_weekly_baselines: {
+        Row: {
+          attempted_count: number
+          captured_at: string
+          coverage_ratio: number | null
+          error_count: number
+          expected_count: number
+          pending_upstream_count: number
+          restricted_count: number
+          source: string
+          usable_confirmed_count: number
+          week_start: string
+        }
+        Insert: {
+          attempted_count: number
+          captured_at?: string
+          coverage_ratio?: number | null
+          error_count?: number
+          expected_count: number
+          pending_upstream_count?: number
+          restricted_count?: number
+          source: string
+          usable_confirmed_count: number
+          week_start: string
+        }
+        Update: {
+          attempted_count?: number
+          captured_at?: string
+          coverage_ratio?: number | null
+          error_count?: number
+          expected_count?: number
+          pending_upstream_count?: number
+          restricted_count?: number
+          source?: string
+          usable_confirmed_count?: number
+          week_start?: string
+        }
+        Relationships: []
       }
       subscription_events: {
         Row: {
@@ -24185,6 +24348,7 @@ export type Database = {
           last_attempt_at: string | null
           not_found_count: number | null
           pending_upstream_count: number | null
+          restricted_count: number | null
           run_count: number | null
           run_date: string | null
           source: string | null
@@ -24522,6 +24686,29 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      claim_estados_monitor_batch: {
+        Args: { _lease_seconds?: number; _limit?: number; _run_id: string }
+        Returns: {
+          ordinal: number
+          work_item_id: string
+        }[]
+      }
+      claim_estados_monitor_run: {
+        Args: {
+          _channel: string
+          _depth_budget?: number
+          _lease_seconds?: number
+          _run_date: string
+          _work_item_ids: string[]
+        }
+        Returns: {
+          acquired: boolean
+          attempted_count: number
+          depth_remaining: number
+          run_id: string
+          selected_count: number
+        }[]
+      }
       classify_deadline_birth_status: {
         Args: { p_deadline_date: string }
         Returns: string
@@ -24792,6 +24979,26 @@ export type Database = {
       find_subsanacion_evidence_act: {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
+      }
+      finish_estados_monitor_hop: {
+        Args: { _run_id: string }
+        Returns: {
+          attempted_count: number
+          depth_remaining: number
+          remaining_count: number
+          selected_count: number
+          status: string
+        }[]
+      }
+      finish_estados_monitor_item: {
+        Args: {
+          _error_code?: string
+          _result?: Json
+          _run_id: string
+          _success: boolean
+          _work_item_id: string
+        }
+        Returns: undefined
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_active_terms: {
@@ -25300,11 +25507,25 @@ export type Database = {
           last_attempt_at: string
           not_found_count: number
           pending_upstream_count: number
+          restricted_count: number
           source: string
           source_quality_state: string
           success_count: number
           success_empty_count: number
           usable_confirmed_count: number
+        }[]
+      }
+      source_coverage_drop_evaluation: {
+        Args: { _source: string; _week_start: string }
+        Returns: {
+          coverage_ratio: number
+          drop_points: number
+          expected_count: number
+          proposed_level: string
+          seeded_weeks: number
+          source: string
+          trailing_3_week_median: number
+          week_start: string
         }[]
       }
       stage_rank: { Args: { p_stage: string }; Returns: number }
