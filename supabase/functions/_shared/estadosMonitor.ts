@@ -33,7 +33,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   let runId = body.run_id;
   if (!runId) {
     const workflows = channel === "publicaciones" ? PP_ESTADOS_WORKFLOWS : SAMAI_ESTADOS_WORKFLOWS;
-    const orderColumn = channel === "publicaciones" ? "pp_ultimo_sync_at" : "last_synced_at";
+    const orderColumn = channel === "publicaciones" ? "pp_ultima_sync" : "last_synced_at";
     const { data: rows, error } = await db.from("work_items").select("id,radicado")
       .eq("monitoring_enabled", true).is("deleted_at", null).eq("lifecycle_state", "ACTIVE")
       .in("workflow_type", [...workflows]).not("radicado", "is", null)
