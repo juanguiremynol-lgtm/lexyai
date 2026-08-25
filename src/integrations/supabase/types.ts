@@ -22632,6 +22632,7 @@ export type Database = {
       }
       monitoring_coverage_v: {
         Row: {
+          act_count: number | null
           coverage_status: string | null
           days_since_ingest: number | null
           enrolled_providers: string[] | null
@@ -22643,6 +22644,7 @@ export type Database = {
           monitoring_enabled: boolean | null
           organization_id: string | null
           owner_id: string | null
+          publication_count: number | null
           radicado: string | null
           work_item_id: string | null
           workflow_type: string | null
