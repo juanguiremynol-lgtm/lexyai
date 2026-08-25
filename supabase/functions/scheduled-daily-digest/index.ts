@@ -36,6 +36,11 @@ import {
 } from "../_shared/notificationChannel.ts";
 import { buildDigestHtml } from "./html.ts";
 import { isNonJudicial } from "./types.ts";
+import {
+  classifySourceRunQuality,
+  mayAssertAuthoritativeNoNovedades,
+  SOURCE_LABEL,
+} from "../_shared/sourceRunQuality.ts";
 import type {
   ActuacionRow,
   ConnectionIssueRow,
@@ -43,6 +48,7 @@ import type {
   DigestDocument,
   EstadoRow,
   HearingRow,
+  SourceQualityRow,
   SuspendedItemRow,
   WorkItemInfo,
 } from "./types.ts";
@@ -149,6 +155,51 @@ Deno.serve(async (req) => {
     summary.recipients = byOwner.size;
 
     const nowIso = new Date().toISOString();
+
+    // ── TT6 — COLLECTION QUALITY BEFORE ANY ZERO-NOVEDADES CLAIM ────────────
+    // Zero ingested rows is not evidence of judicial silence unless the source
+    // that would have carried the movement actually read the portfolio. This
+    // block is computed once per invocation (source health is firm-independent)
+    // and travels into every recipient's payload.
+    const sourceWindowFrom = new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
+    const sourceQuality: SourceQualityRow[] = [];
+    for (const src of ["cpnu", "publicaciones", "samai", "samai_estados"]) {
+      const { data: q, error: qErr } = await supabase.rpc("source_collection_quality", {
+        _source: src,
+        _from: sourceWindowFrom,
+        _to: nowIso,
+      });
+      if (qErr) {
+        console.warn("[scheduled-daily-digest] source_collection_quality failed", src, qErr.message);
+        continue;
+      }
+      const row = (Array.isArray(q) ? q[0] : q) as Record<string, unknown> | null;
+      if (!row) continue;
+      const counts = {
+        source: src,
+        expected_count: Number(row.expected_count ?? 0),
+        attempted_count: Number(row.attempted_count ?? 0),
+        usable_confirmed_count: Number(row.usable_confirmed_count ?? 0),
+        success_count: Number(row.success_count ?? 0),
+        success_empty_count: Number(row.success_empty_count ?? 0),
+        not_found_count: Number(row.not_found_count ?? 0),
+        pending_upstream_count: Number(row.pending_upstream_count ?? 0),
+        error_count: Number(row.error_count ?? 0),
+      };
+      // The SQL classifier is authoritative; the TS mirror is the fallback and
+      // the guard against a stale/absent DB verdict.
+      const state = (typeof row.source_quality_state === "string"
+        ? row.source_quality_state
+        : classifySourceRunQuality(counts)) as SourceQualityRow["state"];
+      sourceQuality.push({
+        ...counts,
+        state,
+        label: SOURCE_LABEL[src] ?? src,
+        authoritative: mayAssertAuthoritativeNoNovedades(state),
+      });
+    }
+    const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
+
 
     for (const [ownerId, items] of byOwner) {
       let claimedRunId: string | null = null;
@@ -510,9 +561,13 @@ Deno.serve(async (req) => {
           to_year: e.years.length ? Math.max(...e.years) : null,
         }));
 
+        // TT6.1 — degraded coverage is itself content. A day with no rows and a
+        // source that never delivered authoritative detail is NOT an empty day:
+        // staying silent would let the lawyer read our silence as judicial
+        // silence. That is precisely the misrepresentation of 2026-07-27.
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length + importedHistory.length > 0;
+            connectionIssues.length + importedHistory.length > 0 || coverageIncomplete;
 
 
         if (!hasContent) {
@@ -574,6 +629,8 @@ Deno.serve(async (req) => {
           nonJudicialDeadlines,
           connectionIssues,
           suspended,
+          sourceQuality,
+          coverageIncomplete,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
@@ -585,6 +642,9 @@ Deno.serve(async (req) => {
           ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
           : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
+          // TT6 — never promise a clean day when a source did not cover the portfolio.
+          : coverageIncomplete
+          ? `Andromeda — Resumen diario · cobertura incompleta de fuentes`
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
