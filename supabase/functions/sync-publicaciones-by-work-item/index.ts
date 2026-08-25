@@ -24,6 +24,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 // ITERATION 22 — the ONE canonical provider→row transformation. This function
 // no longer owns a parallel mapper; explosion, field derivation and identity
 // all come from the shared module so the bridge, the cron, the retry queue and
@@ -367,6 +368,9 @@ async function writePublicacionesAttemptRow(
           status: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? outcome
             : 'skipped',
+          outcome: resolveProviders(workItem?.workflow_type).estados.includes('PP')
+            ? persistedProviderOutcome({ status: outcome, resultCode: result?.result_code, insertedCount: result?.inserted_count })
+            : 'RUN_FAILED',
           result_code: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? result?.result_code
             : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
@@ -383,6 +387,11 @@ async function writePublicacionesAttemptRow(
               provider: 'samai_estados',
               data_kind: 'ESTADOS',
               status: result.samai_estados_summary.status || 'unknown',
+              outcome: persistedProviderOutcome({
+                status: result.samai_estados_summary.status,
+                resultCode: result.samai_estados_summary.contract_mismatch ? 'PENDING_UPSTREAM' : result?.result_code,
+                insertedCount: result.samai_estados_summary.merged_new,
+              }),
               http_status: result.samai_estados_summary.http_status,
               latency_ms: result.samai_estados_summary.duration_ms || 0,
               raw_count: result.samai_estados_summary.raw_count,
@@ -2647,6 +2656,9 @@ Deno.serve(withSyncTimeline(async (req) => {
             // BB2 — declare the routing skip instead of asserting a PP read
             // that never happened (CPACA estados are SAMAI_ESTADOS only).
             status: shouldFetchPP ? (result.ok ? 'success' : 'error') : 'skipped',
+            outcome: shouldFetchPP
+              ? persistedProviderOutcome({ status: result.ok ? 'success' : 'error', resultCode: result.result_code, insertedCount: result.inserted_count })
+              : 'RUN_FAILED',
             result_code: shouldFetchPP ? result.result_code : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
             latency_ms: result.provider_latency_ms || 0,
             inserted_count: result.inserted_count,
@@ -2658,6 +2670,11 @@ Deno.serve(withSyncTimeline(async (req) => {
                 provider: 'samai_estados',
                 data_kind: 'ESTADOS',
                 status: result.samai_estados_summary.status || 'unknown',
+                outcome: persistedProviderOutcome({
+                  status: result.samai_estados_summary.status,
+                  resultCode: result.samai_estados_summary.contract_mismatch ? 'PENDING_UPSTREAM' : result.result_code,
+                  insertedCount: result.samai_estados_summary.merged_new,
+                }),
                 http_status: result.samai_estados_summary.http_status,
                 latency_ms: result.samai_estados_summary.duration_ms || 0,
                 raw_count: result.samai_estados_summary.raw_count,

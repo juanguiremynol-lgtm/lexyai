@@ -52,6 +52,7 @@ import {
   shouldTriggerFallback,
   type FoundStatus,
 } from "./providerStrategy.ts";
+import { persistedProviderOutcome, type PersistedProviderOutcome } from "./providerOutcome.ts";
 
 
 // ═══════════════════════════════════════════
@@ -88,6 +89,7 @@ export interface ProviderAttemptResult {
   data_kind: DataKind;
   role: "PRIMARY" | "FALLBACK";
   status: "success" | "not_found" | "empty" | "error" | "timeout" | "skipped";
+  outcome: PersistedProviderOutcome;
   http_code: number | null;
   latency_ms: number;
   error_code: string | null;
@@ -475,6 +477,7 @@ export async function executeSyncChain(
         data_kind: dataKind,
         role: "PRIMARY",
         status: "skipped",
+        outcome: "RUN_FAILED",
         http_code: null,
         latency_ms: 0,
         error_code: "NO_FETCH_FN",
@@ -527,6 +530,7 @@ export async function executeSyncChain(
           data_kind: dataKind,
           role: "FALLBACK",
           status: "skipped",
+          outcome: "RUN_FAILED",
           http_code: null,
           latency_ms: 0,
           error_code: "NO_FETCH_FN",
@@ -602,6 +606,7 @@ async function safeProviderFetch(
       data_kind: dataKind,
       role,
       status: "empty",
+      outcome: "RUN_SUCCESS_EMPTY",
       http_code: 200,
       latency_ms: 0,
       error_code: "RELEASE_GATE_FORCED_EMPTY",
@@ -745,6 +750,12 @@ async function safeProviderFetch(
       data_kind: dataKind,
       role,
       status,
+      outcome: persistedProviderOutcome({
+        status,
+        resultCode: gcp.outcome,
+        errorCode: result.errorCode,
+        insertedCount: result.insertedCount,
+      }),
       http_code: result.httpStatus,
       latency_ms: result.latencyMs,
       error_code: result.errorCode,
@@ -762,6 +773,7 @@ async function safeProviderFetch(
       data_kind: dataKind,
       role,
       status: isTimeout ? "timeout" : "error",
+      outcome: "RUN_FAILED",
       http_code: null,
       latency_ms: 0,
       error_code: isTimeout ? "PROVIDER_TIMEOUT" : "PROVIDER_ERROR",
@@ -870,6 +882,7 @@ export async function executeSyncFanout(
       data_kind: dataKind,
       role: "PRIMARY" as const,
       status: "skipped" as const,
+      outcome: "RUN_FAILED" as const,
       http_code: null,
       latency_ms: 0,
       error_code: "NO_FETCH_FN",
