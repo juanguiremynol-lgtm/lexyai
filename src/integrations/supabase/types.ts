@@ -25291,7 +25291,7 @@ export type Database = {
         Returns: Json
       }
       source_collection_quality: {
-        Args: { _from: string; _source: string; _to?: string }
+        Args: { _from?: string; _source: string; _to?: string }
         Returns: {
           attempted_count: number
           coverage_ratio: number
