@@ -1,0 +1,1 @@
+ALTER VIEW public.v_source_run_coverage SET (security_invoker = on);

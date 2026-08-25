@@ -191,10 +191,46 @@ export interface DigestPayload {
 
   connectionIssues: ConnectionIssueRow[];
   suspended: SuspendedItemRow[];
+  /**
+   * TT6 — collection quality per source for this window. The digest may state
+   * an unqualified "sin novedades" only while every entry is `authoritative`.
+   */
+  sourceQuality: SourceQualityRow[];
+  /** true when at least one source did not reach authoritative coverage. */
+  coverageIncomplete: boolean;
   workItems: Map<string, WorkItemInfo>;
   appBaseUrl: string;
   linkExpiryDays: number;
 }
+
+/**
+ * TT5 — per-source collection accounting, as returned by
+ * `public.source_collection_quality`. `usable_confirmed_count` counts answered
+ * reads only (success + success_empty + not_found); PENDING_UPSTREAM never
+ * counts as coverage.
+ */
+export interface SourceQualityRow {
+  source: string;
+  label: string;
+  expected_count: number;
+  attempted_count: number;
+  usable_confirmed_count: number;
+  success_count: number;
+  success_empty_count: number;
+  not_found_count: number;
+  pending_upstream_count: number;
+  error_count: number;
+  state:
+    | "SOURCE_HEALTHY_COMPLETE"
+    | "SOURCE_HEALTHY_WITH_NOT_FOUND"
+    | "SOURCE_DEGRADED_PARTIAL"
+    | "SOURCE_DEGRADED_SYSTEMIC"
+    | "SOURCE_RUN_FAILED"
+    | "SOURCE_STALE";
+  /** TT6 — may a zero count on this source be read as "sin novedades"? */
+  authoritative: boolean;
+}
+
 
 /**
  * HH2(b)/(c) — provider labels. The digest names the source explicitly; it

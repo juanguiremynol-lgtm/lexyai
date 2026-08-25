@@ -11,6 +11,7 @@
 
  */
 
+import { describeSourceQuality } from "../_shared/sourceRunQuality.ts";
 import {
   BOUND_PARTY_SHORT,
   actuacionSourceLabel,
@@ -190,6 +191,40 @@ function sectionTitle(text: string, accent: string, subtitle: string): string {
     <div style="margin:26px 0 10px;">
       <div style="font-size:15px;font-weight:700;color:${accent};">${esc(text)}</div>
       <div style="font-size:12px;color:${MUTED};margin-top:2px;">${esc(subtitle)}</div>
+    </div>`;
+}
+
+/**
+ * TT6 — ESTADO DE LAS FUENTES. Printed above the novedades, always when any
+ * source is non-authoritative, so the reader never reaches the counts without
+ * knowing what they are worth. Per-source coverage is stated as a fraction of
+ * the expected portfolio; NOT_FOUND is shown separately because it is a
+ * per-matter determination, not a source defect (TT8).
+ */
+function sourceQualityBlock(p: DigestPayload): string {
+  const rows = p.sourceQuality ?? [];
+  const degraded = rows.filter((r) => !r.authoritative);
+  if (degraded.length === 0) return "";
+
+  const novedadesOf = (source: string) =>
+    p.actuaciones.filter((a) => a.source === source).length +
+    p.estados.filter((e) => e.source === source).length;
+
+  return sectionTitle(
+    "Estado de las fuentes — cobertura incompleta",
+    "#fbbf24",
+    "Un cero en estas fuentes significa que no obtuvimos información autorizada, no que no haya novedades.",
+  ) +
+    `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+      <thead><tr>${th("Fuente", "#fbbf24")}${th("Cobertura", "#fbbf24")}${th("Lectura del día", "#fbbf24")}</tr></thead>
+      <tbody>${degraded.map((r) => `<tr>
+        ${td(`<strong>${esc(r.label)}</strong>`)}
+        ${td(`${r.usable_confirmed_count}/${r.expected_count || r.attempted_count} confirmadas`)}
+        ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
+      </tr>`).join("")}</tbody>
+    </table>
+    <div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
+      No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
     </div>`;
 }
 
@@ -428,14 +463,24 @@ export function buildDigestHtml(p: DigestPayload): string {
   const total = p.actuaciones.length + p.estados.length;
   const greeting = p.recipientName ? `Buenos días, ${esc(p.recipientName)}.` : "Buenos días.";
 
+  // TT6 — the headline count is only a statement about what we READ. When a
+  // source failed to cover the portfolio the sentence must say so in the same
+  // breath, never afterwards and never in small print.
+  const headline = p.coverageIncomplete
+    ? `${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)} ` +
+      `sobre una <strong style="color:#fbbf24;">cobertura incompleta de fuentes</strong>: ` +
+      `esta cifra no permite concluir que no haya movimiento.`
+    : `${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)}.`;
+
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
     <div style="font-size:20px;font-weight:800;color:#f8fafc;">Andromeda — Resumen diario</div>
     <div style="font-size:13px;color:${MUTED};margin-top:4px;">
-      ${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)}.
+      ${headline}
     </div>
 
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
+    ${sourceQualityBlock(p)}
     ${novedadesBlock(p)}
     ${importedHistoryBlock(p)}
     ${hearingsBlock(p.hearings, p)}

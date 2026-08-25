@@ -24177,6 +24177,22 @@ export type Database = {
           },
         ]
       }
+      v_source_run_coverage: {
+        Row: {
+          attempted_count: number | null
+          error_count: number | null
+          first_attempt_at: string | null
+          last_attempt_at: string | null
+          not_found_count: number | null
+          pending_upstream_count: number | null
+          run_count: number | null
+          run_date: string | null
+          source: string | null
+          success_count: number | null
+          success_empty_count: number | null
+        }
+        Relationships: []
+      }
       v_work_item_attention_conditions: {
         Row: {
           condition_type: string | null
@@ -24545,6 +24561,19 @@ export type Database = {
           severity: string
           triggers_deadline: boolean
         }[]
+      }
+      classify_source_run_quality: {
+        Args: {
+          _attempted: number
+          _errors: number
+          _expected: number
+          _not_found: number
+          _pending: number
+          _run_executed?: boolean
+          _run_failed?: boolean
+          _usable: number
+        }
+        Returns: string
       }
       classify_work_item_estados_signal: {
         Args: { p_work_item_id: string }
@@ -25260,6 +25289,23 @@ export type Database = {
           p_work_item_id: string
         }
         Returns: Json
+      }
+      source_collection_quality: {
+        Args: { _from: string; _source: string; _to?: string }
+        Returns: {
+          attempted_count: number
+          coverage_ratio: number
+          error_count: number
+          expected_count: number
+          last_attempt_at: string
+          not_found_count: number
+          pending_upstream_count: number
+          source: string
+          source_quality_state: string
+          success_count: number
+          success_empty_count: number
+          usable_confirmed_count: number
+        }[]
       }
       stage_rank: { Args: { p_stage: string }; Returns: number }
       sub_business_days_sql: {
