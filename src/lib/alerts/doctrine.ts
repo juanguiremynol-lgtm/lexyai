@@ -45,6 +45,7 @@ export const DOCTRINE_TYPE_LABELS: Record<string, string> = {
   HEARING_UPCOMING: 'Audiencias próximas',
   MONITOREO_SIN_INGESTA: 'Monitoreo sin ingesta',
   MONITOREO_SIN_PROVEEDOR: 'Monitoreo sin proveedor',
+  RADICADO_SIN_COINCIDENCIA: 'Radicado sin coincidencia en fuentes',
   SUGERENCIA_PENDIENTE: 'Sugerencias pendientes',
   INGESTA_MASIVA: 'Ingesta masiva',
   LEXY_DAILY: 'Resumen diario de Lexy',
