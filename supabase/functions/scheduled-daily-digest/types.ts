@@ -218,6 +218,8 @@ export interface SourceQualityRow {
   success_count: number;
   success_empty_count: number;
   not_found_count: number;
+  /** Provider answered that the process is private; not authoritative coverage. */
+  restricted_count: number;
   pending_upstream_count: number;
   error_count: number;
   state:

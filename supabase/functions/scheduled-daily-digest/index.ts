@@ -183,6 +183,7 @@ Deno.serve(async (req) => {
         success_count: Number(row.success_count ?? 0),
         success_empty_count: Number(row.success_empty_count ?? 0),
         not_found_count: Number(row.not_found_count ?? 0),
+        restricted_count: Number(row.restricted_count ?? 0),
         pending_upstream_count: Number(row.pending_upstream_count ?? 0),
         error_count: Number(row.error_count ?? 0),
       };

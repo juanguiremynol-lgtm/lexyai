@@ -220,6 +220,19 @@ function sourceQualityBlock(p: DigestPayload): string {
     const pct = Math.round((r.usable_confirmed_count / den) * 100);
     return `${r.usable_confirmed_count}/${den} (${pct}%)`;
   };
+  const outcomeBreakdown = (r: typeof rows[number]) => {
+    const pending = r.pending_upstream_count ?? 0;
+    const restricted = r.restricted_count ?? 0;
+    const failures = r.error_count ?? 0;
+    return [
+      `${r.success_count} con datos`,
+      `${r.success_empty_count} sin movimiento`,
+      `${r.not_found_count} no encontrados`,
+      `${restricted} privados`,
+      `${pending} pendientes`,
+      `${failures} fallidos`,
+    ].join(" · ");
+  };
 
   return sectionTitle(
     degraded.length > 0
@@ -231,10 +244,11 @@ function sourceQualityBlock(p: DigestPayload): string {
       : "Cobertura = asuntos con lectura confirmada sobre asuntos esperados en la ventana.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fuente", accent)}${th("Cobertura", accent)}${th("Lectura del día", accent)}</tr></thead>
+      <thead><tr>${th("Fuente", accent)}${th("Cobertura útil", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
       <tbody>${rows.map((r) => `<tr>
         ${td(`<strong>${esc(r.label)}</strong>`)}
         ${td(`${ratioOf(r)} confirmadas`)}
+        ${td(esc(outcomeBreakdown(r)))}
         ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
       </tr>`).join("")}</tbody>
     </table>
