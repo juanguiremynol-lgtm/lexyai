@@ -15137,6 +15137,48 @@ export type Database = {
           },
         ]
       }
+      reported_second_instances: {
+        Row: {
+          created_at: string
+          despacho: string | null
+          id: string
+          last_known_act_date: string | null
+          last_known_act_description: string | null
+          notes: string | null
+          observed_at: string
+          origin_radicado: string
+          second_instance_radicado: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          despacho?: string | null
+          id?: string
+          last_known_act_date?: string | null
+          last_known_act_description?: string | null
+          notes?: string | null
+          observed_at?: string
+          origin_radicado: string
+          second_instance_radicado: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          despacho?: string | null
+          id?: string
+          last_known_act_date?: string | null
+          last_known_act_description?: string | null
+          notes?: string | null
+          observed_at?: string
+          origin_radicado?: string
+          second_instance_radicado?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       review_logs: {
         Row: {
           entity_id: string
@@ -24643,6 +24685,15 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      detect_unmatched_radicados: {
+        Args: { p_min_days?: number; p_min_reads?: number }
+        Returns: {
+          days_enrolled: number
+          radicado: string
+          reads: number
+          work_item_id: string
+        }[]
+      }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
       drain_expired_deadlines: {
@@ -25293,6 +25344,10 @@ export type Database = {
         Returns: boolean
       }
       work_item_id_for_radicacion: { Args: { p_rad: string }; Returns: string }
+      work_item_second_instance_ref: {
+        Args: { p_work_item_id: string }
+        Returns: Json
+      }
       work_item_status_for_lifecycle: {
         Args: {
           p_state: Database["public"]["Enums"]["work_item_lifecycle_state"]

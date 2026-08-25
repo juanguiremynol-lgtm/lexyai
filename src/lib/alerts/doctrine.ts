@@ -16,10 +16,12 @@ export const DOCTRINE_ALERT_TYPES = [
   'HEARING_UPCOMING',
   'MONITOREO_SIN_INGESTA',
   'MONITOREO_SIN_PROVEEDOR',
+  'RADICADO_SIN_COINCIDENCIA',
   'SUGERENCIA_PENDIENTE',
   'INGESTA_MASIVA',
   'LEXY_DAILY',
 ] as const;
+
 
 export type DoctrineAlertType = (typeof DOCTRINE_ALERT_TYPES)[number];
 
@@ -45,6 +47,7 @@ export const DOCTRINE_TYPE_LABELS: Record<string, string> = {
   HEARING_UPCOMING: 'Audiencias próximas',
   MONITOREO_SIN_INGESTA: 'Monitoreo sin ingesta',
   MONITOREO_SIN_PROVEEDOR: 'Monitoreo sin proveedor',
+  RADICADO_SIN_COINCIDENCIA: 'Radicado sin coincidencia en fuentes',
   SUGERENCIA_PENDIENTE: 'Sugerencias pendientes',
   INGESTA_MASIVA: 'Ingesta masiva',
   LEXY_DAILY: 'Resumen diario de Lexy',
@@ -65,6 +68,7 @@ const TYPE_ORDER: string[] = [
   'ACTUACION_CRITICA',
   'MONITOREO_SIN_INGESTA',
   'MONITOREO_SIN_PROVEEDOR',
+  'RADICADO_SIN_COINCIDENCIA',
   'SUGERENCIA_PENDIENTE',
   'INGESTA_MASIVA',
   'LEXY_DAILY',
