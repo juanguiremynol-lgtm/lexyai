@@ -32,3 +32,37 @@ nunca "sin novedades".
 - `external_sync_runs.status` **no distingue todavía** `NOT_FOUND` de `EMPTY`:
   ambos se persisten como `EMPTY`. Es la única mezcla viva y está documentada
   como deuda: separarla requiere migración y quedó pendiente de autorización.
+
+## Segunda capa: CALIDAD DE RECOLECCIÓN por fuente (TT5, fijada 2026-08-25)
+
+La taxonomía de arriba clasifica **una lectura**. No basta: un job puede
+terminar en 0 y no haber obtenido nada autorizado. La calidad de recolección
+clasifica **la corrida completa de una fuente contra el portafolio esperado**.
+
+Referencias: `supabase/functions/_shared/sourceRunQuality.ts`,
+`src/lib/upstream/source-run-quality.ts`, `public.classify_source_run_quality`,
+`public.v_source_run_coverage`, `public.source_collection_quality(source, from, to)`.
+
+| Estado | Significado | ¿Autoriza "0 novedades"? |
+| --- | --- | --- |
+| `SOURCE_HEALTHY_COMPLETE` | Todo asunto esperado produjo lectura concluyente. | Sí |
+| `SOURCE_HEALTHY_WITH_NOT_FOUND` | Cobertura completa; algunos radicados no los conoce la fuente. | Sí |
+| `SOURCE_DEGRADED_PARTIAL` | Quedaron asuntos sin confirmar (pendientes, errores o no intentados). | **No** |
+| `SOURCE_DEGRADED_SYSTEMIC` | Ninguna lectura utilizable pese a haber intentos. | **No** |
+| `SOURCE_RUN_FAILED` | La recolección falló técnicamente. | **No** |
+| `SOURCE_STALE` | No hubo corrida en la ventana esperada. | **No** |
+
+Reglas fijadas:
+
+1. **`PENDING_UPSTREAM` nunca es cobertura.** El proveedor contestó, pero sin
+   detalle autorizado. Un solo pendiente degrada la corrida a `PARTIAL`; si no
+   hay ninguna lectura utilizable, la corrida es `SYSTEMIC`.
+2. **La cobertura se cuenta por asunto, no por intento.** Un expediente leído
+   cinco veces en el día es UN asunto; vale su mejor resultado. Por eso
+   `coverage_ratio` nunca puede pasar de 1.
+3. **Salud de fuente y salud de asunto son dimensiones distintas** (TT8).
+   `NOT_FOUND` es una determinación por asunto y no degrada la fuente.
+4. **El resumen diario no puede imprimir un cero sin calificar** (TT6.1). Si
+   alguna fuente no es autoritativa, el digest se envía igual, encabeza con
+   "cobertura incompleta de fuentes" y muestra la tabla de estado de fuentes
+   antes de las novedades.
