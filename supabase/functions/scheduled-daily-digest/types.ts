@@ -108,6 +108,26 @@ export interface WorkItemInfo {
     acts: Record<string, number>;
     estados: Record<string, number>;
   };
+  /**
+   * YY2 — one sentence describing how THIS court behaves, derived from
+   * `public.despacho_behavior_statement`. Never hand-written, never shown
+   * unless the profile reached the evidence threshold.
+   */
+  courtBehavior?: string | null;
+}
+
+/**
+ * YY3 — a finding recovered after a collection defect. It is reconciliation,
+ * not novedad: delivered exactly once and never counted with the day's news.
+ */
+export interface ReconciliationNoticeRow {
+  id: string;
+  work_item_id: string | null;
+  headline: string;
+  detail: string;
+  rows_count: number;
+  from_date: string | null;
+  to_date: string | null;
 }
 
 /**
@@ -188,6 +208,8 @@ export interface DigestPayload {
   nonJudicialDeadlines: DeadlineRow[];
   /** D3 — rows detected in the window that are initial import, not novedad. */
   importedHistory: ImportedHistoryRow[];
+  /** YY3 — one-time reconciliation notices pending delivery. */
+  reconciliations: ReconciliationNoticeRow[];
 
   connectionIssues: ConnectionIssueRow[];
   suspended: SuspendedItemRow[];
@@ -231,6 +253,14 @@ export interface SourceQualityRow {
     | "SOURCE_STALE";
   /** TT6 — may a zero count on this source be read as "sin novedades"? */
   authoritative: boolean;
+  /**
+   * YY1(e) — the denominator BEFORE the learned despacho profiles removed the
+   * matters whose court is evidenced not to use this channel, and how many
+   * they removed. Both travel to the reader: a profile may never shrink the
+   * portfolio silently.
+   */
+  expected_before_profile?: number;
+  excluded_by_profile?: number;
 }
 
 

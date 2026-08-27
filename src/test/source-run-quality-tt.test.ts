@@ -175,7 +175,7 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
   });
 
   it("treats degraded coverage as content instead of an empty day", () => {
-    expect(index).toMatch(/importedHistory\.length > 0 \|\| coverageIncomplete/);
+    expect(index).toMatch(/reconciliations\.length > 0 \|\|\s*\n?\s*coverageIncomplete/);
   });
 
   it("qualifies the headline and renders the source block above novedades", () => {

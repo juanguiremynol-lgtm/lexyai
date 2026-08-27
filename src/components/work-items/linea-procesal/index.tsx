@@ -10,6 +10,7 @@ import { PhaseStepper, type PhaseReach } from "./PhaseStepper";
 import { AccionRequerida } from "./AccionRequerida";
 import { TimelineFeed } from "./TimelineFeed";
 import { ExposicionDetalleStatus } from "./ExposicionDetalleStatus";
+import { ComportamientoDespacho } from "./ComportamientoDespacho";
 import { TracksPanel } from "./TracksPanel";
 import { TerminosDeRegla } from "./TerminosDeRegla";
 import type { TermEvent } from "@/lib/workflow-terms/rule-term-suggestions";
@@ -203,6 +204,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         awaitingAnchorEvents={["EJECUTORIA_SENTENCIA", "NOTIFICACION_MANDAMIENTO_PAGO"]}
       />
       <ExposicionDetalleStatus workItemId={workItemId} workflowType={workflowType} />
+      <ComportamientoDespacho workItemId={workItemId} />
       <TimelineFeed workItemId={workItemId} />
 
     </section>

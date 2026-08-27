@@ -90,14 +90,30 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     await db.rpc("finish_estados_monitor_item", {
       _run_id: runId, _work_item_id: item.work_item_id, _success: success, _error_code: errorCode, _result: result,
     });
-    if (channel === "publicaciones") {
-      const label = ppLabelFromResult(success, errorCode, result);
-      const patch: Record<string, unknown> = { pp_estado: label };
-      // A skip is not a read: it may relabel, but it must not move the clock.
-      if (label !== "no_aplica") patch.pp_ultima_sync = new Date().toISOString();
-      const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
-      if (labelError) console.error("[estadosMonitor] no se pudo refrescar pp_estado", labelError.message);
+    const label = ppLabelFromResult(success, errorCode, result);
+    const stampedAt = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      // YY4 — every attempt moves the attempt clock, whatever the outcome.
+      last_sync_attempt_at: stampedAt,
+    };
+    // YY4 — `scrape_status` describes the LAST read, not the first failure.
+    // A routing skip is not a read and leaves the previous verdict standing.
+    if (label !== "no_aplica") {
+      patch.scrape_status = label === "pending"
+        ? "IN_PROGRESS"
+        : label === "error"
+        ? "FAILED"
+        : "SUCCESS";
+      // An answered read — including "empty" and "not found" — is a scrape.
+      if (label !== "pending" && label !== "error") patch.last_scrape_at = stampedAt;
     }
+    if (channel === "publicaciones") {
+      patch.pp_estado = label;
+      // A skip is not a read: it may relabel, but it must not move the clock.
+      if (label !== "no_aplica") patch.pp_ultima_sync = stampedAt;
+    }
+    const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
+    if (labelError) console.error("[estadosMonitor] no se pudo refrescar el estado de lectura", labelError.message);
   }
 
   const { data: finish, error: finishError } = await db.rpc("finish_estados_monitor_hop", { _run_id: runId });

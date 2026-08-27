@@ -6879,6 +6879,90 @@ export type Database = {
           },
         ]
       }
+      digest_reconciliation_notices: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          detail: string
+          from_date: string | null
+          headline: string
+          id: string
+          notice_key: string
+          organization_id: string | null
+          owner_id: string
+          rows_count: number
+          to_date: string | null
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          detail: string
+          from_date?: string | null
+          headline: string
+          id?: string
+          notice_key: string
+          organization_id?: string | null
+          owner_id: string
+          rows_count?: number
+          to_date?: string | null
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          detail?: string
+          from_date?: string | null
+          headline?: string
+          id?: string
+          notice_key?: string
+          organization_id?: string | null
+          owner_id?: string
+          rows_count?: number
+          to_date?: string | null
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "digest_reconciliation_notices_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "digest_reconciliation_notices_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "digest_reconciliation_notices_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "digest_reconciliation_notices_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "digest_reconciliation_notices_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_configurations: {
         Row: {
           created_at: string
@@ -25003,6 +25087,10 @@ export type Database = {
           title_source: string
         }[]
       }
+      despacho_behavior_statement: {
+        Args: { p_radicado: string }
+        Returns: string
+      }
       despacho_competencia_for_radicado: {
         Args: { p_radicado: string }
         Returns: {
@@ -25015,6 +25103,11 @@ export type Database = {
       }
       despacho_has_coverage_gap: {
         Args: { p_radicado: string }
+        Returns: boolean
+      }
+      despacho_name_observed: { Args: { p_code: string }; Returns: string }
+      despacho_profile_explains_absence: {
+        Args: { p_absence_at?: string; p_channel: string; p_radicado: string }
         Returns: boolean
       }
       despacho_silence_note: {
@@ -25648,6 +25741,8 @@ export type Database = {
           attempted_count: number
           coverage_ratio: number
           error_count: number
+          excluded_by_profile: number
+          expected_before_profile: number
           expected_count: number
           last_attempt_at: string
           not_found_count: number
