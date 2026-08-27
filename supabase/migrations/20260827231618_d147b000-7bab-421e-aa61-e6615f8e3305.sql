@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.derive_despacho_profiles() FROM authenticated;
