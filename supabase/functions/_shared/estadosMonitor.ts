@@ -90,7 +90,16 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     await db.rpc("finish_estados_monitor_item", {
       _run_id: runId, _work_item_id: item.work_item_id, _success: success, _error_code: errorCode, _result: result,
     });
+    if (channel === "publicaciones") {
+      const label = ppLabelFromResult(success, errorCode, result);
+      const patch: Record<string, unknown> = { pp_estado: label };
+      // A skip is not a read: it may relabel, but it must not move the clock.
+      if (label !== "no_aplica") patch.pp_ultima_sync = new Date().toISOString();
+      const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
+      if (labelError) console.error("[estadosMonitor] no se pudo refrescar pp_estado", labelError.message);
+    }
   }
+
   const { data: finish, error: finishError } = await db.rpc("finish_estados_monitor_hop", { _run_id: runId });
   if (finishError) return response({ error: finishError.message }, 500);
   const state = finish?.[0];
