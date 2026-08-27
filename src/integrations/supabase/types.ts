@@ -6597,6 +6597,123 @@ export type Database = {
         }
         Relationships: []
       }
+      despacho_profile_transitions: {
+        Row: {
+          created_at: string
+          despacho_code: string
+          dimension: string
+          evidence: Json
+          from_value: string | null
+          id: string
+          to_value: string
+        }
+        Insert: {
+          created_at?: string
+          despacho_code: string
+          dimension: string
+          evidence?: Json
+          from_value?: string | null
+          id?: string
+          to_value: string
+        }
+        Update: {
+          created_at?: string
+          despacho_code?: string
+          dimension?: string
+          evidence?: Json
+          from_value?: string | null
+          id?: string
+          to_value?: string
+        }
+        Relationships: []
+      }
+      despacho_profiles: {
+        Row: {
+          acts_attempts: number
+          acts_data_reads: number
+          acts_empty_reads: number
+          acts_failed_reads: number
+          acts_last_data_at: string | null
+          acts_pending_reads: number
+          computed_at: string
+          created_at: string
+          delivers_detail: string
+          despacho_code: string
+          enabled_for_grading: boolean
+          estados_attempts: number
+          estados_data_reads: number
+          estados_empty_reads: number
+          estados_failed_reads: number
+          estados_last_data_at: string | null
+          estados_pending_reads: number
+          evidence_note: string | null
+          evidence_sufficient: boolean
+          feeds_actuaciones: string
+          first_observed_at: string | null
+          last_observed_at: string | null
+          matters_observed: number
+          observation_days: number
+          publishes_estados: string
+          updated_at: string
+        }
+        Insert: {
+          acts_attempts?: number
+          acts_data_reads?: number
+          acts_empty_reads?: number
+          acts_failed_reads?: number
+          acts_last_data_at?: string | null
+          acts_pending_reads?: number
+          computed_at?: string
+          created_at?: string
+          delivers_detail?: string
+          despacho_code: string
+          enabled_for_grading?: boolean
+          estados_attempts?: number
+          estados_data_reads?: number
+          estados_empty_reads?: number
+          estados_failed_reads?: number
+          estados_last_data_at?: string | null
+          estados_pending_reads?: number
+          evidence_note?: string | null
+          evidence_sufficient?: boolean
+          feeds_actuaciones?: string
+          first_observed_at?: string | null
+          last_observed_at?: string | null
+          matters_observed?: number
+          observation_days?: number
+          publishes_estados?: string
+          updated_at?: string
+        }
+        Update: {
+          acts_attempts?: number
+          acts_data_reads?: number
+          acts_empty_reads?: number
+          acts_failed_reads?: number
+          acts_last_data_at?: string | null
+          acts_pending_reads?: number
+          computed_at?: string
+          created_at?: string
+          delivers_detail?: string
+          despacho_code?: string
+          enabled_for_grading?: boolean
+          estados_attempts?: number
+          estados_data_reads?: number
+          estados_empty_reads?: number
+          estados_failed_reads?: number
+          estados_last_data_at?: string | null
+          estados_pending_reads?: number
+          evidence_note?: string | null
+          evidence_sufficient?: boolean
+          feeds_actuaciones?: string
+          first_observed_at?: string | null
+          last_observed_at?: string | null
+          matters_observed?: number
+          observation_days?: number
+          publishes_estados?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       detected_processes: {
         Row: {
           ciudad_inferida: string | null
@@ -24852,6 +24969,33 @@ export type Database = {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
       }
+      derive_despacho_profiles: {
+        Args: never
+        Returns: {
+          acts_attempts: number
+          acts_data_reads: number
+          acts_empty_reads: number
+          acts_failed_reads: number
+          acts_last_data_at: string
+          acts_pending_reads: number
+          delivers_detail: string
+          despacho_code: string
+          estados_attempts: number
+          estados_data_reads: number
+          estados_empty_reads: number
+          estados_failed_reads: number
+          estados_last_data_at: string
+          estados_pending_reads: number
+          evidence_note: string
+          evidence_sufficient: boolean
+          feeds_actuaciones: string
+          first_observed_at: string
+          last_observed_at: string
+          matters_observed: number
+          observation_days: number
+          publishes_estados: string
+        }[]
+      }
       derive_work_item_title: {
         Args: { _demandados: string; _demandantes: string; _radicado: string }
         Returns: {
@@ -25396,6 +25540,7 @@ export type Database = {
         Returns: boolean
       }
       refresh_cron_health_snapshot: { Args: never; Returns: number }
+      refresh_despacho_profiles: { Args: never; Returns: number }
       refresh_estados_coverage_signals: {
         Args: { p_alert?: boolean }
         Returns: Json
