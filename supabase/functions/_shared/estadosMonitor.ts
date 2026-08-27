@@ -19,6 +19,26 @@ function validRadicado(value: string | null): boolean {
   return Boolean(value && value.replace(/\D/g, "").length === 23);
 }
 
+/**
+ * XX1(a) — the read must refresh the label it is displayed under.
+ * `pp_estado` / `pp_ultima_sync` are what the lawyer's screen shows for the
+ * Publicaciones channel. They were written on enrolment and then never again,
+ * so matters read successfully yesterday still displayed "error" with a date
+ * from May. Every read now restamps them.
+ *
+ * A routing skip (this source is not in the matter's canonical chain) is NOT a
+ * read: it becomes `no_aplica` and must never be shown as a failure.
+ */
+function ppLabelFromResult(success: boolean, errorCode: string | null, result: Record<string, unknown>): string {
+  const signal = String(result.result_code ?? result.outcome ?? errorCode ?? "").toUpperCase();
+  if (signal.startsWith("ROUTING_SKIP") || signal.startsWith("SKIP")) return "no_aplica";
+  if (signal.includes("PRIVADO")) return "privado";
+  if (signal.startsWith("PENDING") || signal === "NO_DATA" || signal === "SCRAPING_INITIATED") return "pending";
+  if (signal.includes("NOT_FOUND")) return "no_encontrado";
+  return success ? "ok" : "error";
+}
+
+
 export async function runEstadosMonitor(req: Request, channel: Channel): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return response({ error: "Método no permitido" }, 405);
