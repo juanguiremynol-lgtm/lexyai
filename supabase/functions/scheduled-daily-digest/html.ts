@@ -24,6 +24,8 @@ import {
   type DigestPayload,
   type EstadoRow,
   type HearingRow,
+  type ReconciliationNoticeRow,
+  type SourceQualityRow,
   type SuspendedItemRow,
   type WorkItemInfo,
 } from "./types.ts";
@@ -121,6 +123,13 @@ function providerTally(wi: WorkItemInfo | undefined): string {
 }
 
 function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string): string {
+  // YY2 — the court's observed behaviour, stated as observation and never as
+  // a rule. Absent entirely while the evidence is insufficient.
+  const behaviour = wi?.courtBehavior
+    ? `<div style="font-size:12px;color:#a5b4fc;margin-top:4px;line-height:1.5;">
+         Comportamiento observado del despacho: ${esc(wi.courtBehavior)}
+       </div>`
+    : "";
   return `
     <div style="padding:10px 12px;background:#16233f;border-bottom:1px solid ${BORDER};">
       <div style="font-size:14px;font-weight:700;color:#f8fafc;">${esc(wi?.title || "Asunto sin título")}</div>
@@ -131,6 +140,7 @@ function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string
       <div style="font-size:12px;color:${MUTED};margin-top:2px;">
         Clase de proceso: ${esc(wi?.clase_proceso || "No informada")}${wi?.workflow_type ? ` · ${esc(wi.workflow_type)}` : ""}
       </div>
+      ${behaviour}
       ${providerTally(wi)}
       <a href="${appBaseUrl}/app/work-item/${esc(id)}" style="font-size:12px;color:${ACT_ACCENT};">Abrir en Andromeda →</a>
     </div>`;
@@ -254,7 +264,26 @@ function sourceQualityBlock(p: DigestPayload): string {
     </table>
     ${degraded.length > 0 ? `<div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
       No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
-    </div>` : ""}`;
+    </div>` : ""}
+    ${profileNote(rows)}`;
+}
+
+/**
+ * YY1(e) — when a learned despacho profile removes matters from a source's
+ * denominator, the mail says so, with the figure before and after. A profile
+ * that shrinks the portfolio in silence would be indistinguishable from the
+ * blindness it is meant to describe.
+ */
+function profileNote(rows: SourceQualityRow[]): string {
+  const affected = rows.filter((r) => (r.excluded_by_profile ?? 0) > 0);
+  if (!affected.length) return "";
+  return `<div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
+    ${affected.map((r) =>
+      `${esc(r.label)}: ${r.excluded_by_profile} asunto(s) excluidos del denominador ` +
+      `(${r.expected_before_profile} → ${r.expected_count}) porque su despacho, según lo observado, ` +
+      `no utiliza ese canal. Se sigue consultando y todo lo que publique se sigue guardando.`
+    ).join("<br/>")}
+  </div>`;
 }
 
 
@@ -395,6 +424,36 @@ function connectionBlock(rows: ConnectionIssueRow[], appBaseUrl: string): string
  * their lifecycle stopped ingestion); the section says so plainly.
  */
 /**
+ * YY3 — RECONCILIACIÓN. A finding recovered after a collection defect, shown
+ * exactly once. It is not a novedad and it derives nothing: no term, no alert.
+ */
+function reconciliationBlock(rows: ReconciliationNoticeRow[], p: DigestPayload): string {
+  if (!rows.length) return "";
+  return sectionTitle(
+    `Reconciliación — hallazgos recuperados (${rows.length})`,
+    "#a78bfa",
+    "Información que ya existía en el despacho y que no habíamos leído por una falla de recolección, ya corregida. No son novedades del día y no generan términos por sí solas.",
+  ) +
+  rows.map((r) => {
+    const wi = r.work_item_id ? p.workItems.get(r.work_item_id) : undefined;
+    const span = r.from_date && r.to_date ? `${fmtDate(r.from_date)} a ${fmtDate(r.to_date)}` : "Periodo no registrado";
+    return `<div style="border:1px solid ${BORDER};border-radius:8px;background:${CARD};padding:12px;margin-bottom:12px;">
+      <div style="font-size:14px;font-weight:700;color:#f8fafc;">${esc(r.headline)}</div>
+      <div style="font-size:12px;color:${MUTED};margin-top:3px;">
+        ${esc(wi?.radicado || "Sin radicado")}${wi?.title ? ` · ${esc(wi.title)}` : ""}
+      </div>
+      <div style="font-size:13px;color:${TEXT};margin-top:6px;line-height:1.6;">
+        ${r.rows_count} registro(s) · ${esc(span)}
+      </div>
+      <div style="font-size:12px;color:${MUTED};margin-top:6px;line-height:1.6;">${esc(r.detail)}</div>
+      ${r.work_item_id
+        ? `<a href="${p.appBaseUrl}/app/work-item/${esc(r.work_item_id)}" style="font-size:12px;color:#a78bfa;">Revisar el expediente →</a>`
+        : ""}
+    </div>`;
+  }).join("");
+}
+
+/**
  * D3 — «historial importado». One line per matter: what arrived, and the span
  * it covers. Never mixed with the novedad count, and never presented as news.
  */
@@ -512,6 +571,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${sourceQualityBlock(p)}
     ${novedadesBlock(p)}
+    ${reconciliationBlock(p.reconciliations ?? [], p)}
     ${importedHistoryBlock(p)}
     ${hearingsBlock(p.hearings, p)}
     ${deadlinesBlock(p.deadlines, p)}

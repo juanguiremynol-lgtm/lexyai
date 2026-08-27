@@ -48,6 +48,7 @@ import type {
   DigestDocument,
   EstadoRow,
   HearingRow,
+  ReconciliationNoticeRow,
   SourceQualityRow,
   SuspendedItemRow,
   WorkItemInfo,
@@ -197,6 +198,9 @@ Deno.serve(async (req) => {
         state,
         label: SOURCE_LABEL[src] ?? src,
         authoritative: mayAssertAuthoritativeNoNovedades(state),
+        // YY1(e) — the profiles' effect on the denominator, always disclosed.
+        expected_before_profile: Number(row.expected_before_profile ?? counts.expected_count),
+        excluded_by_profile: Number(row.excluded_by_profile ?? 0),
       });
     }
     const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
@@ -562,13 +566,26 @@ Deno.serve(async (req) => {
           to_year: e.years.length ? Math.max(...e.years) : null,
         }));
 
+        // ── YY3 — one-time reconciliation notices still undelivered. They are
+        // content on their own: a recovered finding must reach the lawyer even
+        // on a day with no novedades.
+        const { data: rawNotices } = await supabase
+          .from("digest_reconciliation_notices")
+          .select("id, work_item_id, headline, detail, rows_count, from_date, to_date")
+          .eq("owner_id", ownerId)
+          .is("delivered_at", null)
+          .limit(50);
+        const reconciliations: ReconciliationNoticeRow[] =
+          (rawNotices ?? []) as unknown as ReconciliationNoticeRow[];
+
         // TT6.1 — degraded coverage is itself content. A day with no rows and a
         // source that never delivered authoritative detail is NOT an empty day:
         // staying silent would let the lawyer read our silence as judicial
         // silence. That is precisely the misrepresentation of 2026-07-27.
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length + importedHistory.length > 0 || coverageIncomplete;
+            connectionIssues.length + importedHistory.length + reconciliations.length > 0 ||
+          coverageIncomplete;
 
 
         if (!hasContent) {
@@ -613,6 +630,24 @@ Deno.serve(async (req) => {
           if (wi) wiMap.set(id, { ...wi, providerCounts: counts });
         }
 
+        // ── YY2 — how this court behaves, in one sentence. Derived by the DB
+        // from observed reads only; NULL while the evidence is insufficient,
+        // and in that case nothing is said at all.
+        const behaviourByCode = new Map<string, string | null>();
+        for (const id of novedadIds) {
+          const wi = wiMap.get(id);
+          const code = (wi?.radicado ?? "").replace(/\D/g, "").slice(0, 12);
+          if (!code || code.length < 12) continue;
+          if (!behaviourByCode.has(code)) {
+            const { data: stmt } = await supabase.rpc("despacho_behavior_statement", {
+              p_radicado: wi?.radicado ?? "",
+            });
+            behaviourByCode.set(code, typeof stmt === "string" && stmt.length ? stmt : null);
+          }
+          const sentence = behaviourByCode.get(code) ?? null;
+          if (wi && sentence) wiMap.set(id, { ...wiMap.get(id)!, courtBehavior: sentence });
+        }
+
         const silentCount = judicialItems.filter((i) =>
           !i.last_successful_sync_at ||
           Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
@@ -626,6 +661,7 @@ Deno.serve(async (req) => {
           silentCount,
           actuaciones, estados, hearings, deadlines,
           importedHistory,
+          reconciliations,
 
           nonJudicialDeadlines,
           connectionIssues,
@@ -701,6 +737,16 @@ Deno.serve(async (req) => {
           })),
         ];
         await recordDispatch(supabase, ledgerRows);
+
+        // YY3 — a reconciliation notice is consumed only by a real send. A dry
+        // run returned long before this point, so a preview never burns it.
+        if (reconciliations.length > 0) {
+          await supabase
+            .from("digest_reconciliation_notices")
+            .update({ delivered_at: new Date().toISOString() })
+            .in("id", reconciliations.map((r) => r.id));
+        }
+
 
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
