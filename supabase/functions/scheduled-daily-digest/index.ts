@@ -371,7 +371,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", ids)
           .gte("scheduled_at", nowIso)
           .lte("scheduled_at", horizon)
-          .neq("status", "CANCELLED")
+          .not("status", "in", "(cancelled,CANCELLED)")
           .order("scheduled_at", { ascending: true });
 
         // ── AD1(d) — audiencias MÁS ALLÁ del horizonte de 7 días ────────────
@@ -385,7 +385,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", ids)
           .gt("scheduled_at", horizon)
           .lte("scheduled_at", farHorizon)
-          .neq("status", "CANCELLED")
+          .not("status", "in", "(cancelled,CANCELLED)")
           .order("scheduled_at", { ascending: true })
           .limit(50);
 
