@@ -611,7 +611,8 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   return sectionTitle(
     `Suscritos y nunca consultados (${rows.length})`,
     A,
-    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura.",
+    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura. " +
+      "La lista es por asunto y no por canal: un asunto que nunca ha sido leído por el canal de actuaciones (CPNU) pero sí por el canal de estados no aparece aquí, porque sus estados ya se reportan arriba. Si otro informe lo señala como «nunca consultado», ambas cosas son ciertas: nunca leído por CPNU; sí por estados.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", A)}${th("Asunto", A)}${th("Días desde el alta", A)}${th("Último intento", A)}${th("Último código", A)}</tr></thead>
