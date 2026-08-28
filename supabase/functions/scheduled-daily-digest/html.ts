@@ -39,6 +39,7 @@ const TEXT = "#e2e8f0";
 const MUTED = "#94a3b8";
 const ACT_ACCENT = "#38bdf8"; // actuación
 const EST_ACCENT = "#a78bfa"; // estado
+const WARN_ACCENT = "#f59e0b"; // vínculo no confirmado (AB1)
 
 function esc(v: unknown): string {
   return String(v ?? "")
