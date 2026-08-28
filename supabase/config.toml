@@ -395,3 +395,6 @@ verify_jwt = false
 
 [functions.outlook-token-refresh]
 verify_jwt = false
+
+[functions.digest-failure-watchdog]
+verify_jwt = false
