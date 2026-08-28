@@ -22,7 +22,13 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
-import { classifyDigestDay, renderWatchdogHtml, renderWatchdogSubject } from "./logic.ts";
+import {
+  classifyDigestDay,
+  classifyOutboxBacklog,
+  OUTBOX_BACKLOG_MINUTES,
+  renderWatchdogHtml,
+  renderWatchdogSubject,
+} from "./logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -75,7 +81,21 @@ Deno.serve(async (req) => {
     if (runErr) throw runErr;
 
     const verdict = classifyDigestDay(expected, (runs ?? []) as never[]);
-    const { failed, stuck, missing, problems } = verdict;
+    const { failed, stuck, missing } = verdict;
+
+    // AF1(b) — outbox backlog: rows enqueued and due but never drained. The
+    // Resend watcher cannot see these (they never reached the provider) and the
+    // digest cannot either (it returns once the row is written).
+    const { data: outboxRows, error: obErr } = await supabase
+      .from("email_outbox")
+      .select("id, to_email, subject, status, next_attempt_at, created_at")
+      .eq("status", "PENDING")
+      .lt("next_attempt_at", new Date(Date.now() - OUTBOX_BACKLOG_MINUTES * 60_000).toISOString())
+      .limit(200);
+    if (obErr) throw obErr;
+    const backlog = classifyOutboxBacklog((outboxRows ?? []) as never[]);
+
+    const problems = verdict.problems + (backlog.stalled > 0 ? 1 : 0);
 
     const result = {
       digest_date: digestDate,
@@ -83,6 +103,8 @@ Deno.serve(async (req) => {
       failed: failed.length,
       stuck: stuck.length,
       missing: missing.length,
+      outbox_stalled: backlog.stalled,
+      outbox_oldest_minutes: backlog.oldestMinutes,
       alerted: false,
     };
 
@@ -91,12 +113,13 @@ Deno.serve(async (req) => {
       return json({ ok: true, ...result, dry_run: dryRun });
     }
 
-    const html = renderWatchdogHtml(digestDate, expected.size, verdict);
+    const html = renderWatchdogHtml(digestDate, expected.size, verdict, backlog);
 
     const { error: outErr } = await supabase.from("email_outbox").insert({
       organization_id: "00000000-0000-0000-0000-000000000000",
       to_email: OPS_EMAIL,
-      subject: renderWatchdogSubject(digestDate, verdict),
+      subject: renderWatchdogSubject(digestDate, verdict) +
+        (backlog.stalled > 0 ? ` · ${backlog.stalled} sin salir` : ""),
       html,
       status: "PENDING",
       next_attempt_at: new Date().toISOString(),
