@@ -108,3 +108,27 @@ describe("AE1 — the edge function stays wired to this logic", () => {
     expect(src).toMatch(/problems === 0 \|\| dryRun/);
   });
 });
+
+/**
+ * AF1(b) — the outbox backlog condition: mail enqueued and due, never drained.
+ * Invisible to GCP's Resend watcher (never reached the provider) and to the
+ * digest itself (it returns once the row is written).
+ */
+describe("AF1(b) — outbox backlog", () => {
+  it("flags PENDING rows past their due time and renders them", async () => {
+    const { classifyOutboxBacklog, renderOutboxBacklogBlock, OUTBOX_BACKLOG_MINUTES } = await import(
+      "../../supabase/functions/digest-failure-watchdog/logic.ts"
+    );
+    const stale = new Date(NOW.getTime() - (OUTBOX_BACKLOG_MINUTES + 60) * 60_000).toISOString();
+    const fresh = new Date(NOW.getTime() - 60_000).toISOString();
+    const b = classifyOutboxBacklog([
+      { to_email: "gr@lexetlit.com", subject: "Resumen diario", status: "PENDING", next_attempt_at: stale },
+      { to_email: "otro@x.com", subject: "Otro", status: "PENDING", next_attempt_at: fresh },
+      { to_email: "ya@x.com", subject: "Enviado", status: "SENT", next_attempt_at: stale },
+    ], NOW);
+    expect(b.stalled).toBe(1);
+    expect(b.oldestMinutes).toBeGreaterThanOrEqual(OUTBOX_BACKLOG_MINUTES);
+    expect(renderOutboxBacklogBlock(b)).toContain("CORREO SIN SALIR (1)");
+    expect(renderOutboxBacklogBlock({ stalled: 0, oldestMinutes: 0, samples: [] })).toBe("");
+  });
+});

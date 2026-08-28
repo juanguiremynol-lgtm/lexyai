@@ -198,3 +198,38 @@ curl -X POST "$SUPABASE_URL/functions/v1/atenia-ai-supervisor" \
   -H "Content-Type: application/json" \
   -d '{"mode":"PROCESS_QUEUE"}'
 ```
+
+## Daily digest: one trigger, two watchers (AF1 / AF2)
+
+### Single trigger (AF2)
+
+The digest used to have **two** triggers: `scheduled-daily-sync` chained it
+directly (~12:05 UTC) and cron `andromeda-daily-digest` (jobid 52) fired later,
+losing the daily claim and swallowing a `23505`. Send time drifted, and the
+losing trigger believed it had run.
+
+Pinned as of 2026-08-28:
+
+| Item | Value |
+| ---- | ----- |
+| Sole trigger | cron `andromeda-daily-digest`, `0 13 * * *` (13:00 UTC = 08:00 Bogotá) |
+| Removed | the `supabase.functions.invoke("scheduled-daily-digest")` chain in `scheduled-daily-sync` — replaced by an explicit `console.info` skip with reason |
+| Why the cron and not the chain | the sync starts 12:00 UTC and has drained by ~12:05 every day, so 13:00 leaves a ~55 min margin; a digest chained to the sync also inherits every sync failure and every continuation overflow |
+| Why 13:00 | must be **before 14:00 UTC** so GCP's `andromeda-vigia-correo` finds a delivery when it looks |
+| 23505 policy | never silent — `scheduled-daily-digest` logs `deliberate skip — reason: ...; trigger_source=...` for every lost claim |
+
+### Division of responsibility between the two watchers (AF1)
+
+| | Andromeda `digest-failure-watchdog` | GCP `andromeda-vigia-correo` |
+| - | - | - |
+| Schedule | `0 15 * * *` UTC | `0 14 * * *` UTC |
+| Watches | the **producer** | the **mailbox** |
+| Answers | **WHY** nothing was produced (FAILED / SIN CORRIDA / ATASCADO / CORREO SIN SALIR) | **THAT** nothing arrived — including a producer that wrongly believes it sent |
+| Depends on | Supabase + `email_outbox` transport | Resend API only |
+| Alerts through | `email_outbox` → Resend | Cloud Monitoring (Google mail) |
+
+Two systems, two transports, two alert paths. **Do not build a third
+transport-independent channel inside Supabase** — it adds surface without adding
+independence. The one gap neither of the above covers on its own is the outbox
+filling without draining; that is the `CORREO SIN SALIR` check inside
+`digest-failure-watchdog` (`OUTBOX_BACKLOG_MINUTES = 45`).

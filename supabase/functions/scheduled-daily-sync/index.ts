@@ -579,19 +579,16 @@ Deno.serve(async (req) => {
         console.warn("[daily-sync] Supervisor invoke failed:", (supErr as Error).message);
       }
 
-      // D2 — the digest is CHAINED to the sync, not scheduled against it.
-      // A fixed 06:30 send ran before the 07:00 sync, so the day's real
-      // movements were reported the following morning. Now the sync itself
-      // kicks the digest once every organisation's queue has drained; the
-      // cron entry remains only as a late fallback for days the sync never
-      // completes. The digest's own daily claim keeps this idempotent.
-      try {
-        await supabase.functions.invoke("scheduled-daily-digest", {
-          body: { trigger_source: "DAILY_SYNC_CHAIN" },
-        });
-      } catch (digErr) {
-        console.warn("[daily-sync] Digest chain invoke failed:", (digErr as Error).message);
-      }
+      // AF2 — the digest is NO LONGER chained here. Two triggers (this chain at
+      // ~12:05 UTC and cron `andromeda-daily-digest`) raced for the same daily
+      // claim; the loser swallowed a 23505 and believed it had run, and the
+      // lawyer could not predict when his brief arrived. The digest is now
+      // pinned to exactly one trigger: the dedicated cron at 13:00 UTC
+      // (08:00 Bogotá), which is one hour after this sync starts and one hour
+      // before GCP's Resend watcher looks for the delivery.
+      console.info(
+        "[daily-sync] digest chain intentionally skipped — reason: digest pinned to cron 'andromeda-daily-digest' 13:00 UTC (AF2)",
+      );
     }
 
     responsePayload = {
