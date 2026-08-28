@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
 
     const { data: runs, error: runErr } = await supabase
       .from("daily_digest_runs")
-      .select("recipient_user_id, status, error_summary, started_at, finished_at, recipient_email")
+      .select("recipient_user_id, status, error_summary, created_at, finished_at, recipient_email")
       .eq("digest_date", digestDate);
     if (runErr) throw runErr;
 
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
         failed.push(`${run.recipient_email ?? uid}: ${run.error_summary ?? "sin detalle"}`);
       } else if (
         status === "RUNNING" &&
-        Date.parse(String(run.started_at ?? "")) < stuckCutoff
+        Date.parse(String(run.created_at ?? "")) < stuckCutoff
       ) {
         stuck.push(String(run.recipient_email ?? uid));
       }
