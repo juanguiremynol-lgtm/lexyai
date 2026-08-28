@@ -24676,6 +24676,10 @@ export type Database = {
         Args: { p_act_type: string; p_description: string }
         Returns: boolean
       }
+      act_is_party_or_secretarial: {
+        Args: { p_act_type: string; p_description: string }
+        Returns: boolean
+      }
       act_is_remision_expediente: {
         Args: { p_act_type?: string; p_description: string }
         Returns: boolean
