@@ -362,14 +362,42 @@ Deno.serve(async (req) => {
 
         // ── Próximas audiencias (7 días) ──
         const horizon = new Date(Date.now() + HEARING_HORIZON_DAYS * 86_400_000).toISOString();
+        // AD1(d) — the firm's calendar lives in `work_item_hearings`. The old
+        // `hearings` table is empty, which is why an auto-detected audiencia
+        // never reached this mail. Both queries below read the live table.
         const { data: rawHearings } = await supabase
-          .from("hearings")
-          .select("id, work_item_id, title, scheduled_at, location, is_virtual, virtual_link")
+          .from("work_item_hearings")
+          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
           .in("work_item_id", ids)
-          .is("deleted_at", null)
           .gte("scheduled_at", nowIso)
           .lte("scheduled_at", horizon)
+          .neq("status", "CANCELLED")
           .order("scheduled_at", { ascending: true });
+
+        // ── AD1(d) — audiencias MÁS ALLÁ del horizonte de 7 días ────────────
+        // Una audiencia fijada en agosto para noviembre no puede ser invisible
+        // hasta finales de octubre. Se listan aparte, sin mezclarse con la
+        // agenda inmediata y sin contarse como novedad.
+        const farHorizon = new Date(Date.now() + 180 * 86_400_000).toISOString();
+        const { data: rawHearingsBeyond } = await supabase
+          .from("work_item_hearings")
+          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
+          .in("work_item_id", ids)
+          .gt("scheduled_at", horizon)
+          .lte("scheduled_at", farHorizon)
+          .neq("status", "CANCELLED")
+          .order("scheduled_at", { ascending: true })
+          .limit(50);
+
+        const toHearingRow = (h: Record<string, unknown>): HearingRow => ({
+          id: h.id as string,
+          work_item_id: h.work_item_id as string,
+          title: (h.custom_name as string | null) ?? null,
+          scheduled_at: h.scheduled_at as string,
+          location: (h.location as string | null) ?? null,
+          is_virtual: String(h.modality ?? "").toUpperCase() === "VIRTUAL",
+          virtual_link: (h.meeting_link as string | null) ?? null,
+        });
 
         // ── Términos: vencidos (dentro de la gracia) + por vencer (7 días) ──
         // NN1(b): a term that expired more than 3 business days ago has been
@@ -643,6 +671,45 @@ Deno.serve(async (req) => {
           }
         }
 
+        // ── AD1(a) — CONTEXTO: LAS ACTUACIONES INMEDIATAMENTE ANTERIORES ────
+        // Cada novedad se acompaña de los 3 actos que la preceden en el mismo
+        // expediente. Es contexto de lectura, no novedad: no se cuenta, no
+        // entra al ledger, no lleva documento y no altera ninguna cifra.
+        const contextIds = [...new Set([
+          ...actuaciones.map((a) => a.work_item_id),
+          ...estados.map((e) => e.work_item_id),
+        ])];
+        if (contextIds.length) {
+          const novedadActIds = new Set(actuaciones.map((a) => a.id));
+          const { data: histRows } = await supabase
+            .from("work_item_acts")
+            .select("id, work_item_id, act_date, description, act_type, event_summary")
+            .in("work_item_id", contextIds)
+            .eq("is_archived", false)
+            .order("act_date", { ascending: false })
+            .limit(2000);
+          const byItem = new Map<string, Record<string, unknown>[]>();
+          for (const r of histRows ?? []) {
+            const list = byItem.get(r.work_item_id as string) ?? [];
+            list.push(r as Record<string, unknown>);
+            byItem.set(r.work_item_id as string, list);
+          }
+          const priorTo = (wid: string, cutoff: string | null, excludeId?: string) =>
+            (byItem.get(wid) ?? [])
+              .filter((r) => r.id !== excludeId && !novedadActIds.has(r.id as string))
+              .filter((r) => !cutoff || String(r.act_date ?? "") < String(cutoff).slice(0, 10))
+              .slice(0, 3)
+              .map((r) => ({
+                act_date: (r.act_date as string | null) ?? null,
+                description: (r.description as string | null) ?? (r.act_type as string | null) ?? null,
+                annotation: (r.event_summary as string | null) ?? null,
+              }));
+          for (const a of actuaciones) a.precedingActs = priorTo(a.work_item_id, a.act_date, a.id);
+          for (const e of estados) {
+            e.precedingActs = priorTo(e.work_item_id, e.fecha_actuacion ?? e.fecha_fijacion);
+          }
+        }
+
         // ── ZZ2(d) — SUSCRITOS Y NUNCA CONSULTADOS ───────────────────────────
         // No successful read has ever happened AND nothing was ever stored.
         // This is the signal GCP's mail carries today; it must survive here.
@@ -676,7 +743,8 @@ Deno.serve(async (req) => {
           neverRead.sort((a, b) => (b.days_since_alta ?? 0) - (a.days_since_alta ?? 0));
         }
 
-        const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
+        const hearings: HearingRow[] = (rawHearings ?? []).map((h) => toHearingRow(h as Record<string, unknown>));
+        const hearingsBeyond: HearingRow[] = (rawHearingsBeyond ?? []).map((h) => toHearingRow(h as Record<string, unknown>));
         const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d: Record<string, unknown>) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
@@ -807,6 +875,14 @@ Deno.serve(async (req) => {
           nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
+          hearingsBeyond,
+          stats: {
+            procesosConNovedad: novedadIds.length,
+            publicaciones: estados.filter((e) => (e.source ?? "").toLowerCase().includes("publicaciones")).length,
+            cpnu: actuaciones.filter((a) => (a.source ?? "").toLowerCase().includes("cpnu")).length,
+            samai: [...actuaciones, ...estados].filter((r) => (r.source ?? "").toLowerCase().includes("samai")).length,
+            erroresFuente: sourceQuality.reduce((n, s) => n + s.error_count, 0),
+          },
           importedHistory,
           reconciliations,
 

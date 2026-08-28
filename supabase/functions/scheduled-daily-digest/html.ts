@@ -25,6 +25,7 @@ import {
   type EstadoRow,
   type HearingRow,
   type NeverReadRow,
+  type PrecedingActRow,
   type ProvidenciaCrossRef,
   type ReconciliationNoticeRow,
   type SourceQualityRow,
@@ -191,6 +192,22 @@ function crossRefNote(
     </div>`;
 }
 
+/**
+ * AD1(a) — «Últimas actuaciones»: las 2-3 anteriores, con su anotación.
+ * Es CONTEXTO, no novedad: se dice así en el propio bloque, no lleva documento
+ * y no entra en ninguna cifra del correo.
+ */
+function precedingActs(rows: PrecedingActRow[] | undefined): string {
+  if (!rows || !rows.length) return "";
+  return `<div style="margin-top:6px;padding:6px 8px;border-left:2px solid ${BORDER};background:rgba(148,163,184,0.06);">
+    <div style="font-size:10px;letter-spacing:.04em;color:${MUTED};text-transform:uppercase;">Últimas actuaciones anteriores (contexto, no son novedad)</div>
+    ${rows.map((r) => `<div style="font-size:11px;color:${TEXT};margin-top:3px;line-height:1.45;">
+        <span style="color:${MUTED};">${fmtDate(r.act_date)}</span> — ${esc(r.description || "—")}
+        ${r.annotation ? `<span style="color:${MUTED};"> · ${esc(r.annotation)}</span>` : ""}
+      </div>`).join("")}
+  </div>`;
+}
+
 function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
@@ -206,7 +223,7 @@ function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
       ${rows.map((r) => `<tr>
         ${td(fmtDate(r.act_date))}
         ${td(fmtDate(r.detected_at))}
-        ${td(esc(r.description || r.act_type || "—") + crossRefNote(r.crossRef, "ACT"))}
+        ${td(esc(r.description || r.act_type || "—") + crossRefNote(r.crossRef, "ACT") + precedingActs(r.precedingActs))}
         ${td(esc(r.annotation || "—"))}
         ${td(`<span style="color:${ACT_ACCENT};">${esc(actuacionSourceLabel(r.source))}</span>`)}
         ${td(docsCell(r.documents, expiryDays, r.document_availability))}
@@ -232,13 +249,41 @@ function estadosTable(rows: EstadoRow[], expiryDays: number): string {
         ${td(fmtDate(r.fecha_fijacion))}
         ${td(r.fecha_actuacion ? fmtDate(r.fecha_actuacion) : `<span style="color:${MUTED};">No informada</span>`)}
         ${td(fmtDate(r.detected_at))}
-        ${td(esc(r.title || "—") + crossRefNote(r.crossRef, "EST"))}
+        ${td(esc(r.title || "—") + crossRefNote(r.crossRef, "EST") + precedingActs(r.precedingActs))}
         ${td(esc(r.observacion || "—"))}
         ${td(`<span style="color:${EST_ACCENT};">${esc(estadoSourceLabel(r.source))}</span>`)}
         ${td(docsCell(r.documents, expiryDays, r.document_availability))}
       </tr>`).join("")}
     </tbody>
   </table>`;
+}
+
+/**
+ * AD1(b) — LA TIRA DE CINCO CIFRAS. Se lee en dos segundos y va SIEMPRE
+ * seguida de la tabla de fuentes: la tira da velocidad, la tabla da verdad.
+ * Ninguna cifra de la tira puede leerse como "no hubo movimiento".
+ */
+function statStripBlock(p: DigestPayload): string {
+  const s = p.stats;
+  if (!s) return "";
+  const cell = (n: number, label: string, accent: string) => `
+    <td style="padding:10px 8px;text-align:center;border-right:1px solid ${BORDER};">
+      <div style="font-size:20px;font-weight:800;color:${accent};">${n}</div>
+      <div style="font-size:10px;color:${MUTED};text-transform:uppercase;letter-spacing:.04em;">${esc(label)}</div>
+    </td>`;
+  return `
+  <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-top:16px;">
+    <tr>
+      ${cell(s.procesosConNovedad, "procesos con novedad", "#f8fafc")}
+      ${cell(s.publicaciones, "estados (PP)", EST_ACCENT)}
+      ${cell(s.cpnu, "actuaciones (CPNU)", ACT_ACCENT)}
+      ${cell(s.samai, "SAMAI", "#34d399")}
+      ${cell(s.erroresFuente, "errores de fuente", s.erroresFuente > 0 ? WARN_ACCENT : MUTED)}
+    </tr>
+  </table>
+  <div style="font-size:11px;color:${MUTED};margin-top:6px;">
+    Cifras de lo ingerido en la ventana. Lo que valen esas cifras lo dice la tabla de fuentes que sigue.
+  </div>`;
 }
 
 function sectionTitle(text: string, accent: string, subtitle: string): string {
@@ -390,6 +435,31 @@ function hearingsBlock(rows: HearingRow[], p: DigestPayload): string {
  * instead of defaulting to him. Expired terms only survive here for the 3
  * business-day grace: after that they drain out of the mail entirely.
  */
+/**
+ * AD1(d) — audiencias fijadas fuera del horizonte de 7 días. Se enumeran
+ * compactas para que una audiencia fijada hoy para dentro de tres meses sea
+ * visible hoy y no en la víspera.
+ */
+function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
+  if (!rows.length) return "";
+  return sectionTitle(
+    `Audiencias posteriores (${rows.length})`,
+    "#fbbf24",
+    "Fijadas más allá de los próximos 7 días. Aparecerán en la agenda inmediata cuando entren en la ventana.",
+  ) +
+    `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+      <thead><tr>${th("Fecha y hora", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Audiencia", "#fbbf24")}</tr></thead>
+      <tbody>${rows.map((h) => {
+        const wi = p.workItems.get(h.work_item_id);
+        return `<tr>
+          ${td(fmtDateTime(h.scheduled_at))}
+          ${td(esc(wi?.radicado || wi?.title || "—"))}
+          ${td(esc(h.title || "Audiencia"))}
+        </tr>`;
+      }).join("")}</tbody>
+    </table>`;
+}
+
 function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
   if (!rows.length) return "";
   const propios = rows.filter((d) => d.attribution === "PROPIO");
@@ -650,11 +720,13 @@ export function buildDigestHtml(p: DigestPayload): string {
     </div>
 
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
+    ${statStripBlock(p)}
     ${sourceQualityBlock(p)}
     ${novedadesBlock(p)}
     ${reconciliationBlock(p.reconciliations ?? [], p)}
     ${importedHistoryBlock(p)}
     ${hearingsBlock(p.hearings, p)}
+    ${hearingsBeyondBlock(p.hearingsBeyond ?? [], p)}
     ${deadlinesBlock(p.deadlines, p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}

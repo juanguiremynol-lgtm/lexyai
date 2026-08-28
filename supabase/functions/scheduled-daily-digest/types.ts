@@ -35,6 +35,18 @@ export interface ProvidenciaCrossRef {
   documents_borrowed?: boolean;
 }
 
+/**
+ * AD1(a) — the two or three acts that precede a novedad in the same expediente.
+ * Context only: these are NOT novedades, are never counted, never carry
+ * documents and never generate a ledger entry. They exist so the lawyer can
+ * read what he is looking at without opening the expediente.
+ */
+export interface PrecedingActRow {
+  act_date: string | null;
+  description: string | null;
+  annotation: string | null;
+}
+
 /** An act in the expediente. Distinct evidence class from an estado. */
 export interface ActuacionRow {
   id: string;
@@ -51,6 +63,8 @@ export interface ActuacionRow {
   document_availability: DocumentAvailability;
   /** ZZ1 — the estado that published this same providencia, when identified. */
   crossRef?: ProvidenciaCrossRef | null;
+  /** AD1(a) — immediate history preceding this act. Context, never novedad. */
+  precedingActs?: PrecedingActRow[];
 }
 
 /** A publication fixed on the list. Distinct evidence class from an actuación. */
@@ -68,6 +82,8 @@ export interface EstadoRow {
   document_availability: DocumentAvailability;
   /** ZZ1 — the actuación that records this same providencia, when identified. */
   crossRef?: ProvidenciaCrossRef | null;
+  /** AD1(a) — immediate history preceding this publication. Context only. */
+  precedingActs?: PrecedingActRow[];
 }
 
 
@@ -215,6 +231,19 @@ export interface ImportedHistoryRow {
   to_year: number | null;
 }
 
+/**
+ * AD1(b) — the five-number strip. Speed, not truth: it sits ABOVE the source
+ * table and never replaces it. Every figure here is a count of what we
+ * ingested; the table below states what those counts are worth.
+ */
+export interface StatStrip {
+  procesosConNovedad: number;
+  publicaciones: number;
+  cpnu: number;
+  samai: number;
+  erroresFuente: number;
+}
+
 export interface DigestPayload {
   recipientName: string | null;
   windowFrom: string;
@@ -227,6 +256,10 @@ export interface DigestPayload {
   actuaciones: ActuacionRow[];
   estados: EstadoRow[];
   hearings: HearingRow[];
+  /** AD1(d) — hearings beyond the 7-day horizon, listed compactly. */
+  hearingsBeyond: HearingRow[];
+  /** AD1(b) — five-number strip rendered above the source table. */
+  stats: StatStrip;
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
