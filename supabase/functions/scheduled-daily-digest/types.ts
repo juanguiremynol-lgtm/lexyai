@@ -325,3 +325,22 @@ export function actuacionSourceLabel(source: string | null | undefined): string 
   if (!source) return "Fuente no registrada";
   return ACTUACION_SOURCE_LABELS[source] ?? source;
 }
+
+/**
+ * ZZ2(d) — "SUSCRITOS Y NUNCA CONSULTADOS". A matter under monitoring for which
+ * no provider read has ever succeeded and which carries no act and no estado.
+ * This is the harshest state in the portfolio: not "no news", but "never seen".
+ * It must survive the retirement of GCP's own email, which is where the signal
+ * used to live.
+ */
+export interface NeverReadRow {
+  id: string;
+  radicado: string | null;
+  title: string | null;
+  workflow_type: string | null;
+  /** Days since the matter was created in Andromeda. */
+  days_since_alta: number | null;
+  created_at: string | null;
+  last_attempted_sync_at: string | null;
+  last_error_code: string | null;
+}
