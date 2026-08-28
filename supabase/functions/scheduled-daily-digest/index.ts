@@ -583,8 +583,13 @@ Deno.serve(async (req) => {
             .or(orParts);
           if (xErr) console.warn("[scheduled-daily-digest] cross-ref failed", xErr.message);
 
-          // Documents to borrow: only for acts that carry none of their own.
+          // Documents to borrow: only for acts that carry none of their own,
+          // and only when the link is ALTA. AB1(b) — a MEDIA link rests on the
+          // date alone (or on too little text to separate same-day
+          // candidates); lending it a PDF would invite reliance on a document
+          // that may belong to a different providencia of the same day.
           const needPub = [...new Set((xrefs ?? [])
+            .filter((x) => x.confidence === "ALTA")
             .filter((x) => (actById.get(x.act_id)?.documents.length ?? 1) === 0)
             .map((x) => x.pub_id))];
           const pubSource = new Map<string, Record<string, unknown>>();
