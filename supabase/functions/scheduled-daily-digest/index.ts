@@ -48,6 +48,7 @@ import type {
   DigestDocument,
   EstadoRow,
   HearingRow,
+  NeverReadRow,
   ReconciliationNoticeRow,
   SourceQualityRow,
   SuspendedItemRow,
@@ -117,6 +118,26 @@ Deno.serve(async (req) => {
   const previews: string[] = [];
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
+
+  // ── ZZ2 — THE WINDOW IS A CALENDAR DAY IN BOGOTÁ, NOT A ROLLING 24h ──────
+  // A lawyer reasons in judicial days: the estados of one day are one list, and
+  // a rolling window cut at generation time splits that list across two emails
+  // (which is exactly how 26-ago's act landed in the 27-ago mail here and in
+  // the 28-ago mail at GCP). The window therefore closes at 00:00 COT of the
+  // digest date and opens where the previous digest closed — so a missed day
+  // widens the window instead of dropping it.
+  const bogotaDayStart = (d: string) => `${d}T05:00:00.000Z`;
+  const prevBogotaDate = (d: string) =>
+    new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  /** Closing boundary: 00:00 COT of `digestDate`. */
+  const windowTo = typeof body?.window_to === "string" ? body.window_to : bogotaDayStart(digestDate);
+  /** Default opening boundary: 00:00 COT of the previous calendar day. */
+  const calendarFrom = bogotaDayStart(prevBogotaDate(digestDate));
+  /** ZZ2(b) — the same window said in words the reader can check. */
+  const windowLabel = new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString(
+    "es-CO",
+    { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Bogota" },
+  );
   const hb = await startHeartbeat(supabase, "scheduled-daily-digest", String(body?.source ?? "cron"), {
     digest_date: digestDate,
     dry_run: dryRun,
@@ -139,7 +160,7 @@ Deno.serve(async (req) => {
     const { data: monitored, error: monErr } = await supabase
       .from("v_monitored_work_items")
       .select(
-        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at",
+        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at, last_attempted_sync_at, last_error_code, created_at",
       );
     if (monErr) throw monErr;
 
@@ -217,7 +238,7 @@ Deno.serve(async (req) => {
             recipient_user_id: ownerId,
             organization_id: orgOf.get(ownerId) ?? null,
             status: "RUNNING",
-            window_to: nowIso,
+            window_to: windowTo,
           })
           .select("id")
           .maybeSingle();
@@ -280,7 +301,7 @@ Deno.serve(async (req) => {
         // `window_from` in the request body is a dry-run/backfill aid only.
         const windowFrom = (typeof body?.window_from === "string" ? body.window_from : null) ??
           prevRun?.window_to ??
-          new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
+          calendarFrom;
 
         const ids = items.map((i) => i.id);
         const wiMap = new Map<string, WorkItemInfo>(items.map((i) => [i.id, i]));
@@ -305,7 +326,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
-          .lte("detected_at", nowIso)
+          .lte("detected_at", windowTo)
           .order("detected_at", { ascending: false })
           .limit(400);
         if (actErr) { await fail(`acts: ${actErr.message}`); continue; }
@@ -317,7 +338,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
-          .lte("detected_at", nowIso)
+          .lte("detected_at", windowTo)
           .order("detected_at", { ascending: false })
           .limit(400);
         if (pubErr) { await fail(`publicaciones: ${pubErr.message}`); continue; }
@@ -533,6 +554,123 @@ Deno.serve(async (req) => {
         });
 
 
+        // ── ZZ1 — THE SAME PROVIDENCIA REACHING US THROUGH TWO CHANNELS ──────
+        // A providencia is registered by the clerk (actuación) and published on
+        // the list (estado). Both are kept, both are rendered in their own
+        // table, with their own dates and their own provider label: this is a
+        // CROSS-REFERENCE, never a merge (HH2 stands).
+        //
+        // MATCHING KEY (ZZ1c) — `public.v_providencia_cross_ref`:
+        //   work_item_id + estado.fecha_providencia = actuación.act_date,
+        //   restricted to providencia-bearing acts (fijaciones de estado are
+        //   excluded, they are the vehicle and not the act), and corroborated
+        //   by lexical overlap between the estado's annotation and the act's
+        //   description. A link is emitted ONLY when the candidate is unique.
+        //   Rejected keys: the "Providencia 2026-00082" number is the matter's
+        //   consecutive, not a per-providencia identifier, so it discriminates
+        //   nothing; a PDF content hash is unusable because the act side
+        //   frequently carries no file at all — which is the very defect here.
+        const actById = new Map(actuaciones.map((a) => [a.id, a]));
+        const pubById = new Map(estados.map((e) => [e.id, e]));
+        if (actById.size || pubById.size) {
+          const orParts = [
+            actById.size ? `act_id.in.(${[...actById.keys()].join(",")})` : null,
+            pubById.size ? `pub_id.in.(${[...pubById.keys()].join(",")})` : null,
+          ].filter(Boolean).join(",");
+          const { data: xrefs, error: xErr } = await supabase
+            .from("v_providencia_cross_ref")
+            .select("pub_id, act_id, work_item_id, act_date, fecha_fijacion, confidence, match_basis")
+            .or(orParts);
+          if (xErr) console.warn("[scheduled-daily-digest] cross-ref failed", xErr.message);
+
+          // Documents to borrow: only for acts that carry none of their own.
+          const needPub = [...new Set((xrefs ?? [])
+            .filter((x) => (actById.get(x.act_id)?.documents.length ?? 1) === 0)
+            .map((x) => x.pub_id))];
+          const pubSource = new Map<string, Record<string, unknown>>();
+          if (needPub.length) {
+            const { data: pubRows } = await supabase
+              .from("work_item_publicaciones")
+              .select("id, organization_id, pdf_url, pdf_storage_path, pdf_available")
+              .in("id", needPub);
+            for (const r of pubRows ?? []) pubSource.set(r.id as string, r);
+          }
+
+          for (const x of xrefs ?? []) {
+            const est = pubById.get(x.pub_id);
+            if (est) {
+              est.crossRef = {
+                counterpart_id: x.act_id, act_date: x.act_date,
+                fecha_fijacion: x.fecha_fijacion, confidence: x.confidence,
+                match_basis: x.match_basis,
+              };
+            }
+            const act = actById.get(x.act_id);
+            if (!act) continue;
+            let borrowed = false;
+            if (act.documents.length === 0) {
+              const src = pubSource.get(x.pub_id);
+              if (src && (src.pdf_storage_path || isHttp(src.pdf_url) || src.pdf_available)) {
+                const token = newToken();
+                tokens.push({
+                  token, recipient_user_id: ownerId,
+                  organization_id: (src.organization_id as string | null) ?? null,
+                  work_item_id: act.work_item_id, kind: "ESTADO",
+                  publicacion_id: x.pub_id, act_id: null,
+                  doc_url: null, doc_label: "Documento del estado",
+                  expires_at: expiresAt,
+                });
+                act.documents.push({
+                  label: "Descargar PDF (publicado en el estado)",
+                  url: `${FUNCTIONS_BASE}/digest-document?t=${token}`,
+                });
+                borrowed = true;
+              }
+            }
+            // `document_availability` is deliberately NOT rewritten: on the
+            // actuación channel the provider still attached nothing, and the
+            // borrowed link says where it actually comes from.
+            act.crossRef = {
+              counterpart_id: x.pub_id, act_date: x.act_date,
+              fecha_fijacion: x.fecha_fijacion, confidence: x.confidence,
+              match_basis: x.match_basis, documents_borrowed: borrowed,
+            };
+          }
+        }
+
+        // ── ZZ2(d) — SUSCRITOS Y NUNCA CONSULTADOS ───────────────────────────
+        // No successful read has ever happened AND nothing was ever stored.
+        // This is the signal GCP's mail carries today; it must survive here.
+        const neverReadCandidates = judicialItems.filter((i) => !i.last_successful_sync_at);
+        const neverRead: NeverReadRow[] = [];
+        if (neverReadCandidates.length) {
+          const candIds = neverReadCandidates.map((i) => i.id);
+          const [{ data: anyActs }, { data: anyPubs }] = await Promise.all([
+            supabase.from("work_item_acts").select("work_item_id").in("work_item_id", candIds).limit(2000),
+            supabase.from("work_item_publicaciones").select("work_item_id").in("work_item_id", candIds).limit(2000),
+          ]);
+          const withData = new Set<string>([
+            ...(anyActs ?? []).map((r) => r.work_item_id as string),
+            ...(anyPubs ?? []).map((r) => r.work_item_id as string),
+          ]);
+          for (const i of neverReadCandidates) {
+            if (withData.has(i.id)) continue;
+            const raw = i as unknown as Record<string, string | null>;
+            const created = raw.created_at ?? null;
+            neverRead.push({
+              id: i.id, radicado: i.radicado, title: i.title,
+              workflow_type: i.workflow_type,
+              created_at: created,
+              days_since_alta: created
+                ? Math.floor((Date.now() - Date.parse(created)) / 86_400_000)
+                : null,
+              last_attempted_sync_at: raw.last_attempted_sync_at ?? null,
+              last_error_code: raw.last_error_code ?? null,
+            });
+          }
+          neverRead.sort((a, b) => (b.days_since_alta ?? 0) - (a.days_since_alta ?? 0));
+        }
+
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
         const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d: Record<string, unknown>) => {
           const days = Math.round(
@@ -584,7 +722,8 @@ Deno.serve(async (req) => {
         // silence. That is precisely the misrepresentation of 2026-07-27.
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length + importedHistory.length + reconciliations.length > 0 ||
+            connectionIssues.length + importedHistory.length + reconciliations.length +
+            neverRead.length > 0 ||
           coverageIncomplete;
 
 
@@ -655,7 +794,10 @@ Deno.serve(async (req) => {
 
         const html = buildDigestHtml({
           recipientName: profile?.full_name ?? null,
-          windowFrom, windowTo: nowIso,
+          windowFrom, windowTo,
+          windowLabel,
+          coverageWindowFrom: sourceWindowFrom, coverageWindowTo: nowIso,
+          neverRead,
           monitoredCount: judicialItems.length,
           nonJudicialCount: nonJudicialItems.length,
           silentCount,

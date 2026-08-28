@@ -1,0 +1,1 @@
+ALTER VIEW public.v_providencia_cross_ref SET (security_invoker = true);

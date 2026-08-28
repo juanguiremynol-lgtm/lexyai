@@ -18449,6 +18449,13 @@ export type Database = {
             foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
             columns: ["work_item_act_id"]
             isOneToOne: true
+            referencedRelation: "v_providencia_cross_ref"
+            referencedColumns: ["act_id"]
+          },
+          {
+            foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
+            columns: ["work_item_act_id"]
+            isOneToOne: true
             referencedRelation: "work_item_acts"
             referencedColumns: ["id"]
           },
@@ -20070,6 +20077,13 @@ export type Database = {
           work_item_pub_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "work_item_pub_extras_work_item_pub_id_fkey"
+            columns: ["work_item_pub_id"]
+            isOneToOne: true
+            referencedRelation: "v_providencia_cross_ref"
+            referencedColumns: ["pub_id"]
+          },
           {
             foreignKeyName: "work_item_pub_extras_work_item_pub_id_fkey"
             columns: ["work_item_pub_id"]
@@ -24541,6 +24555,58 @@ export type Database = {
           },
         ]
       }
+      v_providencia_cross_ref: {
+        Row: {
+          act_date: string | null
+          act_id: string | null
+          confidence: string | null
+          fecha_desfijacion: string | null
+          fecha_fijacion: string | null
+          fecha_providencia: string | null
+          lexical_overlap: number | null
+          match_basis: string | null
+          n_candidates: number | null
+          pub_id: string | null
+          work_item_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_source_run_coverage: {
         Row: {
           attempted_count: number | null
@@ -25571,6 +25637,7 @@ export type Database = {
         }[]
       }
       provenance_migration_at: { Args: never; Returns: string }
+      providencia_sig_tokens: { Args: { _raw: string }; Returns: string[] }
       provider_chain_for_work_item: {
         Args: { p_radicado: string; p_workflow: string }
         Returns: string[]

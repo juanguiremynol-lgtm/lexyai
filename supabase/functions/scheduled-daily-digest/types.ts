@@ -16,6 +16,25 @@
  */
 export type DocumentAvailability = "DISPONIBLE" | "SIN_DOCUMENTO" | "NO_CONSULTADO";
 
+/**
+ * ZZ1 — the SAME providencia reaching us through both channels. This is a
+ * CROSS-REFERENCE, never a merge: the actuación and the estado keep their own
+ * row, table, dates, source label and evidence class. The reference exists so
+ * the lawyer finds the document wherever he looks for the act.
+ */
+export interface ProvidenciaCrossRef {
+  /** The counterpart's id in the other table. */
+  counterpart_id: string;
+  /** Date of the act in the expediente. */
+  act_date: string | null;
+  /** Date the estado was fixed on the list. */
+  fecha_fijacion: string | null;
+  confidence: "ALTA" | "MEDIA" | string;
+  match_basis: string;
+  /** true when this row's document comes from the counterpart's channel. */
+  documents_borrowed?: boolean;
+}
+
 /** An act in the expediente. Distinct evidence class from an estado. */
 export interface ActuacionRow {
   id: string;
@@ -30,6 +49,8 @@ export interface ActuacionRow {
   despacho: string | null;
   documents: DigestDocument[];
   document_availability: DocumentAvailability;
+  /** ZZ1 — the estado that published this same providencia, when identified. */
+  crossRef?: ProvidenciaCrossRef | null;
 }
 
 /** A publication fixed on the list. Distinct evidence class from an actuación. */
@@ -45,7 +66,10 @@ export interface EstadoRow {
   observacion: string | null;
   documents: DigestDocument[];
   document_availability: DocumentAvailability;
+  /** ZZ1 — the actuación that records this same providencia, when identified. */
+  crossRef?: ProvidenciaCrossRef | null;
 }
+
 
 export interface DigestDocument {
   label: string;
@@ -220,9 +244,21 @@ export interface DigestPayload {
   sourceQuality: SourceQualityRow[];
   /** true when at least one source did not reach authoritative coverage. */
   coverageIncomplete: boolean;
+  /**
+   * ZZ3 — the window the SOURCE table was computed over. It is not always the
+   * novedades window (the latter continues from the previous digest), and the
+   * mail must say so rather than print two irreconcilable numbers side by side.
+   */
+  coverageWindowFrom: string;
+  coverageWindowTo: string;
+  /** ZZ2(b) — the window in judicial-day language, e.g. "jueves 28 de agosto". */
+  windowLabel: string;
+  /** ZZ2(d) — subscribed matters the provider has never answered for. */
+  neverRead: NeverReadRow[];
   workItems: Map<string, WorkItemInfo>;
   appBaseUrl: string;
   linkExpiryDays: number;
+
 }
 
 /**
@@ -288,4 +324,23 @@ export function estadoSourceLabel(source: string | null | undefined): string {
 export function actuacionSourceLabel(source: string | null | undefined): string {
   if (!source) return "Fuente no registrada";
   return ACTUACION_SOURCE_LABELS[source] ?? source;
+}
+
+/**
+ * ZZ2(d) — "SUSCRITOS Y NUNCA CONSULTADOS". A matter under monitoring for which
+ * no provider read has ever succeeded and which carries no act and no estado.
+ * This is the harshest state in the portfolio: not "no news", but "never seen".
+ * It must survive the retirement of GCP's own email, which is where the signal
+ * used to live.
+ */
+export interface NeverReadRow {
+  id: string;
+  radicado: string | null;
+  title: string | null;
+  workflow_type: string | null;
+  /** Days since the matter was created in Andromeda. */
+  days_since_alta: number | null;
+  created_at: string | null;
+  last_attempted_sync_at: string | null;
+  last_error_code: string | null;
 }
