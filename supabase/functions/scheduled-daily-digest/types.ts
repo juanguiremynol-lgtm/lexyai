@@ -16,6 +16,25 @@
  */
 export type DocumentAvailability = "DISPONIBLE" | "SIN_DOCUMENTO" | "NO_CONSULTADO";
 
+/**
+ * ZZ1 — the SAME providencia reaching us through both channels. This is a
+ * CROSS-REFERENCE, never a merge: the actuación and the estado keep their own
+ * row, table, dates, source label and evidence class. The reference exists so
+ * the lawyer finds the document wherever he looks for the act.
+ */
+export interface ProvidenciaCrossRef {
+  /** The counterpart's id in the other table. */
+  counterpart_id: string;
+  /** Date of the act in the expediente. */
+  act_date: string | null;
+  /** Date the estado was fixed on the list. */
+  fecha_fijacion: string | null;
+  confidence: "ALTA" | "MEDIA" | string;
+  match_basis: string;
+  /** true when this row's document comes from the counterpart's channel. */
+  documents_borrowed?: boolean;
+}
+
 /** An act in the expediente. Distinct evidence class from an estado. */
 export interface ActuacionRow {
   id: string;
@@ -30,6 +49,8 @@ export interface ActuacionRow {
   despacho: string | null;
   documents: DigestDocument[];
   document_availability: DocumentAvailability;
+  /** ZZ1 — the estado that published this same providencia, when identified. */
+  crossRef?: ProvidenciaCrossRef | null;
 }
 
 /** A publication fixed on the list. Distinct evidence class from an actuación. */
@@ -45,7 +66,10 @@ export interface EstadoRow {
   observacion: string | null;
   documents: DigestDocument[];
   document_availability: DocumentAvailability;
+  /** ZZ1 — the actuación that records this same providencia, when identified. */
+  crossRef?: ProvidenciaCrossRef | null;
 }
+
 
 export interface DigestDocument {
   label: string;
