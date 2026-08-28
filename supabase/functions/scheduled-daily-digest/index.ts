@@ -245,14 +245,25 @@ Deno.serve(async (req) => {
 
         if (claimErr) {
           // 23505 = a digest for this recipient/day already exists.
+          // AF2(b) — a swallowed unique violation is a trigger that believes it
+          // ran. It is always logged with the caller that lost the claim.
           if ((claimErr as { code?: string }).code === "23505") {
+            console.warn(
+              `[daily-digest] deliberate skip — reason: digest already claimed for ${digestDate} / owner ${ownerId}; losing caller trigger_source=${triggerSource}`,
+            );
             summary.skipped_already_ran++;
             continue;
           }
           throw claimErr;
         }
         const runId = claimed?.id as string | undefined;
-        if (!runId) { summary.skipped_already_ran++; continue; }
+        if (!runId) {
+          console.warn(
+            `[daily-digest] deliberate skip — reason: claim returned no row (already held) for ${digestDate} / owner ${ownerId}; trigger_source=${triggerSource}`,
+          );
+          summary.skipped_already_ran++;
+          continue;
+        }
         claimedRunId = runId;
 
         // A preview must never consume the day. The claim row exists only to
