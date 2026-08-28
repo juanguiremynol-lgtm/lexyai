@@ -114,6 +114,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body?.dry_run === true;
+  const triggerSource = typeof body?.trigger_source === "string" ? body.trigger_source : "UNSPECIFIED";
   /** Dry-run only: return the rendered HTML instead of enqueuing it. */
   const previews: string[] = [];
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
