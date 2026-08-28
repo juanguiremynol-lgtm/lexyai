@@ -362,13 +362,16 @@ Deno.serve(async (req) => {
 
         // ── Próximas audiencias (7 días) ──
         const horizon = new Date(Date.now() + HEARING_HORIZON_DAYS * 86_400_000).toISOString();
+        // AD1(d) — the firm's calendar lives in `work_item_hearings`. The old
+        // `hearings` table is empty, which is why an auto-detected audiencia
+        // never reached this mail. Both queries below read the live table.
         const { data: rawHearings } = await supabase
-          .from("hearings")
-          .select("id, work_item_id, title, scheduled_at, location, is_virtual, virtual_link")
+          .from("work_item_hearings")
+          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
           .in("work_item_id", ids)
-          .is("deleted_at", null)
           .gte("scheduled_at", nowIso)
           .lte("scheduled_at", horizon)
+          .neq("status", "CANCELLED")
           .order("scheduled_at", { ascending: true });
 
         // ── AD1(d) — audiencias MÁS ALLÁ del horizonte de 7 días ────────────
@@ -377,14 +380,24 @@ Deno.serve(async (req) => {
         // agenda inmediata y sin contarse como novedad.
         const farHorizon = new Date(Date.now() + 180 * 86_400_000).toISOString();
         const { data: rawHearingsBeyond } = await supabase
-          .from("hearings")
-          .select("id, work_item_id, title, scheduled_at, location, is_virtual, virtual_link")
+          .from("work_item_hearings")
+          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
           .in("work_item_id", ids)
-          .is("deleted_at", null)
           .gt("scheduled_at", horizon)
           .lte("scheduled_at", farHorizon)
+          .neq("status", "CANCELLED")
           .order("scheduled_at", { ascending: true })
           .limit(50);
+
+        const toHearingRow = (h: Record<string, unknown>): HearingRow => ({
+          id: h.id as string,
+          work_item_id: h.work_item_id as string,
+          title: (h.custom_name as string | null) ?? null,
+          scheduled_at: h.scheduled_at as string,
+          location: (h.location as string | null) ?? null,
+          is_virtual: String(h.modality ?? "").toUpperCase() === "VIRTUAL",
+          virtual_link: (h.meeting_link as string | null) ?? null,
+        });
 
         // ── Términos: vencidos (dentro de la gracia) + por vencer (7 días) ──
         // NN1(b): a term that expired more than 3 business days ago has been
@@ -730,7 +743,8 @@ Deno.serve(async (req) => {
           neverRead.sort((a, b) => (b.days_since_alta ?? 0) - (a.days_since_alta ?? 0));
         }
 
-        const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
+        const hearings: HearingRow[] = (rawHearings ?? []).map((h) => toHearingRow(h as Record<string, unknown>));
+        const hearingsBeyond: HearingRow[] = (rawHearingsBeyond ?? []).map((h) => toHearingRow(h as Record<string, unknown>));
         const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d: Record<string, unknown>) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
@@ -861,7 +875,7 @@ Deno.serve(async (req) => {
           nonJudicialCount: nonJudicialItems.length,
           silentCount,
           actuaciones, estados, hearings, deadlines,
-          hearingsBeyond: (rawHearingsBeyond ?? []) as unknown as HearingRow[],
+          hearingsBeyond,
           stats: {
             procesosConNovedad: novedadIds.length,
             publicaciones: estados.filter((e) => (e.source ?? "").toLowerCase().includes("publicaciones")).length,
