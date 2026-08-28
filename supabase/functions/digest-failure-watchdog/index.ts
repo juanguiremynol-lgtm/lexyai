@@ -22,13 +22,12 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
+import { classifyDigestDay, renderWatchdogHtml, renderWatchdogSubject } from "./logic.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FUNCTIONS_BASE = `${SUPABASE_URL}/functions/v1`;
 const OPS_EMAIL = "gr@lexetlit.com";
-/** A run still RUNNING after this many minutes is considered stuck. */
-const STUCK_MINUTES = 30;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,9 +45,6 @@ function bogotaDate(now = new Date()): string {
   return new Date(now.getTime() - 5 * 3600_000).toISOString().slice(0, 10);
 }
 
-function esc(v: unknown): string {
-  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
