@@ -40,7 +40,7 @@ describe("ZZ1 — cross-reference, never a merge", () => {
   });
 
   it("borrows the estado's PDF only when the act carries none, and says so", () => {
-    expect(index).toMatch(/if \(act\.documents\.length === 0\)/);
+    expect(index).toMatch(/act\.documents\.length === 0/);
     expect(html).toMatch(/El PDF que se enlaza aquí es el del estado/);
   });
 
@@ -86,5 +86,32 @@ describe("ZZ3 — the two numbers must be reconcilable", () => {
   it("passes both windows into the renderer", () => {
     expect(index).toMatch(/coverageWindowFrom: sourceWindowFrom/);
     expect(types).toMatch(/coverageWindowTo: string/);
+  });
+});
+
+/**
+ * AB1 — a MEDIA link must not speak with the voice of an ALTA link.
+ */
+describe("AB1 — rendered confidence", () => {
+  it("renders MEDIA with an explicit caveat, never as a confirmed match", () => {
+    expect(html).toMatch(/Vínculo no confirmado/);
+    expect(html).toMatch(/verifíquelo antes de confiar/);
+    expect(html).toMatch(/Posible correspondencia/);
+    expect(html).toMatch(/WARN_ACCENT/);
+  });
+
+  it("borrows the estado's PDF only on ALTA links", () => {
+    expect(index).toMatch(/\.filter\(\(x\) => x\.confidence === "ALTA"\)/);
+    expect(index).toMatch(/if \(x\.confidence === "ALTA" && act\.documents\.length === 0\)/);
+  });
+
+  it("states on a MEDIA link that no document is borrowed", () => {
+    expect(html).toMatch(/No se enlaza aquí el documento de la otra fuente/);
+  });
+});
+
+describe("AB3 — the never-read list is per matter, not per channel", () => {
+  it("says so instead of dropping the distinction", () => {
+    expect(html).toMatch(/nunca leído por CPNU; sí por estados/);
   });
 });

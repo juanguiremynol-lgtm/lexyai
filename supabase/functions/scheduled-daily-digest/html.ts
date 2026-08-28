@@ -39,6 +39,7 @@ const TEXT = "#e2e8f0";
 const MUTED = "#94a3b8";
 const ACT_ACCENT = "#38bdf8"; // actuación
 const EST_ACCENT = "#a78bfa"; // estado
+const WARN_ACCENT = "#f59e0b"; // vínculo no confirmado (AB1)
 
 function esc(v: unknown): string {
   return String(v ?? "")
@@ -159,19 +160,34 @@ function crossRefNote(
   side: "ACT" | "EST",
 ): string {
   if (!ref) return "";
-  const colour = side === "ACT" ? EST_ACCENT : ACT_ACCENT;
+  const alta = ref.confidence === "ALTA";
+  const colour = alta ? (side === "ACT" ? EST_ACCENT : ACT_ACCENT) : WARN_ACCENT;
+  const counterpartDate = side === "ACT"
+    ? fmtDate(ref.fecha_fijacion)
+    : fmtDate(ref.act_date);
+
+  // AB1(b) — a MEDIA link never speaks with the voice of an ALTA link. It is
+  // announced as a possibility, it names what it rests on, and it carries no
+  // borrowed document.
+  if (!alta) {
+    return `<div style="font-size:11px;color:${colour};margin-top:4px;line-height:1.5;">
+      ⚠ ${esc(side === "ACT"
+        ? `Posible correspondencia con un estado del ${counterpartDate}.`
+        : `Posible correspondencia con una actuación del ${counterpartDate}.`)}
+      <b>Vínculo no confirmado:</b> ${esc(ref.match_basis)}.
+      <span style="color:${MUTED};">Ese día puede haber más de una providencia; verifíquelo antes de confiar en la equivalencia. No se enlaza aquí el documento de la otra fuente.</span>
+    </div>`;
+  }
+
   const head = side === "ACT"
-    ? `Misma providencia, publicada en estado el ${fmtDate(ref.fecha_fijacion)}.`
-    : `Misma providencia, registrada como actuación el ${fmtDate(ref.act_date)}.`;
+    ? `Misma providencia, publicada en estado el ${counterpartDate}.`
+    : `Misma providencia, registrada como actuación el ${counterpartDate}.`;
   const borrowed = ref.documents_borrowed
     ? " El PDF que se enlaza aquí es el del estado: en la actuación el proveedor no adjuntó archivo."
     : "";
-  const conf = ref.confidence === "ALTA"
-    ? "coincidencia alta"
-    : "coincidencia por fecha, sin corroboración de texto";
   return `<div style="font-size:11px;color:${colour};margin-top:4px;line-height:1.5;">
       ↔ ${esc(head)}${esc(borrowed)}
-      <span style="color:${MUTED};"> (${esc(conf)} — ${esc(ref.match_basis)}; se muestran ambas fechas y no se fusionan los registros)</span>
+      <span style="color:${MUTED};"> (coincidencia alta — ${esc(ref.match_basis)}; se muestran ambas fechas y no se fusionan los registros)</span>
     </div>`;
 }
 
@@ -595,7 +611,8 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   return sectionTitle(
     `Suscritos y nunca consultados (${rows.length})`,
     A,
-    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura.",
+    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura. " +
+      "La lista es por asunto y no por canal: un asunto que nunca ha sido leído por el canal de actuaciones (CPNU) pero sí por el canal de estados no aparece aquí, porque sus estados ya se reportan arriba. Si otro informe lo señala como «nunca consultado», ambas cosas son ciertas: nunca leído por CPNU; sí por estados.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", A)}${th("Asunto", A)}${th("Días desde el alta", A)}${th("Último intento", A)}${th("Último código", A)}</tr></thead>
