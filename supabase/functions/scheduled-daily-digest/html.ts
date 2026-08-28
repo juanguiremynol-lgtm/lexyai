@@ -24,6 +24,8 @@ import {
   type DigestPayload,
   type EstadoRow,
   type HearingRow,
+  type NeverReadRow,
+  type ProvidenciaCrossRef,
   type ReconciliationNoticeRow,
   type SourceQualityRow,
   type SuspendedItemRow,
@@ -146,6 +148,33 @@ function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string
     </div>`;
 }
 
+/**
+ * ZZ1(d)(e) — the two channels agreeing is itself evidence, so it is stated
+ * explicitly, with BOTH dates: the act's date in the expediente and the date
+ * the estado was fixed on the list. Neither date is ever substituted for the
+ * other, and the confidence of the link is disclosed.
+ */
+function crossRefNote(
+  ref: ProvidenciaCrossRef | null | undefined,
+  side: "ACT" | "EST",
+): string {
+  if (!ref) return "";
+  const colour = side === "ACT" ? EST_ACCENT : ACT_ACCENT;
+  const head = side === "ACT"
+    ? `Misma providencia, publicada en estado el ${fmtDate(ref.fecha_fijacion)}.`
+    : `Misma providencia, registrada como actuación el ${fmtDate(ref.act_date)}.`;
+  const borrowed = ref.documents_borrowed
+    ? " El PDF que se enlaza aquí es el del estado: en la actuación el proveedor no adjuntó archivo."
+    : "";
+  const conf = ref.confidence === "ALTA"
+    ? "coincidencia alta"
+    : "coincidencia por fecha, sin corroboración de texto";
+  return `<div style="font-size:11px;color:${colour};margin-top:4px;line-height:1.5;">
+      ↔ ${esc(head)}${esc(borrowed)}
+      <span style="color:${MUTED};"> (${esc(conf)} — ${esc(ref.match_basis)}; se muestran ambas fechas y no se fusionan los registros)</span>
+    </div>`;
+}
+
 function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
@@ -161,7 +190,7 @@ function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
       ${rows.map((r) => `<tr>
         ${td(fmtDate(r.act_date))}
         ${td(fmtDate(r.detected_at))}
-        ${td(esc(r.description || r.act_type || "—"))}
+        ${td(esc(r.description || r.act_type || "—") + crossRefNote(r.crossRef, "ACT"))}
         ${td(esc(r.annotation || "—"))}
         ${td(`<span style="color:${ACT_ACCENT};">${esc(actuacionSourceLabel(r.source))}</span>`)}
         ${td(docsCell(r.documents, expiryDays, r.document_availability))}
@@ -187,7 +216,7 @@ function estadosTable(rows: EstadoRow[], expiryDays: number): string {
         ${td(fmtDate(r.fecha_fijacion))}
         ${td(r.fecha_actuacion ? fmtDate(r.fecha_actuacion) : `<span style="color:${MUTED};">No informada</span>`)}
         ${td(fmtDate(r.detected_at))}
-        ${td(esc(r.title || "—"))}
+        ${td(esc(r.title || "—") + crossRefNote(r.crossRef, "EST"))}
         ${td(esc(r.observacion || "—"))}
         ${td(`<span style="color:${EST_ACCENT};">${esc(estadoSourceLabel(r.source))}</span>`)}
         ${td(docsCell(r.documents, expiryDays, r.document_availability))}
@@ -262,6 +291,13 @@ function sourceQualityBlock(p: DigestPayload): string {
         ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
       </tr>`).join("")}</tbody>
     </table>
+    <div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
+      <strong style="color:${TEXT};">Cómo leer estas cifras.</strong> La cobertura se mide sobre las lecturas de las
+      últimas 24 horas (${fmtDateTime(p.coverageWindowFrom)} → ${fmtDateTime(p.coverageWindowTo)}), mientras que las
+      novedades se cuentan sobre el día calendario del resumen (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}).
+      Son ventanas distintas: por eso una fuente puede mostrar «0 con datos» y aun así aparecer una novedad detectada
+      en el resumen, o al revés. Una lectura que guardó registros se cuenta siempre como «con datos».
+    </div>
     ${degraded.length > 0 ? `<div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
       No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
     </div>` : ""}
@@ -548,6 +584,31 @@ function nonJudicialBlock(rows: DeadlineRow[], p: DigestPayload): string {
   ) + body;
 }
 
+/**
+ * ZZ2(d) — SUSCRITOS Y NUNCA CONSULTADOS. Matters with no successful provider
+ * read ever and no stored act or estado. It is not "sin novedades": it is a
+ * matter we have never actually seen.
+ */
+function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
+  if (!rows.length) return "";
+  const A = "#f87171";
+  return sectionTitle(
+    `Suscritos y nunca consultados (${rows.length})`,
+    A,
+    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura.",
+  ) +
+    `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+      <thead><tr>${th("Radicado", A)}${th("Asunto", A)}${th("Días desde el alta", A)}${th("Último intento", A)}${th("Último código", A)}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${A};">${esc(r.radicado || "Sin radicado")}</a>`)}
+        ${td(esc(r.title || "—"))}
+        ${td(r.days_since_alta === null ? "—" : String(r.days_since_alta))}
+        ${td(r.last_attempted_sync_at ? fmtDateTime(r.last_attempted_sync_at) : `<span style="color:${MUTED};">Nunca</span>`)}
+        ${td(esc(r.last_error_code || "—"))}
+      </tr>`).join("")}</tbody>
+    </table>`;
+}
+
 export function buildDigestHtml(p: DigestPayload): string {
   const total = p.actuaciones.length + p.estados.length;
   const greeting = p.recipientName ? `Buenos días, ${esc(p.recipientName)}.` : "Buenos días.";
@@ -555,11 +616,14 @@ export function buildDigestHtml(p: DigestPayload): string {
   // TT6 — the headline count is only a statement about what we READ. When a
   // source failed to cover the portfolio the sentence must say so in the same
   // breath, never afterwards and never in small print.
+  // ZZ2(b) — the window stated as a day the reader can check, with the exact
+  // boundaries beside it.
+  const win = `del día ${esc(p.windowLabel)} (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}, hora de Bogotá)`;
   const headline = p.coverageIncomplete
-    ? `${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)} ` +
+    ? `${greeting} ${total} novedad(es) detectadas ${win} ` +
       `sobre una <strong style="color:#fbbf24;">cobertura incompleta de fuentes</strong>: ` +
       `esta cifra no permite concluir que no haya movimiento.`
-    : `${greeting} ${total} novedad(es) detectadas entre ${fmtDateTime(p.windowFrom)} y ${fmtDateTime(p.windowTo)}.`;
+    : `${greeting} ${total} novedad(es) detectadas ${win}.`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
@@ -576,6 +640,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${hearingsBlock(p.hearings, p)}
     ${deadlinesBlock(p.deadlines, p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
+    ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
     ${suspendedBlock(p.suspended, p.appBaseUrl)}
 
     <div style="margin-top:28px;padding-top:14px;border-top:1px solid ${BORDER};font-size:12px;color:${MUTED};line-height:1.6;">
