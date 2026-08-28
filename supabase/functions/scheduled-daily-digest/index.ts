@@ -613,7 +613,7 @@ Deno.serve(async (req) => {
             const act = actById.get(x.act_id);
             if (!act) continue;
             let borrowed = false;
-            if (act.documents.length === 0) {
+            if (x.confidence === "ALTA" && act.documents.length === 0) {
               const src = pubSource.get(x.pub_id);
               if (src && (src.pdf_storage_path || isHttp(src.pdf_url) || src.pdf_available)) {
                 const token = newToken();
