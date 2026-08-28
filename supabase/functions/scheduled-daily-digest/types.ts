@@ -244,9 +244,21 @@ export interface DigestPayload {
   sourceQuality: SourceQualityRow[];
   /** true when at least one source did not reach authoritative coverage. */
   coverageIncomplete: boolean;
+  /**
+   * ZZ3 — the window the SOURCE table was computed over. It is not always the
+   * novedades window (the latter continues from the previous digest), and the
+   * mail must say so rather than print two irreconcilable numbers side by side.
+   */
+  coverageWindowFrom: string;
+  coverageWindowTo: string;
+  /** ZZ2(b) — the window in judicial-day language, e.g. "jueves 28 de agosto". */
+  windowLabel: string;
+  /** ZZ2(d) — subscribed matters the provider has never answered for. */
+  neverRead: NeverReadRow[];
   workItems: Map<string, WorkItemInfo>;
   appBaseUrl: string;
   linkExpiryDays: number;
+
 }
 
 /**
