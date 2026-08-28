@@ -1466,7 +1466,18 @@ Deno.serve(withSyncTimeline(async (req) => {
       });
     }
 
+    // ── The attempt is stamped HERE, before any provider call ──
+    // Every early return below (404, empty, provider error) used to leave
+    // `last_attempted_sync_at` NULL, so a matter that had genuinely been read
+    // three times still looked "nunca intentado" to the ghost detector, which
+    // then paused it. An attempt is an attempt regardless of its outcome.
+    await supabase
+      .from('work_items')
+      .update({ last_attempted_sync_at: new Date().toISOString() })
+      .eq('id', work_item_id);
+
     // Log work item loaded
+
     await logTrace(supabase, {
       trace_id: traceId,
       work_item_id,
