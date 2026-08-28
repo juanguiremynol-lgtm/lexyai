@@ -159,19 +159,34 @@ function crossRefNote(
   side: "ACT" | "EST",
 ): string {
   if (!ref) return "";
-  const colour = side === "ACT" ? EST_ACCENT : ACT_ACCENT;
+  const alta = ref.confidence === "ALTA";
+  const colour = alta ? (side === "ACT" ? EST_ACCENT : ACT_ACCENT) : WARN_ACCENT;
+  const counterpartDate = side === "ACT"
+    ? fmtDate(ref.fecha_fijacion)
+    : fmtDate(ref.act_date);
+
+  // AB1(b) — a MEDIA link never speaks with the voice of an ALTA link. It is
+  // announced as a possibility, it names what it rests on, and it carries no
+  // borrowed document.
+  if (!alta) {
+    return `<div style="font-size:11px;color:${colour};margin-top:4px;line-height:1.5;">
+      ⚠ ${esc(side === "ACT"
+        ? `Posible correspondencia con un estado del ${counterpartDate}.`
+        : `Posible correspondencia con una actuación del ${counterpartDate}.`)}
+      <b>Vínculo no confirmado:</b> ${esc(ref.match_basis)}.
+      <span style="color:${MUTED};">Ese día puede haber más de una providencia; verifíquelo antes de confiar en la equivalencia. No se enlaza aquí el documento de la otra fuente.</span>
+    </div>`;
+  }
+
   const head = side === "ACT"
-    ? `Misma providencia, publicada en estado el ${fmtDate(ref.fecha_fijacion)}.`
-    : `Misma providencia, registrada como actuación el ${fmtDate(ref.act_date)}.`;
+    ? `Misma providencia, publicada en estado el ${counterpartDate}.`
+    : `Misma providencia, registrada como actuación el ${counterpartDate}.`;
   const borrowed = ref.documents_borrowed
     ? " El PDF que se enlaza aquí es el del estado: en la actuación el proveedor no adjuntó archivo."
     : "";
-  const conf = ref.confidence === "ALTA"
-    ? "coincidencia alta"
-    : "coincidencia por fecha, sin corroboración de texto";
   return `<div style="font-size:11px;color:${colour};margin-top:4px;line-height:1.5;">
       ↔ ${esc(head)}${esc(borrowed)}
-      <span style="color:${MUTED};"> (${esc(conf)} — ${esc(ref.match_basis)}; se muestran ambas fechas y no se fusionan los registros)</span>
+      <span style="color:${MUTED};"> (coincidencia alta — ${esc(ref.match_basis)}; se muestran ambas fechas y no se fusionan los registros)</span>
     </div>`;
 }
 
