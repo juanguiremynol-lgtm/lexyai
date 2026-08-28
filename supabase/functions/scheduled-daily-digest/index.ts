@@ -117,6 +117,26 @@ Deno.serve(async (req) => {
   const previews: string[] = [];
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
+
+  // ── ZZ2 — THE WINDOW IS A CALENDAR DAY IN BOGOTÁ, NOT A ROLLING 24h ──────
+  // A lawyer reasons in judicial days: the estados of one day are one list, and
+  // a rolling window cut at generation time splits that list across two emails
+  // (which is exactly how 26-ago's act landed in the 27-ago mail here and in
+  // the 28-ago mail at GCP). The window therefore closes at 00:00 COT of the
+  // digest date and opens where the previous digest closed — so a missed day
+  // widens the window instead of dropping it.
+  const bogotaDayStart = (d: string) => `${d}T05:00:00.000Z`;
+  const prevBogotaDate = (d: string) =>
+    new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  /** Closing boundary: 00:00 COT of `digestDate`. */
+  const windowTo = typeof body?.window_to === "string" ? body.window_to : bogotaDayStart(digestDate);
+  /** Default opening boundary: 00:00 COT of the previous calendar day. */
+  const calendarFrom = bogotaDayStart(prevBogotaDate(digestDate));
+  /** ZZ2(b) — the same window said in words the reader can check. */
+  const windowLabel = new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString(
+    "es-CO",
+    { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Bogota" },
+  );
   const hb = await startHeartbeat(supabase, "scheduled-daily-digest", String(body?.source ?? "cron"), {
     digest_date: digestDate,
     dry_run: dryRun,
@@ -139,7 +159,7 @@ Deno.serve(async (req) => {
     const { data: monitored, error: monErr } = await supabase
       .from("v_monitored_work_items")
       .select(
-        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at",
+        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at, last_attempted_sync_at, last_error_code, created_at",
       );
     if (monErr) throw monErr;
 
@@ -217,7 +237,7 @@ Deno.serve(async (req) => {
             recipient_user_id: ownerId,
             organization_id: orgOf.get(ownerId) ?? null,
             status: "RUNNING",
-            window_to: nowIso,
+            window_to: windowTo,
           })
           .select("id")
           .maybeSingle();
@@ -280,7 +300,7 @@ Deno.serve(async (req) => {
         // `window_from` in the request body is a dry-run/backfill aid only.
         const windowFrom = (typeof body?.window_from === "string" ? body.window_from : null) ??
           prevRun?.window_to ??
-          new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
+          calendarFrom;
 
         const ids = items.map((i) => i.id);
         const wiMap = new Map<string, WorkItemInfo>(items.map((i) => [i.id, i]));
@@ -305,7 +325,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
-          .lte("detected_at", nowIso)
+          .lte("detected_at", windowTo)
           .order("detected_at", { ascending: false })
           .limit(400);
         if (actErr) { await fail(`acts: ${actErr.message}`); continue; }
@@ -317,7 +337,7 @@ Deno.serve(async (req) => {
           .in("work_item_id", judicialIds)
           .eq("is_archived", false)
           .gt("detected_at", windowFrom)
-          .lte("detected_at", nowIso)
+          .lte("detected_at", windowTo)
           .order("detected_at", { ascending: false })
           .limit(400);
         if (pubErr) { await fail(`publicaciones: ${pubErr.message}`); continue; }
@@ -655,7 +675,10 @@ Deno.serve(async (req) => {
 
         const html = buildDigestHtml({
           recipientName: profile?.full_name ?? null,
-          windowFrom, windowTo: nowIso,
+          windowFrom, windowTo,
+          windowLabel,
+          coverageWindowFrom: sourceWindowFrom, coverageWindowTo: nowIso,
+          neverRead,
           monitoredCount: judicialItems.length,
           nonJudicialCount: nonJudicialItems.length,
           silentCount,
