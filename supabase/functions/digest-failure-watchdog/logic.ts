@@ -23,6 +23,59 @@ export interface WatchdogVerdict {
   problems: number;
 }
 
+/** AF1(b) — an outbox row still PENDING after this many minutes is a backlog. */
+export const OUTBOX_BACKLOG_MINUTES = 45;
+
+export interface OutboxRow {
+  id?: string | null;
+  to_email?: string | null;
+  subject?: string | null;
+  status?: string | null;
+  next_attempt_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface OutboxBacklogVerdict {
+  stalled: number;
+  oldestMinutes: number;
+  samples: string[];
+}
+
+/**
+ * AF1(b) — the outbox filling without draining. Neither GCP's Resend watcher
+ * (it only sees what Resend accepted) nor the digest itself (it returns once
+ * the row is enqueued) can see this condition.
+ */
+export function classifyOutboxBacklog(
+  rows: OutboxRow[],
+  now: Date = new Date(),
+  backlogMinutes = OUTBOX_BACKLOG_MINUTES,
+): OutboxBacklogVerdict {
+  const cutoff = now.getTime() - backlogMinutes * 60_000;
+  let oldestMinutes = 0;
+  const samples: string[] = [];
+  let stalled = 0;
+  for (const r of rows) {
+    if (String(r.status ?? "") !== "PENDING") continue;
+    const due = Date.parse(String(r.next_attempt_at ?? r.created_at ?? ""));
+    if (!Number.isFinite(due) || due >= cutoff) continue;
+    stalled++;
+    const mins = Math.floor((now.getTime() - due) / 60_000);
+    if (mins > oldestMinutes) oldestMinutes = mins;
+    if (samples.length < 10) {
+      samples.push(`${r.to_email ?? "?"} — ${r.subject ?? "(sin asunto)"} (${mins} min)`);
+    }
+  }
+  return { stalled, oldestMinutes, samples };
+}
+
+export function renderOutboxBacklogBlock(b: OutboxBacklogVerdict): string {
+  if (b.stalled === 0) return "";
+  return `<div style="margin-top:16px;"><b style="color:#f87171;">CORREO SIN SALIR (${b.stalled})</b>
+    <div style="font-size:13px;color:#94a3b8;">Mensajes en la bandeja de salida vencidos y todavía PENDING; el más antiguo lleva ${b.oldestMinutes} min. El envío no está drenando.</div>
+    <ul style="font-size:12px;line-height:1.6;">${b.samples.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
+}
+
 /** A run still RUNNING after this many minutes is considered stuck. */
 export const STUCK_MINUTES = 30;
 
@@ -68,6 +121,7 @@ export function renderWatchdogHtml(
   digestDate: string,
   expectedCount: number,
   v: WatchdogVerdict,
+  backlog: OutboxBacklogVerdict = { stalled: 0, oldestMinutes: 0, samples: [] },
 ): string {
   const { failed, missing, stuck } = v;
   return `<!doctype html><html lang="es"><body style="margin:0;background:#0f172a;">
@@ -82,6 +136,7 @@ export function renderWatchdogHtml(
         ${missing.length ? `<div style="margin-top:16px;"><b style="color:#fbbf24;">SIN CORRIDA (${missing.length})</b>
           <div style="font-size:13px;color:#94a3b8;">Destinatarios con asuntos monitoreados y ninguna fila en daily_digest_runs: el resumen no llegó a ejecutarse para ellos.</div>
           <ul style="font-size:12px;line-height:1.6;">${missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
+        ${renderOutboxBacklogBlock(backlog)}
         ${stuck.length ? `<div style="margin-top:16px;"><b style="color:#fbbf24;">ATASCADOS (${stuck.length})</b>
           <ul style="font-size:13px;line-height:1.6;">${stuck.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
         <div style="margin-top:18px;font-size:12px;color:#94a3b8;">
