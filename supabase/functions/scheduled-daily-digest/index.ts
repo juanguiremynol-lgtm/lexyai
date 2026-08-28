@@ -48,6 +48,7 @@ import type {
   DigestDocument,
   EstadoRow,
   HearingRow,
+  NeverReadRow,
   ReconciliationNoticeRow,
   SourceQualityRow,
   SuspendedItemRow,
@@ -553,6 +554,123 @@ Deno.serve(async (req) => {
         });
 
 
+        // ── ZZ1 — THE SAME PROVIDENCIA REACHING US THROUGH TWO CHANNELS ──────
+        // A providencia is registered by the clerk (actuación) and published on
+        // the list (estado). Both are kept, both are rendered in their own
+        // table, with their own dates and their own provider label: this is a
+        // CROSS-REFERENCE, never a merge (HH2 stands).
+        //
+        // MATCHING KEY (ZZ1c) — `public.v_providencia_cross_ref`:
+        //   work_item_id + estado.fecha_providencia = actuación.act_date,
+        //   restricted to providencia-bearing acts (fijaciones de estado are
+        //   excluded, they are the vehicle and not the act), and corroborated
+        //   by lexical overlap between the estado's annotation and the act's
+        //   description. A link is emitted ONLY when the candidate is unique.
+        //   Rejected keys: the "Providencia 2026-00082" number is the matter's
+        //   consecutive, not a per-providencia identifier, so it discriminates
+        //   nothing; a PDF content hash is unusable because the act side
+        //   frequently carries no file at all — which is the very defect here.
+        const actById = new Map(actuaciones.map((a) => [a.id, a]));
+        const pubById = new Map(estados.map((e) => [e.id, e]));
+        if (actById.size || pubById.size) {
+          const orParts = [
+            actById.size ? `act_id.in.(${[...actById.keys()].join(",")})` : null,
+            pubById.size ? `pub_id.in.(${[...pubById.keys()].join(",")})` : null,
+          ].filter(Boolean).join(",");
+          const { data: xrefs, error: xErr } = await supabase
+            .from("v_providencia_cross_ref")
+            .select("pub_id, act_id, work_item_id, act_date, fecha_fijacion, confidence, match_basis")
+            .or(orParts);
+          if (xErr) console.warn("[scheduled-daily-digest] cross-ref failed", xErr.message);
+
+          // Documents to borrow: only for acts that carry none of their own.
+          const needPub = [...new Set((xrefs ?? [])
+            .filter((x) => (actById.get(x.act_id)?.documents.length ?? 1) === 0)
+            .map((x) => x.pub_id))];
+          const pubSource = new Map<string, Record<string, unknown>>();
+          if (needPub.length) {
+            const { data: pubRows } = await supabase
+              .from("work_item_publicaciones")
+              .select("id, organization_id, pdf_url, pdf_storage_path, pdf_available")
+              .in("id", needPub);
+            for (const r of pubRows ?? []) pubSource.set(r.id as string, r);
+          }
+
+          for (const x of xrefs ?? []) {
+            const est = pubById.get(x.pub_id);
+            if (est) {
+              est.crossRef = {
+                counterpart_id: x.act_id, act_date: x.act_date,
+                fecha_fijacion: x.fecha_fijacion, confidence: x.confidence,
+                match_basis: x.match_basis,
+              };
+            }
+            const act = actById.get(x.act_id);
+            if (!act) continue;
+            let borrowed = false;
+            if (act.documents.length === 0) {
+              const src = pubSource.get(x.pub_id);
+              if (src && (src.pdf_storage_path || isHttp(src.pdf_url) || src.pdf_available)) {
+                const token = newToken();
+                tokens.push({
+                  token, recipient_user_id: ownerId,
+                  organization_id: (src.organization_id as string | null) ?? null,
+                  work_item_id: act.work_item_id, kind: "ESTADO",
+                  publicacion_id: x.pub_id, act_id: null,
+                  doc_url: null, doc_label: "Documento del estado",
+                  expires_at: expiresAt,
+                });
+                act.documents.push({
+                  label: "Descargar PDF (publicado en el estado)",
+                  url: `${FUNCTIONS_BASE}/digest-document?t=${token}`,
+                });
+                borrowed = true;
+              }
+            }
+            // `document_availability` is deliberately NOT rewritten: on the
+            // actuación channel the provider still attached nothing, and the
+            // borrowed link says where it actually comes from.
+            act.crossRef = {
+              counterpart_id: x.pub_id, act_date: x.act_date,
+              fecha_fijacion: x.fecha_fijacion, confidence: x.confidence,
+              match_basis: x.match_basis, documents_borrowed: borrowed,
+            };
+          }
+        }
+
+        // ── ZZ2(d) — SUSCRITOS Y NUNCA CONSULTADOS ───────────────────────────
+        // No successful read has ever happened AND nothing was ever stored.
+        // This is the signal GCP's mail carries today; it must survive here.
+        const neverReadCandidates = judicialItems.filter((i) => !i.last_successful_sync_at);
+        const neverRead: NeverReadRow[] = [];
+        if (neverReadCandidates.length) {
+          const candIds = neverReadCandidates.map((i) => i.id);
+          const [{ data: anyActs }, { data: anyPubs }] = await Promise.all([
+            supabase.from("work_item_acts").select("work_item_id").in("work_item_id", candIds).limit(2000),
+            supabase.from("work_item_publicaciones").select("work_item_id").in("work_item_id", candIds).limit(2000),
+          ]);
+          const withData = new Set<string>([
+            ...(anyActs ?? []).map((r) => r.work_item_id as string),
+            ...(anyPubs ?? []).map((r) => r.work_item_id as string),
+          ]);
+          for (const i of neverReadCandidates) {
+            if (withData.has(i.id)) continue;
+            const raw = i as unknown as Record<string, string | null>;
+            const created = raw.created_at ?? null;
+            neverRead.push({
+              id: i.id, radicado: i.radicado, title: i.title,
+              workflow_type: i.workflow_type,
+              created_at: created,
+              days_since_alta: created
+                ? Math.floor((Date.now() - Date.parse(created)) / 86_400_000)
+                : null,
+              last_attempted_sync_at: raw.last_attempted_sync_at ?? null,
+              last_error_code: raw.last_error_code ?? null,
+            });
+          }
+          neverRead.sort((a, b) => (b.days_since_alta ?? 0) - (a.days_since_alta ?? 0));
+        }
+
         const hearings: HearingRow[] = (rawHearings ?? []) as unknown as HearingRow[];
         const allDeadlines: DeadlineRow[] = (rawDeadlines ?? []).map((d: Record<string, unknown>) => {
           const days = Math.round(
@@ -604,7 +722,8 @@ Deno.serve(async (req) => {
         // silence. That is precisely the misrepresentation of 2026-07-27.
         const hasContent =
           actuaciones.length + estados.length + hearings.length + allDeadlines.length +
-            connectionIssues.length + importedHistory.length + reconciliations.length > 0 ||
+            connectionIssues.length + importedHistory.length + reconciliations.length +
+            neverRead.length > 0 ||
           coverageIncomplete;
 
 
