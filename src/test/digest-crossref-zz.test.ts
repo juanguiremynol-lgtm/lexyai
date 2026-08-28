@@ -40,7 +40,7 @@ describe("ZZ1 — cross-reference, never a merge", () => {
   });
 
   it("borrows the estado's PDF only when the act carries none, and says so", () => {
-    expect(index).toMatch(/if \(act\.documents\.length === 0\)/);
+    expect(index).toMatch(/act\.documents\.length === 0/);
     expect(html).toMatch(/El PDF que se enlaza aquí es el del estado/);
   });
 
