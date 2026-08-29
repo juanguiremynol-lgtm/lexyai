@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
   const { data: items, error } = await supabase
     .from("work_items")
-    .select("id, radicado, title, workflow_type, despacho, owner_id, created_at, lifecycle_state, monitoring_enabled")
+    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled")
     .is("deleted_at", null)
     .eq("lifecycle_state", "ACTIVE")
     .eq("monitoring_enabled", true);
