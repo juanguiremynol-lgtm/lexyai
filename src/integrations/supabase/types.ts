@@ -23053,13 +23053,19 @@ export type Database = {
       monitoring_coverage_v: {
         Row: {
           act_count: number | null
+          acts_coverage_status: string | null
           coverage_status: string | null
           days_since_ingest: number | null
           enrolled_providers: string[] | null
+          estados_coverage_status: string | null
+          expected_acts_providers: string[] | null
+          expected_estados_providers: string[] | null
           expected_providers: string[] | null
           last_ingest: string | null
           last_ok_run: string | null
           last_run: string | null
+          missing_acts_providers: string[] | null
+          missing_estados_providers: string[] | null
           missing_providers: string[] | null
           monitoring_enabled: boolean | null
           organization_id: string | null
@@ -26112,6 +26118,7 @@ export type Database = {
         | "DIAGNOSTIC_ESCALATION"
         | "RECHAZO_PRESUNTO"
         | "RECHAZO_CONFIRMADO"
+        | "GHOST_SUSPECTED"
       observation_severity: "INFO" | "WARNING" | "CRITICAL"
       pdf_provider_mode: "DEMO" | "DIRECT"
       peticion_phase:
@@ -26514,6 +26521,7 @@ export const Constants = {
         "DIAGNOSTIC_ESCALATION",
         "RECHAZO_PRESUNTO",
         "RECHAZO_CONFIRMADO",
+        "GHOST_SUSPECTED",
       ],
       observation_severity: ["INFO", "WARNING", "CRITICAL"],
       pdf_provider_mode: ["DEMO", "DIRECT"],

@@ -233,3 +233,20 @@ transport-independent channel inside Supabase** — it adds surface without addi
 independence. The one gap neither of the above covers on its own is the outbox
 filling without draining; that is the `CORREO SIN SALIR` check inside
 `digest-failure-watchdog` (`OUTBOX_BACKLOG_MINUTES = 45`).
+
+## IQ2 — Four independent channels (2026-08-29)
+
+| Canal | Tipo | Proveedor | Cron | Hora UTC |
+|---|---|---|---|---|
+| Actuaciones | CPNU | `scheduled-daily-sync` | `daily-sync-7am-cot` | 12:00 |
+| Actuaciones | SAMAI | `scheduled-daily-sync` | `daily-sync-7am-cot` | 12:00 |
+| Estados | Publicaciones Procesales | `scheduled-daily-estados` | `andromeda-daily-estados` | 12:20 |
+| Estados | SAMAI Estados | `scheduled-daily-estados` / `samai-estados-monitor-daily` | | 12:20 / 10:50 |
+
+Invariants:
+- No channel's result may gate another channel's execution. `shouldRunPublicaciones`
+  is retired and now throws if reintroduced.
+- No matter is ever paused for zero actuaciones or zero estados, under any label.
+  The watchdog's ghost branch is OBSERVATION ONLY (`GHOST_SUSPECTED`), reports
+  `terminalized: 0` by construction, and holds no lifecycle authority.
+- Only the lawyer's own decision (delete, pause, disable monitoring) stops a read.

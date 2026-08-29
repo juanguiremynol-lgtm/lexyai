@@ -193,6 +193,20 @@ export interface ConnectionIssueRow {
  * `reading_active` carries that distinction into the render: when it is false
  * a real gap IS accumulating for that matter and the row must say so.
  */
+/** IQ5(b) — a matter an automatic rule stopped monitoring, not the lawyer. */
+export interface AutoPausedItemRow {
+  id: string;
+  radicado: string | null;
+  title: string | null;
+  workflow_type: string | null;
+  paused_at: string | null;
+  reason: string | null;
+  actor: string | null;
+  /** true when the lawyer had reactivated it before and the system paused it again. */
+  re_paused: boolean;
+  reactivations: number;
+}
+
 export interface SuspendedItemRow {
   id: string;
   radicado: string | null;
@@ -270,6 +284,7 @@ export interface DigestPayload {
 
   connectionIssues: ConnectionIssueRow[];
   suspended: SuspendedItemRow[];
+  autoPaused: AutoPausedItemRow[];
   /**
    * TT6 — collection quality per source for this window. The digest may state
    * an unqualified "sin novedades" only while every entry is `authoritative`.

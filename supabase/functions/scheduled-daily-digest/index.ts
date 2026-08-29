@@ -51,6 +51,7 @@ import type {
   NeverReadRow,
   ReconciliationNoticeRow,
   SourceQualityRow,
+  AutoPausedItemRow,
   SuspendedItemRow,
   WorkItemInfo,
 } from "./types.ts";
@@ -531,6 +532,41 @@ Deno.serve(async (req) => {
         }
 
 
+        // ── IQ5(b): asuntos pausados por una regla AUTOMÁTICA ──
+        // Nunca por vacío (esa autoridad fue eliminada): esta sección existe
+        // para que ninguna pausa automática vuelva a ocurrir en silencio.
+        const autoPaused: AutoPausedItemRow[] = [];
+        {
+          const { data: pausedRows } = await supabase
+            .from("work_items")
+            .select("id, radicado, title, workflow_type, lifecycle_state, lifecycle_reason, lifecycle_actor, lifecycle_changed_at")
+            .eq("owner_id", ownerId)
+            .is("deleted_at", null)
+            .eq("lifecycle_state", "PAUSED")
+            .in("lifecycle_actor", ["SYSTEM", "AI"]);
+
+          for (const w of pausedRows ?? []) {
+            const { data: ledger } = await supabase
+              .from("work_item_lifecycle_ledger")
+              .select("to_state, actor")
+              .eq("work_item_id", w.id)
+              .eq("to_state", "ACTIVE")
+              .eq("actor", "USER");
+            const reactivations = (ledger ?? []).length;
+            autoPaused.push({
+              id: w.id,
+              radicado: w.radicado,
+              title: w.title,
+              workflow_type: w.workflow_type,
+              paused_at: (w as any).lifecycle_changed_at ?? null,
+              reason: (w as any).lifecycle_reason ?? null,
+              actor: (w as any).lifecycle_actor ?? null,
+              re_paused: reactivations > 0,
+              reactivations,
+            });
+          }
+        }
+
         // ── HH3: build download tokens ──
         const tokens: TokenSpec[] = [];
         const expiresAt = new Date(Date.now() + LINK_EXPIRY_DAYS * 86_400_000).toISOString();
@@ -901,6 +937,7 @@ Deno.serve(async (req) => {
           nonJudicialDeadlines,
           connectionIssues,
           suspended,
+          autoPaused,
           sourceQuality,
           coverageIncomplete,
           workItems: wiMap,

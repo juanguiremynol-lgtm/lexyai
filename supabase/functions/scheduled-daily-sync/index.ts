@@ -1,12 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   shouldCountAsSuccess,
-  shouldRunPublicaciones,
   isScrapingPending,
   shouldDemonitor,
   buildAuditEvidence,
   enrichDemonitorCandidates,
-  PUBLICACIONES_WORKFLOWS,
   SAMAI_ESTADOS_ONLY_WORKFLOWS,
   DEFAULT_STALENESS_GUARD_DAYS,
 } from "../_shared/syncPolicy.ts";
@@ -1241,69 +1239,11 @@ async function syncSingleItem(
       .eq("id", item.id);
   }
 
-  // Sync estados/publicaciones when the workflow has an estados provider.
-  // CPACA/SAMAI_ESTADOS must run even when the actuaciones branch returns
-  // EMPTY: a case can have estados while the SAMAI actuaciones feed is cold,
-  // and routing repair depends on this path to hydrate Publicaciones.
-  const hasPpEstados = (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type);
+  // IQ2(a)(f): ESTADOS SEPARATION — this function reads ACTUACIONES only.
+  // The estados channels (Publicaciones Procesales / SAMAI Estados) run on
+  // their own cron (scheduled-daily-estados) with their own run rows and
+  // verdicts. No channel's result may gate another channel's execution.
   const hasSamaiEstados = (SAMAI_ESTADOS_ONLY_WORKFLOWS as readonly string[]).includes(item.workflow_type);
-  if (
-    (hasPpEstados || hasSamaiEstados) &&
-    (shouldRunPublicaciones(syncResult) || hasSamaiEstados)
-  ) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    
-    if (item.workflow_type === "PENAL_906") {
-      try {
-        await (supabase.from("sync_retry_queue") as any).upsert(
-          {
-            work_item_id: item.id,
-            organization_id: orgId,
-            radicado: item.radicado,
-            stage: item.stage || null,
-            kind: "PUB_RETRY",
-            provider: "publicaciones",
-            attempt: 1,
-            max_attempts: 3,
-            next_run_at: new Date(Date.now() + 10_000).toISOString(),
-            last_error_message: "Enqueued by daily-sync for isolated execution",
-          },
-          { onConflict: "work_item_id,kind" },
-        );
-      } catch (_retryErr) { /* non-blocking */ }
-    } else {
-      if ((item.total_actuaciones || 0) >= 100) {
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-      try {
-        const functionsUrl = Deno.env.get("SUPABASE_URL");
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-        if (!functionsUrl || !serviceKey) {
-          throw new Error("Missing function invocation credentials");
-        }
-        const pubResp = await fetch(`${functionsUrl}/functions/v1/sync-publicaciones-by-work-item`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${serviceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ work_item_id: item.id, _scheduled: true, _force: true }),
-        });
-        if (!pubResp.ok) {
-          const errText = await pubResp.text().catch(() => "");
-          throw new Error(`sync-publicaciones HTTP ${pubResp.status}: ${errText.slice(0, 200)}`);
-        }
-      } catch (_pubErr) {
-        // Pub errors don't count as item failure
-        console.warn(`[daily-sync] sync-publicaciones failed wi=${item.id}:`, (_pubErr as Error)?.message ?? _pubErr);
-      }
-    }
-
-    // Note: PP (Publicaciones Procesales) is an ESTADOS-family provider and
-    // is fully handled by sync-publicaciones-by-work-item above. The legacy
-    // sync-pp-by-work-item invocation was removed on 2026-07-14 because it
-    // mis-routed estados into work_item_acts (see canonical provider policy).
-  }
 
   // If sync wasn't successful and wasn't scraping_pending, this is a soft failure.
   // For SAMAI_ESTADOS-only workflows, do not throw after the estados branch ran:

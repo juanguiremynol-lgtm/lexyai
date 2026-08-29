@@ -289,12 +289,28 @@ export function shouldCountAsSuccess(syncResult: SyncResult | null | undefined):
   return syncResult.ok === true;
 }
 
+
+
+
 /**
- * Returns true only when act sync was truly successful (ok===true).
- * Publicaciones sync must NEVER run on scraping_initiated.
+ * @deprecated IQ2(a) — REMOVED AUTHORITY.
+ *
+ * This gate made the ESTADOS read conditional on the ACTUACIONES result
+ * (`syncResult.ok === true`), so a CPNU failure or a reserved docket silently
+ * suppressed Publicaciones Procesales on an ACTIVE matter.
+ *
+ * The four channels are independent: CPNU / SAMAI read actuaciones,
+ * Publicaciones Procesales / SAMAI Estados read estados. No channel's result
+ * may gate any other channel's execution. Estados now run on their own cron
+ * (`scheduled-daily-estados`).
+ *
+ * Kept as a throwing stub for one release so any reintroduced call site fails
+ * loudly instead of silently restoring the coupling. Remove next release.
  */
-export function shouldRunPublicaciones(syncResult: SyncResult | null | undefined): boolean {
-  return shouldCountAsSuccess(syncResult);
+export function shouldRunPublicaciones(_syncResult?: SyncResult | null): never {
+  throw new Error(
+    "shouldRunPublicaciones is retired (IQ2a): an estados read must never be gated on an actuaciones result.",
+  );
 }
 
 /**
