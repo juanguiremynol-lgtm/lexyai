@@ -40,7 +40,6 @@ export async function persistHeartbeatToConversations(
 ): Promise<void> {
   // Group observations by type for incident creation
   const providerDegraded = observations.filter(o => o.type === 'provider_degraded');
-  const ghostItems = observations.filter(o => o.type === 'ghost_items');
   const extFailures = observations.filter(o => o.type === 'ext_sync_failures' || o.type === 'ext_provider_degraded');
   const staleItems = observations.filter(o => o.type === 'stale_items');
 
