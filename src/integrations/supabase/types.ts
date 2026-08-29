@@ -11235,6 +11235,99 @@ export type Database = {
         }
         Relationships: []
       }
+      manual_court_findings: {
+        Row: {
+          created_at: string
+          despacho_label: string | null
+          despacho_prefix: string | null
+          evidence: Json
+          finding_kind: string
+          id: string
+          note: string
+          organization_id: string | null
+          provenance: string
+          radicado: string | null
+          scope: string
+          source_detail: string
+          updated_at: string
+          verified_by: string
+          verified_on: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          despacho_label?: string | null
+          despacho_prefix?: string | null
+          evidence?: Json
+          finding_kind: string
+          id?: string
+          note: string
+          organization_id?: string | null
+          provenance?: string
+          radicado?: string | null
+          scope: string
+          source_detail: string
+          updated_at?: string
+          verified_by: string
+          verified_on: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          despacho_label?: string | null
+          despacho_prefix?: string | null
+          evidence?: Json
+          finding_kind?: string
+          id?: string
+          note?: string
+          organization_id?: string | null
+          provenance?: string
+          radicado?: string | null
+          scope?: string
+          source_detail?: string
+          updated_at?: string
+          verified_by?: string
+          verified_on?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_court_findings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "manual_court_findings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "manual_court_findings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_court_findings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_court_findings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       master_sync_runs: {
         Row: {
           actuaciones_found: number | null
