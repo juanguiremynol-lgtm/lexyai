@@ -156,7 +156,6 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "El recurso se concedió y el expediente subió al superior, pero el proceso sigue vivo en el despacho de origen. La fuente de estados deriva el despacho del prefijo del radicado, de modo que la actividad de segunda instancia no es visible por esta vía: no es silencio del despacho, es un límite del contrato de la fuente. Debe revisarse directamente en el despacho de segunda instancia.",
   PROCESO_PRIVADO:
     "La Rama Judicial marca este proceso como privado y no expone su detalle: la búsqueda lo devuelve con la leyenda «--- [ PROCESO PRIVADO ] ---» y el detalle responde «No se puede ver el detalle de un proceso privado». La causa de la marca no está declarada por el proveedor y nosotros no la interpretamos. Es una marca por proceso y puede cambiar de un día para otro. Mientras esté marcado, el silencio no se cuenta como falla de cobertura y el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
-  LECTURA_NO_CONCLUYENTE:
   INDETERMINADO:
     "No hay base para emitir un veredicto de cobertura: los canales de estados no han entregado publicaciones y no existe ninguna fijación conocida contra la cual contrastarlas. La ausencia de base para juzgar no es un certificado de que todo esté cubierto, de modo que no se afirma «Cubierto»: se declara indeterminado hasta que alguno de los canales de estados entregue algo.",
   LECTURA_NO_CONCLUYENTE:
