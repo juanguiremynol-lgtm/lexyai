@@ -19,7 +19,6 @@ import {
   resolvePrivacyRate,
   type DespachoPrivacyRate,
 } from "@/lib/despacho-privacy-rate";
-import { decideParking, sourceCanTestifyToAbsence } from "@/lib/ghost-parking";
 import { derivePenalRouting } from "@/lib/penal-routing";
 
 // ── A. the provider's own name ──
