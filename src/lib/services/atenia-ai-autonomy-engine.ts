@@ -9,7 +9,6 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { mayAutoSuspendMonitoring } from './bridge-verification';
 import {
   evaluateFreshnessClassification,
   evaluateFreshnessViolations,
@@ -22,7 +21,6 @@ import { evaluateDeepDiveTriggers } from './atenia-deep-dive';
 import { refreshE2ERegistry, runScheduledE2EBatch } from './atenia-e2e-registry';
 import { enforceDeepDiveTTL } from './atenia-deep-dive-ttl';
 import { evaluateIncidentPolicy } from './atenia-incident-policy';
-import { remediateGhostItems } from './atenia-ghost-remediation';
 import { guaranteeContinuation } from './atenia-continuation-guarantee';
 
 // ============= TYPES =============
@@ -336,101 +334,16 @@ async function evaluateOrphanedRetries(
   return plans;
 }
 
-/** §4.C: Auto-suspend monitoring — checks BOTH consecutive_not_found AND consecutive_other_errors */
+/**
+ * §4.C RETIRED — IR2(a). Automatic suspension of monitoring no longer exists.
+ * Failure counters describe the provider or our own reads, never the matter.
+ * Only the lawyer pauses monitoring.
+ */
 async function evaluateAutoSuspend(
-  orgId: string,
-  policy: AutonomyPolicy,
+  _orgId: string,
+  _policy: AutonomyPolicy,
 ): Promise<ActionPlan[]> {
-  const plans: ActionPlan[] = [];
-
-  // ── Bug 2 FIX: Also check consecutive_other_errors for "Radicado no encontrado" variants ──
-  const { data: candidates } = await (supabase
-    .from('atenia_ai_work_item_state') as any)
-    .select('work_item_id, consecutive_not_found, consecutive_other_errors, consecutive_timeouts, last_error_code')
-    .or('consecutive_not_found.gte.5,consecutive_other_errors.gte.5')
-    .limit(30);
-
-  if (!candidates || candidates.length === 0) return plans;
-
-  // Filter to only items with not-found-like errors
-  const NOT_FOUND_CODES = ['RECORD_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PROVIDER_EMPTY_RESULT', 'Radicado no encontrado', 'NOT_FOUND', '404'];
-  const eligible = candidates.filter((c: any) => {
-    const totalFailures = (c.consecutive_not_found ?? 0) + (c.consecutive_other_errors ?? 0);
-    return totalFailures >= 5 && (!c.last_error_code || NOT_FOUND_CODES.some(code =>
-      (c.last_error_code ?? '').includes(code)
-    ));
-  });
-
-  // Fetch work item details for eligible items
-  if (eligible.length === 0) return plans;
-  const eligibleIds = eligible.map((c: any) => c.work_item_id);
-  const { data: workItems } = await (supabase
-    .from('work_items') as any)
-    .select('id, radicado, monitoring_enabled')
-    .in('id', eligibleIds)
-    .eq('monitoring_enabled', true)
-    .limit(15);
-
-  if (!workItems || workItems.length === 0) return plans;
-
-  // Build a map of state info
-  const stateMap = new Map<string, Record<string, any>>(eligible.map((c: any) => [c.work_item_id, c]));
-  const candidatesWithDetails = workItems.map((wi: any) => {
-    const state = stateMap.get(wi.id) || {};
-    return { ...wi, ...state };
-  });
-
-  for (const item of candidatesWithDetails) {
-    const check = await checkBudget('SUSPEND_MONITORING', policy, item.id);
-    if (!check.allowed) continue;
-
-    const totalFailures = (item.consecutive_not_found ?? 0) + (item.consecutive_other_errors ?? 0);
-
-    // Iteration 20: provider inventory decides, not our failure counters.
-    const verdict = await mayAutoSuspendMonitoring(item.id);
-    if (!verdict.allowed) continue;
-
-    try {
-      await (supabase
-        .from('work_items') as any)
-        .update({
-          monitoring_enabled: false,
-          monitoring_disabled_reason: 'AUTO_DEMONITOR_NOT_FOUND',
-          monitoring_disabled_by: 'ATENIA',
-          monitoring_disabled_at: new Date().toISOString(),
-          monitoring_disabled_meta: {
-            consecutive_not_found: item.consecutive_not_found ?? 0,
-            consecutive_other_errors: item.consecutive_other_errors ?? 0,
-            last_error_code: item.last_error_code,
-          },
-        })
-        .eq('id', item.id);
-
-      await logAutonomyAction(orgId, {
-        action_type: 'SUSPEND_MONITORING',
-        work_item_id: item.id,
-        reasoning: `Radicado ${item.radicado} no encontrado en ${totalFailures} consultas consecutivas (${item.last_error_code}) — posiblemente no digitalizado. Monitoreo suspendido automáticamente.`,
-        action_result: 'applied',
-        evidence: {
-          radicado: item.radicado,
-          consecutive_not_found: item.consecutive_not_found ?? 0,
-          consecutive_other_errors: item.consecutive_other_errors ?? 0,
-          last_error_code: item.last_error_code,
-        },
-      });
-
-      plans.push({
-        action_type: 'SUSPEND_MONITORING',
-        status: 'EXECUTED',
-        reason: `Monitoreo suspendido para ${item.radicado}`,
-        work_item_id: item.id,
-      });
-    } catch {
-      // Non-blocking
-    }
-  }
-
-  return plans;
+  return [];
 }
 
 /** §5: Provider health mitigations */
@@ -656,23 +569,6 @@ export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResu
           action_type: 'INCIDENT_POLICY',
           status: 'EXECUTED',
           reason: `Incidentes: ${incidentResult.remediated} remediados, ${incidentResult.auto_resolved} auto-resueltos, ${incidentResult.escalated} escalados.`,
-        });
-      }
-    } catch { /* non-blocking */ }
-
-    // D: Ghost item remediation
-    try {
-      const ghostResult = await remediateGhostItems(orgId);
-      if (ghostResult.ghost_items.length > 0) {
-        allPlans.push({
-          action_type: 'GHOST_REMEDIATION',
-          status: 'EXECUTED',
-          reason: `${ghostResult.ghost_items.length} fantasma(s): ${ghostResult.bootstrapped} bootstrap, ${ghostResult.quarantined} cuarentena.`,
-          evidence: {
-            ghost_radicados: ghostResult.ghost_items.map(g => g.radicado),
-            bootstrapped: ghostResult.bootstrapped,
-            quarantined: ghostResult.quarantined,
-          },
         });
       }
     } catch { /* non-blocking */ }

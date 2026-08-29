@@ -19,7 +19,6 @@ import {
   resolvePrivacyRate,
   type DespachoPrivacyRate,
 } from "@/lib/despacho-privacy-rate";
-import { decideParking, sourceCanTestifyToAbsence } from "@/lib/ghost-parking";
 import { derivePenalRouting } from "@/lib/penal-routing";
 
 // ── A. the provider's own name ──
@@ -124,44 +123,6 @@ describe("B · the district is a rate, never a property", () => {
 
   it("may never suppress a coverage alarm", () => {
     expect(privacyRateMaySuppressAlarm()).toBe(false);
-  });
-});
-
-// ── D3. parking requires a confirmed determination ──
-describe("D · absence alone may not park a matter", () => {
-  const healthy = { source: "cpnu", status: "SUCCESS", last_success_at: "2026-08-08T00:00:00Z" };
-  const frozen = { source: "samai", status: "FROZEN", last_success_at: "2026-07-27T00:00:00Z" };
-
-  it("parks only on a confirmed provider NOT_FOUND", () => {
-    const d = decideParking({ recheckStatus: "NOT_FOUND", controlSucceeded: true, sourceHealth: healthy });
-    expect(d.mayPark).toBe(true);
-    expect(d.classification).toBe("ITEM_SPECIFIC");
-  });
-
-  it("refuses to park on a transport failure", () => {
-    const d = decideParking({ recheckStatus: "ERROR", controlSucceeded: true, sourceHealth: healthy });
-    expect(d.mayPark).toBe(false);
-    expect(d.classification).toBe("INCONCLUSIVE");
-    expect(d.reason).toContain("no es una respuesta");
-  });
-
-  it("refuses to park while the source is frozen", () => {
-    const d = decideParking({ recheckStatus: "NOT_FOUND", controlSucceeded: true, sourceHealth: frozen });
-    expect(d.mayPark).toBe(false);
-    expect(d.reason).toContain("degradada o congelada");
-  });
-
-  it("refuses to park when the control run also failed", () => {
-    expect(
-      decideParking({ recheckStatus: "NOT_FOUND", controlSucceeded: false, sourceHealth: healthy }).mayPark,
-    ).toBe(false);
-  });
-
-  it("treats a missing health reading as no clean bill of health", () => {
-    expect(sourceCanTestifyToAbsence(null)).toBe(false);
-    expect(
-      decideParking({ recheckStatus: "NOT_FOUND", controlSucceeded: true, sourceHealth: null }).mayPark,
-    ).toBe(false);
   });
 });
 

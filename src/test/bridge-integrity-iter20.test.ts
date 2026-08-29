@@ -1,6 +1,8 @@
 /**
- * Iteration 20 — the bridge doctrine: no automatic path may pause a work item
- * unless the provider itself confirms there is nothing there.
+ * Iteration 20 (revised by IR2) — the bridge reports what the provider gave us.
+ * It no longer feeds an auto-suspension decision: no automatic path may pause a
+ * work item at all. What survives is the reading itself, and the rule that an
+ * errored call is inconclusive rather than empty.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -9,38 +11,33 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { functions: { invoke: (...a: unknown[]) => invoke(...a) } },
 }));
 
-import { mayAutoSuspendMonitoring, verifyWithProvider } from "@/lib/services/bridge-verification";
+import * as bridge from "@/lib/services/bridge-verification";
+const { verifyWithProvider } = bridge;
 
-describe("bridge verification before auto-suspension", () => {
+describe("bridge verification reads, it does not judge", () => {
   beforeEach(() => invoke.mockReset());
 
-  it("refuses to suspend when the provider has rows (bridge defect)", async () => {
+  it("no longer exposes any auto-suspension helper", () => {
+    expect((bridge as Record<string, unknown>).mayAutoSuspendMonitoring).toBeUndefined();
+  });
+
+  it("reports provider rows when the bridge lost them", async () => {
     invoke.mockResolvedValue({
       data: { ok: true, lines: [{ provider_count: 12, transfer_state: "TRANSFER_FAILED" }], recovered_rows: 0 },
       error: null,
     });
-    const v = await mayAutoSuspendMonitoring("wi-1");
-    expect(v.allowed).toBe(false);
-    expect(v.reason).toBe("PROVIDER_HAS_ROWS_BRIDGE_DEFECT");
+    const v = await verifyWithProvider("wi-1");
+    expect(v.hasProviderRows).toBe(true);
+    expect(v.providerRowCount).toBe(12);
   });
 
-  it("refuses to suspend when the provider is unreachable", async () => {
+  it("marks a non-conclusive provider state as unanswered", async () => {
     invoke.mockResolvedValue({
       data: { ok: true, lines: [{ provider_count: 0, transfer_state: "PROVIDER_UNAVAILABLE" }] },
       error: null,
     });
-    const v = await mayAutoSuspendMonitoring("wi-2");
-    expect(v.allowed).toBe(false);
-    expect(v.reason).toBe("PROVIDER_UNAVAILABLE_INCONCLUSIVE");
-  });
-
-  it("allows suspension only when the provider answers with zero rows", async () => {
-    invoke.mockResolvedValue({
-      data: { ok: true, lines: [{ provider_count: 0, transfer_state: "PROVIDER_NO_ROWS" }] },
-      error: null,
-    });
-    const v = await mayAutoSuspendMonitoring("wi-3");
-    expect(v.allowed).toBe(true);
+    const v = await verifyWithProvider("wi-2");
+    expect(v.providerAnswered).toBe(false);
   });
 
   it("treats an errored reconcile call as inconclusive, never as emptiness", async () => {
@@ -48,6 +45,5 @@ describe("bridge verification before auto-suspension", () => {
     const v = await verifyWithProvider("wi-4");
     expect(v.providerAnswered).toBe(false);
     expect(v.hasProviderRows).toBe(false);
-    expect((await mayAutoSuspendMonitoring("wi-4")).allowed).toBe(false);
   });
 });

@@ -74,7 +74,7 @@ SELECT cron.schedule(
 
 ## 5. Atenia AI Supervisor — 07:30 COT (12:30 UTC)
 
-Post-sync audit: diagnostics, remediation, ghost item detection, Gemini analysis.
+Post-sync audit: diagnostics, remediation, coverage of our own reads, Gemini analysis.
 ✅ **Registered via migration** using `current_setting('supabase.service_role_key')`.
 
 > ⚠️ **IMPORTANT**: Use `service_role_key` (not anon key) for production cron jobs.
@@ -247,6 +247,11 @@ Invariants:
 - No channel's result may gate another channel's execution. `shouldRunPublicaciones`
   is retired and now throws if reintroduced.
 - No matter is ever paused for zero actuaciones or zero estados, under any label.
-  The watchdog's ghost branch is OBSERVATION ONLY (`GHOST_SUSPECTED`), reports
-  `terminalized: 0` by construction, and holds no lifecycle authority.
+  The ghost detector has been DELETED in full (IR1): no detection, no observation,
+  no `GHOST_SUSPECTED` row, no `atenia-ghost-verify` function, no parking gate.
+  A newly added matter normally has nothing yet, and many despachos publish only
+  estados — absence is never a finding about the matter.
+- Automatic pausing is structurally impossible: `set_work_item_lifecycle` refuses
+  any transition to `PAUSED` from a non-human actor and records the attempt in
+  `lifecycle_pause_refusals`.
 - Only the lawyer's own decision (delete, pause, disable monitoring) stops a read.

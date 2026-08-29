@@ -1717,26 +1717,27 @@ async function auditOrganization(
     else itemsFailed++;
   }
 
-  // Ghost items
+  // Items monitored but not read today — a statement about OUR coverage,
+  // never about whether the matter deserves monitoring (IR1).
   const tracedItemIds = new Set([...tracesByWI.keys()]);
-  const ghostItems = (workItems || []).filter(
+  const unreadItems = (workItems || []).filter(
     (wi: Record<string, unknown>) => !tracedItemIds.has(wi.id as string),
   );
 
-  if (ghostItems.length > 0) {
-    for (const ghost of ghostItems) {
+  if (unreadItems.length > 0) {
+    for (const unread of unreadItems) {
       diagnostics.push({
-        work_item_id: ghost.id as string,
-        radicado: (ghost.radicado as string) || "desconocido",
+        work_item_id: unread.id as string,
+        radicado: (unread.radicado as string) || "desconocido",
         severity: "AVISO",
         category: "OMITIDO",
-        message_es: `El radicado ${(ghost.radicado as string) || "desconocido"} tiene monitoreo activo pero no fue consultado hoy.`,
-        technical_detail: pubNoDataItemIds.has(ghost.id as string)
-          ? `No sync_traces found for work_item ${ghost.id} on ${runDate}; publicaciones returned NO_DATA today`
-          : `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
+        message_es: `El radicado ${(unread.radicado as string) || "desconocido"} tiene monitoreo activo pero no fue consultado hoy.`,
+        technical_detail: pubNoDataItemIds.has(unread.id as string)
+          ? `No sync_traces found for work_item ${unread.id} on ${runDate}; publicaciones returned NO_DATA today`
+          : `No sync_traces found for work_item ${unread.id} on ${runDate}`,
         suggested_action:
           "Se reintentará en la próxima ventana o vía cola de remediación.",
-        skip_pubs_retry: pubNoDataItemIds.has(ghost.id as string),
+        skip_pubs_retry: pubNoDataItemIds.has(unread.id as string),
       });
     }
   }
@@ -2036,23 +2037,8 @@ Deno.serve(async (req) => {
         gates["cola_acotada"] = { name: "Cola Acotada", ok: true, value: "0", detail: "Sin cola activa" };
       }
 
-      // Gate E: Sin Omitidos (ghost items with monitoring but no recent sync)
-      try {
-        let ghostQuery = supabase
-          .from("atenia_ai_work_item_state")
-          .select("work_item_id", { count: "exact", head: true })
-          .or("consecutive_not_found.gte.5,consecutive_other_errors.gte.5");
-        const { count: ghostCount } = await ghostQuery;
-
-        gates["sin_omitidos"] = {
-          name: "Sin Omitidos",
-          ok: (ghostCount ?? 0) === 0,
-          value: `${ghostCount ?? 0} fantasma(s)`,
-          detail: (ghostCount ?? 0) > 0 ? `${ghostCount} ítems con fallos consecutivos ≥5` : "Sin ítems fantasma",
-        };
-      } catch (err: any) {
-        gates["sin_omitidos"] = { name: "Sin Omitidos", ok: true, value: "OK", detail: "Verificación pendiente" };
-      }
+      // Gate E RETIRED (IR1): failure counters were the ghost premise. Absence of
+      // provider rows is not a finding about the matter and is no longer graded.
 
       // Gate F: Heartbeat Vivo (more recent check — checks both sources)
       try {

@@ -40,7 +40,6 @@ export async function persistHeartbeatToConversations(
 ): Promise<void> {
   // Group observations by type for incident creation
   const providerDegraded = observations.filter(o => o.type === 'provider_degraded');
-  const ghostItems = observations.filter(o => o.type === 'ghost_items');
   const extFailures = observations.filter(o => o.type === 'ext_sync_failures' || o.type === 'ext_provider_degraded');
   const staleItems = observations.filter(o => o.type === 'stale_items');
 
@@ -104,45 +103,8 @@ export async function persistHeartbeatToConversations(
     }
   }
 
-  // 3. Ghost items → conversation (with identifiers for actionability)
-  if (ghostItems.length > 0) {
-    const count = ghostItems.reduce((s, o) => s + (o.data?.count ?? 1), 0);
-    // Extract individual item identifiers from observation data
-    const itemDetails = ghostItems.flatMap(o => {
-      const data = o.data;
-      if (data?.ghost_item_ids && data?.ghost_radicados) {
-        return (data.ghost_item_ids as string[]).map((id: string, i: number) => ({
-          id: id.slice(0, 8),
-          radicado: (data.ghost_radicados as string[])[i] ?? "?",
-        }));
-      }
-      if (data?.work_item_ids) {
-        return (data.work_item_ids as string[]).map((id: string) => ({ id: id.slice(0, 8), radicado: "?" }));
-      }
-      return [];
-    });
-
-    const itemList = itemDetails.length > 0
-      ? ` IDs: ${itemDetails.map(d => `${d.radicado}(${d.id})`).join(", ")}`
-      : "";
-
-    const incident: IncidentData = {
-      orgId,
-      channel: 'HEARTBEAT',
-      severity: 'WARNING',
-      title: `${count} asunto(s) fantasma con monitoreo activo sin sync`,
-    };
-
-    try {
-      const convId = await findOrCreateConversation(incident);
-      if (convId) {
-        await addObservation(convId, orgId, 'GHOST_ITEMS_WIRING', 'WARNING',
-          `${count} asuntos monitoreados sin sincronización inicial.${itemList}`, { count, item_details: itemDetails });
-      }
-    } catch (err) {
-      console.warn('[conv-wiring] Ghost items conv error:', err);
-    }
-  }
+  // 3. RETIRED (IR1): the ghost-items conversation is gone. A matter with no
+  // provider rows is not an incident.
 
   // 4. Daily sync partial plans → conversation
   const dailyCont = plans.filter(p => p.action_type === 'DAILY_CONTINUATION');
