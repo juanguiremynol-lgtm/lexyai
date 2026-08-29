@@ -39,6 +39,14 @@ const RESPUESTA_ES: Record<string, string> = {
   PROCESO_PRIVADO: "expediente con reserva (proceso privado)",
 };
 
+/** IT2 — human verdicts from the portal, phrased so they cannot be read as a provider assertion. */
+const HALLAZGO_ES: Record<string, string> = {
+  CORTE_VERIFICADA_SIN_PUBLICACION: "el juzgado fue consultado y no existe publicación",
+  DESPACHO_NO_PUBLICA_ESTADOS: "este despacho no publica estados en línea",
+  PROCESO_PRIVADO: "el expediente está marcado como PRIVADO en el portal",
+  RADICADO_EXISTE_SIN_ACTUACIONES: "el radicado existe y el juzgado no ha proferido actuación alguna",
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -52,6 +60,13 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const dryRun = url.searchParams.get("dry_run") !== "0";
   const now = new Date();
+  // Dry-run preview only. The scheduled path (dry_run=0) always uses the
+  // ratified 45-day threshold; this exists so the copy can be inspected on
+  // matters that are not yet eligible.
+  const previewDays = dryRun ? Number(url.searchParams.get("previsualizar_umbral") ?? "") : NaN;
+  const umbral = Number.isFinite(previewDays) && previewDays > 0
+    ? { silence_days: previewDays, min_age_days: previewDays }
+    : {};
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -60,7 +75,7 @@ Deno.serve(async (req) => {
 
   const { data: items, error } = await supabase
     .from("work_items")
-    .select("id, radicado, title, workflow_type, despacho, owner_id, created_at, lifecycle_state, monitoring_enabled")
+    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled")
     .is("deleted_at", null)
     .eq("lifecycle_state", "ACTIVE")
     .eq("monitoring_enabled", true);
@@ -91,6 +106,7 @@ Deno.serve(async (req) => {
         monitoring_enabled: wi.monitoring_enabled,
       },
       now,
+      umbral,
     )) continue;
 
     // Despacho profile: what do we know about this court, stated as knowledge
@@ -109,11 +125,15 @@ Deno.serve(async (req) => {
     }
     const { data: manual } = await supabase
       .from("manual_court_findings")
-      .select("finding_kind, note, verified_on")
+      .select("finding_kind, scope, note, verified_on")
       .or(`work_item_id.eq.${wi.id},despacho_prefix.eq.${prefix}`)
       .order("verified_on", { ascending: false }).limit(1);
     if (manual?.[0]) {
-      perfil += ` Verificación manual en el portal (${manual[0].verified_on}): ${manual[0].note}`;
+      const m = manual[0];
+      perfil +=
+        ` Verificación manual en el portal (${m.verified_on}) — ` +
+        `${HALLAZGO_ES[String(m.finding_kind)] ?? String(m.finding_kind)}: ${m.note} ` +
+        `(constatación del abogado, no una afirmación del proveedor).`;
     }
 
     const canales: SilenceChannelEvidence[] = [

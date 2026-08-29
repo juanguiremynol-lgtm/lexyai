@@ -23,7 +23,8 @@ export type EstadosSignalClass =
   | "REMITIDO_A_SUPERIOR"
   | "APELACION_EN_SUPERIOR"
   | "PROCESO_PRIVADO"
-  | "LECTURA_NO_CONCLUYENTE";
+  | "LECTURA_NO_CONCLUYENTE"
+  | "INDETERMINADO";
 
 /**
  * Iteration 35 — how much a coverage-window edge is worth as evidence.
@@ -109,6 +110,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   APELACION_EN_SUPERIOR: "Apelación en el superior — fuera del alcance de la fuente",
   PROCESO_PRIVADO: "Marcado como proceso privado por el proveedor",
   LECTURA_NO_CONCLUYENTE: "Lectura no concluyente",
+  INDETERMINADO: "Indeterminado",
 };
 
 /**
@@ -154,6 +156,8 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
     "El recurso se concedió y el expediente subió al superior, pero el proceso sigue vivo en el despacho de origen. La fuente de estados deriva el despacho del prefijo del radicado, de modo que la actividad de segunda instancia no es visible por esta vía: no es silencio del despacho, es un límite del contrato de la fuente. Debe revisarse directamente en el despacho de segunda instancia.",
   PROCESO_PRIVADO:
     "La Rama Judicial marca este proceso como privado y no expone su detalle: la búsqueda lo devuelve con la leyenda «--- [ PROCESO PRIVADO ] ---» y el detalle responde «No se puede ver el detalle de un proceso privado». La causa de la marca no está declarada por el proveedor y nosotros no la interpretamos. Es una marca por proceso y puede cambiar de un día para otro. Mientras esté marcado, el silencio no se cuenta como falla de cobertura y el correo del despacho actúa como fuente sustantiva. Aplica a cualquier área, no sólo a lo penal.",
+  INDETERMINADO:
+    "No hay base para emitir un veredicto de cobertura: los canales de estados no han entregado publicaciones y no existe ninguna fijación conocida contra la cual contrastarlas. La ausencia de base para juzgar no es un certificado de que todo esté cubierto, de modo que no se afirma «Cubierto»: se declara indeterminado hasta que alguno de los canales de estados entregue algo.",
   LECTURA_NO_CONCLUYENTE:
     "La fuente de estados todavía no ha entregado una respuesta completa para este expediente: la última lectura quedó pendiente en el proveedor, no pudo resolver la fuente o fue rechazada en nuestra propia puerta de entrada. Una lectura incompleta no afirma nada, de modo que no se emite un veredicto de cobertura ni se genera alerta hasta que exista una respuesta completa del proveedor.",
 };
@@ -177,6 +181,7 @@ export function estadosSignalTone(cls: EstadosSignalClass): string {
     case "APELACION_EN_SUPERIOR":
       return "border-orange-500/60 text-orange-600";
     case "LECTURA_NO_CONCLUYENTE":
+    case "INDETERMINADO":
       return "border-slate-400/50 text-slate-500";
     case "PROCESO_PRIVADO":
       return "border-slate-500/50 text-slate-600";

@@ -103,14 +103,21 @@ export interface SilenceCandidate {
 }
 
 /** Pure eligibility. Informational only — no caller may derive an action from it. */
-export function isSilenceCandidate(wi: SilenceCandidate, now = new Date()): boolean {
+export function isSilenceCandidate(
+  wi: SilenceCandidate,
+  now = new Date(),
+  /** Dry-run preview only: never used by the scheduled path. */
+  umbral: { silence_days?: number; min_age_days?: number } = {},
+): boolean {
+  const silenceDays = umbral.silence_days ?? SILENCE_DAYS;
+  const minAgeDays = umbral.min_age_days ?? MIN_AGE_DAYS;
   if ((wi.lifecycle_state ?? "") !== "ACTIVE") return false;
   if (wi.monitoring_enabled === false) return false;
   const ageDays = days(wi.created_at, now);
   // IT1(d) — never on a newly registered matter.
-  if (ageDays < MIN_AGE_DAYS) return false;
+  if (ageDays < minAgeDays) return false;
   const silentDays = wi.last_signal_at ? days(wi.last_signal_at, now) : ageDays;
-  return silentDays >= SILENCE_DAYS;
+  return silentDays >= silenceDays;
 }
 
 export function days(fromIso: string, now: Date): number {
