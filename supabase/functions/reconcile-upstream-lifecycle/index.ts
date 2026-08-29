@@ -37,12 +37,18 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  let body: { repair?: boolean; inspeccionar?: string[] } = {};
+  let body: { repair?: boolean; inspeccionar?: string[]; solo_radicados?: string[] } = {};
   try { body = await req.json(); } catch { /* report-only */ }
   const repair = body.repair === true;
   // Read-only inspection list: echoes the upstream flag for named radicados so
   // GCP's current state can be reported per matter without writing anywhere.
   const inspect = (body.inspeccionar ?? []).map((r) => String(r).replace(/\D/g, ""));
+  // Repair allow-list. When present, ONLY these radicados may be re-enrolled;
+  // every other divergence is still reported, never acted on.
+  const soloRadicados = new Set(
+    (body.solo_radicados ?? []).map((r) => String(r).replace(/\D/g, "")).filter(Boolean),
+  );
+
 
   const base = upstreamBaseUrl("andromeda_read");
   let inventory: Array<Record<string, unknown>> = [];
@@ -80,15 +86,23 @@ Deno.serve(async (req) => {
     const rad = String(wi.radicado ?? "").replace(/\D/g, "");
     // KK1 — only a canonical 23-digit radicado addresses anything upstream.
     if (!/^\d{23}$/.test(rad)) continue;
-    const upstreamActivo = upstreamByRadicado.get(rad);
-    // Absent from the inventory is not the same as deactivated: no assertion.
-    if (upstreamActivo === undefined) continue;
+    const upstreamFlag = upstreamByRadicado.get(rad);
+    // IU1 — the original blind spot. `/radicados` enumerates ENROLLED matters
+    // only: a matter GCP has deactivated simply DISAPPEARS from the inventory.
+    // Reading absence as "no assertion" therefore skipped precisely the class
+    // we exist to catch (radicado 05607408900120260014900, 26 days dark, was
+    // reported as 0 divergences). Absence is now an assertion of "not enrolled",
+    // recorded under its own resolution class so it stays distinguishable from
+    // an explicit activo=false.
+    const ausenteDelInventario = upstreamFlag === undefined;
+    const upstreamActivo = ausenteDelInventario ? false : upstreamFlag;
 
     const expected = expectedActivo(wi.lifecycle_state);
     if (expected === upstreamActivo) continue;
 
-    let resolution = "PENDIENTE";
-    if (repair && expected && !upstreamActivo) {
+    let resolution = ausenteDelInventario ? "AUSENTE_DEL_INVENTARIO_UPSTREAM" : "PENDIENTE";
+    const repairAllowed = repair && (soloRadicados.size === 0 || soloRadicados.has(rad));
+    if (repairAllowed && expected && !upstreamActivo) {
       // Safe direction only: re-enrol a matter we hold as active.
       try {
         const res = await fetch(`${base}/lifecycle`, {
@@ -115,6 +129,7 @@ Deno.serve(async (req) => {
     }
 
 
+
     const row = {
       work_item_id: wi.id,
       radicado: rad,
@@ -125,7 +140,8 @@ Deno.serve(async (req) => {
       detected_at: new Date().toISOString(),
       resolved_at: resolution === "REENROLADO_UPSTREAM" ? new Date().toISOString() : null,
     };
-    divergences.push(row);
+    divergences.push({ ...row, ausente_del_inventario: ausenteDelInventario });
+
     // One OPEN divergence per matter: clear then record (the partial unique
     // index makes ON CONFLICT unusable here).
     await supabase
