@@ -57,16 +57,6 @@ export async function verifyWithProvider(workItemId: string): Promise<BridgeVeri
   };
 }
 
-/**
- * True when an automatic path is allowed to pause / de-monitor the item.
- */
-export async function mayAutoSuspendMonitoring(workItemId: string): Promise<{ allowed: boolean; reason: string }> {
-  const v = await verifyWithProvider(workItemId);
-  if (v.hasProviderRows) {
-    return { allowed: false, reason: "PROVIDER_HAS_ROWS_BRIDGE_DEFECT" };
-  }
-  if (!v.providerAnswered) {
-    return { allowed: false, reason: "PROVIDER_UNAVAILABLE_INCONCLUSIVE" };
-  }
-  return { allowed: true, reason: "PROVIDER_CONFIRMED_NO_ROWS" };
-}
+/* IR2(a): mayAutoSuspendMonitoring was DELETED. No automatic path may pause a
+   work item. Provider silence, emptiness and failure are statements about the
+   provider or about us — only the lawyer decides to stop monitoring. */
