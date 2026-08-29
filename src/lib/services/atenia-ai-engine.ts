@@ -8,7 +8,6 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { mayAutoSuspendMonitoring } from './bridge-verification';
 
 // ============= CONFIG =============
 
@@ -86,66 +85,14 @@ export interface DemonitorResult {
   items: Array<{ id: string; radicado: string; count: number }>;
 }
 
-export async function processUnreachableItems(organizationId: string): Promise<DemonitorResult> {
-  const config = await loadConfig(organizationId);
-
-  const { data: unreachableItems } = await (supabase
-    .from('work_items') as any)
-    .select('id, radicado, workflow_type, consecutive_404_count, authority_name')
-    .eq('organization_id', organizationId)
-    .eq('monitoring_enabled', true)
-    .is('deleted_at', null)
-    .gte('consecutive_404_count', config.auto_demonitor_after_404s);
-
-  if (!unreachableItems || unreachableItems.length === 0) {
-    return { demonitored: 0, items: [] };
-  }
-
-  const demonitoredItems: DemonitorResult['items'] = [];
-
-  for (const item of unreachableItems) {
-    // Iteration 20: consecutive 404s from our own sync path are not proof the
-    // matter is absent upstream. Verify against the provider inventory first.
-    const verdict = await mayAutoSuspendMonitoring(item.id);
-    if (!verdict.allowed) continue;
-
-    const { error } = await (supabase
-      .from('work_items') as any)
-      .update({
-        monitoring_enabled: false,
-        demonitor_reason: `Atenia AI: Radicado no encontrado en ${item.consecutive_404_count} consultas consecutivas a proveedores externos. Monitoreo suspendido automáticamente.`,
-        demonitor_at: new Date().toISOString(),
-      })
-      .eq('id', item.id);
-
-    if (!error) {
-      demonitoredItems.push({
-        id: item.id,
-        radicado: item.radicado,
-        count: item.consecutive_404_count,
-      });
-
-      await logAction({
-        organization_id: organizationId,
-        action_type: 'auto_demonitor',
-        autonomy_tier: 'ACT',
-        target_entity_type: 'work_item',
-        target_entity_id: item.id,
-        reasoning: `El radicado ${item.radicado} (${item.workflow_type}) no fue encontrado en ningún proveedor externo durante ${item.consecutive_404_count} sincronizaciones consecutivas. Se suspendió el monitoreo automáticamente para no desperdiciar recursos de sincronización.`,
-        evidence: {
-          radicado: item.radicado,
-          workflow_type: item.workflow_type,
-          consecutive_404_count: item.consecutive_404_count,
-          threshold: config.auto_demonitor_after_404s,
-          authority_name: item.authority_name,
-        },
-        action_taken: 'SET monitoring_enabled = false',
-        action_result: 'applied',
-      });
-    }
-  }
-
-  return { demonitored: demonitoredItems.length, items: demonitoredItems };
+/**
+ * IR2(a) — RETIRED. No automatic path may suspend monitoring. Consecutive
+ * provider 404s, empty reads and silence are statements about the provider or
+ * about us, never about whether the matter deserves to be monitored. Only the
+ * lawyer pauses.
+ */
+export async function processUnreachableItems(_organizationId: string): Promise<DemonitorResult> {
+  return { demonitored: 0, items: [] };
 }
 
 // ============= TIER: ACT — User Monitoring Control =============
