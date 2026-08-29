@@ -60,6 +60,13 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const dryRun = url.searchParams.get("dry_run") !== "0";
   const now = new Date();
+  // Dry-run preview only. The scheduled path (dry_run=0) always uses the
+  // ratified 45-day threshold; this exists so the copy can be inspected on
+  // matters that are not yet eligible.
+  const previewDays = dryRun ? Number(url.searchParams.get("previsualizar_umbral") ?? "") : NaN;
+  const umbral = Number.isFinite(previewDays) && previewDays > 0
+    ? { silence_days: previewDays, min_age_days: previewDays }
+    : {};
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -99,6 +106,7 @@ Deno.serve(async (req) => {
         monitoring_enabled: wi.monitoring_enabled,
       },
       now,
+      umbral,
     )) continue;
 
     // Despacho profile: what do we know about this court, stated as knowledge
