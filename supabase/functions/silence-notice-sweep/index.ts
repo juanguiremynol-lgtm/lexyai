@@ -109,11 +109,15 @@ Deno.serve(async (req) => {
     }
     const { data: manual } = await supabase
       .from("manual_court_findings")
-      .select("finding_kind, note, verified_on")
+      .select("finding_kind, scope, note, verified_on")
       .or(`work_item_id.eq.${wi.id},despacho_prefix.eq.${prefix}`)
       .order("verified_on", { ascending: false }).limit(1);
     if (manual?.[0]) {
-      perfil += ` Verificación manual en el portal (${manual[0].verified_on}): ${manual[0].note}`;
+      const m = manual[0];
+      perfil +=
+        ` Verificación manual en el portal (${m.verified_on}) — ` +
+        `${HALLAZGO_ES[String(m.finding_kind)] ?? String(m.finding_kind)}: ${m.note} ` +
+        `(constatación del abogado, no una afirmación del proveedor).`;
     }
 
     const canales: SilenceChannelEvidence[] = [
