@@ -289,13 +289,8 @@ export function shouldCountAsSuccess(syncResult: SyncResult | null | undefined):
   return syncResult.ok === true;
 }
 
-/**
- * Returns true only when act sync was truly successful (ok===true).
- * Publicaciones sync must NEVER run on scraping_initiated.
- */
-export function shouldRunPublicaciones(syncResult: SyncResult | null | undefined): boolean {
-  return shouldCountAsSuccess(syncResult);
-}
+
+
 
 /**
  * @deprecated IQ2(a) — REMOVED AUTHORITY.
