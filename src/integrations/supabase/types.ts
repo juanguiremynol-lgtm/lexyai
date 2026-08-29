@@ -11205,6 +11205,36 @@ export type Database = {
           },
         ]
       }
+      lifecycle_pause_refusals: {
+        Row: {
+          actor: string
+          attempted_state: string
+          created_at: string
+          id: string
+          metadata: Json
+          reason: string | null
+          work_item_id: string
+        }
+        Insert: {
+          actor: string
+          attempted_state: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          reason?: string | null
+          work_item_id: string
+        }
+        Update: {
+          actor?: string
+          attempted_state?: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          reason?: string | null
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       master_sync_runs: {
         Row: {
           actuaciones_found: number | null
@@ -25560,6 +25590,7 @@ export type Database = {
         Returns: boolean
       }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
+      lifecycle_actor_is_human: { Args: { p_actor: string }; Returns: boolean }
       lifecycle_rejections_report: { Args: never; Returns: Json }
       lifecycle_state_expected_activo: {
         Args: { p_state: string }
