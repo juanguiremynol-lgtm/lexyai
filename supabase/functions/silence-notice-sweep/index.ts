@@ -39,6 +39,14 @@ const RESPUESTA_ES: Record<string, string> = {
   PROCESO_PRIVADO: "expediente con reserva (proceso privado)",
 };
 
+/** IT2 — human verdicts from the portal, phrased so they cannot be read as a provider assertion. */
+const HALLAZGO_ES: Record<string, string> = {
+  CORTE_VERIFICADA_SIN_PUBLICACION: "el juzgado fue consultado y no existe publicación",
+  DESPACHO_NO_PUBLICA_ESTADOS: "este despacho no publica estados en línea",
+  PROCESO_PRIVADO: "el expediente está marcado como PRIVADO en el portal",
+  RADICADO_EXISTE_SIN_ACTUACIONES: "el radicado existe y el juzgado no ha proferido actuación alguna",
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
