@@ -881,10 +881,57 @@ Deno.serve(async (req) => {
       let ghostBootstrapped = 0;
       let ghostTerminalized = 0;
       let ghostClearedByProvider = 0;
+      let ghostClearedByReadHistory = 0;
+      let ghostClearedByPrivacy = 0;
+
+      // The ratified non-conclusive taxonomy (src/lib/services/bridge-verification.ts).
+      // None of these states asserts anything about the source, so none may
+      // license a pause.
+      const NON_CONCLUSIVE_STATES = new Set([
+        "PROVIDER_UNAVAILABLE",
+        "PROVIDER_INVENTORY_SUSPECT",
+        "INFRA_FAILURE",
+        "PROVIDER_JOB_ABORTED",
+        "PROVIDER_NEVER_COMPLETES",
+      ]);
 
       for (const ghost of ghostItems ?? []) {
         const attempts = (ghost as any).ghost_bootstrap_attempts ?? 0;
         if (attempts >= GHOST_MAX_ATTEMPTS) {
+          // A matter that HAS been read is not a ghost, whatever the timestamps
+          // say. `last_attempted_sync_at` was historically left NULL by every
+          // early-return path of sync-by-work-item, so the run log — not the
+          // column — is the authority on whether we ever asked the provider.
+          const { data: pastRuns } = await admin
+            .from("external_sync_runs")
+            .select("id, status, provider_attempts, started_at")
+            .eq("work_item_id", ghost.id)
+            .order("started_at", { ascending: false })
+            .limit(5);
+
+          if ((pastRuns?.length ?? 0) > 0) {
+            // Answered absence of ACCESS is not absence of the matter.
+            // CPNU returns `motivo_ausencia: PROCESO_PRIVADO` for reserved
+            // dockets: the process exists, we simply cannot read it. Pausing
+            // it would delete the only channel that could ever recover it.
+            const blob = JSON.stringify(pastRuns);
+            const privado = /PROCESO_PRIVADO|RESERVA|PROCESO_RESERVADO/i.test(blob);
+
+            await admin.from("work_items").update({ ghost_bootstrap_attempts: 0 } as any).eq("id", ghost.id);
+            if (privado) {
+              ghostClearedByPrivacy++;
+              console.warn(
+                `[watchdog] ghost ${ghost.id}: provider reports PROCESO_PRIVADO — monitoring kept, never parked`,
+              );
+            } else {
+              ghostClearedByReadHistory++;
+              console.warn(
+                `[watchdog] ghost ${ghost.id}: ${pastRuns!.length} previous read(s) on record — not a ghost, monitoring kept`,
+              );
+            }
+            continue;
+          }
+
           // Iteration 20: a failed local sync is NOT evidence that the matter
           // has no rows upstream. Ask the provider first — pausing a matter
           // that GCP can see is the self-confirming ghost loop we are killing.
@@ -895,7 +942,7 @@ Deno.serve(async (req) => {
               body: { work_item_ids: [ghost.id], heal: true, force_refresh: true },
             });
             const lines = (recon?.lines ?? []) as Array<{ provider_count: number; transfer_state: string }>;
-            providerAnswered = lines.some((l) => l.transfer_state !== "PROVIDER_UNAVAILABLE");
+            providerAnswered = lines.some((l) => !NON_CONCLUSIVE_STATES.has(l.transfer_state));
             providerRows = lines.reduce((n, l) => n + (l.provider_count ?? 0), 0);
           } catch (err) {
             console.warn("[watchdog] ghost provider verification failed:", err);
@@ -921,6 +968,7 @@ Deno.serve(async (req) => {
             ghostTerminalized++;
           }
         } else {
+
           // Enqueue one-time bootstrap sync
           const today = new Date().toISOString().slice(0, 10);
           await admin.from("atenia_ai_remediation_queue").upsert({
@@ -944,7 +992,10 @@ Deno.serve(async (req) => {
         bootstrapped: ghostBootstrapped,
         terminalized: ghostTerminalized,
         cleared_by_provider: ghostClearedByProvider,
+        cleared_by_read_history: ghostClearedByReadHistory,
+        cleared_by_privacy: ghostClearedByPrivacy,
       };
+
 
       if (ghostClearedByProvider > 0) {
         alerts.push({
