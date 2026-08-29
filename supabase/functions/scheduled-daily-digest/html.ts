@@ -29,6 +29,7 @@ import {
   type ProvidenciaCrossRef,
   type ReconciliationNoticeRow,
   type SourceQualityRow,
+  type AutoPausedItemRow,
   type SuspendedItemRow,
   type WorkItemInfo,
 } from "./types.ts";
@@ -607,6 +608,34 @@ function importedHistoryBlock(p: DigestPayload): string {
   </table>`;
 }
 
+/**
+ * IQ5(b) — matters an AUTOMATIC rule stopped monitoring. The two lines below
+ * carry the whole lesson of the ghost defect and must survive editing.
+ */
+function autoPausedBlock(rows: AutoPausedItemRow[], appBaseUrl: string): string {
+  if (!rows.length) return "";
+  const anyRePaused = rows.some((r) => r.re_paused);
+  return sectionTitle(
+    `Asuntos que el sistema dejó de monitorear (${rows.length})`,
+    "#f87171",
+    "Estos asuntos fueron pausados por una regla automática, no por usted. Mientras estén así, no se consultan con ningún proveedor y sus novedades no aparecen en este resumen.",
+  ) +
+  `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+    <thead><tr>${th("Radicado", "#f87171")}${th("Asunto", "#f87171")}${th("Tipo", "#f87171")}${th("Pausado el", "#f87171")}${th("Motivo registrado", "#f87171")}${th("¿Ya lo había reactivado?", "#f87171")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:#f87171;">${esc(r.radicado || "Sin radicado")}</a>`)}
+      ${td(esc(r.title || "—"))}
+      ${td(esc(r.workflow_type || "—"))}
+      ${td(fmtDate(r.paused_at))}
+      ${td(esc(r.reason || "No registrado"))}
+      ${td(r.re_paused
+        ? `<span style="color:#f87171;font-weight:700;">Sí — ${r.reactivations} reactivación(es) suyas</span>`
+        : `<span style="color:${MUTED};">No</span>`)}
+    </tr>`).join("")}</tbody>
+  </table>
+  <div style="font-size:12px;color:${MUTED};margin-top:6px;">Lo que esto NO significa: que el expediente esté cerrado ni que no exista. El proveedor no lo afirmó; el sistema lo dedujo de la ausencia de filas.${anyRePaused ? " En las filas marcadas, el sistema está revirtiendo su decisión de forma repetida y eso indica un defecto de nuestro lado o una limitación real del proveedor, no una conclusión sobre el expediente." : ""}</div>`;
+}
+
 function suspendedBlock(rows: SuspendedItemRow[], appBaseUrl: string): string {
   if (!rows.length) return "";
   const anyStopped = rows.some((r) => !r.reading_active);
@@ -730,6 +759,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${deadlinesBlock(p.deadlines, p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
+    ${autoPausedBlock(p.autoPaused, p.appBaseUrl)}
     ${suspendedBlock(p.suspended, p.appBaseUrl)}
 
     <div style="margin-top:28px;padding-top:14px;border-top:1px solid ${BORDER};font-size:12px;color:${MUTED};line-height:1.6;">

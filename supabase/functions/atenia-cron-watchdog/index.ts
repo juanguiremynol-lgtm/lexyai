@@ -862,10 +862,21 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
-    // 5h) Fix F: Ghost Items — deterministic remediation
+    // 5h) Ghost items — OBSERVATION ONLY (IQ1)
+    //
+    // The pause authority is DELETED. The founding inference ("no provider
+    // rows therefore ghost") is invalid: zero actuaciones is the expected
+    // initial state of a new matter and the permanent state at despachos that
+    // do not feed the expediente digital while still publishing estados.
+    // Applying the narrowed rule to the whole portfolio produced ZERO correct
+    // firings and 16 incorrect pauses over 8 matters in 30 days.
+    //
+    // INVARIANT (IQ1b): no code path here — or anywhere — may pause a matter
+    // for emptiness under any label. Detection stays; authority goes.
+    // What remains is a GHOST_SUSPECTED observation row for a human, plus the
+    // one-time bootstrap sync enqueue, which only asks the provider again.
     // ================================================================
     try {
-      // Find monitored items with no sync attempts ever
       const { data: ghostItems } = await admin
         .from("work_items")
         .select("id, organization_id, radicado, workflow_type, created_at, ghost_bootstrap_attempts")
@@ -879,29 +890,15 @@ Deno.serve(async (req) => {
 
       const GHOST_MAX_ATTEMPTS = 2;
       let ghostBootstrapped = 0;
-      let ghostTerminalized = 0;
-      let ghostClearedByProvider = 0;
+      let ghostObserved = 0;
+      let ghostClearedByRows = 0;
       let ghostClearedByReadHistory = 0;
-      let ghostClearedByPrivacy = 0;
-
-      // The ratified non-conclusive taxonomy (src/lib/services/bridge-verification.ts).
-      // None of these states asserts anything about the source, so none may
-      // license a pause.
-      const NON_CONCLUSIVE_STATES = new Set([
-        "PROVIDER_UNAVAILABLE",
-        "PROVIDER_INVENTORY_SUSPECT",
-        "INFRA_FAILURE",
-        "PROVIDER_JOB_ABORTED",
-        "PROVIDER_NEVER_COMPLETES",
-      ]);
 
       for (const ghost of ghostItems ?? []) {
         const attempts = (ghost as any).ghost_bootstrap_attempts ?? 0;
+
         if (attempts >= GHOST_MAX_ATTEMPTS) {
-          // A matter that HAS been read is not a ghost, whatever the timestamps
-          // say. `last_attempted_sync_at` was historically left NULL by every
-          // early-return path of sync-by-work-item, so the run log — not the
-          // column — is the authority on whether we ever asked the provider.
+          // A matter that HAS been read is not suspect at all.
           const { data: pastRuns } = await admin
             .from("external_sync_runs")
             .select("id, status, provider_attempts, started_at")
@@ -910,66 +907,49 @@ Deno.serve(async (req) => {
             .limit(5);
 
           if ((pastRuns?.length ?? 0) > 0) {
-            // Answered absence of ACCESS is not absence of the matter.
-            // CPNU returns `motivo_ausencia: PROCESO_PRIVADO` for reserved
-            // dockets: the process exists, we simply cannot read it. Pausing
-            // it would delete the only channel that could ever recover it.
-            const blob = JSON.stringify(pastRuns);
-            const privado = /PROCESO_PRIVADO|RESERVA|PROCESO_RESERVADO/i.test(blob);
-
             await admin.from("work_items").update({ ghost_bootstrap_attempts: 0 } as any).eq("id", ghost.id);
-            if (privado) {
-              ghostClearedByPrivacy++;
-              console.warn(
-                `[watchdog] ghost ${ghost.id}: provider reports PROCESO_PRIVADO — monitoring kept, never parked`,
-              );
-            } else {
-              ghostClearedByReadHistory++;
-              console.warn(
-                `[watchdog] ghost ${ghost.id}: ${pastRuns!.length} previous read(s) on record — not a ghost, monitoring kept`,
-              );
-            }
+            ghostClearedByReadHistory++;
             continue;
           }
 
-          // Iteration 20: a failed local sync is NOT evidence that the matter
-          // has no rows upstream. Ask the provider first — pausing a matter
-          // that GCP can see is the self-confirming ghost loop we are killing.
-          let providerRows = 0;
-          let providerAnswered = false;
-          try {
-            const { data: recon } = await admin.functions.invoke("bridge-reconcile", {
-              body: { work_item_ids: [ghost.id], heal: true, force_refresh: true },
-            });
-            const lines = (recon?.lines ?? []) as Array<{ provider_count: number; transfer_state: string }>;
-            providerAnswered = lines.some((l) => !NON_CONCLUSIVE_STATES.has(l.transfer_state));
-            providerRows = lines.reduce((n, l) => n + (l.provider_count ?? 0), 0);
-          } catch (err) {
-            console.warn("[watchdog] ghost provider verification failed:", err);
-          }
-
-          if (providerRows > 0) {
-            // The provider has rows: this is a bridge defect, not a ghost.
+          // IQ2(c): the candidate set is CROSS-CHANNEL. Any row on ANY of the
+          // four channels disqualifies the matter from being observed at all.
+          const [{ count: actCount }, { count: pubCount }] = await Promise.all([
+            admin.from("work_item_acts").select("id", { count: "exact", head: true }).eq("work_item_id", ghost.id),
+            admin.from("work_item_publicaciones").select("id", { count: "exact", head: true }).eq("work_item_id", ghost.id),
+          ]);
+          if ((actCount ?? 0) > 0 || (pubCount ?? 0) > 0) {
             await admin.from("work_items").update({ ghost_bootstrap_attempts: 0 } as any).eq("id", ghost.id);
-            ghostClearedByProvider++;
-          } else if (!providerAnswered) {
-            // Nothing can be concluded while the provider is unreachable.
-            console.warn(`[watchdog] ghost ${ghost.id}: provider unavailable, deferring`);
-          } else {
-            // Provider answered and genuinely has no rows.
-            await admin.rpc("set_work_item_lifecycle", {
-              p_work_item_id: ghost.id,
-              p_new_state: "PAUSED",
-              p_reason: "GHOST_CONFIRMED_NO_PROVIDER_ROWS",
-              p_actor: "AI",
-              p_actor_user: null,
-              p_metadata: { source: "atenia-cron-watchdog", attempts, provider_verified: true },
-            });
-            ghostTerminalized++;
+            ghostClearedByRows++;
+            continue;
           }
-        } else {
 
-          // Enqueue one-time bootstrap sync
+          // Observation for a human. NO state change, ever.
+          try {
+            await admin.from("atenia_ai_observations").insert({
+              kind: "GHOST_SUSPECTED",
+              severity: "INFO",
+              organization_id: ghost.organization_id,
+              work_item_id: ghost.id,
+              summary: `Sin lecturas registradas para ${ghost.radicado ?? "(sin radicado)"} tras ${attempts} intentos de arranque.`,
+              details: {
+                source: "atenia-cron-watchdog",
+                attempts,
+                radicado: ghost.radicado,
+                workflow_type: ghost.workflow_type,
+                authority: "OBSERVATION_ONLY",
+                note:
+                  "Observación para revisión humana. La ausencia de filas no es evidencia de que el expediente no exista: " +
+                  "no se pausa, no se deshabilita el monitoreo y no se concluye nada sobre el expediente.",
+              },
+            } as any);
+          } catch (obsErr) {
+            console.warn("[watchdog] ghost observation insert failed:", obsErr);
+          }
+          ghostObserved++;
+        } else {
+          // Enqueue one-time bootstrap sync — asking the provider again is the
+          // only remediation this branch is allowed to perform.
           const today = new Date().toISOString().slice(0, 10);
           await admin.from("atenia_ai_remediation_queue").upsert({
             action_type: "SYNC_WORK_ITEM",
@@ -980,42 +960,25 @@ Deno.serve(async (req) => {
             payload: { source: "watchdog_ghost_bootstrap", attempt: attempts + 1 },
             dedupe_key: `GHOST:${today}:${ghost.id}`,
           }, { onConflict: "dedupe_key" });
-          // Increment bootstrap attempts
           await admin.from("work_items").update({
             ghost_bootstrap_attempts: attempts + 1,
           } as any).eq("id", ghost.id);
           ghostBootstrapped++;
         }
       }
+
       results.ghost_remediation = {
         found: ghostItems?.length ?? 0,
         bootstrapped: ghostBootstrapped,
-        terminalized: ghostTerminalized,
-        cleared_by_provider: ghostClearedByProvider,
+        observed: ghostObserved,
+        terminalized: 0, // permanently zero: the pause branch was deleted (IQ1a)
+        cleared_by_rows: ghostClearedByRows,
         cleared_by_read_history: ghostClearedByReadHistory,
-        cleared_by_privacy: ghostClearedByPrivacy,
       };
-
-
-      if (ghostClearedByProvider > 0) {
-        alerts.push({
-          title: "🔌 Falsos fantasmas detectados",
-          message: `${ghostClearedByProvider} asunto(s) tenían filas en el proveedor pese a no tener sync local: defecto del puente, no del expediente.`,
-          severity: "WARNING",
-        });
-      }
-
-      // Fix F: Only emit warning if there are NEW ghosts (not already terminalized/bootstrapped)
-      if ((ghostItems?.length ?? 0) > 0 && ghostTerminalized > 0) {
-        alerts.push({
-          title: "👻 Ghost items terminalizados",
-          message: `${ghostTerminalized} asunto(s) monitoreado(s) sin sync inicial deshabilitado(s) tras ${GHOST_MAX_ATTEMPTS} intentos.`,
-          severity: "INFO",
-        });
-      }
     } catch (e) {
-      console.warn("[watchdog] Ghost remediation error:", e);
+      console.warn("[watchdog] Ghost observation error:", e);
     }
+
 
     // ================================================================
     // 5i) Fix G: Auto-escalate stale CRITICAL incidents

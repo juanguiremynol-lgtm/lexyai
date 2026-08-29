@@ -2,13 +2,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
   shouldCountAsSuccess,
-  shouldRunPublicaciones,
   isScrapingPending,
   shouldEnqueueRetry,
   retryJitterMs,
   SYNC_ENABLED_WORKFLOWS,
   TERMINAL_STAGES,
-  PUBLICACIONES_WORKFLOWS,
 } from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
@@ -270,30 +268,11 @@ Deno.serve(async (req) => {
             });
 
             // ── Policy-driven success/pending/failure classification ──
+            // IQ2(a): the ESTADOS channel is NOT invoked from here. An estados
+            // read may never be gated on an actuaciones result; it runs on its
+            // own cron (scheduled-daily-estados) against its own provider.
             if (shouldCountAsSuccess(syncResult)) {
-              // True success: trigger pub sync via policy gate, update timestamp
-              if (shouldRunPublicaciones(syncResult) &&
-                  (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)) {
-                try {
-                  // Direct fetch with explicit service-role Bearer — the JS
-                  // client's functions.invoke() does not reliably forward the
-                  // service key, causing UNAUTHORIZED on the target.
-                  await fetch(
-                    `${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`,
-                    {
-                      method: 'POST',
-                      headers: {
-                        'Authorization': `Bearer ${supabaseServiceKey}`,
-                        'apikey': supabaseServiceKey,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({ work_item_id: item.id, _scheduled: true }),
-                    }
-                  );
-                } catch {
-                  // Non-blocking
-                }
-              }
+
 
               await supabase
                 .from("work_items")
