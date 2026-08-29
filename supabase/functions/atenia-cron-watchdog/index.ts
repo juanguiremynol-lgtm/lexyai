@@ -992,7 +992,10 @@ Deno.serve(async (req) => {
         bootstrapped: ghostBootstrapped,
         terminalized: ghostTerminalized,
         cleared_by_provider: ghostClearedByProvider,
+        cleared_by_read_history: ghostClearedByReadHistory,
+        cleared_by_privacy: ghostClearedByPrivacy,
       };
+
 
       if (ghostClearedByProvider > 0) {
         alerts.push({
