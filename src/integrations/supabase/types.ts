@@ -25757,8 +25757,6 @@ export type Database = {
           attempted_count: number
           coverage_ratio: number
           error_count: number
-          excluded_by_profile: number
-          expected_before_profile: number
           expected_count: number
           last_attempt_at: string
           not_found_count: number
