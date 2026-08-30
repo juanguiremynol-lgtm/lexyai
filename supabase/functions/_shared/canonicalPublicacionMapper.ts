@@ -293,9 +293,13 @@ export function explodeProviderPublicaciones(data: any): ProviderPubUnit[] {
     if (individual) combined.push(individual);
     if (combined.length > 0) return combined;
 
-    // An actuación carrying an embedded `estado` object but no estado PDF
-    // belongs to actuaciones/attachments, not to work_item_publicaciones.
+    // IW1 — an embedded `estado` object that ANNOUNCES a planilla (numero or
+    // article_id, plus a date or a title) is now emitted by buildEstadoUnit,
+    // with or without a PDF. What reaches this line is an estado object the
+    // provider left unidentifiable: no numero, no article_id, no date, no
+    // title. That is attachment/actuación material, not a publicación.
     if (p?.estado && typeof p.estado === "object") return [];
+
 
     const titulo = p.titulo || p.title || p.actuacion || p.descripcion || p.anotacion
       || p.clasificacion?.descripcion || "Estado";
