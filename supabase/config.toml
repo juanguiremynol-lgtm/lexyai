@@ -24,26 +24,14 @@ verify_jwt = true
 [functions.process-monitor]
 verify_jwt = true
 
-[functions.adapter-icarus]
-verify_jwt = false
 
-[functions.icarus-sync]
-verify_jwt = false
 
-[functions.icarus-auth]
-verify_jwt = false
 
-[functions.icarus-save-credentials]
-verify_jwt = false
 
-[functions.icarus-health]
-verify_jwt = false
 
 [functions.whoami]
 verify_jwt = false
 
-[functions.icarus-import-excel]
-verify_jwt = false
 
 [functions.send-reminder]
 verify_jwt = false
