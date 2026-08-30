@@ -111,6 +111,12 @@ verify_jwt = false
 [functions.scheduled-publicaciones-monitor]
 verify_jwt = false
 
+# Cron-called like its publicaciones twin: authenticated by the x-cron-key
+# header, never by a JWT. Without this the gateway rejects both the scheduled
+# call and the function's own chained hops.
+[functions.scheduled-samai-estados-monitor]
+verify_jwt = false
+
 [functions.scheduled-daily-welcome]
 verify_jwt = false
 
