@@ -72,7 +72,7 @@ export function StalenessAlertSettings() {
           Alertas de Actualización de Estados
         </CardTitle>
         <CardDescription>
-          Reciba alertas cuando no haya importado estados de ICARUS en un período de tiempo.
+          Reciba alertas cuando no haya importado estados en un período de tiempo.
           Esto ayuda a mantener los términos y actuaciones al día.
         </CardDescription>
       </CardHeader>
@@ -188,7 +188,7 @@ export function StalenessAlertSettings() {
               💡 ¿Cómo funciona?
             </p>
             <p className="text-muted-foreground">
-              Si pasan {settings?.thresholdDays || 3} días hábiles sin importar un archivo de ICARUS Estados, 
+              Si pasan {settings?.thresholdDays || 3} días hábiles sin importar un archivo de Estados, 
               se mostrará una alerta en la página de Alertas y en el Dashboard. 
               {settings?.emailEnabled && " Además, recibirá un correo diario hasta que importe el archivo."}
             </p>

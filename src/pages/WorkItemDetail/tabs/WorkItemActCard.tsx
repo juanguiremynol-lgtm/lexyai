@@ -150,7 +150,7 @@ const SOURCE_CONFIG: Record<string, { label: string; icon: string; bg: string; t
   samai_estados:  { label: "SAMAI Estados",  icon: "📡", bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
   SAMAI_ESTADOS:  { label: "SAMAI Estados",  icon: "📡", bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
   manual:         { label: "Manual",         icon: "✏️", bg: "bg-gray-100 dark:bg-gray-800",   text: "text-gray-600 dark:text-gray-400" },
-  icarus_import:  { label: "Importado",      icon: "📥", bg: "bg-amber-100 dark:bg-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
+  icarus_import:  { label: "Importación histórica", icon: "📥", bg: "bg-amber-100 dark:bg-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
 };
 
 /**

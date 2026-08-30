@@ -277,7 +277,7 @@ export default function Processes() {
               <p className="text-muted-foreground mt-1">
                 {search
                   ? "No se encontraron procesos con esos criterios de búsqueda."
-                  : "Importa procesos desde ICARUS o créalos manualmente."}
+                  : "Crea procesos manualmente para empezar a monitorearlos."}
               </p>
             </div>
           ) : (

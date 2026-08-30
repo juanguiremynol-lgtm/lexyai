@@ -7,8 +7,8 @@
 
 // Data sources that can produce snapshots
 export type IngestionSource = 
-  | 'ICARUS_EXCEL_PROCESS'      // ICARUS Excel full process list
-  | 'ICARUS_EXCEL_ESTADOS'      // ICARUS Excel estados/status updates
+  | 'EXCEL_PROCESS'            // Excel full process list (manual upload)
+  | 'EXCEL_ESTADOS'            // Excel estados/status updates (manual upload)
   | 'EXTERNAL_SCRAPER'          // Future AWS/GCP scraper service
   | 'CPNU'                      // Consulta Procesos Nacional Unificada
   | 'PUBLICACIONES'             // Publicaciones Procesales

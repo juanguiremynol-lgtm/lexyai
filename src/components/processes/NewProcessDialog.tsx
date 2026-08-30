@@ -9,7 +9,7 @@ import { validateRadicado } from "@/lib/constants";
 import { Loader2, Search, CheckCircle, AlertTriangle, XCircle, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { detectWorkflowTypeEnhanced, type SuggestedWorkflowType } from "@/lib/icarus-workflow-detection";
+import { detectWorkflowTypeEnhanced, type SuggestedWorkflowType } from "@/lib/workflow-detection";
 import { WORKFLOW_TYPES, WORKFLOW_TYPES_ORDER, type WorkflowType } from "@/lib/workflow-constants";
 
 interface NewProcessDialogProps {
@@ -114,7 +114,7 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
         }
       } else {
         setVerificationStatus('not_found');
-        setErrorMessage("No se encontró en CPNU. Puede crear el proceso y actualizarlo después con ICARUS.");
+        setErrorMessage("No se encontró en CPNU. Puede crear el proceso y completar la información manualmente.");
       }
     } catch (err: any) {
       console.error('Verification error:', err);
@@ -173,11 +173,11 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
 
       if (insertError) throw insertError;
 
-      // Create alert for user to update via ICARUS
+      // Create alert for the user to complete the record manually
       await supabase.from('alerts').insert({
         owner_id: user.id,
         severity: 'INFO',
-        message: `Nuevo proceso creado: ${radicado}. Actualice la información completa importando desde ICARUS (Procesos y Estados).`,
+        message: `Nuevo proceso creado: ${radicado}. Complete la información del proceso manualmente.`,
       });
 
       toast.success("Proceso creado exitosamente");
@@ -346,12 +346,13 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
             </Alert>
           )}
 
-          {/* Info about ICARUS */}
+          {/* Info about manual completion */}
           <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
             <p className="font-medium mb-1">Nota:</p>
             <p>
-              Después de crear el proceso, podrá actualizar la información completa 
-              importando archivos desde ICARUS en Configuración → ICARUS.
+              Después de crear el proceso, Andromeda lo consultará con los
+              proveedores judiciales y usted podrá completar los datos faltantes
+              manualmente.
             </p>
           </div>
 

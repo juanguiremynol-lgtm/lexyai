@@ -66,7 +66,7 @@ export interface EstadoSnapshotInput {
   despacho?: string;
   demandantes?: string;
   demandados?: string;
-  source: 'ICARUS_ESTADOS' | 'SCRAPER' | 'CPNU' | 'MANUAL';
+  source: 'EXCEL_ESTADOS' | 'SCRAPER' | 'CPNU' | 'MANUAL';
   source_reference?: string;
   all_columns?: Record<string, string>;
 }
@@ -409,7 +409,7 @@ export async function processEstadosBatch(
       despacho: row.despacho,
       demandantes: row.demandantes,
       demandados: row.demandados,
-      source: 'ICARUS_ESTADOS',
+      source: 'EXCEL_ESTADOS',
       source_reference: runId,
       all_columns: row.all_columns,
     });

@@ -93,7 +93,7 @@ export function isInEjecutoriaWindow(terminosInician: string | null): {
  * Calculate the term start date (inicia término) from available fields
  * Priority:
  * 1. fecha_desfijacion → nextBusinessDay (for publicaciones)
- * 2. raw_data.fechaInicial (for ICARUS/acts)
+ * 2. raw_data.fechaInicial (historical acts)
  * 3. fecha_publicacion → nextBusinessDay (fallback)
  */
 export function calculateTermStart(
@@ -110,7 +110,7 @@ export function calculateTermStart(
     };
   }
   
-  // Priority 2: fechaInicial from ICARUS/raw_data
+  // Priority 2: fechaInicial from raw_data
   if (fechaInicialRaw) {
     return {
       date: fechaInicialRaw.split('T')[0],
@@ -391,7 +391,7 @@ function mapSource(source: string | null | undefined): TickerItemSource {
   const lower = source.toLowerCase();
   
   if (lower.includes('publicaciones')) return 'PUBLICACIONES_API';
-  if (lower.includes('icarus')) return 'ICARUS';
+  if (lower.includes('icarus')) return 'LEGACY_IMPORT';
   if (lower.includes('cpnu')) return 'CPNU';
   if (lower.includes('samai')) return 'SAMAI';
   if (lower.includes('manual')) return 'MANUAL';

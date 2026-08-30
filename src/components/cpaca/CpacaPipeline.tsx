@@ -366,7 +366,7 @@ export function CpacaPipeline() {
         <Alert className="border-indigo-200 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/20">
           <AlertCircle className="h-4 w-4 text-indigo-500" />
           <AlertDescription className="text-indigo-700 dark:text-indigo-300">
-            No hay procesos CPACA activos. Importa procesos desde ICARUS o crea uno nuevo.
+            No hay procesos CPACA activos. Crea un proceso nuevo para empezar a monitorearlo.
           </AlertDescription>
         </Alert>
       )}

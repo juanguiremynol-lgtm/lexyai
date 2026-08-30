@@ -50,7 +50,7 @@ export function estadosRowToSnapshot(
       action_type: classifyAction(row.actuacion),
     },
     last_notification: notification,
-    source: 'ICARUS_EXCEL_ESTADOS',
+    source: 'EXCEL_ESTADOS',
     source_run_id: runId,
     source_timestamp: new Date().toISOString(),
     source_payload: {

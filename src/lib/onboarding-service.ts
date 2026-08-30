@@ -177,7 +177,6 @@ export async function backfillOrganizationId(organizationId: string): Promise<vo
       'peticiones',
       'cpaca_processes',
       'contracts',
-      'icarus_import_runs',
       'hearings',
     ];
 

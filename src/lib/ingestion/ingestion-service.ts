@@ -312,9 +312,11 @@ async function createEstadoRecord(
  */
 function mapSourceToEnum(source: IngestionSource): ItemSource {
   switch (source) {
-    case 'ICARUS_EXCEL_PROCESS':
-    case 'ICARUS_EXCEL_ESTADOS':
-      return 'ICARUS_IMPORT';
+    case 'EXCEL_PROCESS':
+    case 'EXCEL_ESTADOS':
+      // IW3 — a manual Excel upload is a MANUAL entry. `ICARUS_IMPORT` is
+      // retired and reserved for the historical rows that already carry it.
+      return 'MANUAL';
     case 'EXTERNAL_SCRAPER':
     case 'CPNU':
     case 'PUBLICACIONES':

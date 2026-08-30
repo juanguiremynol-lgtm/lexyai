@@ -9,13 +9,13 @@ export interface RateLimitConfig {
 
 // Default rate limits
 export const RATE_LIMITS: Record<string, RateLimitConfig> = {
-  UPLOAD_ICARUS_PROCESSES: {
-    key: 'UPLOAD_ICARUS_PROCESSES',
+  UPLOAD_PROCESSES_EXCEL: {
+    key: 'UPLOAD_PROCESSES_EXCEL',
     maxRequests: 10,
     windowMinutes: 10,
   },
-  UPLOAD_ICARUS_ESTADOS: {
-    key: 'UPLOAD_ICARUS_ESTADOS',
+  UPLOAD_ESTADOS_EXCEL: {
+    key: 'UPLOAD_ESTADOS_EXCEL',
     maxRequests: 15,
     windowMinutes: 10,
   },

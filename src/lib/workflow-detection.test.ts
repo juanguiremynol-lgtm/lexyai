@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectWorkflowType, detectWorkflowTypeEnhanced } from './icarus-workflow-detection';
+import { detectWorkflowType, detectWorkflowTypeEnhanced } from './workflow-detection';
 
 describe('detectWorkflowType', () => {
   it('detects CGP from civil court', () => {

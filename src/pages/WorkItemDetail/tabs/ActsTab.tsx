@@ -364,7 +364,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
         </div>
       )}
 
-      {/* Icarus-style dense table */}
+      {/* dense-grid dense table */}
       {filteredActs && filteredActs.length > 0 && (
         <ActuacionesTable acts={filteredActs} />
       )}

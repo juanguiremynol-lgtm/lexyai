@@ -367,9 +367,16 @@ export const ESTADO_SOURCE_LABELS: Record<string, string> = {
 export const ACTUACION_SOURCE_LABELS: Record<string, string> = {
   cpnu: "CPNU",
   samai: "SAMAI",
-  icarus_import: "Importación Icarus",
   manual: "Registro manual",
+  // IW3(b) — `icarus_import` is RETIRED as a live provider. The 40 historical
+  // rows keep the value (it is their true provenance and it is evidence), and
+  // it is rendered as what it is: an import that predates the current
+  // providers. It is never offered, never counted as a channel.
+  icarus_import: "Importación histórica (previo a los proveedores actuales)",
 };
+
+/** IW3 — sources that no longer produce anything. Historical rows only. */
+export const LEGACY_ACT_SOURCES = new Set(["icarus_import"]);
 
 export function estadoSourceLabel(source: string | null | undefined): string {
   if (!source) return "Fuente no registrada";

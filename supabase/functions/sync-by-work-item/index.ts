@@ -876,7 +876,7 @@ function normalizeRadicado(radicado: string): string {
 /**
  * Generate fingerprint for deduplication
  *
- * STABLE NATURAL KEY (2026-07 hardening after Icarus parity case #2):
+ * STABLE NATURAL KEY (2026-07 hardening after external parity case #2):
  * The fingerprint now depends ONLY on drift-STABLE inputs:
  *   workItemId | act_date | normalized(description) | instancia
  *

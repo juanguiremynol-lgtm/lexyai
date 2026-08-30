@@ -1,6 +1,6 @@
 /**
  * Timeline Tab - Shows process_events for the work item
- * Displays normalized events with source attribution (CPNU/PUBLICACIONES/ICARUS/MANUAL)
+ * Displays normalized events with source attribution (CPNU/PUBLICACIONES/MANUAL)
  * Shows detected milestone chips with pattern match explanations
  */
 
@@ -99,7 +99,7 @@ const EVENT_TYPE_CONFIG: Record<string, { icon: typeof Clock; color: string; lab
 const SOURCE_CONFIG: Record<string, { icon: typeof Globe; color: string; bgColor: string; label: string }> = {
   CPNU: { icon: Database, color: "text-blue-700 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "CPNU" },
   PUBLICACIONES: { icon: Globe, color: "text-green-700 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-900/30", label: "Publicaciones" },
-  ICARUS: { icon: Database, color: "text-purple-700 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-900/30", label: "ICARUS" },
+  LEGACY_IMPORT: { icon: Database, color: "text-purple-700 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-900/30", label: "Importación histórica" },
   HISTORICO: { icon: Globe, color: "text-amber-700 dark:text-amber-400", bgColor: "bg-amber-100 dark:bg-amber-900/30", label: "Histórico" },
   MANUAL: { icon: User, color: "text-gray-700 dark:text-gray-400", bgColor: "bg-gray-100 dark:bg-gray-900/30", label: "Manual" },
   RAMA_JUDICIAL: { icon: Database, color: "text-blue-700 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "Rama Judicial" },
@@ -172,7 +172,7 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
     // Check for partial matches
     if (upperSource.includes('CPNU') || upperSource.includes('RAMA')) return SOURCE_CONFIG.CPNU;
     if (upperSource.includes('PUBLICACIONES')) return SOURCE_CONFIG.PUBLICACIONES;
-    if (upperSource.includes('ICARUS')) return SOURCE_CONFIG.ICARUS;
+    if (upperSource.includes('ICARUS')) return SOURCE_CONFIG.LEGACY_IMPORT;
     if (upperSource.includes('HISTORICO')) return SOURCE_CONFIG.HISTORICO;
     if (upperSource.includes('MANUAL')) return SOURCE_CONFIG.MANUAL;
     

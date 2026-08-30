@@ -307,7 +307,7 @@ export function PenalPipeline() {
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            No hay procesos penales activos. Los procesos penales se pueden importar desde ICARUS 
+            No hay procesos penales activos. Los procesos penales se pueden crear manualmente 
             o crear manualmente usando el botón + en el Dashboard. Los casos con juzgados penales 
             se clasifican automáticamente bajo Ley 906 de 2004.
           </AlertDescription>

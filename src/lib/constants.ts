@@ -32,7 +32,7 @@ export const TASK_TYPES = {
   FOLLOW_UP_REPARTO: { label: 'Seguimiento a Reparto', color: 'warning' },
   FOLLOW_UP_COURT: { label: 'Seguimiento al Juzgado', color: 'warning' },
   ENTER_RADICADO: { label: 'Ingresar Radicado', color: 'safe' },
-  ADD_TO_ICARUS: { label: 'Agregar a Icarus', color: 'safe' },
+  ADD_TO_ICARUS: { label: 'Registrar en el expediente', color: 'safe' },
   REVIEW_ACTA_PARSE: { label: 'Revisar Acta', color: 'warning' },
   REVIEW_PROCESS: { label: 'Revisar Proceso', color: 'warning' },
   REVIEW_FILING: { label: 'Revisar Radicación', color: 'warning' },

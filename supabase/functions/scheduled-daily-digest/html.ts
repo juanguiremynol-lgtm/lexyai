@@ -15,6 +15,7 @@ import { describeSourceQuality } from "../_shared/sourceRunQuality.ts";
 import {
   BOUND_PARTY_SHORT,
   actuacionSourceLabel,
+  LEGACY_ACT_SOURCES,
   estadoSourceLabel,
   type ActuacionRow,
   type ConnectionIssueRow,
@@ -116,7 +117,11 @@ function partes(wi: WorkItemInfo | undefined): string {
 function providerTally(wi: WorkItemInfo | undefined): string {
   const c = wi?.providerCounts;
   if (!c) return "";
+  // IW3(c) — the per-channel breakdown lists LIVE providers only. Retired
+  // sources (icarus_import) are still counted in the matter's total and their
+  // provenance stays on the row; they are not a channel in the daily mail.
   const acts = Object.entries(c.acts)
+    .filter(([s]) => !LEGACY_ACT_SOURCES.has(s))
     .sort((a, b) => b[1] - a[1])
     .map(([s, n]) => `${esc(actuacionSourceLabel(s))}: ${n}`);
   const ests = Object.entries(c.estados)
