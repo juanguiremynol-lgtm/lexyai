@@ -1,5 +1,5 @@
 /**
- * ICARUS Workflow Type Auto-Detection
+ * Workflow Type Auto-Detection (radicado + descriptive fields)
  * 
  * Smart classification of imported processes based on despacho keywords
  * to suggest CGP, CPACA, or TUTELA workflow types.
