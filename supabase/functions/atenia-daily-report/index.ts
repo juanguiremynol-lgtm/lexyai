@@ -368,7 +368,7 @@ async function toolEstadosCoverage(sb: any): Promise<Record<string, unknown>> {
  * The headline counts PERSISTED news (rows that actually landed today):
  * NOVEDAD + ACTUACION_RETROACTIVA. "Históricas" is reserved for rows that
  * arrived through an explicit sweep/import (HISTORICO_DETECTADO), i.e. dated
- * before enrolment. The anexos counter lets Icarus (files in the digital
+ * before enrolment. The anexos counter lets the reader (files in the digital
  * index) and Andromeda (actuaciones) reconcile on sight.
  */
 const SWEEP_MODES = ["SWEEP", "FULL_SWEEP", "HISTORICAL", "BACKFILL", "IMPORT", "INITIAL_SYNC"];

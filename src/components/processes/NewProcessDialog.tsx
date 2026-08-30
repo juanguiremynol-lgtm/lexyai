@@ -350,8 +350,9 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
           <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
             <p className="font-medium mb-1">Nota:</p>
             <p>
-              Después de crear el proceso, podrá actualizar la información completa 
-              importando archivos desde ICARUS en Configuración → ICARUS.
+              Después de crear el proceso, Andromeda lo consultará con los
+              proveedores judiciales y usted podrá completar los datos faltantes
+              manualmente.
             </p>
           </div>
 

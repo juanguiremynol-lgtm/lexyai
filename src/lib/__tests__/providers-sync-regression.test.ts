@@ -39,7 +39,7 @@ describe('Radicado validation (all providers)', () => {
     expect(normalizeRadicadoInput('05 001 4003 023 2025 00638 00')).toBe('05001400302320250063800');
   });
 
-  it('strips underscores (Icarus format)', () => {
+  it('strips underscores (underscore format)', () => {
     expect(normalizeRadicadoInput('050014003023_2025_00638_00')).toBe('05001400302320250063800');
   });
 

@@ -1,5 +1,5 @@
 /**
- * EstadosTable — dense Icarus-style table used by every workflow to render
+ * EstadosTable — dense dense-grid table used by every workflow to render
  * "estados electrónicos" (publicaciones procesales).
  *
  * Presentation-only: rows come pre-merged from the parent tab. Clicking the

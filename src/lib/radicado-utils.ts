@@ -166,7 +166,7 @@ export interface CgpValidationResult {
  * - 05001400302320250063800 (pure 23 digits)
  * - 05-00-14-00-30-23-20-25-00-638-00 (with dashes)
  * - 05 00 14 00 30 23 2025 00638 00 (with spaces)
- * - 050014003023_2025_00638_00 (Icarus format)
+ * - 050014003023_2025_00638_00 (underscore format)
  */
 export function normalizeRadicadoInput(input: string): string {
   if (!input) return '';
@@ -247,7 +247,7 @@ export function validateCgpRadicado(input: string): CgpValidationResult {
  * - 05001400302320250063800 (pure 23 digits)
  * - 05-00-14-00-30-23-20-25-00-638-00 (with dashes)
  * - 05 00 14 00 30 23 2025 00638 00 (with spaces)
- * - 050014003023_2025_00638_00 (Icarus format)
+ * - 050014003023_2025_00638_00 (underscore format)
  */
 export function normalizeRadicado(input: string): NormalizeResult {
   if (!input || input.trim().length === 0) {

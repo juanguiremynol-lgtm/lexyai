@@ -1,5 +1,5 @@
 /**
- * ActuacionesTable — dense Icarus-style table used by every workflow
+ * ActuacionesTable — dense dense-grid table used by every workflow
  * (CGP / CPACA / PENAL / LABORAL / TUTELA) to render actuaciones.
  *
  * Presentation-only: rows are already fetched and merged by the parent

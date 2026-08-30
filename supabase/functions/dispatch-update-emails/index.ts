@@ -677,7 +677,7 @@ Deno.serve(async (req) => {
   }
 });
 
-// ─── HTML builder (grouped by work item, Icarus-style tables) ──────────────────
+// ─── HTML builder (grouped by work item, dense-grid tables) ──────────────────
 
 function buildDigestHtml(
   alerts: any[],
@@ -791,7 +791,7 @@ function buildDigestHtml(
   `;
 }
 
-// ─── Actuaciones table (Icarus-style) ──────────────────
+// ─── Actuaciones table (dense-grid) ──────────────────
 
 function buildActuacionesTable(items: any[], wi: WorkItemInfo | undefined, viewUrl: string): string {
   const rows = items.map((a: any) => {
@@ -849,7 +849,7 @@ function buildActuacionesTable(items: any[], wi: WorkItemInfo | undefined, viewU
   `;
 }
 
-// ─── Estados table (Icarus-style) ──────────────────
+// ─── Estados table (dense-grid) ──────────────────
 
 function buildEstadosTable(items: any[], wi: WorkItemInfo | undefined, viewUrl: string): string {
   const rows = items.map((a: any) => {

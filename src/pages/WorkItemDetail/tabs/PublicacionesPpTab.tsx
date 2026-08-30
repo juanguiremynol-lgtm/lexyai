@@ -307,7 +307,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
 
   const summary = getActuacionesSummary(acts);
 
-  // Map merged WorkItemAct[] → EstadoRow[] for the Icarus-style table.
+  // Map merged WorkItemAct[] → EstadoRow[] for the dense-grid table.
   const estadoRows: EstadoRow[] = (filteredActs ?? []).map((act) => {
     const raw = (act.raw_data ?? {}) as Record<string, unknown>;
     const docRow = (raw.__doc_row as StoredDocumentRow | undefined) ?? null;
@@ -388,7 +388,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
         </div>
       )}
 
-      {/* Icarus-style dense table (Estados electrónicos) */}
+      {/* dense-grid dense table (Estados electrónicos) */}
       {estadoRows.length > 0 && <EstadosTable rows={estadoRows} />}
 
       {filteredActs?.length === 0 && (

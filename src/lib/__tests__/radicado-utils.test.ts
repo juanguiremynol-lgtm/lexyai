@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { normalizeRadicado, normalizeRadicadoInput, formatRadicadoDisplay, validateCgpRadicado, parseRadicadoBlocks, formatRadicadoWithLabels } from '../radicado-utils';
 
 describe('normalizeRadicadoInput', () => {
-  it('strips underscores from ICARUS format', () => {
+  it('strips underscores from the underscore format', () => {
     expect(normalizeRadicadoInput('110013337043_2026_0004700')).toBe('11001333704320260004700');
   });
 
@@ -47,7 +47,7 @@ describe('normalizeRadicado (full validation)', () => {
     expect(result.radicado23).toBe('11001333704320260004700');
   });
 
-  it('normalizes ICARUS underscore format to 23 digits', () => {
+  it('normalizes the underscore format to 23 digits', () => {
     const result = normalizeRadicado('110013337043_2026_0004700');
     expect(result.ok).toBe(true);
     expect(result.radicado23).toBe('11001333704320260004700');
