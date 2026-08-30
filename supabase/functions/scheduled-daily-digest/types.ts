@@ -14,7 +14,14 @@
  * either "no documents" or "nobody asked". Only the observation timestamp
  * (actuaciones) / an explicit availability flag (estados) separates them.
  */
-export type DocumentAvailability = "DISPONIBLE" | "SIN_DOCUMENTO" | "NO_CONSULTADO";
+// IW1 — CONSTANCIA_SIN_DOCUMENTO: the provider announced the planilla
+// (numero / article_id / fecha de fijación) and shipped no file. It is a
+// publication that happened, evidenced by the provider's own statement.
+export type DocumentAvailability =
+  | "DISPONIBLE"
+  | "CONSTANCIA_SIN_DOCUMENTO"
+  | "SIN_DOCUMENTO"
+  | "NO_CONSULTADO";
 
 /**
  * ZZ1 — the SAME providencia reaching us through both channels. This is a

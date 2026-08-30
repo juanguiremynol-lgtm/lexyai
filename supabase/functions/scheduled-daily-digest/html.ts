@@ -77,6 +77,11 @@ function docsCell(
     if (availability === "NO_CONSULTADO") {
       return `<span style="color:${MUTED};font-style:italic;">Aún no consultado con el proveedor</span>`;
     }
+    // IW1 — the planilla was announced by the provider without the file.
+    // It must not read as if we hold a PDF, nor as if nothing was published.
+    if (availability === "CONSTANCIA_SIN_DOCUMENTO") {
+      return `<span style="color:${MUTED};font-style:italic;">Constancia de fijación sin documento adjunto — el proveedor informa la publicación en el estado y no entrega el listado</span>`;
+    }
     return `<span style="color:${MUTED};font-style:italic;">Sin documento adjunto</span>`;
   }
   return docs
