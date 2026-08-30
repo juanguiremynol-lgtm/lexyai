@@ -14,7 +14,6 @@ import { Switch } from "@/components/ui/switch";
 import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks, Wrench, PenTool } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
-import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
 
@@ -137,52 +136,6 @@ export default function Settings() {
       sla_court_reply_days: parseInt(form.get("sla_court_reply_days") as string) || 3,
     });
   };
-  const exportIcarus = async () => {
-    const { data, error } = await supabase
-      .from("work_items")
-      .select("id, radicado, authority_name, workflow_type, updated_at, title")
-      .in("status", ["ACTIVE"])
-      .not("radicado", "is", null);
-
-    if (error) {
-      toast.error("Error al exportar: " + error.message);
-      return;
-    }
-
-    if (!data || data.length === 0) {
-      toast.info("No hay radicados para exportar");
-      return;
-    }
-
-    // Sanitize formula injection helper
-    const sanitizeCell = (val: string) => {
-      const trimmed = val.trimStart();
-      if (trimmed.length > 0 && ["=", "+", "-", "@"].includes(trimmed[0])) {
-        return "'" + val;
-      }
-      return val;
-    };
-
-    const csvContent = [
-      ["Radicado", "Juzgado", "Tipo", "Titulo", "Fecha Actualización"].join(","),
-      ...data.map((f) => {
-        return [
-          sanitizeCell(f.radicado),
-          `"${sanitizeCell(f.authority_name || "")}"`,
-          sanitizeCell(f.workflow_type),
-          `"${sanitizeCell(f.title || "")}"`,
-          new Date(f.updated_at).toLocaleDateString("es-CO"),
-        ].join(",");
-      }),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `icarus_export_${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
-    toast.success("Archivo CSV descargado");
-  };
 
   if (isLoading) {
     return (
@@ -254,12 +207,6 @@ export default function Settings() {
               <Shield className="h-4 w-4 mr-1" />
               Alertas Super Admin
             </TabsTrigger>
-          )}
-          {isPlatformAdmin && (
-            <TabsTrigger value="integrations">Integraciones ICARUS</TabsTrigger>
-          )}
-          {isPlatformAdmin && (
-            <TabsTrigger value="export">Exportar ICARUS</TabsTrigger>
           )}
           <TabsTrigger value="privacy">
             <ShieldCheck className="h-4 w-4 mr-1" />
@@ -567,57 +514,6 @@ export default function Settings() {
         <TabsContent value="estados">
           <EstadosImport />
         </TabsContent>
-
-        {isPlatformAdmin && (
-          <TabsContent value="integrations">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Upload className="h-5 w-5" />
-                    Importar Procesos (Excel) — Solo Super Admin
-                  </CardTitle>
-                  <CardDescription>
-                    Importa procesos desde un archivo Excel exportado de ICARUS (fallback)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <IcarusExcelImport />
-                  <Separator className="my-6" />
-                  <IcarusImportHistory />
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        )}
-
-        {isPlatformAdmin && (
-          <TabsContent value="export">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Exportar para ICARUS — Solo Super Admin
-                </CardTitle>
-                <CardDescription>
-                  Descarga los radicados confirmados en formato CSV (fallback)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Este archivo incluye todas las radicaciones con estado{" "}
-                  <Badge variant="outline">RADICADO_CONFIRMED</Badge> o{" "}
-                  <Badge variant="outline">ICARUS_SYNC_PENDING</Badge> que tengan
-                  un número de radicado asignado.
-                </p>
-                <Button onClick={exportIcarus}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Descargar CSV
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
 
         <TabsContent value="privacy">
           <UserPrivacySettings />
