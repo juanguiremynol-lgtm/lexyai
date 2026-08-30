@@ -368,9 +368,11 @@ async function writePublicacionesAttemptRow(
           status: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? outcome
             : 'skipped',
+          // A routing skip is NOT a failed read.
           outcome: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? persistedProviderOutcome({ status: outcome, resultCode: result?.result_code, insertedCount: result?.inserted_count })
-            : 'RUN_FAILED',
+            : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
+
           result_code: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? result?.result_code
             : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
