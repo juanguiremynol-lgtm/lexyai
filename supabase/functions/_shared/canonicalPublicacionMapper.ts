@@ -152,6 +152,12 @@ export interface ProviderPubUnit {
   /** ITERATION 26 — provider article id carried as an EXPLICIT field instead
    *  of being recovered by splitting the composite `key` string. */
   article_id?: string | null;
+  /** IW1 — the provider ANNOUNCED the planilla (numero / article_id / fecha)
+   *  but shipped no PDF. Recorded as a positive fact so downstream never has
+   *  to infer "sin documento" from a null pdf_url. */
+  planilla_sin_documento?: boolean;
+  /** IW1 — estado number as the provider states it, when announced. */
+  estado_numero?: string | null;
   raw_data?: Record<string, unknown>;
 }
 
@@ -166,29 +172,45 @@ function buildEstadoUnit(raw: any): ProviderPubUnit | null {
   const estadoTitle = firstNonEmptyString(
     estadoDoc?.titulo, estadoObj?.pdf_nombre, estadoObj?.titulo_original,
   );
-  // Estados sync: never repoint an estado row at an auto PDF.
-  if (!estadoPdfUrl) return null;
 
   const estadoDateRaw = firstNonEmptyString(
     estadoDoc?.fecha, estadoObj?.fecha_publicacion, estadoObj?.fecha,
     raw?.fecha_estado, raw?.fecha_fijacion,
   ) || null;
+
+  const estadoNumero = firstNonEmptyString(estadoObj?.numero) || null;
+  const estadoArticleId = firstNonEmptyString(estadoObj?.article_id) || null;
+
+  // IW1 — a planilla ANNOUNCED without a PDF is still a fijación. The provider
+  // asserting "publicado en el estado No.NNN del DD-MM-AAAA" is the juridical
+  // fact; the file is the evidence of it. We record the fact and mark the
+  // document as absent. We NEVER repoint an estado row at an auto PDF and we
+  // never invent a URL or a placeholder path.
+  const planillaAnunciada = !!(estadoObj
+    && (estadoArticleId || estadoNumero)
+    && (estadoDateRaw || estadoTitle));
+  if (!estadoPdfUrl && !planillaAnunciada) return null;
+  const sinDocumento = !estadoPdfUrl;
+
   const autoDoc = findDocumentByType(raw, "auto");
   const autoDateRaw = firstNonEmptyString(
     extractAutoDateFromText(raw?.texto_auto), raw?.fecha_auto, autoDoc?.fecha,
   ) || null;
 
   return {
-    key: `estado:${estadoObj?.article_id || ""}:${estadoObj?.numero || ""}:${estadoDateRaw || ""}:${estadoTitle || ""}`,
+    key: `estado:${estadoArticleId || ""}:${estadoNumero || ""}:${estadoDateRaw || ""}:${estadoTitle || ""}`,
     tipo: "Estado Electrónico",
-    article_id: estadoObj?.article_id ? String(estadoObj.article_id) : null,
-    asset_id: firstNonEmptyString(estadoObj?.article_id, estadoObj?.numero, estadoTitle, estadoDateRaw),
+    article_id: estadoArticleId ? String(estadoArticleId) : null,
+    estado_numero: estadoNumero,
+    planilla_sin_documento: sinDocumento,
+    asset_id: firstNonEmptyString(estadoArticleId, estadoNumero, estadoTitle, estadoDateRaw),
     url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
     titulo: estadoTitle || estadoObj?.titulo_original || "Estado Electrónico",
     fecha_publicacion: estadoDateRaw,
     fecha_hora_inicio: null,
     tipo_evento: "Estado Electrónico",
-    pdf_url: estadoPdfUrl,
+    // No PDF announced → no pdf_url at all. Never a placeholder.
+    pdf_url: estadoPdfUrl || undefined,
     fecha_estado_raw: estadoDateRaw,
     fecha_auto_raw: autoDateRaw,
     clasificacion: {
@@ -200,6 +222,7 @@ function buildEstadoUnit(raw: any): ProviderPubUnit | null {
     raw_data: raw,
   };
 }
+
 
 function buildIndividualUnit(raw: any): ProviderPubUnit | null {
   const autoDoc = findDocumentByType(raw, "auto");
