@@ -96,17 +96,13 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       // YY4 — every attempt moves the attempt clock, whatever the outcome.
       last_sync_attempt_at: stampedAt,
     };
-    // YY4 — `scrape_status` describes the LAST read, not the first failure.
-    // A routing skip is not a read and leaves the previous verdict standing.
-    if (label !== "no_aplica") {
-      patch.scrape_status = label === "pending"
-        ? "IN_PROGRESS"
-        : label === "error"
-        ? "FAILED"
-        : "SUCCESS";
-      // An answered read — including "empty" and "not found" — is a scrape.
-      if (label !== "pending" && label !== "error") patch.last_scrape_at = stampedAt;
-    }
+    // `scrape_status` / `last_scrape_at` are SOURCE-AGNOSTIC columns owned by
+    // the main actuaciones sync path, and they drive the monitoring badge, the
+    // dead-letter panel and the master-sync failed queue. An estados-channel
+    // read is ONE channel: letting it stamp them made a matter whose
+    // actuaciones synced fine that morning show up red because Publicaciones
+    // or SAMAI answered empty. This monitor only reports on its own channel.
+
     if (channel === "publicaciones") {
       patch.pp_estado = label;
       // A skip is not a read: it may relabel, but it must not move the clock.
