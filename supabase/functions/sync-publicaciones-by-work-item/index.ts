@@ -368,9 +368,11 @@ async function writePublicacionesAttemptRow(
           status: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? outcome
             : 'skipped',
+          // A routing skip is NOT a failed read.
           outcome: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? persistedProviderOutcome({ status: outcome, resultCode: result?.result_code, insertedCount: result?.inserted_count })
-            : 'RUN_FAILED',
+            : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
+
           result_code: resolveProviders(workItem?.workflow_type).estados.includes('PP')
             ? result?.result_code
             : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
@@ -2656,9 +2658,12 @@ Deno.serve(withSyncTimeline(async (req) => {
             // BB2 — declare the routing skip instead of asserting a PP read
             // that never happened (CPACA estados are SAMAI_ESTADOS only).
             status: shouldFetchPP ? (result.ok ? 'success' : 'error') : 'skipped',
+            // A routing skip is NOT a failed read: 'RUN_FAILED' here made the
+            // coverage grader count CPACA matters as PP errors.
             outcome: shouldFetchPP
               ? persistedProviderOutcome({ status: result.ok ? 'success' : 'error', resultCode: result.result_code, insertedCount: result.inserted_count })
-              : 'RUN_FAILED',
+              : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
+
             result_code: shouldFetchPP ? result.result_code : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
             latency_ms: result.provider_latency_ms || 0,
             inserted_count: result.inserted_count,
