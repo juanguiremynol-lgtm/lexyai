@@ -59,18 +59,21 @@ describe("YY3 — one-time reconciliation", () => {
   });
 });
 
-describe("YY4 — the label describes the last read", () => {
+describe("YY4 — the estados monitor reports on its own channel only", () => {
   it("stamps the attempt clock on every attempt", () => {
     expect(monitor).toMatch(/last_sync_attempt_at: stampedAt/);
   });
 
-  it("maps an answered read to SUCCESS and a pending one to IN_PROGRESS", () => {
-    expect(monitor).toMatch(/label === "pending"\s*\n?\s*\? "IN_PROGRESS"/);
-    expect(monitor).toMatch(/label === "error"\s*\n?\s*\? "FAILED"/);
-    expect(monitor).toMatch(/: "SUCCESS"/);
+  it("never writes the source-agnostic scrape verdict", () => {
+    // `scrape_status` / `last_scrape_at` belong to the actuaciones sync path.
+    // An estados read must not turn a healthy matter red.
+    expect(monitor).not.toMatch(/patch\.scrape_status/);
+    expect(monitor).not.toMatch(/patch\.last_scrape_at/);
   });
 
-  it("never lets a routing skip rewrite the read verdict", () => {
-    expect(monitor).toMatch(/if \(label !== "no_aplica"\) \{/);
+  it("labels the Publicaciones channel and lets a routing skip stand", () => {
+    expect(monitor).toMatch(/patch\.pp_estado = label/);
+    expect(monitor).toMatch(/if \(label !== "no_aplica"\) patch\.pp_ultima_sync = stampedAt/);
   });
 });
+
