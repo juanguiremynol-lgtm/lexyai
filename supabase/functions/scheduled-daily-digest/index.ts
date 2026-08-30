@@ -613,6 +613,11 @@ Deno.serve(async (req) => {
             });
             docs.push({ label: "Descargar PDF", url: `${FUNCTIONS_BASE}/digest-document?t=${token}` });
           }
+          // IW1 — the absence of the planilla PDF is a RECORDED fact from the
+          // provider, not an inference from a null column.
+          const constanciaSinDocumento =
+            (p as { raw_data?: { planilla_sin_documento?: boolean } }).raw_data
+              ?.planilla_sin_documento === true;
           return {
             id: p.id, work_item_id: p.work_item_id, source: p.source,
             title: p.title, fecha_fijacion: p.fecha_fijacion,
@@ -623,11 +628,14 @@ Deno.serve(async (req) => {
             // an explicit `false` is the provider answering "no PDF".
             document_availability: docs.length
               ? "DISPONIBLE"
+              : constanciaSinDocumento
+              ? "CONSTANCIA_SIN_DOCUMENTO"
               : p.pdf_available === null || p.pdf_available === undefined
               ? "NO_CONSULTADO"
               : "SIN_DOCUMENTO",
           };
         });
+
 
 
         // ── ZZ1 — THE SAME PROVIDENCIA REACHING US THROUGH TWO CHANNELS ──────
