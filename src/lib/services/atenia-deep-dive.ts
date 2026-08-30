@@ -235,10 +235,14 @@ export async function executeDeepDive(
 
     // STEP 6: RECENT_SNAPSHOTS
     const s6 = Date.now();
+    // provider_raw_snapshots keys the connector by id and timestamps the read
+    // with `fetched_at`. There is no `connector_key`, `byte_length` or
+    // `created_at` column — asking for them made the whole step error out and
+    // the diagnosis came back with no snapshots at all.
     const { data: snapshots } = await (supabase.from("provider_raw_snapshots") as any)
-      .select("id, connector_key, http_status, byte_length, created_at")
+      .select("id, connector_id, http_status, latency_ms, status, scope, fetched_at, provider_connectors(key)")
       .eq("work_item_id", workItemId)
-      .order("created_at", { ascending: false })
+      .order("fetched_at", { ascending: false })
       .limit(5);
 
     steps.push({
@@ -248,13 +252,16 @@ export async function executeDeepDive(
       findings: {
         snapshot_count: snapshots?.length ?? 0,
         latest: snapshots?.slice(0, 3).map((s: any) => ({
-          connector: s.connector_key,
+          connector: s.provider_connectors?.key ?? s.connector_id,
           http_status: s.http_status,
-          bytes: s.byte_length,
-          when: s.created_at,
+          status: s.status,
+          scope: s.scope,
+          latency_ms: s.latency_ms,
+          when: s.fetched_at,
         })),
       },
     });
+
 
     // === DIAGNOSIS ===
     const diagnosis = generateDiagnosis(item, steps, triggerCriteria, daysSinceCreation);
