@@ -25,7 +25,7 @@ import {
   type CGPPhase,
 } from "@/lib/workflow-constants";
 
-export type SuggestionSource = 'ICARUS_EXCEL' | 'SCRAPER' | 'CPNU' | 'MANUAL_REEVAL';
+export type SuggestionSource = 'EXCEL_MANUAL' | 'SCRAPER' | 'CPNU' | 'MANUAL_REEVAL';
 
 export interface StageSuggestion {
   work_item_id: string;

@@ -321,7 +321,7 @@ export function LaboralPipeline() {
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            No hay procesos laborales activos. Los procesos laborales se pueden importar desde ICARUS 
+            No hay procesos laborales activos. Los procesos laborales se pueden crear manualmente 
             o crear manualmente usando el botón + en el Dashboard. Los casos con juzgados laborales 
             se clasifican automáticamente.
           </AlertDescription>

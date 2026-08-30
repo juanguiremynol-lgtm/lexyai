@@ -1,7 +1,7 @@
 /**
  * Estado → Stage Inference Engine
  * 
- * Deterministic mapping from ICARUS Estados content to work_item stages.
+ * Deterministic mapping from imported Estados content to work_item stages.
  * Supports CGP, CPACA, TUTELA, and LABORAL workflows.
  * 
  * RULES:

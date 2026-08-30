@@ -154,7 +154,7 @@ export function EstadosImport() {
           organization_id: profile.organization_id,
           owner_id: user.id,
           ingestion_type: "ESTADOS",
-          source: "ICARUS",
+          source: "EXCEL_MANUAL",
           status: "SUCCESS",
           rows_processed: importStats.total,
           rows_imported: result.imported,
@@ -216,7 +216,7 @@ export function EstadosImport() {
       if (workItemIds.length > 0) {
         await runSuggestions(
           workItemIds,
-          'ICARUS_EXCEL',
+          'EXCEL_MANUAL',
           result.imported,
           result.skipped_duplicate
         );

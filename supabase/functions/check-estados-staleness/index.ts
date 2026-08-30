@@ -57,20 +57,20 @@ function generateAlertEmailHtml(orgName: string, daysSinceIngestion: number, adm
           <div style="background-color: #fef9c3; border-left: 4px solid #eab308; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
             <h2 style="margin: 0 0 8px; color: #854d0e; font-size: 18px;">Estados sin actualizar</h2>
             <p style="margin: 4px 0; font-size: 14px; color: #a16207;">
-              Han pasado <strong>${daysSinceIngestion} días hábiles</strong> sin una importación de Estados de ICARUS.
+              Han pasado <strong>${daysSinceIngestion} días hábiles</strong> sin una importación de Estados.
             </p>
           </div>
           
           <p style="margin: 16px 0; font-size: 14px; line-height: 1.6;">
             Los términos judiciales y las actuaciones pueden estar desactualizados. 
-            Le recomendamos subir el archivo de Estados de ICARUS lo antes posible para mantener 
+            Le recomendamos subir el archivo de Estados lo antes posible para mantener 
             el seguimiento de sus procesos al día.
           </p>
           
           <div style="text-align: center; margin: 24px 0;">
             <a href="https://andromeda.legal/settings?tab=estados" 
                style="display: inline-block; background-color: #1e3a5f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
-              Subir Estados de ICARUS
+              Subir Estados
             </a>
           </div>
           

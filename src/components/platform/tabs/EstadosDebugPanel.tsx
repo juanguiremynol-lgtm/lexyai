@@ -63,7 +63,7 @@ interface ScrapingInfo {
 }
 
 export function EstadosDebugPanel() {
-  // Pre-fill with known ICARUS radicado for testing
+  // Pre-fill with a known radicado for testing
   const [radicado, setRadicado] = useState('05001400302020250187800');
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<DebugStep[]>([]);
