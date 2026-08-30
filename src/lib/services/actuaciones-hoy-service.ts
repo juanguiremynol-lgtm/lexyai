@@ -72,7 +72,7 @@ function mapSource(source: string | null | undefined): TickerItemSource {
   const l = source.toLowerCase();
   if (l.includes('cpnu')) return 'CPNU';
   if (l.includes('samai')) return 'SAMAI';
-  if (l.includes('icarus')) return 'ICARUS';
+  if (l.includes('icarus')) return 'LEGACY_IMPORT';
   return 'CPNU';
 }
 

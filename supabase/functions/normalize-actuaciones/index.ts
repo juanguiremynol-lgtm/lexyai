@@ -165,7 +165,8 @@ function mapSourceName(source: string, adapterName: string | null): string {
   
   if (upperSource.includes('CPNU') || upperAdapter.includes('CPNU')) return 'CPNU';
   if (upperSource.includes('PUBLICACIONES') || upperAdapter.includes('PUBLICACIONES')) return 'PUBLICACIONES';
-  if (upperSource.includes('ICARUS') || upperAdapter.includes('ICARUS')) return 'ICARUS';
+  // IW3 — retired source; historical rows keep their provenance label.
+  if (upperSource.includes('ICARUS') || upperAdapter.includes('ICARUS')) return 'LEGACY_IMPORT';
   if (upperSource.includes('RAMA_JUDICIAL') || upperAdapter.includes('EXTERNAL_API')) return 'CPNU';
   if (upperSource.includes('HISTORICO') || upperAdapter.includes('HISTORICO')) return 'HISTORICO';
   if (upperSource.includes('MANUAL') || upperSource === '') return 'MANUAL';

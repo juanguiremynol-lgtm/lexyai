@@ -22,7 +22,7 @@ import { filterToLatestTickerItems } from './latest-estado-selector';
 
 // ============= TYPES =============
 
-export type TickerItemSource = 'PUBLICACIONES_API' | 'CPNU' | 'SAMAI' | 'ICARUS' | 'MANUAL';
+export type TickerItemSource = 'PUBLICACIONES_API' | 'CPNU' | 'SAMAI' | 'LEGACY_IMPORT' | 'MANUAL';
 export type TickerItemType = 'ESTADO' | 'ACTUACION';
 export type TickerItemSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -125,7 +125,7 @@ function mapSource(source: string | null | undefined): TickerItemSource {
   const lower = source.toLowerCase();
   
   if (lower.includes('publicaciones')) return 'PUBLICACIONES_API';
-  if (lower.includes('icarus')) return 'ICARUS';
+  if (lower.includes('icarus')) return 'LEGACY_IMPORT';
   if (lower.includes('cpnu')) return 'CPNU';
   if (lower.includes('samai')) return 'SAMAI';
   if (lower.includes('manual')) return 'MANUAL';

@@ -23,6 +23,8 @@ export const CANONICAL_SOURCES = [
   "tutelas",
   "email",
   "manual",
+  // IW3 — RETIRED. No live producer writes this. Kept in the enum solely so
+  // the 40 historical work_item_acts rows remain valid and readable.
   "icarus_import",
 ] as const;
 
@@ -40,7 +42,6 @@ const ALIASES: Record<string, CanonicalSource> = {
   samaiestados: "samai_estados",
   outlook: "email",
   correo: "email",
-  icarus: "icarus_import",
   external_provider: "cpnu",
 };
 

@@ -42,7 +42,7 @@ export const KNOWN_SERVICES: Record<string, string> = {
   'ESTADOS_STALENESS_CHECK': 'Verificación Estados',
   'TICKER_REFRESH': 'Actualización Ticker',
   'PROCESS_MONITOR': 'Monitor Procesos',
-  'ICARUS_IMPORT': 'Importación ICARUS',
+  'ICARUS_IMPORT': 'Importación histórica',
   'UI_ERROR': 'Error de Interfaz',
   'API_SYNC': 'Sincronización API',
   'AI_VERIFY_LINK': 'Verificación IA de vínculos',

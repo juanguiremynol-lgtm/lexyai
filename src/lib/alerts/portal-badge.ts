@@ -7,7 +7,8 @@ export type PortalKey =
   | "PP"
   | "SAMAI"
   | "SAMAI_ESTADOS"
-  | "ICARUS"
+  // IW3 — retired source, historical rows only.
+  | "LEGACY_IMPORT"
   | "MANUAL"
   | "UNKNOWN";
 
@@ -16,7 +17,7 @@ export const PORTAL_LABEL: Record<PortalKey, string> = {
   PP: "PP",
   SAMAI: "SAMAI",
   SAMAI_ESTADOS: "SAMAI Estados",
-  ICARUS: "Importado",
+  LEGACY_IMPORT: "Importación histórica",
   MANUAL: "Manual",
   UNKNOWN: "Origen N/D",
 };
@@ -26,7 +27,7 @@ export const PORTAL_BADGE_CLASS: Record<PortalKey, string> = {
   PP: "bg-purple-500/15 text-purple-700 border-purple-300 dark:text-purple-300",
   SAMAI: "bg-emerald-500/15 text-emerald-700 border-emerald-300 dark:text-emerald-300",
   SAMAI_ESTADOS: "bg-teal-500/15 text-teal-700 border-teal-300 dark:text-teal-300",
-  ICARUS: "bg-amber-500/15 text-amber-700 border-amber-300 dark:text-amber-300",
+  LEGACY_IMPORT: "bg-amber-500/15 text-amber-700 border-amber-300 dark:text-amber-300",
   MANUAL: "bg-slate-500/15 text-slate-700 border-slate-300 dark:text-slate-300",
   UNKNOWN: "bg-muted text-muted-foreground border-border",
 };
@@ -37,8 +38,7 @@ const ALIASES: Record<string, PortalKey> = {
   SAMAI_ESTADOS: "SAMAI_ESTADOS",
   PUBLICACIONES: "PP",
   PP: "PP",
-  ICARUS_IMPORT: "ICARUS",
-  ICARUS: "ICARUS",
+  ICARUS_IMPORT: "LEGACY_IMPORT",
   MANUAL: "MANUAL",
 };
 
@@ -53,7 +53,7 @@ export const PORTAL_GROUP_ORDER: PortalKey[] = [
   "PP",
   "SAMAI",
   "SAMAI_ESTADOS",
-  "ICARUS",
+  "LEGACY_IMPORT",
   "MANUAL",
   "UNKNOWN",
 ];
