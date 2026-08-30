@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OrganizationProvider, SubscriptionProvider, ImpersonationProvider } from "@/contexts";
 import { TenantRouteGuard, PlatformRouteGuard } from "@/components/auth";
-import ImportWorkItemsPage from "@/pages/admin/ImportWorkItemsPage";
 import WorkflowTermRulesPage from "@/pages/admin/WorkflowTermRulesPage";
 import { TenantLayout } from "@/components/layout/TenantLayout";
 import { PlatformLayout } from "@/components/layout/PlatformLayout";
@@ -40,7 +39,6 @@ import ClientDetail from "./pages/ClientDetail";
 import Processes from "./pages/Processes";
 import ProcessStatus from "./pages/ProcessStatus";
 import ProcessStatusTest from "./pages/ProcessStatusTest";
-import IcarusTest from "./pages/IcarusTest";
 import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
 import ApiDebugPage from "./pages/ApiDebugPage";
 import Tasks from "./pages/Tasks";
@@ -247,7 +245,6 @@ const App = () => (
             <Route path="process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
             <Route path="process-status/test" element={<ErrorBoundary><ProcessStatusTest /></ErrorBoundary>} />
-            <Route path="process-status/test-icarus" element={<PlatformRouteGuard><ErrorBoundary><IcarusTest /></ErrorBoundary></PlatformRouteGuard>} />
             <Route path="process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
             <Route path="api-debug" element={<ErrorBoundary><ApiDebugPage /></ErrorBoundary>} />
             <Route path="tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
@@ -330,16 +327,6 @@ const App = () => (
               </OrganizationProvider>
             } />
           </Route>
-
-          {/* Superadmin-only ICARUS bulk import (lives outside /platform). */}
-          <Route
-            path="/admin/import-work-items"
-            element={
-              <PlatformRouteGuard>
-                <ErrorBoundary><ImportWorkItemsPage /></ErrorBoundary>
-              </PlatformRouteGuard>
-            }
-          />
 
           {/* Deadline-rule ratification console (penal, laboral, ejecutivo). */}
           <Route
