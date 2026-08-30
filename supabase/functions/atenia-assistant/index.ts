@@ -776,8 +776,26 @@ async function executeAction(
         p_metadata: { source: "atenia_assistant" },
       });
       if (error) throw new Error(error.message);
+      // The RPC REFUSES an AI-actor pause by RETURNING {ok:false,refused:true},
+      // not by raising — `error` is null on a refusal. Reporting ok:true here
+      // told the lawyer the matter was paused while nothing had changed.
+      // Only a human may pause; say so instead of lying about the outcome.
+      const rpc = (data ?? {}) as Record<string, unknown>;
+      if (rpc.ok === false) {
+        return {
+          ok: false,
+          refused: rpc.refused === true,
+          error: rpc.error ?? "LIFECYCLE_CHANGE_REJECTED",
+          mensaje: rpc.error === "AUTOMATIC_PAUSE_FORBIDDEN"
+            ? "No puedo pausar el monitoreo de un asunto: sólo el abogado puede hacerlo, " +
+              "desde el asunto mismo. El asunto sigue ACTIVO y monitoreado."
+            : "No se pudo cambiar el estado de monitoreo; el asunto quedó como estaba.",
+          result: rpc,
+        };
+      }
       return { ok: true, result: data };
     }
+
 
     // REMOVED: RUN_MASTER_SYNC_SCOPE — syncing is daily-cron-only
 
