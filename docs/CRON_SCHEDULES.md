@@ -255,3 +255,15 @@ Invariants:
   any transition to `PAUSED` from a non-human actor and records the attempt in
   `lifecycle_pause_refusals`.
 - Only the lawyer's own decision (delete, pause, disable monitoring) stops a read.
+
+## Silence notice sweep: monthly cadence (2026-08-31)
+
+`silence-notice-sweep` (IT1) used to run on demand only. Pinned to cron:
+
+| Item | Value |
+| ---- | ----- |
+| Trigger | cron `silence-notice-sweep-monthly` (jobid 65), `30 13 1 * *` — day 1 of each month, 13:30 UTC (08:30 Bogotá) |
+| Mode | scheduled path always `dry_run=0` with the ratified 45-day threshold; `previsualizar_umbral` only applies to dry runs |
+| Dedup | one notice per matter per calendar month via `SILENCIO_PROLONGADO_<work_item_id>_<YYYY-MM>` |
+| Auth | `verify_jwt = false`; cron calls with the anon `apikey` header |
+| Hard limits | read-only: never pauses, never writes provider fields, never computes a term. Crossing the threshold only produces an informational notification the lawyer may ignore |
