@@ -37,9 +37,11 @@ const corsHeaders = {
 
 /**
  * Hard budget: wall-clock milliseconds before the function stops processing.
- * Default 140s stays safely below the 150s Free-tier limit.
+ * Default 110s leaves headroom for the last in-flight unit of work (item
+ * timeout + retry backoff) so the run returns a continuation response instead
+ * of being cut off by the 150s gateway limit (504).
  */
-const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "140000");
+const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "110000");
 /** Items per cursor page */
 const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 /** Success threshold for OK vs PARTIAL */
@@ -898,8 +900,9 @@ async function syncOrganization(
       const roundFailures: FailedItem[] = [];
 
       for (const item of pageItems) {
-        // Per-item budget check
-        if (Date.now() - globalStart > HARD_BUDGET_MS) {
+        // Per-item budget check — reserve room for the item's own timeout so a
+        // slow upstream call cannot push the run past the gateway limit.
+        if (Date.now() - globalStart > HARD_BUDGET_MS - (ITEM_TIMEOUT_MS + 5_000)) {
           failureReason = "BUDGET_EXHAUSTED";
           itemsSkipped += (pageItems.length - pageItems.indexOf(item));
           break;
@@ -1018,14 +1021,22 @@ async function syncOrganization(
               ? TIMEOUT_BACKOFF_MS[0] // 10s for 1st timeout
               : INTRA_ROUND_RETRY_DELAY_MS; // 5s for non-timeout errors
 
+          // Global deadline check BEFORE sleeping: the backoff plus one more
+          // item attempt must still fit inside the budget, otherwise skip the
+          // retry round and let the continuation pass handle these items.
+          const retryCost = backoffDelay + ITEM_TIMEOUT_MS + 5_000;
+          if (Date.now() - globalStart > HARD_BUDGET_MS - retryCost) {
+            console.warn(`[daily-sync] org=${orgId} skipping intra-round retry — insufficient budget (${retryCost}ms needed)`);
+          } else {
           console.log(`[daily-sync] org=${orgId} intra-round retry: ${retryableItems.length} items, delay=${backoffDelay}ms`);
           await new Promise(r => setTimeout(r, backoffDelay));
 
           for (const { item } of retryableItems) {
-            if (Date.now() - globalStart > HARD_BUDGET_MS) {
+            if (Date.now() - globalStart > HARD_BUDGET_MS - (ITEM_TIMEOUT_MS + 5_000)) {
               failureReason = "BUDGET_EXHAUSTED";
               break;
             }
+
 
             const retryAttemptNum = (itemAttemptCounts[item.id] || 0) + 1;
             itemAttemptCounts[item.id] = retryAttemptNum;
@@ -1069,6 +1080,7 @@ async function syncOrganization(
               // Item stays as failed — it was already counted
               console.log(`[daily-sync] org=${orgId} retry FAILED for ${item.radicado}: ${retryErr.message?.substring(0, 80)}`);
             }
+          }
           }
         }
       }
