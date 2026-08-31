@@ -37,9 +37,11 @@ const corsHeaders = {
 
 /**
  * Hard budget: wall-clock milliseconds before the function stops processing.
- * Default 140s stays safely below the 150s Free-tier limit.
+ * Default 110s leaves headroom for the last in-flight unit of work (item
+ * timeout + retry backoff) so the run returns a continuation response instead
+ * of being cut off by the 150s gateway limit (504).
  */
-const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "140000");
+const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "110000");
 /** Items per cursor page */
 const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 /** Success threshold for OK vs PARTIAL */
