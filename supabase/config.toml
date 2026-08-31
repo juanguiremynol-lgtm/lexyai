@@ -117,6 +117,9 @@ verify_jwt = false
 [functions.scheduled-samai-estados-monitor]
 verify_jwt = false
 
+[functions.silence-notice-sweep]
+verify_jwt = false
+
 [functions.scheduled-daily-welcome]
 verify_jwt = false
 
