@@ -239,11 +239,15 @@ export async function executeDeepDive(
     // with `fetched_at`. There is no `connector_key`, `byte_length` or
     // `created_at` column — asking for them made the whole step error out and
     // the diagnosis came back with no snapshots at all.
-    const { data: snapshots } = await (supabase.from("provider_raw_snapshots") as any)
-      .select("id, connector_id, http_status, latency_ms, status, scope, fetched_at, provider_connectors(key)")
+    // NOTE: connector_id is a bare uuid column (no FK), so PostgREST cannot
+    // embed provider_connectors here — asking for it returned PGRST200 and the
+    // step reported zero snapshots. Keep the select flat.
+    const { data: snapshots, error: snapshotsError } = await (supabase.from("provider_raw_snapshots") as any)
+      .select("id, connector_id, http_status, latency_ms, status, scope, fetched_at")
       .eq("work_item_id", workItemId)
       .order("fetched_at", { ascending: false })
       .limit(5);
+    if (snapshotsError) console.warn("[DeepDive] snapshots query failed:", snapshotsError.message);
 
     steps.push({
       name: "RECENT_SNAPSHOTS",
