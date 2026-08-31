@@ -1021,14 +1021,22 @@ async function syncOrganization(
               ? TIMEOUT_BACKOFF_MS[0] // 10s for 1st timeout
               : INTRA_ROUND_RETRY_DELAY_MS; // 5s for non-timeout errors
 
+          // Global deadline check BEFORE sleeping: the backoff plus one more
+          // item attempt must still fit inside the budget, otherwise skip the
+          // retry round and let the continuation pass handle these items.
+          const retryCost = backoffDelay + ITEM_TIMEOUT_MS + 5_000;
+          if (Date.now() - globalStart > HARD_BUDGET_MS - retryCost) {
+            console.warn(`[daily-sync] org=${orgId} skipping intra-round retry — insufficient budget (${retryCost}ms needed)`);
+          } else {
           console.log(`[daily-sync] org=${orgId} intra-round retry: ${retryableItems.length} items, delay=${backoffDelay}ms`);
           await new Promise(r => setTimeout(r, backoffDelay));
 
           for (const { item } of retryableItems) {
-            if (Date.now() - globalStart > HARD_BUDGET_MS) {
+            if (Date.now() - globalStart > HARD_BUDGET_MS - (ITEM_TIMEOUT_MS + 5_000)) {
               failureReason = "BUDGET_EXHAUSTED";
               break;
             }
+
 
             const retryAttemptNum = (itemAttemptCounts[item.id] || 0) + 1;
             itemAttemptCounts[item.id] = retryAttemptNum;
