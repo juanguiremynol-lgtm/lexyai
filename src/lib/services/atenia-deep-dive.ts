@@ -256,7 +256,7 @@ export async function executeDeepDive(
       findings: {
         snapshot_count: snapshots?.length ?? 0,
         latest: snapshots?.slice(0, 3).map((s: any) => ({
-          connector: s.provider_connectors?.key ?? s.connector_id,
+          connector: s.connector_id,
           http_status: s.http_status,
           status: s.status,
           scope: s.scope,
