@@ -900,8 +900,9 @@ async function syncOrganization(
       const roundFailures: FailedItem[] = [];
 
       for (const item of pageItems) {
-        // Per-item budget check
-        if (Date.now() - globalStart > HARD_BUDGET_MS) {
+        // Per-item budget check — reserve room for the item's own timeout so a
+        // slow upstream call cannot push the run past the gateway limit.
+        if (Date.now() - globalStart > HARD_BUDGET_MS - (ITEM_TIMEOUT_MS + 5_000)) {
           failureReason = "BUDGET_EXHAUSTED";
           itemsSkipped += (pageItems.length - pageItems.indexOf(item));
           break;
