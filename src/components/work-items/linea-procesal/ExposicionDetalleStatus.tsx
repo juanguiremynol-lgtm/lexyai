@@ -17,6 +17,8 @@ import { Info, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { WorkflowType } from "@/lib/workflow-constants";
+import { reservaNotice } from "@/lib/reserva-notice";
+
 
 const CPNU_ROUTED: WorkflowType[] = ["CGP", "EJECUTIVO", "LABORAL", "PENAL_906"] as WorkflowType[];
 
