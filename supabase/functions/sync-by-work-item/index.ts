@@ -787,7 +787,7 @@ function inferStageFromActuacion(
  * Classify provider errors into standardized error codes.
  * Used for work_items.last_error_code and sync_traces.error_code.
  *
- * IX3(b)/S5 — UNKNOWN_ERROR is NOT a taxonomy entry. A read that produced no
+ * IX3(b)/S5 — a generic catch-all is not a taxonomy entry. A read that produced no
  * FetchResult at all did not fail at the provider: no provider ever answered.
  * That is `NO_PROVIDER_RESPONSE`, and it is a statement about OUR chain, not
  * about the expediente.
@@ -845,7 +845,7 @@ function classifyProviderError(
  * classification or any other work that can be cut off:
  *   - answered read (data, empty or answered absence) → sealed as a read;
  *     the stale error code is cleared and last_successful_sync_at advances.
- *   - unanswered read → sealed WITH A CODE. Never null, never UNKNOWN_ERROR.
+ *   - unanswered read → sealed WITH A SPECIFIC CODE. Never null.
  * Scraping-initiated runs are left alone: they are still in flight and the
  * IN_PROGRESS branch owns them.
  */
