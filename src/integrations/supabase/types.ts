@@ -18387,6 +18387,13 @@ export type Database = {
             foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
             columns: ["work_item_act_id"]
             isOneToOne: true
+            referencedRelation: "v_fijaciones_sin_estado"
+            referencedColumns: ["act_id"]
+          },
+          {
+            foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
+            columns: ["work_item_act_id"]
+            isOneToOne: true
             referencedRelation: "v_providencia_cross_ref"
             referencedColumns: ["act_id"]
           },
@@ -23133,6 +23140,52 @@ export type Database = {
           },
         ]
       }
+      v_fijaciones_sin_estado: {
+        Row: {
+          act_id: string | null
+          fecha: string | null
+          radicado: string | null
+          work_item_id: string | null
+          workflow_type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_live_work_items: {
         Row: {
           acta_radicacion_url: string | null
@@ -25595,6 +25648,7 @@ export type Database = {
         Args: { p_workflow: string }
         Returns: string[]
       }
+      provider_outcome_bucket: { Args: { p_code: string }; Returns: string }
       provider_run_mode_from_raw: { Args: { p_raw: Json }; Returns: string }
       provider_scope: { Args: { p_provider: string }; Returns: string }
       pub_matches_provider: {
