@@ -12,6 +12,8 @@
  */
 
 import { describeSourceQuality } from "../_shared/sourceRunQuality.ts";
+import { reservaNoticeShort } from "../_shared/reservaNotice.ts";
+
 import {
   BOUND_PARTY_SHORT,
   actuacionSourceLabel,
