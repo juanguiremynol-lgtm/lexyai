@@ -5,8 +5,11 @@
  * (2026-08-28):
  *   - A radicado can sit for MONTHS with no actuación and no estado. Courts
  *     routinely take a long time to admit, inadmit or reject a demanda.
- *   - Some despachos do not publish estados online AT ALL.
- * Therefore silence is NORMAL. It is information for him, never a conclusion
+ *   - JF3: EVERY matter must publish estados (Publicaciones Procesales for the
+ *     CGP family, SAMAI Estados for CPACA). There is no exception, so a
+ *     permanent estados absence points at us or at the provider, never at the
+ *     court.
+ * Silence on actuaciones is therefore normal; it is information for him, never a conclusion
  * for us, and never a reason for the system to stop monitoring.
  *
  * This module produces the notice only. Nothing here may pause, demonitor,
@@ -32,18 +35,21 @@ export const SILENCE_DAYS = 45;
 export const MIN_AGE_DAYS = SILENCE_DAYS;
 
 export const SILENCIO_ES_NORMAL =
-  "El silencio es NORMAL y esperado. Un radicado puede pasar meses sin actuación " +
-  "ni estado: los juzgados suelen demorarse en admitir, inadmitir o rechazar una " +
-  "demanda, y algunos despachos no publican estados en línea. Esto NO significa que " +
-  "el expediente esté cerrado, ni que no exista, ni que Andrómeda haya dejado de leerlo.";
+  "Un radicado puede pasar meses sin actuación: los juzgados suelen demorarse en " +
+  "admitir, inadmitir o rechazar una demanda. En cambio, TODO proceso debe publicar " +
+  "sus estados en publicacionesprocesales.ramajudicial.gov.co (familia CGP) o en " +
+  "SAMAI Estados (CPACA); no hay excepción. Si tampoco llegan estados, la ausencia " +
+  "apunta a la lectura o al proveedor, nunca a que el despacho no publique. Esto NO " +
+  "significa que el expediente esté cerrado, ni que no exista, ni que Andrómeda haya " +
+  "dejado de leerlo.";
 
 export const NO_ES_ADVERTENCIA =
   "Este aviso informa; no es una advertencia ni una alerta de riesgo.";
 
 export const DECISION_ES_SUYA =
-  "El monitoreo sigue activo y no se detendrá por sí solo. Si usted sabe que este " +
-  "despacho no publica por estos canales, puede pausar el asunto usted mismo desde " +
-  "el detalle del asunto. Andrómeda nunca lo pausará por silencio.";
+  "El monitoreo sigue activo y no se detendrá por sí solo. Si usted considera que " +
+  "este asunto no requiere seguimiento, puede pausarlo usted mismo desde el detalle " +
+  "del asunto. Andrómeda nunca lo pausará por silencio.";
 
 export interface SilenceChannelEvidence {
   /** Human label of the channel: "Actuaciones (CPNU)", "Estados (Publicaciones)". */

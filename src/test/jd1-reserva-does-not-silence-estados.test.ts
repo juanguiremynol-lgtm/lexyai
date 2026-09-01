@@ -49,15 +49,19 @@ describe("JD2 — the per-matter explanation names the channel", () => {
     expect(estadosChannelName("PETICION")).toBeNull();
   });
 
-  it("states the legal obligation and never calls the reserva a failure", () => {
+  it("presents the reserva as a provider CLAIM, never as an established fact", () => {
     const cgp = reservaNotice("CGP");
-    expect(cgp).toContain("reservado");
+    // JF1(a) — attribution to the provider, and an explicit denial of factuality.
+    expect(cgp).toContain("proveedor");
+    expect(cgp.toLowerCase()).toContain("no un hecho comprobado");
+    expect(cgp).not.toContain("El juzgado marcó");
     expect(cgp).toContain("obligación legal");
     expect(cgp).toContain("Publicaciones Procesales");
     expect(reservaNotice("CPACA")).toContain("SAMAI Estados");
     expect(reservaNoticeShort("CGP")).toContain("Publicaciones Procesales");
-    expect(RESERVA_TITLE).toBe("Expediente reservado por el juzgado");
-    for (const word of ["falla", "error", "degradad"]) {
+    expect(reservaNoticeShort("CGP")).toContain("proveedor");
+    expect(RESERVA_TITLE).toBe("El proveedor reporta el expediente como reservado");
+    for (const word of ["falla", "degradad"]) {
       expect(cgp.toLowerCase()).not.toContain(word);
     }
   });
@@ -78,7 +82,8 @@ describe("JD2 — the per-matter explanation names the channel", () => {
   });
 
   it("the edge mirror is kept in lockstep with the app copy", () => {
-    expect(edgeMirror).toContain("obligación legal y se siguen leyendo por");
+    expect(edgeMirror).toContain("no un hecho comprobado");
+    expect(edgeMirror).toContain("obligación legal, y este se sigue leyendo por");
     expect(edgeMirror).toContain("SAMAI Estados");
   });
 });

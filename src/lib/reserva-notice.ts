@@ -30,26 +30,30 @@ export function estadosChannelName(workflowType?: string | null): EstadosChannel
   }
 }
 
-export const RESERVA_TITLE = "Expediente reservado por el juzgado";
+export const RESERVA_TITLE = "El proveedor reporta el expediente como reservado";
 
 /**
- * The per-matter sentence. `canal` is named explicitly so the lawyer knows
- * where the information he still receives is coming from.
+ * JF1(a) — PROCESO_PRIVADO is a PROVIDER CLAIM, never an established fact.
+ * The provider asserts it about the actuaciones channel only; we record the
+ * claim. It does not establish that the expediente is reserved, and at least
+ * one matter carrying it was verified by the lawyer as NOT reserved.
  */
 export function reservaNotice(workflowType?: string | null): string {
   const canal = estadosChannelName(workflowType);
   const base =
-    "El juzgado marcó este expediente como reservado: el detalle de actuaciones no es público.";
+    "El proveedor de actuaciones reporta este expediente como «proceso privado». " +
+    "Es una afirmación del proveedor, no un hecho comprobado: la registramos tal cual y " +
+    "no establece que el juzgado haya reservado el expediente.";
   if (!canal) {
-    return `${base} No es una falla de Andrómeda ni una pérdida de cobertura.`;
+    return `${base} Consúltelo directamente si necesita certeza.`;
   }
-  return `${base} Los estados sí se publican por obligación legal y se siguen leyendo por ${canal}.`;
+  return `${base} Todo proceso debe publicar sus estados por obligación legal, y este se sigue leyendo por ${canal}.`;
 }
 
 /** Short form for tables and digest cells. */
 export function reservaNoticeShort(workflowType?: string | null): string {
   const canal = estadosChannelName(workflowType);
   return canal
-    ? `Expediente reservado en actuaciones; los estados se siguen leyendo por ${canal}.`
-    : "Expediente reservado en actuaciones.";
+    ? `El proveedor reporta «proceso privado» en actuaciones (afirmación suya, sin comprobar); los estados se siguen leyendo por ${canal}.`
+    : "El proveedor reporta «proceso privado» en actuaciones (afirmación suya, sin comprobar).";
 }
