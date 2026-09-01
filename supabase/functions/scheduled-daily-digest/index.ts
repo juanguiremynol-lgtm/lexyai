@@ -421,7 +421,7 @@ Deno.serve(async (req) => {
         const dueBy = new Date(Date.now() + DEADLINE_HORIZON_DAYS * 86_400_000).toISOString().slice(0, 10);
         const { data: rawDeadlines } = await supabase
           .from("v_deadline_attribution")
-          .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role")
+          .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role, calculation_meta")
           .in("work_item_id", ids)
           .eq("status", "PENDING")
           .lte("deadline_date", dueBy)
