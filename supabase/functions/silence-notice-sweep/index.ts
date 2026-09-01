@@ -119,10 +119,19 @@ Deno.serve(async (req) => {
       .select("publishes_estados, feeds_actuaciones, evidence_sufficient, evidence_note")
       .eq("despacho_code", prefix).maybeSingle();
     if (derived?.evidence_sufficient) {
+      // JI3 — the estados pole is a statement about OUR reads, never a verdict
+      // on the despacho. Render it in those words.
+      const ESTADOS_ES: Record<string, string> = {
+        RECIBIMOS_ESTADOS: "hemos recibido estados de este despacho",
+        NO_RECIBIMOS_ESTADOS:
+          "no hemos recibido estados de este despacho (observación nuestra, no una conclusión sobre el despacho)",
+        INDETERMINADO: "aún no hay evidencia concluyente sobre los estados",
+      };
       perfil =
-        `Perfil observado por Andrómeda — estados: ${derived.publishes_estados}; ` +
+        `Perfil observado por Andrómeda — estados: ${ESTADOS_ES[String(derived.publishes_estados)] ?? String(derived.publishes_estados)}; ` +
         `actuaciones: ${derived.feeds_actuaciones}.`;
     }
+
     const { data: manual } = await supabase
       .from("manual_court_findings")
       .select("finding_kind, scope, note, verified_on")
