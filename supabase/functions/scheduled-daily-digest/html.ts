@@ -257,7 +257,7 @@ function estadosTable(rows: EstadoRow[], expiryDays: number): string {
     </tr></thead>
     <tbody>
       ${rows.map((r) => `<tr>
-        ${td(fmtDate(r.fecha_fijacion))}
+        ${td(r.fecha_fijacion ? fmtDate(r.fecha_fijacion) : `<span style="color:${MUTED};">La fuente no informó fecha de fijación — no corre término</span>`)}
         ${td(r.fecha_actuacion ? fmtDate(r.fecha_actuacion) : `<span style="color:${MUTED};">No informada</span>`)}
         ${td(fmtDate(r.detected_at))}
         ${td(esc(r.title || "—") + crossRefNote(r.crossRef, "EST") + precedingActs(r.precedingActs))}

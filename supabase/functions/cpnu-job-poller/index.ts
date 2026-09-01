@@ -86,6 +86,34 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── IX3(c) — huérfanos: IN_PROGRESS sin job asociado ──
+    // Un raspado que quedó IN_PROGRESS sin scrape_job_id no puede consultarse
+    // nunca más: no es un timeout del proveedor, es una corrida abandonada por
+    // nuestra propia cadena. Se cierra con código propio, no con JOB_TIMEOUT.
+    const { data: orphanItems } = await supabase
+      .from('work_items')
+      .select('id, radicado')
+      .eq('scrape_status', 'IN_PROGRESS')
+      .is('scrape_job_id', null)
+      .lt('last_scrape_initiated_at', timeoutCutoff);
+
+    if (orphanItems && orphanItems.length > 0) {
+      console.log(`[cpnu-job-poller] Found ${orphanItems.length} orphaned IN_PROGRESS items (no job id)`);
+      for (const item of orphanItems) {
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'FAILED',
+            last_error_code: 'SCRAPE_ORPHANED_IN_PROGRESS',
+            last_error_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', item.id);
+      }
+    }
+
+
+
     // ── Buscar jobs IN_PROGRESS pendientes ──
     const { data: pendingItems, error: fetchError } = await supabase
       .from('work_items')
