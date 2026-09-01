@@ -832,6 +832,71 @@ function classifyProviderError(
   return fallbackCode || 'PROVIDER_ERROR';
 }
 
+/**
+ * IX3(c)/S6 — SEAL THE OUTCOME AS SOON AS THE PROVIDER ANSWERS.
+ *
+ * The five "nunca leídos" matters were read every day: CPNU answered HTTP 200
+ * with zero actuaciones in ~59s, and the caller aborted before the pipeline
+ * reached its final persistence block. The read therefore never stamped
+ * anything on work_items, so a stale `scrape_status`/`last_error_code` from
+ * weeks earlier survived forever and the digest kept calling them never-read.
+ *
+ * The outcome is now written the instant it is known — before ingestion,
+ * classification or any other work that can be cut off:
+ *   - answered read (data, empty or answered absence) → sealed as a read;
+ *     the stale error code is cleared and last_successful_sync_at advances.
+ *   - unanswered read → sealed WITH A CODE. Never null, never UNKNOWN_ERROR.
+ * Scraping-initiated runs are left alone: they are still in flight and the
+ * IN_PROGRESS branch owns them.
+ */
+async function sealReadOutcome(
+  supabase: any,
+  workItemId: string,
+  fetchResult: FetchResult | null,
+  providerAttempts: ProviderAttempt[],
+  scrapingInitiated: boolean,
+): Promise<void> {
+  if (scrapingInitiated) return;
+
+  const nowIso = new Date().toISOString();
+  const answered =
+    (fetchResult?.ok === true) ||
+    providerAttempts.some((a) => a.status === 'success' || a.status === 'empty' || a.status === 'not_found');
+
+  if (answered) {
+    await supabase
+      .from('work_items')
+      .update({
+        last_checked_at: nowIso,
+        last_synced_at: nowIso,
+        last_successful_sync_at: nowIso,
+        scrape_status: 'SUCCESS',
+        last_error_code: null,
+        consecutive_failures: 0,
+        provider_reachable: true,
+      })
+      .eq('id', workItemId);
+    return;
+  }
+
+  const timedOut = providerAttempts.some((a) => a.status === 'timeout');
+  const fallback = timedOut ? 'PROVIDER_TIMEOUT' : (providerAttempts.length ? 'PROVIDER_ERROR' : 'NO_PROVIDER_RESPONSE');
+  const code = classifyProviderError(fetchResult, fallback);
+  console.warn(`[sync-by-work-item] SEAL_UNANSWERED work_item=${workItemId} code=${code}`);
+  await supabase
+    .from('work_items')
+    .update({
+      last_checked_at: nowIso,
+      scrape_status: 'FAILED',
+      last_error_code: code,
+      last_error_at: nowIso,
+      provider_reachable: false,
+    })
+    .eq('id', workItemId);
+}
+
+
+
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
