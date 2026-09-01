@@ -723,7 +723,7 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", accent)}${th("Asunto", accent)}${th("Antigüedad", accent)}${th("Última verificación", accent)}${th("Lo que sabemos", accent)}</tr></thead>
       <tbody>${group.map((r) => `<tr>
-        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${A};">${esc(r.radicado || "Sin radicado")}</a>`)}
+        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${accent};">${esc(r.radicado || "Sin radicado")}</a>`)}
         ${td(esc(r.title || "—"))}
         ${td(r.days_since_alta === null ? "—" : `<strong style="color:${r.days_since_alta >= 90 ? "#f87171" : r.days_since_alta >= 30 ? "#fbbf24" : TEXT};">${r.days_since_alta} días</strong>`)}
         ${td(r.last_attempted_sync_at ? fmtDateTime(r.last_attempted_sync_at) : `<span style="color:${MUTED};">Nunca</span>`)}

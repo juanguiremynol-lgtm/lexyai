@@ -291,6 +291,17 @@ Deno.serve(async (req) => {
             }
           } catch (syncErr: any) {
             console.error(`[cpnu-job-poller] sync-by-work-item error:`, syncErr?.message);
+            await supabase
+              .from('work_items')
+              .update({
+                scrape_status: 'FAILED',
+                last_error_code: 'SYNC_INVOKE_FAILED',
+                last_error_at: new Date().toISOString(),
+                last_checked_at: new Date().toISOString(),
+                scrape_job_id: null,
+                scrape_poll_url: null,
+              })
+              .eq('id', item.id);
             failed++;
           }
         }

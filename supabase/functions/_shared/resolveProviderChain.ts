@@ -349,7 +349,7 @@ const RETRYABLE_CODES = new Set([
   "UPSTREAM_ERROR",
   "PROVIDER_TIMEOUT",
   "NETWORK_ERROR",
-  "UNKNOWN_ERROR",
+  "UNCLASSIFIED_PROVIDER_SHAPE",
 ]);
 
 export function decideFallback(
