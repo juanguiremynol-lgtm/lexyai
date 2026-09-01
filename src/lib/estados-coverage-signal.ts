@@ -103,7 +103,7 @@ export const ESTADOS_SIGNAL_LABEL: Record<EstadosSignalClass, string> = {
   CUBIERTO: "Cubierto",
   ESTADOS_ESPERADOS_AUSENTES: "Estados esperados y ausentes",
   ESTADOS_SIN_FIJACION_CONOCIDA: "Sin fijación conocida",
-  SIN_COBERTURA_DECLARADA: "Silencio esperado",
+  SIN_COBERTURA_DECLARADA: "Sin estados recibidos de este despacho",
   SIN_COBERTURA_EN_ESA_FECHA: "Fuera de la cobertura de la fuente",
   ESTADO_SIN_DOCUMENTO: "Estado sin documento",
   REMITIDO_A_SUPERIOR: "Remitido a otro despacho",
@@ -145,7 +145,7 @@ export const ESTADOS_SIGNAL_EXPLANATION: Record<EstadosSignalClass, string> = {
   ESTADOS_SIN_FIJACION_CONOCIDA:
     "Hay actuaciones pero ninguna fijación registrada y ningún estado recibido. No es concluyente: queda en observación, sin alerta.",
   SIN_COBERTURA_DECLARADA:
-    "El despacho está declarado como no publicador de estados electrónicos. El silencio es esperado.",
+    "No hemos recibido estados de este despacho por el canal de estados. Es lo que observamos, no una conclusión sobre el despacho: todo proceso debe publicar sus estados, así que la ausencia apunta a nuestra lectura o al proveedor. No afirmamos que el despacho no publique.",
   SIN_COBERTURA_EN_ESA_FECHA:
     "La fijación es anterior a la primera publicación conocida del despacho en la fuente, o posterior a la última. No es una anomalía: está fuera de la cobertura temporal de la fuente.",
   ESTADO_SIN_DOCUMENTO:

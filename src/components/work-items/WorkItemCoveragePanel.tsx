@@ -229,7 +229,7 @@ export function WorkItemCoveragePanel({
                     {row.status_code === "CUBIERTO"
                       ? "Cubierto"
                       : row.status_code === "SILENCIO_CONOCIDO"
-                        ? "Silencio esperado"
+                        ? "Sin estados recibidos"
                         : row.status_code === "EN_VERIFICACION"
                           ? "Verificación en curso"
                           : row.status_code === "SIN_RESPUESTA"
