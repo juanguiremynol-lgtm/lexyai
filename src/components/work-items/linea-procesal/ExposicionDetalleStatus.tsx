@@ -17,6 +17,8 @@ import { Info, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { WorkflowType } from "@/lib/workflow-constants";
+import { reservaNotice } from "@/lib/reserva-notice";
+
 
 const CPNU_ROUTED: WorkflowType[] = ["CGP", "EJECUTIVO", "LABORAL", "PENAL_906"] as WorkflowType[];
 
@@ -64,13 +66,16 @@ export function exposureMessage(
   }
 
   // STATE 3 — the provider's own assertion, fresh.
+  // JD2(c) — a reserva is a court decision, not a defect: it is never rendered
+  // as a failure, and it says explicitly that the estados channel is unaffected.
   if (estado === "PROCESO_PRIVADO") {
     return {
-      text: `CPNU marca este proceso como reservado y no expone su detalle. Motivo declarado: ${row.provider_detail_reason ?? "PROCESO_PRIVADO"}. Verificado el ${fecha(verificado)}.`,
-      clarifier,
-      negative: true,
+      text: `${reservaNotice(workflowType)} Motivo declarado por la fuente: ${row.provider_detail_reason ?? "PROCESO_PRIVADO"}. Verificado el ${fecha(verificado)}.`,
+      clarifier: null,
+      negative: false,
     };
   }
+
 
   // STATE 1 — exposed and fresh: render nothing.
   return null;
