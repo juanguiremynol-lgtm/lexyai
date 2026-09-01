@@ -48,8 +48,19 @@ const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 const SUCCESS_THRESHOLD = 0.9;
 /** Max chained continuations to prevent infinite loops — raised from 10 to 15 */
 const MAX_CONTINUATIONS = Number(Deno.env.get("DAILY_SYNC_MAX_CONTINUATIONS") || "15");
-/** Per-item external API timeout (ms). Default 20s. */
+/**
+ * Per-item external API timeout (ms), retained for the retry path only.
+ * JC1 — NOT raised: the daily loop no longer waits for the provider at all.
+ */
 const ITEM_TIMEOUT_MS = Number(Deno.env.get("DAILY_SYNC_ITEM_TIMEOUT_MS") || "20000");
+/**
+ * JC1(a) — acknowledgement window (ms). How long the loop waits for the callee
+ * to answer before recording the item as DISPATCHED and moving on. The call is
+ * left running; the callee seals its own outcome and `cpnu-job-poller`
+ * converges anything still in flight.
+ */
+const ACK_WINDOW_MS = Number(Deno.env.get("DAILY_SYNC_ACK_WINDOW_MS") || "5000");
+
 /** Consecutive failures before dead-lettering an item */
 const DEAD_LETTER_THRESHOLD = 3;
 /** Delay before overflow pass (ms) — 30 minutes */
@@ -723,7 +734,9 @@ async function syncOrganization(
   buscarBudget: { used: number; cap: number } = { used: 0, cap: MAX_BUSCAR_PER_CRON_CYCLE },
 ): Promise<{
   org_id: string; status: string; synced: number; errors: number;
+  dispatched?: number;
   dead_lettered: number; timeouts: number; ledger_id?: string;
+
   skipped?: number; failure_reason?: string;
   skipped_radicados?: string[];
   skipped_reasons?: Record<string, number>;
@@ -807,8 +820,12 @@ async function syncOrganization(
   let itemsSucceeded = 0;
   let itemsFailed = 0;
   let itemsSkipped = 0;
+  /** JC1(a) — reads left running after the ack window. Never a failure. */
+  let itemsDispatched = 0;
+  const dispatchedItems: string[] = [];
   let deadLetterCount = 0;
   let timeoutCount = 0;
+
   let cursorLastId: string | null = null;
   let failureReason: string | null = null;
   const errorSummary: Array<{
@@ -900,9 +917,10 @@ async function syncOrganization(
       const roundFailures: FailedItem[] = [];
 
       for (const item of pageItems) {
-        // Per-item budget check — reserve room for the item's own timeout so a
-        // slow upstream call cannot push the run past the gateway limit.
-        if (Date.now() - globalStart > HARD_BUDGET_MS - (ITEM_TIMEOUT_MS + 5_000)) {
+        // Per-item budget check — the loop now only ever waits out the ack
+        // window (JC1(a)), so that is the headroom it must reserve.
+        if (Date.now() - globalStart > HARD_BUDGET_MS - (ACK_WINDOW_MS + 5_000)) {
+
           failureReason = "BUDGET_EXHAUSTED";
           itemsSkipped += (pageItems.length - pageItems.indexOf(item));
           break;
@@ -920,7 +938,18 @@ async function syncOrganization(
 
         try {
           const allowBuscar = buscarBudget.used < buscarBudget.cap;
-          const syncResponse = await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS, allowBuscar);
+          const ack = await syncSingleItemWithAck(supabase, item, orgId, ACK_WINDOW_MS, allowBuscar);
+
+          if (ack.kind === "dispatched") {
+            // JC1(a) — the read is RUNNING upstream and owns its own outcome.
+            // It is neither a success, nor a timeout, nor a failure here.
+            itemsDispatched++;
+            if (item.radicado) dispatchedItems.push(item.radicado);
+            continue;
+          }
+          if (ack.kind === "error") throw ack.error;
+
+          const syncResponse = ack.response;
           
           // Track buscar usage from response
           if (syncResponse?.cpnu_buscar_used) {
@@ -942,6 +971,7 @@ async function syncOrganization(
           // Reset timeout count on success
           delete itemTimeoutCounts[item.id];
         } catch (err: any) {
+
           const isTimeout = err.message?.includes("ITEM_TIMEOUT");
           if (isTimeout) {
             timeoutCount++;
@@ -1100,30 +1130,34 @@ async function syncOrganization(
       });
     } while (pageItems.length === PAGE_SIZE && !failureReason);
 
-    // If budget wasn't exhausted, account for remaining skipped
+    // If budget wasn't exhausted, account for remaining skipped. A DISPATCHED
+    // item was processed — it is not pending work and never "skipped".
     if (!failureReason) {
-      itemsSkipped = expectedTotal - (itemsSucceeded + itemsFailed);
+      itemsSkipped = expectedTotal - (itemsSucceeded + itemsFailed + itemsDispatched);
       if (itemsSkipped < 0) itemsSkipped = 0;
     }
 
-    // Determine final status
-    const totalAttempted = itemsSucceeded + itemsFailed;
+    // Determine final status. JC1(a) — a dispatched item counts as attempted
+    // and as not-failed: its verdict is sealed by the callee, not here.
+    const totalAttempted = itemsSucceeded + itemsFailed + itemsDispatched;
+    const nonFailed = itemsSucceeded + itemsDispatched;
     let finalStatus: string;
     if (failureReason === "BUDGET_EXHAUSTED") {
       // Use BUDGET_OVERFLOW if this was an overflow pass
       finalStatus = isOverflow ? "BUDGET_OVERFLOW" : "PARTIAL";
     } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
       finalStatus = "SUCCESS";
-    } else if (itemsSucceeded > 0 && totalAttempted > 0) {
-      const successRate = itemsSucceeded / totalAttempted;
+    } else if (nonFailed > 0 && totalAttempted > 0) {
+      const successRate = nonFailed / totalAttempted;
       finalStatus = successRate >= SUCCESS_THRESHOLD ? "SUCCESS" : "PARTIAL";
-    } else if (itemsSucceeded === 0 && totalAttempted > 0) {
+    } else if (nonFailed === 0 && totalAttempted > 0) {
       finalStatus = "FAILED";
     } else if (expectedTotal === 0) {
       finalStatus = "SUCCESS";
     } else {
       finalStatus = "FAILED";
     }
+
 
     // ── Fix #4: Enriched metadata with skip observability ──
     const enrichedMetadata = {
@@ -1134,9 +1168,12 @@ async function syncOrganization(
       page_size: PAGE_SIZE,
       budget_ms: HARD_BUDGET_MS,
       item_timeout_ms: ITEM_TIMEOUT_MS,
+      ack_window_ms: ACK_WINDOW_MS,
       continuation_count: isContinuation ? (continuationOf ? 'chained' : 'first') : 'initial',
       is_overflow: isOverflow,
-      items_processed: itemsSucceeded + itemsFailed,
+      items_processed: itemsSucceeded + itemsFailed + itemsDispatched,
+      items_dispatched: itemsDispatched,
+      dispatched_items: [...new Set(dispatchedItems)].slice(0, 50),
       remaining_estimate: itemsSkipped,
       dead_letter_count: deadLetterCount,
       timeout_count: timeoutCount,
@@ -1166,12 +1203,25 @@ async function syncOrganization(
       metadata: enrichedMetadata,
     });
 
+    // JC1(c) — POLLER HAND-OFF. Anything still in flight converges there; the
+    // poller closes orphaned IN_PROGRESS scrapes and seals their outcome.
+    if (itemsDispatched > 0) {
+      try {
+        await supabase.functions.invoke("cpnu-job-poller", {
+          body: { _reason: "DAILY_SYNC_HANDOFF", dispatched: itemsDispatched },
+        });
+      } catch (e) {
+        console.warn(`[daily-sync] poller hand-off failed: ${(e as Error).message}`);
+      }
+    }
+
     // Auto-demonitor policy
     await runAutoDemonitor(supabase, orgId);
 
-    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal} overflow=${isOverflow}`);
+    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsDispatched}📨 ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal} overflow=${isOverflow}`);
     return {
       org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed,
+      dispatched: itemsDispatched,
       dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId,
       skipped: itemsSkipped, failure_reason: failureReason,
       skipped_radicados: skippedRadicados.slice(0, 50),
@@ -1179,6 +1229,7 @@ async function syncOrganization(
       timeout_items: [...new Set(timeoutItems)].slice(0, 50),
       item_timeout_counts: itemTimeoutCounts,
     };
+
 
   } catch (error: any) {
     // Fatal org-level error
@@ -1219,6 +1270,50 @@ async function syncSingleItemWithTimeout(
   }
 }
 
+/**
+ * JC1(a) — ACK WINDOW (fire-and-forget).
+ *
+ * CPNU answers a scraped read at ~28.5s and sometimes ~59s. The orchestrator
+ * used to wait for it and abort, so a read that SUCCEEDED server-side was
+ * recorded here as a timeout. The callee owns its own persistence
+ * (`sealReadOutcome` writes last_synced_at / last_attempted_sync_at next to the
+ * provider verdict), so the loop only needs an acknowledgement.
+ *
+ * If the item answers inside the ack window we use its response as before. If
+ * it does not, the call is LEFT RUNNING and the item is reported as DISPATCHED
+ * — never as a timeout and never as a failure. `cpnu-job-poller` converges
+ * anything still in flight.
+ */
+type AckOutcome =
+  | { kind: "answered"; response: SyncItemResponse | null }
+  | { kind: "dispatched" }
+  | { kind: "error"; error: any };
+
+async function syncSingleItemWithAck(
+  supabase: any, item: EligibleWorkItem, orgId: string, ackMs: number, allowBuscar: boolean,
+): Promise<AckOutcome> {
+  let settled = false;
+  const call = syncSingleItem(supabase, item, orgId, undefined, allowBuscar)
+    .then((response) => ({ kind: "answered", response } as AckOutcome))
+    .catch((error) => ({ kind: "error", error } as AckOutcome))
+    .then((o) => {
+      settled = true;
+      return o;
+    });
+
+  const ack = new Promise<AckOutcome>((resolve) =>
+    setTimeout(() => resolve({ kind: "dispatched" }), ackMs)
+  );
+
+  const first = await Promise.race([call, ack]);
+  if (first.kind !== "dispatched" || settled) return settled ? await call : first;
+
+  // Keep the in-flight call alive; swallow its late rejection so it cannot
+  // surface as an unhandled error after the loop has moved on.
+  call.catch(() => {});
+  return { kind: "dispatched" };
+}
+
 // ─── Sync a single work item (acts + pubs) ───
 
 async function syncSingleItem(
@@ -1237,19 +1332,11 @@ async function syncSingleItem(
 
   const syncOk = shouldCountAsSuccess(syncResult);
 
-  // FIX: Only update last_synced_at on SUCCESS to prevent masking sync failures.
-  // On failure, update last_attempted_sync_at for observability without hiding staleness.
-  if (syncOk) {
-    await supabase
-      .from("work_items")
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq("id", item.id);
-  } else {
-    await supabase
-      .from("work_items")
-      .update({ last_attempted_sync_at: new Date().toISOString() } as any)
-      .eq("id", item.id);
-  }
+  // JC1(b) — CALLEE OWNS THE STAMP. `sync-by-work-item` writes last_synced_at /
+  // last_attempted_sync_at inside `sealReadOutcome`, next to the provider
+  // verdict it just recorded. Writing them again from here is how an aborted
+  // wait erased a read that had actually succeeded.
+
 
   // IQ2(a)(f): ESTADOS SEPARATION — this function reads ACTUACIONES only.
   // The estados channels (Publicaciones Procesales / SAMAI Estados) run on

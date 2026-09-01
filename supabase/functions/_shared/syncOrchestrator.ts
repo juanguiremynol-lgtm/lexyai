@@ -47,6 +47,8 @@ import {
   determineFoundStatus,
   isAnsweredAbsence,
   attemptIsAnsweredAbsence,
+  attemptIsRestricted,
+
   classifyGcpResponse,
 
   shouldTriggerFallback,
@@ -88,7 +90,7 @@ export interface ProviderAttemptResult {
   provider: string;
   data_kind: DataKind;
   role: "PRIMARY" | "FALLBACK";
-  status: "success" | "not_found" | "empty" | "error" | "timeout" | "skipped";
+  status: "success" | "not_found" | "empty" | "restricted" | "error" | "timeout" | "skipped";
   outcome: PersistedProviderOutcome;
   http_code: number | null;
   latency_ms: number;
@@ -559,11 +561,13 @@ export async function executeSyncChain(
     }
   }
 
-  // An "answer" is success / empty / not_found. Anything else (error, timeout,
-  // skipped) is silence, and silence never becomes NOT_FOUND.
+  // An "answer" is success / empty / not_found / restricted. Anything else
+  // (error, timeout, skipped) is silence, and silence never becomes NOT_FOUND.
   const someoneAnswered = attempts.some(
-    (a) => a.status === "success" || a.status === "empty" || a.status === "not_found",
+    (a) => a.status === "success" || a.status === "empty" ||
+      a.status === "not_found" || a.status === "restricted",
   );
+
   const foundStatus = determineFoundStatus(
     hasMetadataMatch,
     hasData,
@@ -721,17 +725,24 @@ async function safeProviderFetch(
     // provider. The adapter's own verdict decides here; the classifier only
     // adjudicates transport-level outcomes.
     const answeredAbsence = result.isEmpty === true || isAnsweredAbsence(result.errorCode);
-    const answered = result.ok === true || answeredAbsence;
+    // JC2 — a restricted expediente is an ANSWER (HTTP 200 + refusal). The
+    // classifier only sees it if we hand it the contract field, otherwise it
+    // reads "200 + success:false" and calls a refusal an UNAVAILABLE failure.
+    const restricted = String(result.errorCode ?? "").toUpperCase() === "PROCESO_PRIVADO";
+    const answered = result.ok === true || answeredAbsence || restricted;
     const gcp = classifyGcpResponse({
       // A missing httpStatus on an answered read is not "no HTTP response".
       httpStatus: result.httpStatus ?? (answered ? 200 : null),
       success: answered,
       found: answeredAbsence ? false : result.found,
       message: result.errorMessage,
+      restringido: restricted ? true : undefined,
     });
 
     let status: ProviderAttemptResult["status"];
-    if (gcp.outcome === "UNAVAILABLE" || gcp.outcome === "UNCLASSIFIED") {
+    if (gcp.outcome === "RESTRICTED_BY_PROVIDER") {
+      status = "restricted";
+    } else if (gcp.outcome === "UNAVAILABLE" || gcp.outcome === "UNCLASSIFIED") {
       status = "error";
     } else if (result.ok && !result.isEmpty) status = "success";
     else if (result.isEmpty) status = "empty";
@@ -742,9 +753,6 @@ async function safeProviderFetch(
       status = "not_found";
     } else status = "error";
 
-
-
-
     return {
       provider: provider.key,
       data_kind: dataKind,
@@ -752,10 +760,11 @@ async function safeProviderFetch(
       status,
       outcome: persistedProviderOutcome({
         status,
-        resultCode: gcp.outcome,
+        resultCode: gcp.outcome === "RESTRICTED_BY_PROVIDER" ? "PROCESO_PRIVADO" : gcp.outcome,
         errorCode: result.errorCode,
         insertedCount: result.insertedCount,
       }),
+
       http_code: result.httpStatus,
       latency_ms: result.latencyMs,
       error_code: result.errorCode,
@@ -1221,8 +1230,10 @@ export async function orchestrateSync(
     // used to fall through to FAILED, so a routine "sin novedades" CGP sync was
     // persisted as a failed run and reported as "All providers failed".
     const hasAnsweredAbsence = allAttempts.some((a) =>
-      attemptIsAnsweredAbsence(a.status, a.error_code)
+      attemptIsAnsweredAbsence(a.status, a.error_code) ||
+      attemptIsRestricted(a.status, a.error_code)
     );
+
     // BUG 1c: providers reported data but nothing persisted → PERSIST_MISMATCH.
     // Any attempt whose inserted_count is 0 while its metadata indicates the
     // feed did return rows must not roll up into a plain SUCCESS.

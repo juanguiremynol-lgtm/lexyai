@@ -331,19 +331,24 @@ function sourceQualityBlock(p: DigestPayload): string {
     const pct = Math.round((r.usable_confirmed_count / den) * 100);
     return `${r.usable_confirmed_count}/${den} (${pct}%)`;
   };
+  // JC2 — the two zeros are different facts and are never merged. Only an
+  // ANSWERED empty read is "sin movimiento"; a refusal is "privados"; a fast
+  // failure (p. ej. respuesta no interpretable en 163 ms) es "fallidos" y no
+  // afirma nada sobre el expediente.
   const outcomeBreakdown = (r: typeof rows[number]) => {
     const pending = r.pending_upstream_count ?? 0;
     const restricted = r.restricted_count ?? 0;
     const failures = r.error_count ?? 0;
     return [
       `${r.success_count} con datos`,
-      `${r.success_empty_count} sin movimiento`,
+      `${r.success_empty_count} leídos sin movimiento`,
       `${r.not_found_count} no encontrados`,
-      `${restricted} privados`,
-      `${pending} pendientes`,
-      `${failures} fallidos`,
+      `${restricted} privados (respuesta del despacho)`,
+      `${pending} pendientes en la fuente`,
+      `${failures} sin lectura (falla, no significa "sin novedades")`,
     ].join(" · ");
   };
+
 
   return sectionTitle(
     degraded.length > 0
