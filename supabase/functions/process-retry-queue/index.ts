@@ -336,8 +336,8 @@ Deno.serve(async (req) => {
                     entity_type: 'WORK_ITEM',
                     severity: 'WARNING',
                     alert_type: 'SIN_COBERTURA_ESTADOS_CONFIRMADA',
-                    title: 'Sin cobertura de estados electrónicos confirmada',
-                    message: `Tras dos re-verificaciones automáticas (24h y 48h) el radicado ${task.radicado} sigue sin estados electrónicos publicados. Se confirma que el despacho no publica estados en el portal para este expediente. Andromeda seguirá monitoreando las actuaciones por otras vías; considere hacer seguimiento manual si espera notificaciones por estado.`,
+                    title: 'No hemos recibido estados electrónicos de este radicado',
+                    message: `Tras dos re-verificaciones automáticas (24h y 48h) el canal de estados sigue sin entregarnos publicaciones para el radicado ${task.radicado}. Es lo que observamos y nada más: NO se concluye que el despacho no publique estados — todo proceso debe publicarlos, de modo que la ausencia apunta a nuestra lectura o al proveedor. El monitoreo sigue activo; si necesita certeza, consulte el expediente en el portal.`,
                     status: 'PENDING',
                     fingerprint: confirmedFingerprint,
                     payload: {
