@@ -719,6 +719,7 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   const verified = rows.filter((r) => r.classification === "MANUAL_NO_ACTS" || r.classification === "MANUAL_PRIVATE");
   const empty = rows.filter((r) => r.classification === "READ_EMPTY");
   const failures = rows.filter((r) => r.classification === "READ_FAILURE");
+  const partial = rows.filter((r) => r.classification === "CHANNEL_PARTIAL");
   const table = (group: NeverReadRow[], accent: string, status: (r: NeverReadRow) => string) =>
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", accent)}${th("Asunto", accent)}${th("Antigüedad", accent)}${th("Última verificación", accent)}${th("Lo que sabemos", accent)}</tr></thead>
