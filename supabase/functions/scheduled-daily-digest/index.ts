@@ -796,8 +796,8 @@ Deno.serve(async (req) => {
             const key = String(run.work_item_id ?? "");
             if (key && !latestRunByItem.has(key)) latestRunByItem.set(key, run as Record<string, unknown>);
           }
+          const withEstados = new Set<string>((anyPubs ?? []).map((r) => r.work_item_id as string));
           for (const i of neverReadCandidates) {
-            if (withData.has(i.id)) continue;
             const raw = i as unknown as Record<string, string | null>;
             const created = raw.created_at ?? null;
             const finding = findingByRadicado.get(i.radicado ?? "");
