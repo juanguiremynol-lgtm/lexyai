@@ -24,6 +24,8 @@
  */
 
 import type { ProviderFetchFn } from "./syncOrchestrator.ts";
+import { ADAPTER_SENTINEL_CODES } from "./providerStrategy.ts";
+
 
 /**
  * FetchResult shape returned by the existing inline provider functions.
@@ -147,8 +149,16 @@ function classifyLegacyError(result: LegacyFetchResult): string {
   if (result.scrapingInitiated) return "SCRAPING_INITIATED";
   if (result.isEmpty) return "PROVIDER_EMPTY_RESULT";
 
-  const err = (result.error || "").toLowerCase();
+  const raw = (result.error || "").trim();
+  // JC2 — an adapter that reported a canonical verdict (PROCESO_PRIVADO,
+  // PENDING_UPSTREAM, …) keeps it. Collapsing it into PROVIDER_ERROR is what
+  // made 50 restricted-but-answered reads a day look like provider failures.
+  const sentinel = raw.toUpperCase().split(/[^A-Z0-9_]/)[0] ?? "";
+  if (ADAPTER_SENTINEL_CODES.has(sentinel)) return sentinel;
+
+  const err = raw.toLowerCase();
   const status = result.httpStatus;
+
 
   if (status === 401 || status === 403) return "PROVIDER_AUTH_FAILED";
   if (status === 404) return "PROVIDER_404";

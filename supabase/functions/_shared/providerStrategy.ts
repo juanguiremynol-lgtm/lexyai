@@ -106,6 +106,35 @@ export function attemptIsAnsweredAbsence(
   return isAnsweredAbsence(errorCode);
 }
 
+/**
+ * JC2 — a RESTRICTED refusal is an ANSWER, not a failure and not an absence.
+ * The provider replied HTTP 200 saying the expediente is private. It must
+ * never roll up into "fallidos" and never into "sin movimiento".
+ */
+export function attemptIsRestricted(
+  status: string | null | undefined,
+  errorCode?: string | null,
+): boolean {
+  if ((status ?? "").toLowerCase() === "restricted") return true;
+  return String(errorCode ?? "").toUpperCase() === "PROCESO_PRIVADO";
+}
+
+/**
+ * JC2 — canonical sentinel codes an adapter may report in its error message.
+ * They are verdicts, not free-text failures, and must survive classification
+ * instead of collapsing into PROVIDER_ERROR.
+ */
+export const ADAPTER_SENTINEL_CODES: ReadonlySet<string> = new Set([
+  "PROCESO_PRIVADO",
+  "PENDING_UPSTREAM",
+  "SCRAPING_INITIATED",
+  "INVALID_JSON_RESPONSE",
+  "NO_PROVIDER_RESPONSE",
+  "UPSTREAM_ROUTE_MISSING",
+  "UNCLASSIFIED_PROVIDER_SHAPE",
+]);
+
+
 /** A transient failure may justify retrying the SAME provider. */
 export const isRetryableSameProvider = isTransientProviderFailure;
 
