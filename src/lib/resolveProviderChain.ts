@@ -384,7 +384,7 @@ const UNAVAILABLE_CODES = new Set([
   "PROVIDER_RATE_LIMITED",
   "SCRAPING_STUCK",
   "UPSTREAM_ROUTE_MISSING",
-  "UNKNOWN_ERROR",
+  "UNCLASSIFIED_PROVIDER_SHAPE",
 ]);
 
 /** Codes that mean the provider ANSWERED and had nothing. Fallback may advance. */

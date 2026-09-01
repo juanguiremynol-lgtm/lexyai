@@ -22,7 +22,7 @@ export type E2EFailReason =
   | "SYNC_TIMEOUT"
   | "ASSERTION_FAILED"
   | "NO_EXTERNAL_DATA_YET"
-  | "UNKNOWN_ERROR";
+  | "UNCLASSIFIED_PROVIDER_SHAPE";
 
 export type E2EFailureStage =
   | "PRECHECK"
@@ -190,7 +190,7 @@ function classifyE2EFailure(result: any, testMeta: { is_sentinel: boolean; radic
   }
 
   return {
-    fail_reason: "UNKNOWN_ERROR",
+    fail_reason: "UNCLASSIFIED_PROVIDER_SHAPE",
     failure_summary: `Fallo no clasificado. Pasos fallidos: ${steps.filter((s: any) => !s.ok).map((s: any) => s.name).join(", ")}`.slice(0, 280),
     failure_stage: "VERIFY",
   };

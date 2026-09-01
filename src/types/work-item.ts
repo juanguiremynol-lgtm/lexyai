@@ -74,6 +74,10 @@ export interface WorkItem {
   scrape_status: 'NOT_ATTEMPTED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'PARTIAL_SUCCESS';
   last_synced_at: string | null;
   last_checked_at: string | null;
+  last_attempted_sync_at?: string | null;
+  last_successful_sync_at?: string | null;
+  last_error_code?: string | null;
+  last_error_at?: string | null;
   last_crawled_at: string | null;
   scraped_fields: Record<string, unknown> | null;
   

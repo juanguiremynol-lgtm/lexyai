@@ -45,14 +45,14 @@ Deno.serve(async (req) => {
     };
     if (cpnuApiKey) headers['x-api-key'] = cpnuApiKey;
 
-    // ── P1.2 NO-OP EARLY EXIT ──
-    // Sin jobs IN_PROGRESS no hay nada que expirar ni que sondear.
+    // Include pollable jobs and orphaned IN_PROGRESS rows. Previously this
+    // early exit counted only rows WITH a job id, making orphan closure
+    // unreachable whenever only no-job rows remained.
     const { count: inProgressCount } = await supabase
       .from('work_items')
       .select('id', { count: 'exact', head: true })
       .eq('scrape_status', 'IN_PROGRESS')
-      .eq('scrape_provider', 'cpnu')
-      .not('scrape_job_id', 'is', null);
+      .or('scrape_provider.eq.cpnu,scrape_provider.is.null');
 
     if ((inProgressCount ?? 0) === 0) {
       return new Response(JSON.stringify({ ok: true, no_op: true, polled: 0 }), {
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
       .select('id, radicado')
       .eq('scrape_status', 'IN_PROGRESS')
       .is('scrape_job_id', null)
-      .lt('last_scrape_initiated_at', timeoutCutoff);
+      .or(`last_scrape_initiated_at.lt.${timeoutCutoff},last_scrape_initiated_at.is.null`);
 
     if (orphanItems && orphanItems.length > 0) {
       console.log(`[cpnu-job-poller] Found ${orphanItems.length} orphaned IN_PROGRESS items (no job id)`);
@@ -163,6 +163,14 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           console.warn(`[cpnu-job-poller] HTTP ${response.status} for job ${jobId}`);
+          await supabase
+            .from('work_items')
+            .update({
+              last_error_code: `POLL_HTTP_${response.status}`,
+              last_error_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+            })
+            .eq('id', item.id);
           stillPending++;
           continue;
         }
@@ -308,6 +316,14 @@ Deno.serve(async (req) => {
 
       } catch (pollErr: any) {
         console.error(`[cpnu-job-poller] Poll error for job ${jobId}:`, pollErr?.message);
+        await supabase
+          .from('work_items')
+          .update({
+            last_error_code: 'POLL_REQUEST_FAILED',
+            last_error_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', item.id);
         stillPending++;
       }
     }

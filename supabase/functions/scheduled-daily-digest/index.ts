@@ -819,7 +819,7 @@ Deno.serve(async (req) => {
               hasEstados ? "CHANNEL_PARTIAL" :
               isAnsweredEmpty ? "READ_EMPTY" : "READ_FAILURE";
             const persistedCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").trim();
-            const safeCode = persistedCode && persistedCode !== "UNKNOWN_ERROR" ? persistedCode : "UNCLASSIFIED";
+            const safeCode = persistedCode && persistedCode !== "UNKNOWN_ERROR" ? persistedCode : "UNCLASSIFIED_PROVIDER_SHAPE";
             neverRead.push({
               id: i.id, radicado: i.radicado, title: i.title,
               workflow_type: i.workflow_type,
