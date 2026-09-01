@@ -42,5 +42,6 @@ describe("IY — read evidence and failure taxonomy", () => {
     expect(poller).toMatch(/SCRAPE_ORPHANED_IN_PROGRESS/);
     expect(poller).toMatch(/POLL_REQUEST_FAILED/);
     expect(poller).toMatch(/response\.status === 404 \|\| response\.status === 410/);
+    expect(poller).toMatch(/scrape_status: 'SUCCESS'/);
   });
 });

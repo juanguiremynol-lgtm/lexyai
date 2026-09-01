@@ -274,12 +274,17 @@ Deno.serve(async (req) => {
             console.log(`[cpnu-job-poller] sync-by-work-item result: ok=${syncResult.ok}, inserted=${syncResult.inserted_count}`);
 
             if (syncResult.ok || syncResult.inserted_count > 0) {
-              // Limpiar el job_id ya procesado
+              // Cerrar explícitamente antes de limpiar el job. No dependemos del
+              // sellado tardío del camino legacy: dejar IN_PROGRESS + job NULL
+              // haría que el siguiente barrido lo confundiera con un huérfano.
               await supabase
                 .from('work_items')
                 .update({
+                  scrape_status: 'SUCCESS',
+                  last_error_code: null,
                   scrape_job_id: null,
                   scrape_poll_url: null,
+                  last_checked_at: new Date().toISOString(),
                 })
                 .eq('id', item.id);
               completed++;
