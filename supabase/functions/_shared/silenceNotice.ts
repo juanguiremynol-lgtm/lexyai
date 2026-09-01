@@ -32,10 +32,13 @@ export const SILENCE_DAYS = 45;
 export const MIN_AGE_DAYS = SILENCE_DAYS;
 
 export const SILENCIO_ES_NORMAL =
-  "El silencio es NORMAL y esperado. Un radicado puede pasar meses sin actuación " +
-  "ni estado: los juzgados suelen demorarse en admitir, inadmitir o rechazar una " +
-  "demanda, y algunos despachos no publican estados en línea. Esto NO significa que " +
-  "el expediente esté cerrado, ni que no exista, ni que Andrómeda haya dejado de leerlo.";
+  "Un radicado puede pasar meses sin actuación: los juzgados suelen demorarse en " +
+  "admitir, inadmitir o rechazar una demanda. En cambio, TODO proceso debe publicar " +
+  "sus estados en publicacionesprocesales.ramajudicial.gov.co (familia CGP) o en " +
+  "SAMAI Estados (CPACA); no hay excepción. Si tampoco llegan estados, la ausencia " +
+  "apunta a la lectura o al proveedor, nunca a que el despacho no publique. Esto NO " +
+  "significa que el expediente esté cerrado, ni que no exista, ni que Andrómeda haya " +
+  "dejado de leerlo.";
 
 export const NO_ES_ADVERTENCIA =
   "Este aviso informa; no es una advertencia ni una alerta de riesgo.";
