@@ -741,9 +741,16 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
     `Lectura correcta, sin actuaciones (${empty.length})`, "#38bdf8",
     "El proveedor respondió correctamente y no entregó actuaciones. Esto no es una falla de lectura.",
   ) + table(empty, "#38bdf8", () => "Lectura respondida sin actuaciones."));
+  // AB3 / IZ2(d) — the per-channel case. These matters DO have estados on file;
+  // describing them as having nothing registrado would be false.
+  if (partial.length) blocks.push(sectionTitle(
+    `Leído por un canal solamente (${partial.length})`, "#fbbf24",
+    "Estos expedientes sí tienen estados registrados. Lo que falta es la lectura del otro canal, no el expediente.",
+  ) + table(partial, "#fbbf24", () =>
+    "Cobertura parcial: nunca leído por CPNU; sí por estados. No es un expediente sin registro."));
   if (failures.length) blocks.push(sectionTitle(
     `Problema de lectura de Andromeda (${failures.length})`, "#f87171",
-    "Andromeda no ha logrado leer estos expedientes; es un problema nuestro, no del juzgado.",
+    "Andrómeda no ha logrado completar la lectura; es un problema nuestro, no del juzgado.",
   ) + table(failures, "#f87171", (r) => `<strong>${esc(r.last_error_code || "UNCLASSIFIED")}</strong><br><span style="color:${MUTED};">${esc(r.diagnostic_detail || "Sin detalle disponible")}</span>`));
   return blocks.join("");
 }
