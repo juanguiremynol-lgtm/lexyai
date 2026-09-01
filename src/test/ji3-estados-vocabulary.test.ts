@@ -19,10 +19,13 @@ describe("JI3 — estados vocabulary speaks about our reads", () => {
     expect(SWEEP).toMatch(/no hemos recibido estados de este despacho/);
   });
 
-  it("never attributes the absence to the court", () => {
-    expect(SWEEP).not.toMatch(/el despacho no publica estados/i);
-    expect(SWEEP).not.toMatch(/no publica estados/i);
+  it("never attributes the absence to the court in the DERIVED profile line", () => {
+    const perfilLine = SWEEP.split("\n").filter((l) => l.includes("Perfil observado por Andrómeda")).join("\n");
+    expect(perfilLine).not.toMatch(/no publica/i);
+    // The only surviving "no publica estados" text is the lawyer's own manual
+    // portal verdict (HALLAZGO_ES), which must remain sayable.
   });
+
 
   it("keeps the lawyer's manual portal verdict sayable", () => {
     const findings = readFileSync("supabase/functions/silence-notice-sweep/index.ts", "utf8");
