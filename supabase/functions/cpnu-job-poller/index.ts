@@ -163,15 +163,19 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           console.warn(`[cpnu-job-poller] HTTP ${response.status} for job ${jobId}`);
+          const orphanedJob = response.status === 404 || response.status === 410;
           await supabase
             .from('work_items')
             .update({
-              last_error_code: `POLL_HTTP_${response.status}`,
+              scrape_status: orphanedJob ? 'FAILED' : 'IN_PROGRESS',
+              last_error_code: orphanedJob ? 'SCRAPE_ORPHANED_IN_PROGRESS' : `POLL_HTTP_${response.status}`,
               last_error_at: new Date().toISOString(),
               last_checked_at: new Date().toISOString(),
+              ...(orphanedJob ? { scrape_job_id: null, scrape_poll_url: null } : {}),
             })
             .eq('id', item.id);
-          stillPending++;
+          if (orphanedJob) failed++;
+          else stillPending++;
           continue;
         }
 
