@@ -807,9 +807,16 @@ Deno.serve(async (req) => {
             const runCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").toUpperCase();
             const isAnsweredEmpty = runStatus === "SUCCESS" &&
               (runCode === "PROVIDER_EMPTY_RESULT" || String(latestRun?.error_message ?? "").toLowerCase().includes("no actuaciones"));
+            // IZ2(d)/AB3 — a matter with estados on file is NOT an unread matter.
+            // It is a per-channel gap and is reported as such, never as "no hay
+            // ni una actuación ni un estado registrado". A matter with stored
+            // actuaciones does not belong in this section at all.
+            const hasEstados = withEstados.has(i.id);
+            if (withData.has(i.id) && !hasEstados) continue;
             const classification: NeverReadRow["classification"] =
               findingKind === "RADICADO_EXISTE_SIN_ACTUACIONES" ? "MANUAL_NO_ACTS" :
               findingKind === "PROCESO_PRIVADO" ? "MANUAL_PRIVATE" :
+              hasEstados ? "CHANNEL_PARTIAL" :
               isAnsweredEmpty ? "READ_EMPTY" : "READ_FAILURE";
             const persistedCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").trim();
             const safeCode = persistedCode && persistedCode !== "UNKNOWN_ERROR" ? persistedCode : "UNCLASSIFIED";
