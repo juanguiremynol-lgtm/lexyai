@@ -716,23 +716,35 @@ function nonJudicialBlock(rows: DeadlineRow[], p: DigestPayload): string {
  */
 function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   if (!rows.length) return "";
-  const A = "#f87171";
-  return sectionTitle(
-    `Suscritos y nunca consultados (${rows.length})`,
-    A,
-    "Ninguna lectura del proveedor ha tenido éxito en estos asuntos y no hay ni una actuación ni un estado registrado. No es ausencia de novedades: es ausencia de lectura. " +
-      "La lista es por asunto y no por canal: un asunto que nunca ha sido leído por el canal de actuaciones (CPNU) pero sí por el canal de estados no aparece aquí, porque sus estados ya se reportan arriba. Si otro informe lo señala como «nunca consultado», ambas cosas son ciertas: nunca leído por CPNU; sí por estados.",
-  ) +
+  const verified = rows.filter((r) => r.classification === "MANUAL_NO_ACTS" || r.classification === "MANUAL_PRIVATE");
+  const empty = rows.filter((r) => r.classification === "READ_EMPTY");
+  const failures = rows.filter((r) => r.classification === "READ_FAILURE");
+  const table = (group: NeverReadRow[], accent: string, status: (r: NeverReadRow) => string) =>
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Radicado", A)}${th("Asunto", A)}${th("Días desde el alta", A)}${th("Último intento", A)}${th("Último código", A)}</tr></thead>
-      <tbody>${rows.map((r) => `<tr>
-        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${A};">${esc(r.radicado || "Sin radicado")}</a>`)}
+      <thead><tr>${th("Radicado", accent)}${th("Asunto", accent)}${th("Antigüedad", accent)}${th("Última verificación", accent)}${th("Lo que sabemos", accent)}</tr></thead>
+      <tbody>${group.map((r) => `<tr>
+        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${accent};">${esc(r.radicado || "Sin radicado")}</a>`)}
         ${td(esc(r.title || "—"))}
-        ${td(r.days_since_alta === null ? "—" : String(r.days_since_alta))}
+        ${td(r.days_since_alta === null ? "—" : `<strong style="color:${r.days_since_alta >= 90 ? "#f87171" : r.days_since_alta >= 30 ? "#fbbf24" : TEXT};">${r.days_since_alta} días</strong>`)}
         ${td(r.last_attempted_sync_at ? fmtDateTime(r.last_attempted_sync_at) : `<span style="color:${MUTED};">Nunca</span>`)}
-        ${td(esc(r.last_error_code || "—"))}
-      </tr>`).join("")}</tbody>
-    </table>`;
+        ${td(status(r))}
+      </tr>`).join("")}</tbody></table>`;
+  const blocks: string[] = [];
+  if (verified.length) blocks.push(sectionTitle(
+    `Verificación manual (${verified.length})`, "#34d399",
+    "Estos expedientes fueron consultados directamente en el portal judicial. No requieren acción del abogado.",
+  ) + table(verified, "#34d399", (r) => r.classification === "MANUAL_PRIVATE"
+    ? `El expediente es privado (verificación manual en el portal, ${fmtDate(r.verified_on)}).`
+    : `El juzgado no ha emitido actuaciones (verificación manual en el portal, ${fmtDate(r.verified_on)}).`));
+  if (empty.length) blocks.push(sectionTitle(
+    `Lectura correcta, sin actuaciones (${empty.length})`, "#38bdf8",
+    "El proveedor respondió correctamente y no entregó actuaciones. Esto no es una falla de lectura.",
+  ) + table(empty, "#38bdf8", () => "Lectura respondida sin actuaciones."));
+  if (failures.length) blocks.push(sectionTitle(
+    `Problema de lectura de Andromeda (${failures.length})`, "#f87171",
+    "Andromeda no ha logrado leer estos expedientes; es un problema nuestro, no del juzgado.",
+  ) + table(failures, "#f87171", (r) => `<strong>${esc(r.last_error_code || "UNCLASSIFIED")}</strong><br><span style="color:${MUTED};">${esc(r.diagnostic_detail || "Sin detalle disponible")}</span>`));
+  return blocks.join("");
 }
 
 export function buildDigestHtml(p: DigestPayload): string {

@@ -65,11 +65,15 @@ describe("ZZ2 — the window is a calendar day in Bogotá", () => {
     expect(html).toMatch(/del día \$\{esc\(p\.windowLabel\)\}/);
   });
 
-  it("carries the 'suscritos y nunca consultados' signal", () => {
+  it("classifies unread-looking matters by known evidence", () => {
     expect(types).toMatch(/interface NeverReadRow/);
     expect(index).toMatch(/const neverRead: NeverReadRow\[\] = \[\]/);
-    expect(html).toMatch(/Suscritos y nunca consultados/);
-    expect(html).toMatch(/No es ausencia de novedades: es ausencia de lectura/);
+    expect(index).toMatch(/manual_court_findings/);
+    expect(index).toMatch(/PROVIDER_EMPTY_RESULT/);
+    expect(html).toMatch(/Verificación manual/);
+    expect(html).toMatch(/Lectura correcta, sin actuaciones/);
+    expect(html).toMatch(/Problema de lectura de Andromeda/);
+    expect(html).toMatch(/es un problema nuestro, no del juzgado/);
   });
 
   it("treats a never-read matter as content on a day with no novedades", () => {
