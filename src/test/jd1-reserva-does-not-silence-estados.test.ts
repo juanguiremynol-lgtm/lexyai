@@ -12,7 +12,13 @@ import {
 } from "@/lib/reserva-notice";
 import { exposureMessage } from "@/components/work-items/linea-procesal/ExposicionDetalleStatus";
 
-const estadosCron = readFileSync("supabase/functions/scheduled-daily-estados/index.ts", "utf8");
+const estadosCronRaw = readFileSync("supabase/functions/scheduled-daily-estados/index.ts", "utf8");
+// Comments describe the doctrine; the assertions below are about executable code.
+const estadosCron = estadosCronRaw
+  .split("\n")
+  .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+  .join("\n");
+
 const edgeMirror = readFileSync("supabase/functions/_shared/reservaNotice.ts", "utf8");
 
 describe("JD1 — the estados cron selects on lifecycle only", () => {
