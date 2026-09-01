@@ -5,3 +5,4 @@
 - [Recurso Streams](mem://architecture/recurso-streams-one-work-item) — 23-digit key vs base-21 identity, one work item per process, instancia tagging
 - [GOV_PROCEDURE Sancionatorio Model](mem://architecture/gov-procedure-sancionatorio-model) — CPACA 47-52 stages, regime overlays, caducidad/recurso background timers, three permanent invariants
 - [Email Entity Resolution](mem://architecture/email-entity-resolution-admissibility) — Signal admissibility classes, confidence ceiling, authority registry, thread continuity
+- [Signing Out of Scope](mem://governance/signing-out-of-scope-agreecolombia) — Andromeda produces work-item-scoped document content only; signature and execution live with AgreeColombia; signing tables are abandoned-feature residue, never a task
