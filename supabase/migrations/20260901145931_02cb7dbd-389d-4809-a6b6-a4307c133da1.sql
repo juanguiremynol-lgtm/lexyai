@@ -1,0 +1,1 @@
+revoke all on function public.guard_deadline_dateless_anchor() from public, anon, authenticated;
