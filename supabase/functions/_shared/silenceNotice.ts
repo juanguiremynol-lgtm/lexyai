@@ -5,8 +5,11 @@
  * (2026-08-28):
  *   - A radicado can sit for MONTHS with no actuación and no estado. Courts
  *     routinely take a long time to admit, inadmit or reject a demanda.
- *   - Some despachos do not publish estados online AT ALL.
- * Therefore silence is NORMAL. It is information for him, never a conclusion
+ *   - JF3: EVERY matter must publish estados (Publicaciones Procesales for the
+ *     CGP family, SAMAI Estados for CPACA). There is no exception, so a
+ *     permanent estados absence points at us or at the provider, never at the
+ *     court.
+ * Silence on actuaciones is therefore normal; it is information for him, never a conclusion
  * for us, and never a reason for the system to stop monitoring.
  *
  * This module produces the notice only. Nothing here may pause, demonitor,
@@ -44,9 +47,9 @@ export const NO_ES_ADVERTENCIA =
   "Este aviso informa; no es una advertencia ni una alerta de riesgo.";
 
 export const DECISION_ES_SUYA =
-  "El monitoreo sigue activo y no se detendrá por sí solo. Si usted sabe que este " +
-  "despacho no publica por estos canales, puede pausar el asunto usted mismo desde " +
-  "el detalle del asunto. Andrómeda nunca lo pausará por silencio.";
+  "El monitoreo sigue activo y no se detendrá por sí solo. Si usted considera que " +
+  "este asunto no requiere seguimiento, puede pausarlo usted mismo desde el detalle " +
+  "del asunto. Andrómeda nunca lo pausará por silencio.";
 
 export interface SilenceChannelEvidence {
   /** Human label of the channel: "Actuaciones (CPNU)", "Estados (Publicaciones)". */
