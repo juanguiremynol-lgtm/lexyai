@@ -773,18 +773,46 @@ Deno.serve(async (req) => {
         const neverRead: NeverReadRow[] = [];
         if (neverReadCandidates.length) {
           const candIds = neverReadCandidates.map((i) => i.id);
-          const [{ data: anyActs }, { data: anyPubs }] = await Promise.all([
+          const candidateRadicados = neverReadCandidates.map((i) => i.radicado).filter(Boolean) as string[];
+          const [{ data: anyActs }, { data: anyPubs }, { data: findings }, { data: recentRuns }] = await Promise.all([
             supabase.from("work_item_acts").select("work_item_id").in("work_item_id", candIds).limit(2000),
             supabase.from("work_item_publicaciones").select("work_item_id").in("work_item_id", candIds).limit(2000),
+            candidateRadicados.length
+              ? supabase.from("manual_court_findings").select("radicado, finding_kind, verified_on, note").in("radicado", candidateRadicados).order("verified_on", { ascending: false })
+              : Promise.resolve({ data: [] }),
+            supabase.from("external_sync_runs").select("id, work_item_id, started_at, finished_at, status, error_code, error_message").in("work_item_id", candIds).order("started_at", { ascending: false }).limit(2000),
           ]);
           const withData = new Set<string>([
             ...(anyActs ?? []).map((r) => r.work_item_id as string),
             ...(anyPubs ?? []).map((r) => r.work_item_id as string),
           ]);
+          const findingByRadicado = new Map<string, Record<string, unknown>>();
+          for (const finding of findings ?? []) {
+            const key = String(finding.radicado ?? "");
+            if (key && !findingByRadicado.has(key)) findingByRadicado.set(key, finding as Record<string, unknown>);
+          }
+          const latestRunByItem = new Map<string, Record<string, unknown>>();
+          for (const run of recentRuns ?? []) {
+            const key = String(run.work_item_id ?? "");
+            if (key && !latestRunByItem.has(key)) latestRunByItem.set(key, run as Record<string, unknown>);
+          }
           for (const i of neverReadCandidates) {
             if (withData.has(i.id)) continue;
             const raw = i as unknown as Record<string, string | null>;
             const created = raw.created_at ?? null;
+            const finding = findingByRadicado.get(i.radicado ?? "");
+            const findingKind = String(finding?.finding_kind ?? "");
+            const latestRun = latestRunByItem.get(i.id);
+            const runStatus = String(latestRun?.status ?? "").toUpperCase();
+            const runCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").toUpperCase();
+            const isAnsweredEmpty = runStatus === "SUCCESS" &&
+              (runCode === "PROVIDER_EMPTY_RESULT" || String(latestRun?.error_message ?? "").toLowerCase().includes("no actuaciones"));
+            const classification: NeverReadRow["classification"] =
+              findingKind === "RADICADO_EXISTE_SIN_ACTUACIONES" ? "MANUAL_NO_ACTS" :
+              findingKind === "PROCESO_PRIVADO" ? "MANUAL_PRIVATE" :
+              isAnsweredEmpty ? "READ_EMPTY" : "READ_FAILURE";
+            const persistedCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").trim();
+            const safeCode = persistedCode && persistedCode !== "UNKNOWN_ERROR" ? persistedCode : "UNCLASSIFIED";
             neverRead.push({
               id: i.id, radicado: i.radicado, title: i.title,
               workflow_type: i.workflow_type,
@@ -792,8 +820,13 @@ Deno.serve(async (req) => {
               days_since_alta: created
                 ? Math.floor((Date.now() - Date.parse(created)) / 86_400_000)
                 : null,
-              last_attempted_sync_at: raw.last_attempted_sync_at ?? null,
-              last_error_code: raw.last_error_code ?? null,
+              last_attempted_sync_at: (latestRun?.started_at as string | null) ?? raw.last_attempted_sync_at ?? null,
+              last_error_code: classification === "READ_FAILURE" ? safeCode : null,
+              classification,
+              verified_on: (finding?.verified_on as string | null) ?? null,
+              diagnostic_detail: classification === "READ_FAILURE"
+                ? String(latestRun?.error_message ?? "Forma de respuesta no clasificada; revisar la evidencia cruda del intento.")
+                : (finding?.note as string | null) ?? null,
             });
           }
           neverRead.sort((a, b) => (b.days_since_alta ?? 0) - (a.days_since_alta ?? 0));

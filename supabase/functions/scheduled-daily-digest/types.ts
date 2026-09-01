@@ -405,4 +405,8 @@ export interface NeverReadRow {
   created_at: string | null;
   last_attempted_sync_at: string | null;
   last_error_code: string | null;
+  /** IY — why the item has no canonical actuaciones/estados. */
+  classification: "MANUAL_NO_ACTS" | "MANUAL_PRIVATE" | "READ_EMPTY" | "READ_FAILURE";
+  verified_on: string | null;
+  diagnostic_detail: string | null;
 }
