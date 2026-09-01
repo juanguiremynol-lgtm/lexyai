@@ -1714,6 +1714,17 @@ Deno.serve(withSyncTimeline(async (req) => {
       fetchResult = orchExec.fetchResult;
       orchestratorSyncRunId = orchExec.syncRunId;
 
+      // IX3(c)/S6 — seal the read outcome here, before any work that can be
+      // cut off by the caller's timeout. A read never ends without a verdict.
+      await sealReadOutcome(
+        supabase,
+        work_item_id,
+        orchExec.fetchResult,
+        orchExec.providerAttempts,
+        orchExec.scrapingInitiated,
+      );
+
+
       // Handle scraping-initiated case
       if (!fetchResult && orchExec.scrapingInitiated && orchExec.scrapingResult) {
         const sr = orchExec.scrapingResult;
