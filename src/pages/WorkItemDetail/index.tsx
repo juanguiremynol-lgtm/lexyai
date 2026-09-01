@@ -41,6 +41,7 @@ import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
 import { externalDisplayModeFor } from "@/lib/externalSyncDisplay";
 import { SyncTimelineTab } from "@/components/work-items/SyncTimelineTab";
+import { EmptyExpedienteNotice } from "@/components/work-items/EmptyExpedienteNotice";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -404,6 +405,7 @@ export default function WorkItemDetail() {
           <SucesionBanner workItemId={workItem.id} />
           <WorkItemDeadlinesBanner workItemId={workItem.id} />
           <DeadlineDischargeCard workItemId={workItem.id} />
+          <EmptyExpedienteNotice workItem={extendedWorkItem} actsCount={actuaciones.length} />
           <LineaProcesal
             workItemId={workItem.id}
             workflowType={workItem.workflow_type as WorkflowType}

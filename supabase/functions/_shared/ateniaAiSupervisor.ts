@@ -20,7 +20,7 @@ export type DiagnosticCategory =
   | "MISSING_PLATFORM_INSTANCE"
   | "MAPPING_NOT_ACTIVE"
   | "SNAPSHOT_PARSE_FAILED"
-  | "UNKNOWN_ERROR";
+  | "UNCLASSIFIED_PROVIDER_SHAPE";
 
 export interface Diagnostic {
   category: DiagnosticCategory;
@@ -93,7 +93,7 @@ export function translateDiagnostic(input: {
   fallbackTitle?: string;
   evidence?: Record<string, unknown>;
 }): Diagnostic {
-  const code = (input.code ?? "UNKNOWN_ERROR").toUpperCase();
+  const code = (input.code ?? "UNCLASSIFIED_PROVIDER_SHAPE").toUpperCase();
   const provider = input.provider ?? undefined;
 
   const isNotFound =
@@ -267,7 +267,7 @@ export function translateDiagnostic(input: {
   }
 
   return {
-    category: "UNKNOWN_ERROR",
+    category: "UNCLASSIFIED_PROVIDER_SHAPE",
     severity: "WARN",
     title: input.fallbackTitle ?? "Error no clasificado",
     explanation:

@@ -45,14 +45,14 @@ Deno.serve(async (req) => {
     };
     if (cpnuApiKey) headers['x-api-key'] = cpnuApiKey;
 
-    // ── P1.2 NO-OP EARLY EXIT ──
-    // Sin jobs IN_PROGRESS no hay nada que expirar ni que sondear.
+    // Include pollable jobs and orphaned IN_PROGRESS rows. Previously this
+    // early exit counted only rows WITH a job id, making orphan closure
+    // unreachable whenever only no-job rows remained.
     const { count: inProgressCount } = await supabase
       .from('work_items')
       .select('id', { count: 'exact', head: true })
       .eq('scrape_status', 'IN_PROGRESS')
-      .eq('scrape_provider', 'cpnu')
-      .not('scrape_job_id', 'is', null);
+      .or('scrape_provider.eq.cpnu,scrape_provider.is.null');
 
     if ((inProgressCount ?? 0) === 0) {
       return new Response(JSON.stringify({ ok: true, no_op: true, polled: 0 }), {
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
       .select('id, radicado')
       .eq('scrape_status', 'IN_PROGRESS')
       .is('scrape_job_id', null)
-      .lt('last_scrape_initiated_at', timeoutCutoff);
+      .or(`last_scrape_initiated_at.lt.${timeoutCutoff},last_scrape_initiated_at.is.null`);
 
     if (orphanItems && orphanItems.length > 0) {
       console.log(`[cpnu-job-poller] Found ${orphanItems.length} orphaned IN_PROGRESS items (no job id)`);
@@ -163,7 +163,19 @@ Deno.serve(async (req) => {
 
         if (!response.ok) {
           console.warn(`[cpnu-job-poller] HTTP ${response.status} for job ${jobId}`);
-          stillPending++;
+          const orphanedJob = response.status === 404 || response.status === 410;
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: orphanedJob ? 'FAILED' : 'IN_PROGRESS',
+              last_error_code: orphanedJob ? 'SCRAPE_ORPHANED_IN_PROGRESS' : `POLL_HTTP_${response.status}`,
+              last_error_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+              ...(orphanedJob ? { scrape_job_id: null, scrape_poll_url: null } : {}),
+            })
+            .eq('id', item.id);
+          if (orphanedJob) failed++;
+          else stillPending++;
           continue;
         }
 
@@ -262,12 +274,17 @@ Deno.serve(async (req) => {
             console.log(`[cpnu-job-poller] sync-by-work-item result: ok=${syncResult.ok}, inserted=${syncResult.inserted_count}`);
 
             if (syncResult.ok || syncResult.inserted_count > 0) {
-              // Limpiar el job_id ya procesado
+              // Cerrar explícitamente antes de limpiar el job. No dependemos del
+              // sellado tardío del camino legacy: dejar IN_PROGRESS + job NULL
+              // haría que el siguiente barrido lo confundiera con un huérfano.
               await supabase
                 .from('work_items')
                 .update({
+                  scrape_status: 'SUCCESS',
+                  last_error_code: null,
                   scrape_job_id: null,
                   scrape_poll_url: null,
+                  last_checked_at: new Date().toISOString(),
                 })
                 .eq('id', item.id);
               completed++;
@@ -308,6 +325,14 @@ Deno.serve(async (req) => {
 
       } catch (pollErr: any) {
         console.error(`[cpnu-job-poller] Poll error for job ${jobId}:`, pollErr?.message);
+        await supabase
+          .from('work_items')
+          .update({
+            last_error_code: 'POLL_REQUEST_FAILED',
+            last_error_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', item.id);
         stillPending++;
       }
     }

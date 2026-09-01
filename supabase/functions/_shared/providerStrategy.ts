@@ -58,7 +58,7 @@ export const TRANSIENT_ERROR_CODES: ReadonlySet<string> = new Set([
   "PROVIDER_RATE_LIMITED",
   "SCRAPING_STUCK",
   "UPSTREAM_ROUTE_MISSING",
-  "UNKNOWN_ERROR",
+  "UNCLASSIFIED_PROVIDER_SHAPE",
 ]);
 
 /** True when the code means the provider never delivered an answer. */

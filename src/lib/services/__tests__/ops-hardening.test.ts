@@ -110,7 +110,7 @@ describe("E2E Fail Reason Types (A)", () => {
       "SYNC_TIMEOUT",
       "ASSERTION_FAILED",
       "NO_EXTERNAL_DATA_YET",
-      "UNKNOWN_ERROR",
+      "UNCLASSIFIED_PROVIDER_SHAPE",
     ];
     expect(reasons).toHaveLength(8);
   });

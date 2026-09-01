@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         ok: false, 
-        code: 'UNKNOWN_ERROR',
+        code: 'UNCLASSIFIED_PROVIDER_SHAPE',
         message: err instanceof Error ? err.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       }),
