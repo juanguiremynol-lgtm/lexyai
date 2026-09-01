@@ -124,6 +124,15 @@ export interface DeadlineRow {
   /** NN2 — computed by `public.v_deadline_attribution`, never re-derived here. */
   attribution: "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO" | string;
   bound_party_role: string | null;
+  /**
+   * IZ3 — present only when the despacho declared `fecha_finaliza_termino` and
+   * the engine stored the court's date over its own catalogue rule.
+   */
+  declared?: {
+    declared_end_date: string;
+    catalog_date: string | null;
+    catalog_days: number | null;
+  } | null;
 }
 
 export const BOUND_PARTY_SHORT: Record<string, string> = {
@@ -406,7 +415,12 @@ export interface NeverReadRow {
   last_attempted_sync_at: string | null;
   last_error_code: string | null;
   /** IY — why the item has no canonical actuaciones/estados. */
-  classification: "MANUAL_NO_ACTS" | "MANUAL_PRIVATE" | "READ_EMPTY" | "READ_FAILURE";
+  /**
+   * IY/AB3 — CHANNEL_PARTIAL: the matter HAS estados on file but no channel
+   * ever completed a CPNU read. It is not an unread matter and must never be
+   * described as having nothing on file.
+   */
+  classification: "MANUAL_NO_ACTS" | "MANUAL_PRIVATE" | "READ_EMPTY" | "READ_FAILURE" | "CHANNEL_PARTIAL";
   verified_on: string | null;
   diagnostic_detail: string | null;
 }

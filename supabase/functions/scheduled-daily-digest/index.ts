@@ -421,7 +421,7 @@ Deno.serve(async (req) => {
         const dueBy = new Date(Date.now() + DEADLINE_HORIZON_DAYS * 86_400_000).toISOString().slice(0, 10);
         const { data: rawDeadlines } = await supabase
           .from("v_deadline_attribution")
-          .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role")
+          .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role, calculation_meta")
           .in("work_item_id", ids)
           .eq("status", "PENDING")
           .lte("deadline_date", dueBy)
@@ -796,8 +796,8 @@ Deno.serve(async (req) => {
             const key = String(run.work_item_id ?? "");
             if (key && !latestRunByItem.has(key)) latestRunByItem.set(key, run as Record<string, unknown>);
           }
+          const withEstados = new Set<string>((anyPubs ?? []).map((r) => r.work_item_id as string));
           for (const i of neverReadCandidates) {
-            if (withData.has(i.id)) continue;
             const raw = i as unknown as Record<string, string | null>;
             const created = raw.created_at ?? null;
             const finding = findingByRadicado.get(i.radicado ?? "");
@@ -807,9 +807,16 @@ Deno.serve(async (req) => {
             const runCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").toUpperCase();
             const isAnsweredEmpty = runStatus === "SUCCESS" &&
               (runCode === "PROVIDER_EMPTY_RESULT" || String(latestRun?.error_message ?? "").toLowerCase().includes("no actuaciones"));
+            // IZ2(d)/AB3 — a matter with estados on file is NOT an unread matter.
+            // It is a per-channel gap and is reported as such, never as "no hay
+            // ni una actuación ni un estado registrado". A matter with stored
+            // actuaciones does not belong in this section at all.
+            const hasEstados = withEstados.has(i.id);
+            if (withData.has(i.id) && !hasEstados) continue;
             const classification: NeverReadRow["classification"] =
               findingKind === "RADICADO_EXISTE_SIN_ACTUACIONES" ? "MANUAL_NO_ACTS" :
               findingKind === "PROCESO_PRIVADO" ? "MANUAL_PRIVATE" :
+              hasEstados ? "CHANNEL_PARTIAL" :
               isAnsweredEmpty ? "READ_EMPTY" : "READ_FAILURE";
             const persistedCode = String(latestRun?.error_code ?? raw.last_error_code ?? "").trim();
             const safeCode = persistedCode && persistedCode !== "UNKNOWN_ERROR" ? persistedCode : "UNCLASSIFIED";
@@ -838,7 +845,19 @@ Deno.serve(async (req) => {
           const days = Math.round(
             (new Date(`${d.deadline_date}T12:00:00Z`).getTime() - new Date(`${today}T12:00:00Z`).getTime()) / 86_400_000,
           );
-          return { ...d, id: d.deadline_id, overdue: days < 0, days_left: days } as unknown as DeadlineRow;
+          // IZ3(a) — when the despacho declared its own end date and the engine
+          // stored it over the catalogue rule, say so. Read only; never recompute.
+          const meta = (d.calculation_meta ?? {}) as Record<string, unknown>;
+          const declaredEnd = meta.fecha_final_despacho ? String(meta.fecha_final_despacho) : null;
+          const mismatch = String(meta.matches_stored_date ?? "") === "false";
+          const declared = declaredEnd && mismatch
+            ? {
+                declared_end_date: declaredEnd,
+                catalog_date: meta.recomputed_date ? String(meta.recomputed_date) : null,
+                catalog_days: typeof meta.days_amount === "number" ? meta.days_amount : null,
+              }
+            : null;
+          return { ...d, id: d.deadline_id, overdue: days < 0, days_left: days, declared } as unknown as DeadlineRow;
         });
         // JJ3(b) — non-judicial deadlines are rendered apart, never merged.
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));

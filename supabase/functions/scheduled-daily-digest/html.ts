@@ -485,10 +485,18 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
       <tbody>${list.map((d) => {
         const wi = p.workItems.get(d.work_item_id);
         const party = BOUND_PARTY_SHORT[String(d.bound_party_role ?? "DESCONOCIDO")] ?? "parte no determinada";
+        // IZ3(a) — the court outranks the catalogue, and he must see when it did.
+        const declared = d.declared
+          ? `<br><span style="color:#fbbf24;font-size:11px;">Término declarado por el despacho${
+              d.declared.catalog_days ? "" : ""
+            }; la regla del catálogo${
+              d.declared.catalog_days ? ` (${d.declared.catalog_days} días hábiles)` : ""
+            }${d.declared.catalog_date ? ` habría dado el ${fmtDate(d.declared.catalog_date)}` : " habría dado otra fecha"}.</span>`
+          : "";
         return `<tr>
           ${td(fmtDate(d.deadline_date))}
           ${td(esc(wi?.radicado || wi?.title || "—"))}
-          ${td(esc(d.label || d.deadline_type || "—"))}
+          ${td(esc(d.label || d.deadline_type || "—") + declared)}
           ${withParty ? td(esc(party)) : ""}
           ${td(d.overdue
             ? `<span style="color:#f87171;font-weight:700;">Vencido hace ${Math.abs(d.days_left)} día(s)</span>`
@@ -719,6 +727,7 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   const verified = rows.filter((r) => r.classification === "MANUAL_NO_ACTS" || r.classification === "MANUAL_PRIVATE");
   const empty = rows.filter((r) => r.classification === "READ_EMPTY");
   const failures = rows.filter((r) => r.classification === "READ_FAILURE");
+  const partial = rows.filter((r) => r.classification === "CHANNEL_PARTIAL");
   const table = (group: NeverReadRow[], accent: string, status: (r: NeverReadRow) => string) =>
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", accent)}${th("Asunto", accent)}${th("Antigüedad", accent)}${th("Última verificación", accent)}${th("Lo que sabemos", accent)}</tr></thead>
@@ -740,9 +749,16 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
     `Lectura correcta, sin actuaciones (${empty.length})`, "#38bdf8",
     "El proveedor respondió correctamente y no entregó actuaciones. Esto no es una falla de lectura.",
   ) + table(empty, "#38bdf8", () => "Lectura respondida sin actuaciones."));
+  // AB3 / IZ2(d) — the per-channel case. These matters DO have estados on file;
+  // describing them as having nothing registrado would be false.
+  if (partial.length) blocks.push(sectionTitle(
+    `Leído por un canal solamente (${partial.length})`, "#fbbf24",
+    "Estos expedientes sí tienen estados registrados. Lo que falta es la lectura del otro canal, no el expediente.",
+  ) + table(partial, "#fbbf24", () =>
+    "Cobertura parcial: nunca leído por CPNU; sí por estados. No es un expediente sin registro."));
   if (failures.length) blocks.push(sectionTitle(
     `Problema de lectura de Andromeda (${failures.length})`, "#f87171",
-    "Andromeda no ha logrado leer estos expedientes; es un problema nuestro, no del juzgado.",
+    "Andrómeda no ha logrado completar la lectura; es un problema nuestro, no del juzgado.",
   ) + table(failures, "#f87171", (r) => `<strong>${esc(r.last_error_code || "UNCLASSIFIED")}</strong><br><span style="color:${MUTED};">${esc(r.diagnostic_detail || "Sin detalle disponible")}</span>`));
   return blocks.join("");
 }
