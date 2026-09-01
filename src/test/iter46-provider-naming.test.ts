@@ -31,7 +31,8 @@ describe("A · PROCESO_PRIVADO is the provider's term, attributed", () => {
 
   it("quotes the provider verbatim and attributes the statement", () => {
     const copy = ESTADOS_SIGNAL_EXPLANATION.PROCESO_PRIVADO;
-    expect(copy).toContain("La Rama Judicial marca");
+    expect(copy).toContain("El proveedor de actuaciones AFIRMA");
+    expect(copy).toContain("no un hecho comprobado");
     expect(copy).toContain("PROCESO PRIVADO");
     expect(copy).toContain("No se puede ver el detalle de un proceso privado");
   });
