@@ -786,12 +786,18 @@ function inferStageFromActuacion(
 /**
  * Classify provider errors into standardized error codes.
  * Used for work_items.last_error_code and sync_traces.error_code.
+ *
+ * IX3(b)/S5 — UNKNOWN_ERROR is NOT a taxonomy entry. A read that produced no
+ * FetchResult at all did not fail at the provider: no provider ever answered.
+ * That is `NO_PROVIDER_RESPONSE`, and it is a statement about OUR chain, not
+ * about the expediente.
  */
 function classifyProviderError(
   fetchResult: FetchResult | null | undefined,
   fallbackCode: string
 ): string {
-  if (!fetchResult) return 'UNKNOWN_ERROR';
+  if (!fetchResult) return 'NO_PROVIDER_RESPONSE';
+
 
   const httpStatus = fetchResult.httpStatus;
   const errorMsg = (fetchResult.error || '').toLowerCase();
