@@ -748,7 +748,8 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
     `Verificación manual (${verified.length})`, "#34d399",
     "Estos expedientes fueron consultados directamente en el portal judicial. No requieren acción del abogado.",
   ) + table(verified, "#34d399", (r) => r.classification === "MANUAL_PRIVATE"
-    ? `El expediente es privado (verificación manual en el portal, ${fmtDate(r.verified_on)}).`
+    ? `${reservaNoticeShort(r.workflow_type)} Verificación manual en el portal, ${fmtDate(r.verified_on)}.`
+
     : `El juzgado no ha emitido actuaciones (verificación manual en el portal, ${fmtDate(r.verified_on)}).`));
   if (empty.length) blocks.push(sectionTitle(
     `Lectura correcta, sin actuaciones (${empty.length})`, "#38bdf8",
