@@ -485,10 +485,18 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
       <tbody>${list.map((d) => {
         const wi = p.workItems.get(d.work_item_id);
         const party = BOUND_PARTY_SHORT[String(d.bound_party_role ?? "DESCONOCIDO")] ?? "parte no determinada";
+        // IZ3(a) — the court outranks the catalogue, and he must see when it did.
+        const declared = d.declared
+          ? `<br><span style="color:#fbbf24;font-size:11px;">Término declarado por el despacho${
+              d.declared.catalog_days ? "" : ""
+            }; la regla del catálogo${
+              d.declared.catalog_days ? ` (${d.declared.catalog_days} días hábiles)` : ""
+            }${d.declared.catalog_date ? ` habría dado el ${fmtDate(d.declared.catalog_date)}` : " habría dado otra fecha"}.</span>`
+          : "";
         return `<tr>
           ${td(fmtDate(d.deadline_date))}
           ${td(esc(wi?.radicado || wi?.title || "—"))}
-          ${td(esc(d.label || d.deadline_type || "—"))}
+          ${td(esc(d.label || d.deadline_type || "—") + declared)}
           ${withParty ? td(esc(party)) : ""}
           ${td(d.overdue
             ? `<span style="color:#f87171;font-weight:700;">Vencido hace ${Math.abs(d.days_left)} día(s)</span>`
