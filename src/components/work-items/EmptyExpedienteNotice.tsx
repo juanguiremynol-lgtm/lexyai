@@ -27,7 +27,7 @@ function formatVerificationDate(value: string): string {
     month: "short",
     year: "numeric",
     timeZone: "America/Bogota",
-  }).format(new Date(`${value}T12:00:00-05:00`)).replaceAll(".", "");
+  }).format(new Date(`${value}T12:00:00-05:00`)).replace(/\./g, "");
 }
 
 export function resolveEmptyExpedienteExplanation(
