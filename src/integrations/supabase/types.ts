@@ -8792,30 +8792,48 @@ export type Database = {
       external_sync_run_payloads: {
         Row: {
           created_at: string
+          endpoint: string | null
+          enumeracion: Json | null
+          http_status: number | null
           id: string
           payload_json: Json
           payload_size_bytes: number | null
           provider_name: string
+          radicado: string | null
+          run_status: string | null
           stage: string
-          sync_run_id: string
+          sync_run_id: string | null
+          work_item_id: string | null
         }
         Insert: {
           created_at?: string
+          endpoint?: string | null
+          enumeracion?: Json | null
+          http_status?: number | null
           id?: string
           payload_json?: Json
           payload_size_bytes?: number | null
           provider_name: string
+          radicado?: string | null
+          run_status?: string | null
           stage: string
-          sync_run_id: string
+          sync_run_id?: string | null
+          work_item_id?: string | null
         }
         Update: {
           created_at?: string
+          endpoint?: string | null
+          enumeracion?: Json | null
+          http_status?: number | null
           id?: string
           payload_json?: Json
           payload_size_bytes?: number | null
           provider_name?: string
+          radicado?: string | null
+          run_status?: string | null
           stage?: string
-          sync_run_id?: string
+          sync_run_id?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
