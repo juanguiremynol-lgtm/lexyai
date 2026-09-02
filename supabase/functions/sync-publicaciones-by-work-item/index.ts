@@ -167,7 +167,28 @@ type PublicacionV3 = {
   };
 };
 
+/**
+ * JN4 — the /procesar-radicado acknowledgement, kept verbatim. The verdict is
+ * STORED, never interpreted: `run_status` and `enumeracion[]` travel as
+ * first-class fields so a later reader does not have to dig through a blob.
+ */
+export type ProcesarAck = {
+  endpoint: string;
+  url: string;
+  radicado: string;
+  http_status: number | null;
+  latency_ms: number;
+  run_status: string | null;
+  enumeracion: unknown[] | null;
+  body: Record<string, unknown> | null;
+  body_bytes: number;
+  parse_error: string | null;
+  transport_error: string | null;
+};
+
 type FetchResultV3 = {
+  /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
+  procesarAck?: ProcesarAck;
   ok: boolean;
   publicaciones: PublicacionV3[];
   error?: string;
