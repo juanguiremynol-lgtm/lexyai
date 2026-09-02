@@ -803,11 +803,28 @@ async function tryProcesarFallback(
   const processingTriggeredMessage = 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
-  
+  const procesarUrl = `${baseUrl}/procesar-radicado`;
+
+  // JN4 — the ack is KEPT, always, including the empty one. We store the
+  // verdict verbatim (run_status, enumeracion[]) and do not interpret it.
+  const ack = (over: Partial<ProcesarAck>): ProcesarAck => ({
+    endpoint: '/procesar-radicado',
+    url: procesarUrl,
+    radicado,
+    http_status: null,
+    latency_ms: Date.now() - startTime,
+    run_status: null,
+    enumeracion: null,
+    body: null,
+    body_bytes: 0,
+    parse_error: null,
+    transport_error: null,
+    ...over,
+  });
+
   try {
-    const procesarUrl = `${baseUrl}/procesar-radicado`;
     console.log(`[sync-pub] Trying POST /procesar-radicado`);
-    
+
     const procesarResponse = await fetch(procesarUrl, {
       method: 'POST',
       headers,
@@ -815,7 +832,37 @@ async function tryProcesarFallback(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    
+
+    // Read the body ONCE, as text, before any branch can discard it.
+    let rawText = '';
+    try {
+      rawText = await procesarResponse.text();
+    } catch (readErr: any) {
+      rawText = '';
+      console.warn(`[sync-pub] /procesar-radicado body unreadable: ${readErr?.message}`);
+    }
+    let procesarData: any = null;
+    let parseError: string | null = null;
+    if (rawText.length > 0) {
+      try {
+        procesarData = JSON.parse(rawText);
+      } catch (jsonErr: any) {
+        parseError = jsonErr?.message ?? 'JSON parse failed';
+      }
+    }
+    const procesarAck = ack({
+      http_status: procesarResponse.status,
+      run_status: typeof procesarData?.run_status === 'string' ? procesarData.run_status : null,
+      enumeracion: Array.isArray(procesarData?.enumeracion) ? procesarData.enumeracion : null,
+      body: procesarData ?? (rawText ? { _raw: rawText.slice(0, 20000) } : {}),
+      body_bytes: rawText.length,
+      parse_error: parseError,
+    });
+    console.log(
+      `[sync-pub][jn4] procesar ack radicado=${radicado} http=${procesarResponse.status} ` +
+        `run_status=${procesarAck.run_status ?? 'null'} enumeracion=${procesarAck.enumeracion?.length ?? 'null'} bytes=${rawText.length}`,
+    );
+
     if (!procesarResponse.ok) {
       console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status}`);
       const latencyMs = Date.now() - startTime;
@@ -828,6 +875,7 @@ async function tryProcesarFallback(
           httpStatus: procesarResponse.status,
           found: false,
           resultCode: 'ERROR',
+          procesarAck,
         };
       }
 
@@ -841,14 +889,8 @@ async function tryProcesarFallback(
         httpStatus: procesarResponse.status,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
-    }
-
-    let procesarData: any = null;
-    try {
-      procesarData = await procesarResponse.json();
-    } catch (_jsonErr) {
-      console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status} without JSON body`);
     }
 
     const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
@@ -861,10 +903,12 @@ async function tryProcesarFallback(
         httpStatus: procesarResponse.status,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
     }
 
-    return extracted;
+    return { ...extracted, procesarAck };
+
     
   } catch (err: any) {
     clearTimeout(timeoutId);
