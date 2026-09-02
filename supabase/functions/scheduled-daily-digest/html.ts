@@ -221,7 +221,48 @@ function precedingActs(rows: PrecedingActRow[] | undefined): string {
   </div>`;
 }
 
+/**
+ * JN1 — jerarquía de lectura, no de estado. Una decisión de fondo y un
+ * memorial no pueden compartir tipografía. Esto es PRESENTACIÓN: no crea
+ * alerta, ni sección, ni conteo, ni término.
+ */
+const DECISION_VOCAB: string[] = [
+  "sentencia",
+  "auto decide",
+  "auto resuelve recurso de queja",
+  "auto resuelve recurso",
+  "resuelve recurso de queja",
+  "decide apelacion",
+  "decide apelación",
+  "auto admisorio",
+  "auto inadmite",
+  "auto rechaza",
+  "mandamiento de pago",
+  "auto que ordena seguir adelante",
+  "seguir adelante la ejecucion",
+  "seguir adelante la ejecución",
+  "auto aprueba liquidacion",
+  "auto aprueba liquidación",
+  "auto termina proceso",
+  "auto declara terminado",
+  "resuelve excepciones",
+  "auto decreta",
+];
+
+function normalizeForVocab(v: string): string {
+  return v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function isDecisionAct(r: ActuacionRow): boolean {
+  const hay = normalizeForVocab(`${r.description ?? ""} ${r.act_type ?? ""} ${r.annotation ?? ""}`);
+  return DECISION_VOCAB.some((t) => hay.includes(normalizeForVocab(t)));
+}
+
+const DECISION_PILL = `<span style="display:inline-block;border:1px solid ${TEXT};border-radius:3px;padding:0 5px;margin-right:6px;font-size:9px;font-weight:700;letter-spacing:.08em;color:${TEXT};vertical-align:middle;">DECISIÓN</span>`;
+
 function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
+  // Orden de lectura: las decisiones primero, conservando el orden relativo.
+  const ordered = [...rows].sort((a, b) => Number(isDecisionAct(b)) - Number(isDecisionAct(a)));
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
     <thead><tr>
@@ -233,17 +274,21 @@ function actuacionesTable(rows: ActuacionRow[], expiryDays: number): string {
       ${th("Documento", ACT_ACCENT)}
     </tr></thead>
     <tbody>
-      ${rows.map((r) => `<tr>
+      ${ordered.map((r) => {
+        const dec = isDecisionAct(r);
+        return `<tr>
         ${td(fmtDate(r.act_date))}
         ${td(fmtDate(r.detected_at))}
-        ${td(esc(r.description || r.act_type || "—") + crossRefNote(r.crossRef, "ACT") + precedingActs(r.precedingActs))}
+        ${td((dec ? DECISION_PILL : "") + `<span style="${dec ? `color:${TEXT};font-weight:700;` : ""}">${esc(r.description || r.act_type || "—")}</span>` + crossRefNote(r.crossRef, "ACT") + precedingActs(r.precedingActs))}
         ${td(esc(r.annotation || "—"))}
         ${td(`<span style="color:${ACT_ACCENT};">${esc(actuacionSourceLabel(r.source))}</span>`)}
         ${td(docsCell(r.documents, expiryDays, r.document_availability))}
-      </tr>`).join("")}
+      </tr>`;
+      }).join("")}
     </tbody>
   </table>`;
 }
+
 
 function estadosTable(rows: EstadoRow[], expiryDays: number): string {
   return `
@@ -420,7 +465,8 @@ function novedadesBlock(p: DigestPayload): string {
     const ests = p.estados.filter((e) => e.work_item_id === id);
     out += `<div style="border:1px solid ${BORDER};border-radius:8px;overflow:hidden;margin-bottom:18px;background:${CARD};">
       ${itemHeader(p.workItems.get(id), id, p.appBaseUrl)}
-      ${acts.length ? `<div style="padding:8px 12px 2px;font-size:12px;font-weight:700;color:${ACT_ACCENT};">ACTUACIONES — actos en el expediente (${acts.length})</div>${actuacionesTable(acts, p.linkExpiryDays)}` : ""}
+      ${acts.length ? `<div style="padding:8px 12px 2px;font-size:12px;font-weight:700;color:${ACT_ACCENT};">ACTUACIONES — actos en el expediente (${acts.length})</div>
+      ${acts.some(isDecisionAct) ? `<div style="padding:0 12px 4px;font-size:11px;color:${MUTED};line-height:1.5;">Las actuaciones marcadas <b style="color:${TEXT};">DECISIÓN</b> se listan primero. El orden es de lectura: no altera ninguna cifra de este correo ni califica el contenido de la decisión.</div>` : ""}${actuacionesTable(acts, p.linkExpiryDays)}` : ""}
       ${ests.length ? `<div style="padding:12px 12px 2px;font-size:12px;font-weight:700;color:${EST_ACCENT};">ESTADOS — publicaciones fijadas en lista (${ests.length})</div>${estadosTable(ests, p.linkExpiryDays)}` : ""}
     </div>`;
   }

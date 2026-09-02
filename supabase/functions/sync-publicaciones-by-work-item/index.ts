@@ -167,7 +167,28 @@ type PublicacionV3 = {
   };
 };
 
+/**
+ * JN4 — the /procesar-radicado acknowledgement, kept verbatim. The verdict is
+ * STORED, never interpreted: `run_status` and `enumeracion[]` travel as
+ * first-class fields so a later reader does not have to dig through a blob.
+ */
+export type ProcesarAck = {
+  endpoint: string;
+  url: string;
+  radicado: string;
+  http_status: number | null;
+  latency_ms: number;
+  run_status: string | null;
+  enumeracion: unknown[] | null;
+  body: Record<string, unknown> | null;
+  body_bytes: number;
+  parse_error: string | null;
+  transport_error: string | null;
+};
+
 type FetchResultV3 = {
+  /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
+  procesarAck?: ProcesarAck;
   ok: boolean;
   publicaciones: PublicacionV3[];
   error?: string;
@@ -803,11 +824,28 @@ async function tryProcesarFallback(
   const processingTriggeredMessage = 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
-  
+  const procesarUrl = `${baseUrl}/procesar-radicado`;
+
+  // JN4 — the ack is KEPT, always, including the empty one. We store the
+  // verdict verbatim (run_status, enumeracion[]) and do not interpret it.
+  const ack = (over: Partial<ProcesarAck>): ProcesarAck => ({
+    endpoint: '/procesar-radicado',
+    url: procesarUrl,
+    radicado,
+    http_status: null,
+    latency_ms: Date.now() - startTime,
+    run_status: null,
+    enumeracion: null,
+    body: null,
+    body_bytes: 0,
+    parse_error: null,
+    transport_error: null,
+    ...over,
+  });
+
   try {
-    const procesarUrl = `${baseUrl}/procesar-radicado`;
     console.log(`[sync-pub] Trying POST /procesar-radicado`);
-    
+
     const procesarResponse = await fetch(procesarUrl, {
       method: 'POST',
       headers,
@@ -815,7 +853,37 @@ async function tryProcesarFallback(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    
+
+    // Read the body ONCE, as text, before any branch can discard it.
+    let rawText = '';
+    try {
+      rawText = await procesarResponse.text();
+    } catch (readErr: any) {
+      rawText = '';
+      console.warn(`[sync-pub] /procesar-radicado body unreadable: ${readErr?.message}`);
+    }
+    let procesarData: any = null;
+    let parseError: string | null = null;
+    if (rawText.length > 0) {
+      try {
+        procesarData = JSON.parse(rawText);
+      } catch (jsonErr: any) {
+        parseError = jsonErr?.message ?? 'JSON parse failed';
+      }
+    }
+    const procesarAck = ack({
+      http_status: procesarResponse.status,
+      run_status: typeof procesarData?.run_status === 'string' ? procesarData.run_status : null,
+      enumeracion: Array.isArray(procesarData?.enumeracion) ? procesarData.enumeracion : null,
+      body: procesarData ?? (rawText ? { _raw: rawText.slice(0, 20000) } : {}),
+      body_bytes: rawText.length,
+      parse_error: parseError,
+    });
+    console.log(
+      `[sync-pub][jn4] procesar ack radicado=${radicado} http=${procesarResponse.status} ` +
+        `run_status=${procesarAck.run_status ?? 'null'} enumeracion=${procesarAck.enumeracion?.length ?? 'null'} bytes=${rawText.length}`,
+    );
+
     if (!procesarResponse.ok) {
       console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status}`);
       const latencyMs = Date.now() - startTime;
@@ -828,6 +896,7 @@ async function tryProcesarFallback(
           httpStatus: procesarResponse.status,
           found: false,
           resultCode: 'ERROR',
+          procesarAck,
         };
       }
 
@@ -841,14 +910,8 @@ async function tryProcesarFallback(
         httpStatus: procesarResponse.status,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
-    }
-
-    let procesarData: any = null;
-    try {
-      procesarData = await procesarResponse.json();
-    } catch (_jsonErr) {
-      console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status} without JSON body`);
     }
 
     const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
@@ -861,14 +924,20 @@ async function tryProcesarFallback(
         httpStatus: procesarResponse.status,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
     }
 
-    return extracted;
+    return { ...extracted, procesarAck };
+
     
   } catch (err: any) {
     clearTimeout(timeoutId);
     const latencyMs = Date.now() - startTime;
+    const message = err?.message || String(err);
+    // JN4 — a transport failure is also an ack we keep: no body, but the
+    // endpoint, the latency and the failure mode are recorded.
+    const procesarAck = ack({ latency_ms: latencyMs, transport_error: message });
     if (err?.name === 'AbortError') {
       console.log(`[sync-pub] /procesar-radicado trigger timed out after 60000ms; treating as processing started`);
       return {
@@ -878,10 +947,10 @@ async function tryProcesarFallback(
         latencyMs,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
     }
 
-    const message = err?.message || String(err);
     if (message.toLowerCase().includes('connection refused')) {
         return {
           ok: false,
@@ -891,6 +960,7 @@ async function tryProcesarFallback(
           httpStatus: 503,
           found: false,
           resultCode: 'ERROR',
+          procesarAck,
         };
       }
 
@@ -902,6 +972,7 @@ async function tryProcesarFallback(
       latencyMs,
       found: false,
       resultCode: 'ERROR',
+      procesarAck,
     };
   }
 }
@@ -1084,7 +1155,8 @@ async function fetchPublicaciones(
     // answered 200-empty, prefer the earlier empty (has the correct 200 status)
     // so downstream logs reflect that PP itself has no data — not an error.
     if (procesarResult.publicaciones.length === 0 && historicoEmptyResult) {
-      return historicoEmptyResult;
+      // JN4 — the ack survives the preference for the /historico empty.
+      return { ...historicoEmptyResult, procesarAck: procesarResult.procesarAck };
     }
     return procesarResult;
   }
@@ -2700,6 +2772,45 @@ Deno.serve(withSyncTimeline(async (req) => {
           ? { samai_estados: result.samai_estados_summary }
           : {},
       }).select('id').single();
+
+      // ── JN4 — KEEP THE ACK. Including the empty one. ─────────────────────
+      // The provider emits a verdict (run_status, enumeracion[]) and both
+      // consumers used to throw it away. We store it verbatim and we do NOT
+      // interpret it: CATEGORIA_NO_RECONOCIDA is under-determined upstream, so
+      // storing the value is the whole job.
+      if (fetchResult?.procesarAck) {
+        const a = fetchResult.procesarAck;
+        try {
+          const payload = {
+            endpoint: a.endpoint,
+            url: a.url,
+            radicado: a.radicado,
+            http_status: a.http_status,
+            latency_ms: a.latency_ms,
+            run_status: a.run_status,
+            enumeracion: a.enumeracion,
+            body: a.body,
+            body_bytes: a.body_bytes,
+            parse_error: a.parse_error,
+            transport_error: a.transport_error,
+          };
+          await supabase.from('external_sync_run_payloads').insert({
+            sync_run_id: runRow?.id ?? null,
+            work_item_id,
+            radicado: a.radicado,
+            provider_name: 'publicaciones',
+            stage: 'PROCESAR_RADICADO_ACK',
+            endpoint: a.endpoint,
+            http_status: a.http_status,
+            run_status: a.run_status,
+            enumeracion: a.enumeracion,
+            payload_json: payload,
+            payload_size_bytes: JSON.stringify(payload).length,
+          } as any);
+        } catch (ackErr: any) {
+          console.warn(`[sync-pub][jn4] ack persistence failed: ${ackErr?.message}`);
+        }
+      }
 
       // ── Iteration 13.1: dump the per-row buckets and reconcile the run ──
       const pubAccounted =
