@@ -2773,6 +2773,45 @@ Deno.serve(withSyncTimeline(async (req) => {
           : {},
       }).select('id').single();
 
+      // ── JN4 — KEEP THE ACK. Including the empty one. ─────────────────────
+      // The provider emits a verdict (run_status, enumeracion[]) and both
+      // consumers used to throw it away. We store it verbatim and we do NOT
+      // interpret it: CATEGORIA_NO_RECONOCIDA is under-determined upstream, so
+      // storing the value is the whole job.
+      if (fetchResult?.procesarAck) {
+        const a = fetchResult.procesarAck;
+        try {
+          const payload = {
+            endpoint: a.endpoint,
+            url: a.url,
+            radicado: a.radicado,
+            http_status: a.http_status,
+            latency_ms: a.latency_ms,
+            run_status: a.run_status,
+            enumeracion: a.enumeracion,
+            body: a.body,
+            body_bytes: a.body_bytes,
+            parse_error: a.parse_error,
+            transport_error: a.transport_error,
+          };
+          await supabase.from('external_sync_run_payloads').insert({
+            sync_run_id: runRow?.id ?? null,
+            work_item_id,
+            radicado: a.radicado,
+            provider_name: 'publicaciones',
+            stage: 'PROCESAR_RADICADO_ACK',
+            endpoint: a.endpoint,
+            http_status: a.http_status,
+            run_status: a.run_status,
+            enumeracion: a.enumeracion,
+            payload_json: payload,
+            payload_size_bytes: JSON.stringify(payload).length,
+          } as any);
+        } catch (ackErr: any) {
+          console.warn(`[sync-pub][jn4] ack persistence failed: ${ackErr?.message}`);
+        }
+      }
+
       // ── Iteration 13.1: dump the per-row buckets and reconcile the run ──
       const pubAccounted =
         pubLedger.inserted +
