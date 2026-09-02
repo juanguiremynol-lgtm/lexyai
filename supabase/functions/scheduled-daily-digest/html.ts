@@ -465,7 +465,8 @@ function novedadesBlock(p: DigestPayload): string {
     const ests = p.estados.filter((e) => e.work_item_id === id);
     out += `<div style="border:1px solid ${BORDER};border-radius:8px;overflow:hidden;margin-bottom:18px;background:${CARD};">
       ${itemHeader(p.workItems.get(id), id, p.appBaseUrl)}
-      ${acts.length ? `<div style="padding:8px 12px 2px;font-size:12px;font-weight:700;color:${ACT_ACCENT};">ACTUACIONES — actos en el expediente (${acts.length})</div>${actuacionesTable(acts, p.linkExpiryDays)}` : ""}
+      ${acts.length ? `<div style="padding:8px 12px 2px;font-size:12px;font-weight:700;color:${ACT_ACCENT};">ACTUACIONES — actos en el expediente (${acts.length})</div>
+      ${acts.some(isDecisionAct) ? `<div style="padding:0 12px 4px;font-size:11px;color:${MUTED};line-height:1.5;">Las actuaciones marcadas <b style="color:${TEXT};">DECISIÓN</b> se listan primero. El orden es de lectura: no altera ninguna cifra de este correo ni califica el contenido de la decisión.</div>` : ""}${actuacionesTable(acts, p.linkExpiryDays)}` : ""}
       ${ests.length ? `<div style="padding:12px 12px 2px;font-size:12px;font-weight:700;color:${EST_ACCENT};">ESTADOS — publicaciones fijadas en lista (${ests.length})</div>${estadosTable(ests, p.linkExpiryDays)}` : ""}
     </div>`;
   }
