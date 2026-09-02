@@ -1155,7 +1155,8 @@ async function fetchPublicaciones(
     // answered 200-empty, prefer the earlier empty (has the correct 200 status)
     // so downstream logs reflect that PP itself has no data — not an error.
     if (procesarResult.publicaciones.length === 0 && historicoEmptyResult) {
-      return historicoEmptyResult;
+      // JN4 — the ack survives the preference for the /historico empty.
+      return { ...historicoEmptyResult, procesarAck: procesarResult.procesarAck };
     }
     return procesarResult;
   }
