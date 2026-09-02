@@ -913,6 +913,10 @@ async function tryProcesarFallback(
   } catch (err: any) {
     clearTimeout(timeoutId);
     const latencyMs = Date.now() - startTime;
+    const message = err?.message || String(err);
+    // JN4 — a transport failure is also an ack we keep: no body, but the
+    // endpoint, the latency and the failure mode are recorded.
+    const procesarAck = ack({ latency_ms: latencyMs, transport_error: message });
     if (err?.name === 'AbortError') {
       console.log(`[sync-pub] /procesar-radicado trigger timed out after 60000ms; treating as processing started`);
       return {
@@ -922,10 +926,10 @@ async function tryProcesarFallback(
         latencyMs,
         found: false,
         resultCode: 'NO_DATA',
+        procesarAck,
       };
     }
 
-    const message = err?.message || String(err);
     if (message.toLowerCase().includes('connection refused')) {
         return {
           ok: false,
@@ -935,6 +939,7 @@ async function tryProcesarFallback(
           httpStatus: 503,
           found: false,
           resultCode: 'ERROR',
+          procesarAck,
         };
       }
 
@@ -946,6 +951,7 @@ async function tryProcesarFallback(
       latencyMs,
       found: false,
       resultCode: 'ERROR',
+      procesarAck,
     };
   }
 }
