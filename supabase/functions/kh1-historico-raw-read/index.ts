@@ -110,7 +110,6 @@ Deno.serve(async (req) => {
       endpoint: "GET /historico/{radicado}",
       http_status,
       payload_json: { summary, body: parsed ?? bodyText },
-      payload_size_bytes: bodyText.length,
     } as any);
 
     report.push({ ...summary, persist_error: insErr?.message ?? null });
