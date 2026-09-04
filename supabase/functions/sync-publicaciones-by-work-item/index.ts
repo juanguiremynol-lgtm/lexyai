@@ -2103,13 +2103,22 @@ Deno.serve(withSyncTimeline(async (req) => {
       // registered the estado and never uploaded the planilla: the estado
       // exists and the term runs from it. Persist it as its own class first.
       const noDocEstados = fetchResult.noDocumentEstados ?? [];
+      // KN1(c) — an undatable row is NOT a dropped row. `estado_sin_documento`
+      // requires a fecha_fijacion (dateless anchors are forbidden by design),
+      // so a row we cannot date is recorded as a declared discard instead of
+      // vanishing: warning on the run + a persisted payload carrying the raw
+      // provider value verbatim.
+      const noDocDatable = noDocEstados.filter((e) => e.fecha != null);
+      const noDocUndatable = noDocEstados.filter((e) => e.fecha == null);
       if (noDocEstados.length > 0) {
         result.result_code = 'PROVIDER_NO_DOCUMENT';
+      }
+      if (noDocDatable.length > 0) {
         try {
           await supabase
             .from('estado_sin_documento' as any)
             .upsert(
-              noDocEstados.map((e) => ({
+              noDocDatable.map((e) => ({
                 work_item_id,
                 organization_id: workItem.organization_id,
                 radicado: normalizedRadicado,
@@ -2119,13 +2128,47 @@ Deno.serve(withSyncTimeline(async (req) => {
                 article_id: e.articleId ?? null,
                 http_status: e.httpStatus ?? null,
                 body_bytes: e.bodyBytes ?? null,
-                evidence: { source: 'GCP', result_code: 'PROVIDER_NO_DOCUMENT' },
+                evidence: {
+                  source: 'GCP',
+                  result_code: 'PROVIDER_NO_DOCUMENT',
+                  fecha_raw: e.fechaRaw,
+                  fecha_format: e.fechaFormat,
+                },
               })) as any,
               { onConflict: 'work_item_id,provider_key,fecha_fijacion' } as any,
             );
-          console.log(`[sync-pub] estado_sin_documento persisted (${noDocEstados.length}) for ${work_item_id}`);
+          console.log(`[sync-pub] estado_sin_documento persisted (${noDocDatable.length}) for ${work_item_id}`);
         } catch (ndErr: any) {
-          console.warn('[sync-pub] Failed to persist estado_sin_documento:', ndErr?.message);
+          console.error(JSON.stringify({ tag: '[sync-pub][kn1]', event: 'estado_sin_documento_persist_failed', work_item_id, error: ndErr?.message ?? String(ndErr) }));
+          result.warnings.push(`ESTADO_SIN_DOCUMENTO_PERSIST_FAILED: ${ndErr?.message ?? String(ndErr)}`);
+        }
+      }
+      if (noDocUndatable.length > 0) {
+        for (const e of noDocUndatable) {
+          const reason = e.discardReason ?? 'FECHA_NO_PARSEABLE';
+          result.warnings.push(
+            `ESTADO_SIN_DOCUMENTO_DESCARTADO (${reason}): fecha_raw=${JSON.stringify(e.fechaRaw)} estado=${e.estadoNumero ?? 'null'} article_id=${e.articleId ?? 'null'}`,
+          );
+          console.error(JSON.stringify({
+            tag: '[sync-pub][kn1]', event: 'estado_sin_documento_discarded',
+            reason, work_item_id, radicado: normalizedRadicado,
+            fecha_raw: e.fechaRaw, estado_numero: e.estadoNumero ?? null, article_id: e.articleId ?? null,
+          }));
+        }
+        try {
+          await supabase.from('external_sync_run_payloads').insert({
+            work_item_id,
+            radicado: normalizedRadicado,
+            provider_name: 'publicaciones',
+            stage: 'parsed',
+            payload_json: {
+              kind: 'ESTADO_SIN_DOCUMENTO_DESCARTADO',
+              rows: noDocUndatable,
+            },
+          } as any);
+        } catch (dErr: any) {
+          console.error(JSON.stringify({ tag: '[sync-pub][kn1]', event: 'discard_record_failed', work_item_id, error: dErr?.message ?? String(dErr) }));
+          result.warnings.push(`ESTADO_SIN_DOCUMENTO_DESCARTE_NO_REGISTRADO: ${dErr?.message ?? String(dErr)}`);
         }
       }
 
