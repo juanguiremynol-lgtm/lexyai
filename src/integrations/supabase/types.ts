@@ -23158,6 +23158,25 @@ export type Database = {
           },
         ]
       }
+      v_estados_numbering_continuity: {
+        Row: {
+          anio: number | null
+          authority_name: string | null
+          despacho_code: string | null
+          faltantes_antes_del_minimo: number | null
+          faltantes_interiores: number | null
+          filas_numero_anomalo: number | null
+          numero_max: number | null
+          numero_min: number | null
+          numeros_en_poder: number[] | null
+          numeros_faltantes_interiores: number[] | null
+          planillas_en_poder: number | null
+          primera_fijacion: string | null
+          radicados_en_ese_anio: number | null
+          ultima_fijacion: string | null
+        }
+        Relationships: []
+      }
       v_fijaciones_sin_estado: {
         Row: {
           act_id: string | null
