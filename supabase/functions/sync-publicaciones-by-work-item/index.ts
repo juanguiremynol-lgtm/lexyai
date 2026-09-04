@@ -2847,44 +2847,66 @@ Deno.serve(withSyncTimeline(async (req) => {
           : {},
       }).select('id').single();
 
-      // ── JN4 — KEEP THE ACK. Including the empty one. ─────────────────────
-      // The provider emits a verdict (run_status, enumeracion[]) and both
-      // consumers used to throw it away. We store it verbatim and we do NOT
-      // interpret it: CATEGORIA_NO_RECONOCIDA is under-determined upstream, so
-      // storing the value is the whole job.
+      // ── KJ3 — PERSIST THE BODY WE ACTUALLY READ, EVERY PASS ──────────────
+      // Three defects, one silence: the ack stage value is rejected by the
+      // CHECK, payload_size_bytes is a GENERATED column we were inserting
+      // into, and persistence only ran when a /procesar-radicado ack existed —
+      // which the nightly never produces. A persistence failure must leave a
+      // trace, so the error is recorded on the run, not console.warn'd away.
+      const payloadWrites: Array<{ kind: string; row: Record<string, unknown> }> = [];
+
+      if (fetchResult?.historicoRead) {
+        const h = fetchResult.historicoRead;
+        payloadWrites.push({
+          kind: 'HISTORICO_READ',
+          row: {
+            sync_run_id: runRow?.id ?? null,
+            work_item_id,
+            radicado: h.radicado,
+            provider_name: 'publicaciones',
+            // Stage vocabulary reported to the doctor (KJ3c) and NOT changed
+            // in this pass: 'response' is the only admitted value that fits.
+            stage: 'response',
+            endpoint: h.endpoint,
+            http_status: h.http_status,
+            payload_json: { kind: 'HISTORICO_READ', ...h },
+          },
+        });
+      }
+
+      // JN4 — KEEP THE ACK. Including the empty one. The provider emits a
+      // verdict (run_status, enumeracion[]) and we store it verbatim, never
+      // interpreted: CATEGORIA_NO_RECONOCIDA is under-determined upstream.
       if (fetchResult?.procesarAck) {
         const a = fetchResult.procesarAck;
-        try {
-          const payload = {
-            endpoint: a.endpoint,
-            url: a.url,
-            radicado: a.radicado,
-            http_status: a.http_status,
-            latency_ms: a.latency_ms,
-            run_status: a.run_status,
-            enumeracion: a.enumeracion,
-            body: a.body,
-            body_bytes: a.body_bytes,
-            parse_error: a.parse_error,
-            transport_error: a.transport_error,
-          };
-          await supabase.from('external_sync_run_payloads').insert({
+        payloadWrites.push({
+          kind: 'PROCESAR_RADICADO_ACK',
+          row: {
             sync_run_id: runRow?.id ?? null,
             work_item_id,
             radicado: a.radicado,
             provider_name: 'publicaciones',
-            stage: 'PROCESAR_RADICADO_ACK',
+            stage: 'response',
             endpoint: a.endpoint,
             http_status: a.http_status,
             run_status: a.run_status,
             enumeracion: a.enumeracion,
-            payload_json: payload,
-            payload_size_bytes: JSON.stringify(payload).length,
-          } as any);
-        } catch (ackErr: any) {
-          console.warn(`[sync-pub][jn4] ack persistence failed: ${ackErr?.message}`);
+            payload_json: { kind: 'PROCESAR_RADICADO_ACK', ...a },
+          },
+        });
+      }
+
+      for (const write of payloadWrites) {
+        const { error: payloadErr } = await supabase
+          .from('external_sync_run_payloads')
+          .insert(write.row as any);
+        if (payloadErr) {
+          const msg = `PAYLOAD_PERSIST_FAILED (${write.kind}): ${payloadErr.message}`;
+          console.error(JSON.stringify({ tag: '[sync-pub][kj3]', event: 'payload_persist_failed', kind: write.kind, work_item_id, error: payloadErr.message }));
+          result.warnings.push(msg);
         }
       }
+
 
       // ── Iteration 13.1: dump the per-row buckets and reconcile the run ──
       const pubAccounted =
