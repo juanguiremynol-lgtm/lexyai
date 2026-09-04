@@ -298,7 +298,7 @@ export function parseProviderFecha(raw: unknown): {
   const norm = stripAccents(s.toLowerCase()).replace(/\s+de\s+/g, ' ').replace(/[\/\-.]/g, ' ');
   const dmesy = norm.match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})$/);
   if (dmesy) {
-    const month = SPANISH_MONTHS[dmesy[2]];
+    const month = SPANISH_MONTH_NUM[dmesy[2]];
     if (month) {
       const iso = isoOrNull(+dmesy[3], month, +dmesy[1]);
       if (iso) return { iso, format: 'D-MES-YYYY', reason: null };
