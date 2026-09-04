@@ -4,7 +4,10 @@
  * Reads novedades for a single radicado from the Andromeda Read API
  * (`GET /radicados/:radicado/novedades?dias=N`) and filters to PP source.
  *
- * NOTE: API has no "mark as reviewed" endpoint; `markAsReviewed` is a no-op.
+ * NOTE (KE3d): the acknowledgement endpoint DOES exist upstream
+ * (`PATCH /work-items/:id/novedades/:nid/revisar`) and is currently being fixed
+ * — it writes a non-existent column and returns 500. `markAsReviewed` stays a
+ * deliberate no-op until that fix lands; it is not an absent capability.
  */
 
 import { useQuery } from "@tanstack/react-query";

@@ -4,10 +4,11 @@
  * Reads novedades for a single radicado from the Andromeda Read API
  * (`GET /radicados/:radicado/novedades?dias=N`) and filters to CPNU source.
  *
- * NOTE: The API does not currently expose a "mark as reviewed" endpoint for
- * novedades, so `markAsReviewed` is a no-op kept for backwards-compatibility
- * with existing UI. The button is hidden by the consumer panel until the
- * backend supports it.
+ * NOTE (KE3d): the acknowledgement endpoint DOES exist upstream
+ * (`PATCH /work-items/:id/novedades/:nid/revisar`) and is currently being fixed
+ * — it writes a non-existent column and returns 500. `markAsReviewed` stays a
+ * deliberate no-op until that fix lands, and the button remains hidden by the
+ * consumer panel; this is a broken ack, not a missing capability.
  */
 
 import { useQuery } from "@tanstack/react-query";
