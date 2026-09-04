@@ -189,6 +189,9 @@ export type ProcesarAck = {
 type FetchResultV3 = {
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
+  /** KJ3 — the literal /historico read of THIS pass, always captured. */
+  historicoRead?: HistoricoRead;
+
   ok: boolean;
   publicaciones: PublicacionV3[];
   error?: string;
