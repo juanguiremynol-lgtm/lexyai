@@ -229,7 +229,11 @@ export type NoDocumentEstado = {
   bodyBytes?: number | null;
 };
 
-const SPANISH_MONTHS: Record<string, number> = {
+// KN1 parser table. Distinct from the legacy title-extraction `SPANISH_MONTHS`
+// (uppercase → zero-padded string) declared further down: two const bindings
+// with the same name in one module is a boot-time SyntaxError, which is what
+// took both estados channels to zero on 4-sep.
+const SPANISH_MONTH_NUM: Record<string, number> = {
   ene: 1, enero: 1, feb: 2, febrero: 2, mar: 3, marzo: 3, abr: 4, abril: 4,
   may: 5, mayo: 5, jun: 6, junio: 6, jul: 7, julio: 7, ago: 8, agosto: 8,
   sep: 9, sept: 9, septiembre: 9, set: 9, setiembre: 9, oct: 10, octubre: 10,
