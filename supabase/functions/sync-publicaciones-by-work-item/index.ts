@@ -2886,7 +2886,9 @@ Deno.serve(withSyncTimeline(async (req) => {
             work_item_id,
             radicado: a.radicado,
             provider_name: 'publicaciones',
-            stage: 'response',
+            // KM2 — the discriminant lives in the column now, not only in
+            // payload_json.kind. The CHECK admits PROCESAR_RADICADO_ACK.
+            stage: 'PROCESAR_RADICADO_ACK',
             endpoint: a.endpoint,
             http_status: a.http_status,
             run_status: a.run_status,
