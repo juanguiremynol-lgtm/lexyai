@@ -86,6 +86,10 @@ Deno.serve(async (req) => {
       min_fecha: dates.length ? dates[0] : null,
       parse_error,
       transport_error,
+      top_level_keys:
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? Object.keys(parsed as Record<string, unknown>)
+          : (Array.isArray(parsed) ? ["<array>"] : []),
     };
 
     const { data: wi } = await supabase
@@ -95,19 +99,21 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    await supabase.from("external_sync_run_payloads").insert({
+    const { error: insErr } = await supabase.from("external_sync_run_payloads").insert({
       sync_run_id: null,
       work_item_id: wi?.id ?? null,
       radicado,
       provider_name: "publicaciones",
-      stage: "HISTORICO_RAW",
+      // stage CHECK constraint only admits the six legacy values; HISTORICO_RAW
+      // is rejected. Using "response" until the constraint is widened.
+      stage: "response",
       endpoint: "GET /historico/{radicado}",
       http_status,
       payload_json: { summary, body: parsed ?? bodyText },
       payload_size_bytes: bodyText.length,
     } as any);
 
-    report.push(summary);
+    report.push({ ...summary, persist_error: insErr?.message ?? null });
   }
 
   return new Response(JSON.stringify({ ok: true, report }, null, 2), {
