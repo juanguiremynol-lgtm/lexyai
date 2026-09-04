@@ -1044,12 +1044,44 @@ async function fetchWithTimeoutAndRetry(
   return { ok: false, error: 'All attempts exhausted', latencyMs: 0 };
 }
 
+/**
+ * KJ3 — the literal /historico read, kept on EVERY pass.
+ * Persistence used to run only when a /procesar-radicado ack existed, and the
+ * nightly never calls that route: the table held 5 rows while we believed we
+ * were storing bodies. The read is now captured unconditionally.
+ */
+export type HistoricoRead = {
+  endpoint: string;
+  url: string;
+  radicado: string;
+  http_status: number | null;
+  latency_ms: number;
+  body: unknown;
+  body_bytes: number;
+  payload_count: number;
+  parse_error: string | null;
+  transport_error: string | null;
+};
+
 async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
   apiKey: string,
   rescrapeGate?: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void },
 ): Promise<FetchResultV3> {
+  const capture: { read: HistoricoRead | null } = { read: null };
+  const res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
+  return capture.read ? { ...res, historicoRead: capture.read } : res;
+}
+
+async function fetchPublicacionesInner(
+  radicado: string,
+  baseUrl: string,
+  apiKey: string,
+  rescrapeGate: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void } | undefined,
+  capture: { read: HistoricoRead | null },
+): Promise<FetchResultV3> {
+
   const startTime = Date.now();
   const headers: Record<string, string> = {
     'x-api-key': apiKey,
