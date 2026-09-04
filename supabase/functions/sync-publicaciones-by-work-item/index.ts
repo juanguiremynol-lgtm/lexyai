@@ -215,16 +215,100 @@ type FetchResultV3 = {
 };
 
 export type NoDocumentEstado = {
-  fecha: string;              // ISO date of the fijación
+  /** ISO date of the fijación, or null when the provider value did not parse. */
+  fecha: string | null;
+  /** KN1 — the literal provider value, kept verbatim, never truncated. */
+  fechaRaw: string | null;
+  /** Which branch of the cascade matched, null when nothing did. */
+  fechaFormat: 'ISO' | 'ISO_DATETIME' | 'DD/MM/YYYY' | 'D-MES-YYYY' | null;
+  /** KN1(c) — a row is never dropped; when it cannot be dated it says why. */
+  discardReason: 'FECHA_AUSENTE' | 'FECHA_NO_PARSEABLE' | null;
   estadoNumero?: string | null;
   articleId?: string | null;
   httpStatus?: number | null;
   bodyBytes?: number | null;
 };
 
+const SPANISH_MONTHS: Record<string, number> = {
+  ene: 1, enero: 1, feb: 2, febrero: 2, mar: 3, marzo: 3, abr: 4, abril: 4,
+  may: 5, mayo: 5, jun: 6, junio: 6, jul: 7, julio: 7, ago: 8, agosto: 8,
+  sep: 9, sept: 9, septiembre: 9, set: 9, setiembre: 9, oct: 10, octubre: 10,
+  nov: 11, noviembre: 11, dic: 12, diciembre: 12,
+};
+
+const stripAccents = (s: string) =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+const isoOrNull = (y: number, m: number, d: number): string | null => {
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Reject impossible calendar days (31-feb) that Date would roll forward.
+  if (parsed.getUTCDate() !== d || parsed.getUTCMonth() + 1 !== m) return null;
+  return iso;
+};
+
+/**
+ * KN1 — parse a provider-native fecha. Modelled on GCP's `_clave_fecha`:
+ * ISO, ISO datetime, DD/MM/YYYY (and DD-MM-YYYY), and D-mes-YYYY with Spanish
+ * month names, accented or not. Parsing happens BEFORE any slice — the old
+ * `.slice(0,10)` ran first and guaranteed a provider-native value could never
+ * pass the ISO gate. Returns a sink value (iso null + reason) when nothing
+ * parses; the caller must still emit the row.
+ */
+export function parseProviderFecha(raw: unknown): {
+  iso: string | null;
+  format: NoDocumentEstado['fechaFormat'];
+  reason: NoDocumentEstado['discardReason'];
+} {
+  if (raw == null || (typeof raw !== 'string' && typeof raw !== 'number')) {
+    return { iso: null, format: null, reason: 'FECHA_AUSENTE' };
+  }
+  const s = String(raw).trim();
+  if (!s) return { iso: null, format: null, reason: 'FECHA_AUSENTE' };
+
+  // 1) ISO datetime — parse first, slice after.
+  const isoDt = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}/);
+  if (isoDt) {
+    const iso = isoOrNull(+isoDt[1], +isoDt[2], +isoDt[3]);
+    if (iso) return { iso, format: 'ISO_DATETIME', reason: null };
+  }
+
+  // 2) Plain ISO.
+  const isoD = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoD) {
+    const iso = isoOrNull(+isoD[1], +isoD[2], +isoD[3]);
+    if (iso) return { iso, format: 'ISO', reason: null };
+  }
+
+  // 3) DD/MM/YYYY and DD-MM-YYYY (and 2-digit day/month).
+  const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (dmy) {
+    const iso = isoOrNull(+dmy[3], +dmy[2], +dmy[1]);
+    if (iso) return { iso, format: 'DD/MM/YYYY', reason: null };
+  }
+
+  // 4) D-mes-YYYY / "3 de septiembre de 2026".
+  const norm = stripAccents(s.toLowerCase()).replace(/\s+de\s+/g, ' ').replace(/[\/\-.]/g, ' ');
+  const dmesy = norm.match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})$/);
+  if (dmesy) {
+    const month = SPANISH_MONTHS[dmesy[2]];
+    if (month) {
+      const iso = isoOrNull(+dmesy[3], month, +dmesy[1]);
+      if (iso) return { iso, format: 'D-MES-YYYY', reason: null };
+    }
+  }
+
+  return { iso: null, format: null, reason: 'FECHA_NO_PARSEABLE' };
+}
+
 /**
  * Iteration 34 — read GCP's PROVIDER_NO_DOCUMENT signal off the provider body.
  * Accepts both the dedicated array and a top-level result-code marker.
+ * KN1 — no row leaves this function silently: an undatable row is emitted with
+ * `fecha: null` and a discardReason, never `continue`d away.
  */
 function extractNoDocumentEstados(data: any): NoDocumentEstado[] {
   if (!data || typeof data !== 'object') return [];
@@ -237,11 +321,14 @@ function extractNoDocumentEstados(data: any): NoDocumentEstado[] {
           : []);
   const out: NoDocumentEstado[] = [];
   for (const r of rows) {
-    const fechaRaw = r?.fecha_publicacion ?? r?.fecha_fijacion ?? r?.fecha ?? null;
-    const fecha = typeof fechaRaw === 'string' ? fechaRaw.slice(0, 10) : null;
-    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) continue;
+    // KN3 — `fecha_iso` is the field GCP is adding; preferred when present.
+    const fechaRaw = r?.fecha_iso ?? r?.fecha_publicacion ?? r?.fecha_fijacion ?? r?.fecha ?? null;
+    const parsed = parseProviderFecha(fechaRaw);
     out.push({
-      fecha,
+      fecha: parsed.iso,
+      fechaRaw: fechaRaw == null ? null : String(fechaRaw),
+      fechaFormat: parsed.format,
+      discardReason: parsed.reason,
       estadoNumero: r?.estado != null ? String(r.estado) : (r?.estado_numero != null ? String(r.estado_numero) : null),
       articleId: r?.articleId != null ? String(r.articleId) : (r?.article_id != null ? String(r.article_id) : null),
       httpStatus: typeof r?.http_status === 'number' ? r.http_status : null,
@@ -2016,13 +2103,22 @@ Deno.serve(withSyncTimeline(async (req) => {
       // registered the estado and never uploaded the planilla: the estado
       // exists and the term runs from it. Persist it as its own class first.
       const noDocEstados = fetchResult.noDocumentEstados ?? [];
+      // KN1(c) — an undatable row is NOT a dropped row. `estado_sin_documento`
+      // requires a fecha_fijacion (dateless anchors are forbidden by design),
+      // so a row we cannot date is recorded as a declared discard instead of
+      // vanishing: warning on the run + a persisted payload carrying the raw
+      // provider value verbatim.
+      const noDocDatable = noDocEstados.filter((e) => e.fecha != null);
+      const noDocUndatable = noDocEstados.filter((e) => e.fecha == null);
       if (noDocEstados.length > 0) {
         result.result_code = 'PROVIDER_NO_DOCUMENT';
+      }
+      if (noDocDatable.length > 0) {
         try {
           await supabase
             .from('estado_sin_documento' as any)
             .upsert(
-              noDocEstados.map((e) => ({
+              noDocDatable.map((e) => ({
                 work_item_id,
                 organization_id: workItem.organization_id,
                 radicado: normalizedRadicado,
@@ -2032,13 +2128,47 @@ Deno.serve(withSyncTimeline(async (req) => {
                 article_id: e.articleId ?? null,
                 http_status: e.httpStatus ?? null,
                 body_bytes: e.bodyBytes ?? null,
-                evidence: { source: 'GCP', result_code: 'PROVIDER_NO_DOCUMENT' },
+                evidence: {
+                  source: 'GCP',
+                  result_code: 'PROVIDER_NO_DOCUMENT',
+                  fecha_raw: e.fechaRaw,
+                  fecha_format: e.fechaFormat,
+                },
               })) as any,
               { onConflict: 'work_item_id,provider_key,fecha_fijacion' } as any,
             );
-          console.log(`[sync-pub] estado_sin_documento persisted (${noDocEstados.length}) for ${work_item_id}`);
+          console.log(`[sync-pub] estado_sin_documento persisted (${noDocDatable.length}) for ${work_item_id}`);
         } catch (ndErr: any) {
-          console.warn('[sync-pub] Failed to persist estado_sin_documento:', ndErr?.message);
+          console.error(JSON.stringify({ tag: '[sync-pub][kn1]', event: 'estado_sin_documento_persist_failed', work_item_id, error: ndErr?.message ?? String(ndErr) }));
+          result.warnings.push(`ESTADO_SIN_DOCUMENTO_PERSIST_FAILED: ${ndErr?.message ?? String(ndErr)}`);
+        }
+      }
+      if (noDocUndatable.length > 0) {
+        for (const e of noDocUndatable) {
+          const reason = e.discardReason ?? 'FECHA_NO_PARSEABLE';
+          result.warnings.push(
+            `ESTADO_SIN_DOCUMENTO_DESCARTADO (${reason}): fecha_raw=${JSON.stringify(e.fechaRaw)} estado=${e.estadoNumero ?? 'null'} article_id=${e.articleId ?? 'null'}`,
+          );
+          console.error(JSON.stringify({
+            tag: '[sync-pub][kn1]', event: 'estado_sin_documento_discarded',
+            reason, work_item_id, radicado: normalizedRadicado,
+            fecha_raw: e.fechaRaw, estado_numero: e.estadoNumero ?? null, article_id: e.articleId ?? null,
+          }));
+        }
+        try {
+          await supabase.from('external_sync_run_payloads').insert({
+            work_item_id,
+            radicado: normalizedRadicado,
+            provider_name: 'publicaciones',
+            stage: 'parsed',
+            payload_json: {
+              kind: 'ESTADO_SIN_DOCUMENTO_DESCARTADO',
+              rows: noDocUndatable,
+            },
+          } as any);
+        } catch (dErr: any) {
+          console.error(JSON.stringify({ tag: '[sync-pub][kn1]', event: 'discard_record_failed', work_item_id, error: dErr?.message ?? String(dErr) }));
+          result.warnings.push(`ESTADO_SIN_DOCUMENTO_DESCARTE_NO_REGISTRADO: ${dErr?.message ?? String(dErr)}`);
         }
       }
 
