@@ -1118,23 +1118,62 @@ async function fetchPublicacionesInner(
     endpointStatuses.push(result.httpStatus ?? null);
 
     if (result.ok && result.response) {
+      const bodyText = await result.response.text();
+      let data: any = null;
+      let parseError: string | null = null;
       try {
-        const data = await result.response.json();
-        const latencyMs = Date.now() - startTime;
-        console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
-        const extracted = extractPublicacionesFromResponse(data, latencyMs);
-        if (extracted.publicaciones.length > 0) {
-          return extracted;
-        }
-        // 200 + empty → keep looking, and if nothing else works fall through
-        // to /procesar-radicado so PP is told to actually scrape.
-        historicoEmptyResult = extracted;
-        break;
-      } catch (_jsonErr) {
-        console.warn(`[sync-pub] Invalid JSON from ${url}`);
+        data = JSON.parse(bodyText);
+      } catch (jsonErr) {
+        parseError = (jsonErr as Error).message;
+      }
+      const rowsInBody = Array.isArray(data?.actuaciones)
+        ? data.actuaciones.length
+        : Array.isArray(data?.publicaciones)
+          ? data.publicaciones.length
+          : Array.isArray(data)
+            ? data.length
+            : 0;
+      capture.read = {
+        endpoint: 'GET /historico/{radicado}',
+        url,
+        radicado,
+        http_status: result.httpStatus ?? 200,
+        latency_ms: Date.now() - startTime,
+        body: data ?? bodyText,
+        body_bytes: bodyText.length,
+        payload_count: rowsInBody,
+        parse_error: parseError,
+        transport_error: null,
+      };
+      if (parseError) {
+        console.warn(`[sync-pub] Invalid JSON from ${url}: ${parseError}`);
         continue;
       }
+      const latencyMs = Date.now() - startTime;
+      console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
+      const extracted = extractPublicacionesFromResponse(data, latencyMs);
+      if (extracted.publicaciones.length > 0) {
+        return extracted;
+      }
+      // 200 + empty → keep looking, and if nothing else works fall through
+      // to /procesar-radicado so PP is told to actually scrape.
+      historicoEmptyResult = extracted;
+      break;
     }
+
+    capture.read = {
+      endpoint: 'GET /historico/{radicado}',
+      url,
+      radicado,
+      http_status: result.httpStatus ?? null,
+      latency_ms: Date.now() - startTime,
+      body: null,
+      body_bytes: 0,
+      payload_count: 0,
+      parse_error: null,
+      transport_error: result.error ?? 'unknown transport failure',
+    };
+
 
     // 404 means try next endpoint; timeout/5xx already retried
     if (result.error?.startsWith('HTTP 404')) {
