@@ -80,6 +80,7 @@ export type ActsEmptyStateKind =
   | "SIN_PROVEEDOR"
   | "MONITOREO_DESACTIVADO"
   | "NUNCA_CONSULTADO"
+  | "CANAL_ACTUACIONES_SIN_RESPUESTA"
   | "CONSULTADO_SIN_RESULTADOS";
 
 export interface ActsEmptyState {
@@ -90,13 +91,36 @@ export interface ActsEmptyState {
   showAddRadicado: boolean;
 }
 
+function formatBogota(ts: string): string {
+  try {
+    return new Date(ts).toLocaleDateString("es-CO", {
+      timeZone: "America/Bogota",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return ts;
+  }
+}
+
 export function resolveActsEmptyState(input: {
   workflowType: string | null | undefined;
   radicado: string | null | undefined;
   monitoringEnabled: boolean | null | undefined;
   monitoringDisabledReason?: string | null;
+  /** Last successful run of the ACTS channel specifically. */
   lastSyncedAt?: string | null;
+  /**
+   * LI2 — a matter is not "never synced" because one of its two channels
+   * found nothing. Any successful run of ANY channel, and any estados
+   * evidence, disproves NUNCA_CONSULTADO.
+   */
+  lastSuccessfulSyncAt?: string | null;
+  estadosLastAt?: string | null;
+  estadosCount?: number | null;
 }): ActsEmptyState {
+
   const eligible = isProviderEligibleWorkflow(input.workflowType);
 
   if (eligible && !hasUsableRadicado(input.radicado)) {
@@ -133,14 +157,37 @@ export function resolveActsEmptyState(input: {
   }
 
   if (!input.lastSyncedAt) {
+    const estadosEvidence =
+      (input.estadosCount ?? 0) > 0 || !!input.estadosLastAt;
+    const otherChannelRan = !!input.lastSuccessfulSyncAt;
+
+    if (estadosEvidence || otherChannelRan) {
+      const estadosWhen = input.estadosLastAt
+        ? ` El último estado publicado que recibimos es del ${formatBogota(input.estadosLastAt)}.`
+        : "";
+      const ranWhen = input.lastSuccessfulSyncAt
+        ? ` Última consulta con respuesta: ${formatBogota(input.lastSuccessfulSyncAt)}.`
+        : "";
+      return {
+        kind: "CANAL_ACTUACIONES_SIN_RESPUESTA",
+        title: "El canal de actuaciones no ha reportado; el de estados sí",
+        description:
+          `Este expediente sí está siendo consultado.${ranWhen} El canal de estados responde con información,` +
+          ` mientras que el canal de actuaciones no ha devuelto registros para este radicado.` +
+          `${estadosWhen} La ausencia es de ese canal, no del expediente.`,
+        showAddRadicado: false,
+      };
+    }
+
     return {
       kind: "NUNCA_CONSULTADO",
       title: "Todavía no hemos consultado a los sistemas judiciales",
       description:
-        "El expediente está inscrito para monitoreo, pero aún no se ejecuta la primera sincronización. Las actuaciones aparecerán después de la primera consulta.",
+        "El expediente está inscrito para monitoreo, pero aún no se ejecuta la primera sincronización en ninguno de sus canales. Las actuaciones aparecerán después de la primera consulta.",
       showAddRadicado: false,
     };
   }
+
 
   return {
     kind: "CONSULTADO_SIN_RESULTADOS",

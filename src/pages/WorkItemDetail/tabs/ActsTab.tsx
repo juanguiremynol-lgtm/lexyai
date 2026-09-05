@@ -201,7 +201,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
       monitoringEnabled: (workItem as any).monitoring_enabled,
       monitoringDisabledReason: (workItem as any).monitoring_disabled_reason ?? null,
       lastSyncedAt: workItem.last_synced_at ?? null,
+      // LI2 — report per channel: estados evidence disproves "never synced".
+      lastSuccessfulSyncAt: (workItem as any).last_successful_sync_at ?? null,
+      estadosLastAt: (workItem as any).latest_estado_at ?? null,
     });
+
     return (
       <div className="space-y-4">
         {apiError && (
