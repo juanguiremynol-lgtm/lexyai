@@ -80,6 +80,7 @@ export type ActsEmptyStateKind =
   | "SIN_PROVEEDOR"
   | "MONITOREO_DESACTIVADO"
   | "NUNCA_CONSULTADO"
+  | "CANAL_ACTUACIONES_SIN_RESPUESTA"
   | "CONSULTADO_SIN_RESULTADOS";
 
 export interface ActsEmptyState {
@@ -90,13 +91,36 @@ export interface ActsEmptyState {
   showAddRadicado: boolean;
 }
 
+function formatBogota(ts: string): string {
+  try {
+    return new Date(ts).toLocaleDateString("es-CO", {
+      timeZone: "America/Bogota",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return ts;
+  }
+}
+
 export function resolveActsEmptyState(input: {
   workflowType: string | null | undefined;
   radicado: string | null | undefined;
   monitoringEnabled: boolean | null | undefined;
   monitoringDisabledReason?: string | null;
+  /** Last successful run of the ACTS channel specifically. */
   lastSyncedAt?: string | null;
+  /**
+   * LI2 — a matter is not "never synced" because one of its two channels
+   * found nothing. Any successful run of ANY channel, and any estados
+   * evidence, disproves NUNCA_CONSULTADO.
+   */
+  lastSuccessfulSyncAt?: string | null;
+  estadosLastAt?: string | null;
+  estadosCount?: number | null;
 }): ActsEmptyState {
+
   const eligible = isProviderEligibleWorkflow(input.workflowType);
 
   if (eligible && !hasUsableRadicado(input.radicado)) {
