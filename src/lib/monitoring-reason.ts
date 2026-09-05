@@ -157,14 +157,37 @@ export function resolveActsEmptyState(input: {
   }
 
   if (!input.lastSyncedAt) {
+    const estadosEvidence =
+      (input.estadosCount ?? 0) > 0 || !!input.estadosLastAt;
+    const otherChannelRan = !!input.lastSuccessfulSyncAt;
+
+    if (estadosEvidence || otherChannelRan) {
+      const estadosWhen = input.estadosLastAt
+        ? ` El último estado publicado que recibimos es del ${formatBogota(input.estadosLastAt)}.`
+        : "";
+      const ranWhen = input.lastSuccessfulSyncAt
+        ? ` Última consulta con respuesta: ${formatBogota(input.lastSuccessfulSyncAt)}.`
+        : "";
+      return {
+        kind: "CANAL_ACTUACIONES_SIN_RESPUESTA",
+        title: "El canal de actuaciones no ha reportado; el de estados sí",
+        description:
+          `Este expediente sí está siendo consultado.${ranWhen} El canal de estados responde con información,` +
+          ` mientras que el canal de actuaciones no ha devuelto registros para este radicado.` +
+          `${estadosWhen} La ausencia es de ese canal, no del expediente.`,
+        showAddRadicado: false,
+      };
+    }
+
     return {
       kind: "NUNCA_CONSULTADO",
       title: "Todavía no hemos consultado a los sistemas judiciales",
       description:
-        "El expediente está inscrito para monitoreo, pero aún no se ejecuta la primera sincronización. Las actuaciones aparecerán después de la primera consulta.",
+        "El expediente está inscrito para monitoreo, pero aún no se ejecuta la primera sincronización en ninguno de sus canales. Las actuaciones aparecerán después de la primera consulta.",
       showAddRadicado: false,
     };
   }
+
 
   return {
     kind: "CONSULTADO_SIN_RESULTADOS",
