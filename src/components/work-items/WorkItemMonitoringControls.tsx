@@ -57,12 +57,6 @@ interface WorkItemMonitoringControlsProps {
   onUpdate: () => void;
 }
 
-const SUSPENSION_REASONS: Record<string, string> = {
-  USER_SUSPENDED: "Suspendido manualmente por usuario",
-  AUTO_NOT_DIGITIZED: "Posiblemente no digitalizado (consultas vacías)",
-  AUTO_PROVIDER_NOT_FOUND: "Proveedor no encontró el radicado",
-  AUTO_CONSECUTIVE_FAILURES: "Demasiados errores consecutivos",
-};
 
 type ConfirmAction = "pausar" | "cerrar" | "eliminar" | null;
 
