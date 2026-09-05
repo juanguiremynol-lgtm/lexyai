@@ -200,15 +200,6 @@ export interface ConnectionIssueRow {
   since: string | null;
 }
 
-/**
- * OO1 — matters hidden from this digest by `monitoring_suspended_at`.
- *
- * SEMANTICS (OO2a): `monitoring_suspended_at` gates VISIBILITY only. The
- * provider is still consulted and everything it publishes is still stored,
- * as long as `lifecycle_state = 'ACTIVE'` (which is what gates INGESTION).
- * `reading_active` carries that distinction into the render: when it is false
- * a real gap IS accumulating for that matter and the row must say so.
- */
 /** IQ5(b) — a matter an automatic rule stopped monitoring, not the lawyer. */
 export interface AutoPausedItemRow {
   id: string;
@@ -222,23 +213,6 @@ export interface AutoPausedItemRow {
   re_paused: boolean;
   reactivations: number;
 }
-
-export interface SuspendedItemRow {
-  id: string;
-  radicado: string | null;
-  title: string | null;
-  workflow_type: string | null;
-  suspended_at: string | null;
-  reason: string | null;
-  /** lifecycle_state === 'ACTIVE' → the provider is still being read. */
-  reading_active: boolean;
-  lifecycle_state: string | null;
-  /** Movement accumulated since the suspension date (by event date). */
-  acts_since: number;
-  estados_since: number;
-  last_movement_at: string | null;
-}
-
 
 /** JJ3 — PETICION / GOV_PROCEDURE are not judicial and get no scraper. */
 export const NON_JUDICIAL_WORKFLOWS = ["PETICION", "GOV_PROCEDURE"] as const;
@@ -299,7 +273,6 @@ export interface DigestPayload {
   reconciliations: ReconciliationNoticeRow[];
 
   connectionIssues: ConnectionIssueRow[];
-  suspended: SuspendedItemRow[];
   autoPaused: AutoPausedItemRow[];
   /**
    * TT6 — collection quality per source for this window. The digest may state

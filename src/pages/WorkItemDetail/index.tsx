@@ -652,8 +652,6 @@ export default function WorkItemDetail() {
               workflow_type: workItem.workflow_type,
               stage: workItem.stage,
               monitoring_enabled: workItem.monitoring_enabled,
-              monitoring_suspended_at: (workItem as any).monitoring_suspended_at || null,
-              monitoring_suspended_reason: (workItem as any).monitoring_suspended_reason || null,
               consecutive_failures: (workItem as any).consecutive_failures || 0,
               consecutive_not_found: (workItem as any).consecutive_not_found || 0,
               last_error_code: (workItem as any).last_error_code || null,

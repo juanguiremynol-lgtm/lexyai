@@ -49,8 +49,6 @@ interface WorkItemMonitoringControlsProps {
     workflow_type?: string;
     stage?: string;
     monitoring_enabled: boolean;
-    monitoring_suspended_at?: string | null;
-    monitoring_suspended_reason?: string | null;
     consecutive_failures?: number;
     consecutive_not_found?: number;
     last_error_code?: string | null;
@@ -59,12 +57,6 @@ interface WorkItemMonitoringControlsProps {
   onUpdate: () => void;
 }
 
-const SUSPENSION_REASONS: Record<string, string> = {
-  USER_SUSPENDED: "Suspendido manualmente por usuario",
-  AUTO_NOT_DIGITIZED: "Posiblemente no digitalizado (consultas vacías)",
-  AUTO_PROVIDER_NOT_FOUND: "Proveedor no encontró el radicado",
-  AUTO_CONSECUTIVE_FAILURES: "Demasiados errores consecutivos",
-};
 
 type ConfirmAction = "pausar" | "cerrar" | "eliminar" | null;
 
@@ -247,24 +239,6 @@ export function WorkItemMonitoringControls({
                   : "⏸️ Pausado"}
             </Badge>
           </div>
-
-          {/* Suspension reason */}
-          {!workItem.monitoring_enabled && workItem.monitoring_suspended_reason && !isClosed && (
-            <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="font-medium">Razón de la pausa:</span>
-              </div>
-              <p className="text-foreground">
-                {SUSPENSION_REASONS[workItem.monitoring_suspended_reason] || workItem.monitoring_suspended_reason}
-              </p>
-              {workItem.monitoring_suspended_at && (
-                <p className="text-xs text-muted-foreground">
-                  {format(new Date(workItem.monitoring_suspended_at), "d MMM yyyy, HH:mm", { locale: es })}
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Failure metrics */}
           {workItem.monitoring_enabled && (workItem.consecutive_failures || 0) > 0 && (

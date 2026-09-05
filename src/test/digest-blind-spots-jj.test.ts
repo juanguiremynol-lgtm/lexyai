@@ -36,33 +36,20 @@ describe("JJ1 — mailbox connection is a headline condition", () => {
   });
 });
 
-describe("OO1 — hidden matters are surfaced accurately (still being read)", () => {
-  it("queries hidden matters and never mixes them into novedades", () => {
-    expect(digestIndex).toMatch(/not\("monitoring_suspended_at", "is", null\)/);
-    expect(digestIndex).toMatch(/is\("deleted_at", null\)/);
-    expect(digestHtml).toMatch(/Monitoreo oculto — no aparecen en este resumen/);
+describe("LB1 — the hidden/paused state does not exist", () => {
+  it("the digest neither reads nor renders monitoring_suspended_at", () => {
+    expect(digestIndex).not.toMatch(/monitoring_suspended_at/);
+    expect(digestHtml).not.toMatch(/Monitoreo oculto/);
+    expect(digestTypes).not.toMatch(/SuspendedItemRow/);
   });
 
-  it("states plainly that nothing is being lost, and never claims reading stopped", () => {
-    expect(digestHtml).toMatch(/se siguen consultando con sus proveedores/);
-    expect(digestHtml).not.toMatch(/no se está consultando/);
-  });
-
-  it("warns about an accumulating gap only when ingestion is off", () => {
-    expect(digestHtml).toMatch(/No — lectura detenida/);
-    expect(digestHtml).toMatch(/acumulando un vacío/);
-    expect(digestIndex).toMatch(/reading_active: s\.lifecycle_state === "ACTIVE"/);
-  });
-
-  it("reports movement accumulated since the matter was hidden", () => {
-    expect(digestHtml).toMatch(/Movimiento desde entonces/);
-    expect(digestIndex).toMatch(/acts_since/);
-    expect(digestIndex).toMatch(/estados_since/);
-  });
-
-
-  it("does not offer to reactivate anything", () => {
-    expect(digestHtml).not.toMatch(/reactivar ahora|Reactivar →/i);
+  it("Lexy and the ticker stop filtering on it too", () => {
+    expect(read("supabase/functions/lexy-daily-message/index.ts")).not.toMatch(
+      /work_items\.monitoring_suspended_at/,
+    );
+    expect(read("src/lib/services/ticker-data-service.ts")).not.toMatch(
+      /monitoring_suspended_at/,
+    );
   });
 });
 
@@ -94,13 +81,11 @@ describe("JJ5 — one monitored universe across the product", () => {
     const lexy = read("supabase/functions/lexy-daily-message/index.ts");
     expect(lexy).toMatch(/from\("v_monitored_work_items"\)/);
     expect(lexy).toMatch(/is\("work_items\.deleted_at", null\)/);
-    expect(lexy).toMatch(/is\("work_items\.monitoring_suspended_at", null\)/);
   });
 
   it("the ticker applies the same predicate on every query", () => {
     const ticker = read("src/lib/services/ticker-data-service.ts");
-    const occurrences = ticker.match(/work_items\.monitoring_suspended_at/g) ?? [];
+    const occurrences = ticker.match(/work_items\.deleted_at/g) ?? [];
     expect(occurrences.length).toBe(3);
-    expect(ticker).toMatch(/work_items\.deleted_at/);
   });
 });
