@@ -33,7 +33,6 @@ import {
   type ReconciliationNoticeRow,
   type SourceQualityRow,
   type AutoPausedItemRow,
-  type SuspendedItemRow,
   type WorkItemInfo,
 } from "./types.ts";
 
@@ -707,42 +706,6 @@ function autoPausedBlock(rows: AutoPausedItemRow[], appBaseUrl: string): string 
   <div style="font-size:12px;color:${MUTED};margin-top:6px;">Lo que esto NO significa: que el expediente esté cerrado ni que no exista. El proveedor no lo afirmó; el sistema lo dedujo de la ausencia de filas.${anyRePaused ? " En las filas marcadas, el sistema está revirtiendo su decisión de forma repetida y eso indica un defecto de nuestro lado o una limitación real del proveedor, no una conclusión sobre el expediente." : ""}</div>`;
 }
 
-function suspendedBlock(rows: SuspendedItemRow[], appBaseUrl: string): string {
-  if (!rows.length) return "";
-  const anyStopped = rows.some((r) => !r.reading_active);
-  return sectionTitle(
-    `Monitoreo oculto — no aparecen en este resumen (${rows.length})`,
-    "#fbbf24",
-    "Estos asuntos se siguen consultando con sus proveedores y todo lo que publiquen se sigue guardando: no se está perdiendo nada. Lo único que ocurre es que sus novedades no se muestran en este resumen.",
-  ) +
-  `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-    <thead><tr>${th("Radicado", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Tipo", "#fbbf24")}${th("Oculto desde", "#fbbf24")}${th("Motivo registrado", "#fbbf24")}${th("Lectura del proveedor", "#fbbf24")}${th("Movimiento desde entonces", "#fbbf24")}</tr></thead>
-    <tbody>${rows.map((r) => {
-      const total = r.acts_since + r.estados_since;
-      const parts: string[] = [];
-      if (r.acts_since) parts.push(`${r.acts_since} actuación(es)`);
-      if (r.estados_since) parts.push(`${r.estados_since} estado(s)`);
-      const movement = total
-        ? `<span style="color:#fbbf24;font-weight:700;">${parts.join(" + ")}</span>${r.last_movement_at ? ` · última ${fmtDate(r.last_movement_at)}` : ""}`
-        : `<span style="color:${MUTED};">Sin movimiento registrado</span>`;
-      const reading = r.reading_active
-        ? `<span style="color:#34d399;">Sí — se sigue leyendo y guardando</span>`
-        : `<span style="color:#f87171;font-weight:700;">No — lectura detenida</span><div style="font-size:11px;color:#f87171;">Se está acumulando un vacío: lo que el despacho publique mientras tanto no se está capturando.</div>`;
-      return `<tr>
-      ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:#fbbf24;">${esc(r.radicado || "Sin radicado")}</a>`)}
-      ${td(esc(r.title || "—"))}
-      ${td(esc(r.workflow_type || "—"))}
-      ${td(fmtDate(r.suspended_at))}
-      ${td(esc(r.reason || "No registrado"))}
-      ${td(reading)}
-      ${td(movement)}
-    </tr>`;
-    }).join("")}</tbody>
-  </table>
-  <div style="font-size:12px;color:${MUTED};margin-top:6px;">El movimiento se cuenta desde la fecha en que el asunto se ocultó y no se detalla aquí: ábralo para verlo. Volver a mostrarlos en el resumen es una decisión suya; Andromeda no los reactiva por su cuenta.${anyStopped ? " Las filas marcadas «lectura detenida» sí tienen un vacío real: en esas la consulta al proveedor está apagada." : ""}</div>`;
-}
-
-
 /** JJ3(b) — non-judicial matters live in their own section, on their own terms. */
 function nonJudicialBlock(rows: DeadlineRow[], p: DigestPayload): string {
   if (!p.nonJudicialCount) return "";
@@ -852,7 +815,6 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
     ${autoPausedBlock(p.autoPaused, p.appBaseUrl)}
-    ${suspendedBlock(p.suspended, p.appBaseUrl)}
 
     <div style="margin-top:28px;padding-top:14px;border-top:1px solid ${BORDER};font-size:12px;color:${MUTED};line-height:1.6;">
       <div><strong style="color:${TEXT};">${p.monitoredCount}</strong> asuntos judiciales en monitoreo activo con proveedores.
@@ -860,8 +822,7 @@ export function buildDigestHtml(p: DigestPayload): string {
         ? `<strong style="color:${TEXT};">${p.nonJudicialCount}</strong> asuntos no judiciales (peticiones / actuaciones administrativas), que no se consultan con ningún proveedor.`
         : "Sin asuntos no judiciales activos."}
       Las dos cifras no se suman: son universos distintos.</div>
-      <div>Los asuntos eliminados, pausados o archivados no se incluyen ni se cuentan.</div>
-      ${p.suspended.length > 0 ? `<div>${p.suspended.length} asunto(s) con monitoreo suspendido — ver la sección correspondiente.</div>` : ""}
+      <div>Los asuntos eliminados no se incluyen ni se cuentan. No existe un estado intermedio: un asunto que existe se monitorea.</div>
       ${p.silentCount > 0 ? `<div>${p.silentCount} asunto(s) sin lectura exitosa del proveedor en más de 72 horas.</div>` : ""}
       <div style="margin-top:8px;">
         <strong style="color:${TEXT};">Nota sobre fechas.</strong> La <em>fecha de actuación</em> es la fecha del acto en el

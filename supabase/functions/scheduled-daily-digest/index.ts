@@ -8,7 +8,7 @@
  * BINDING PRINCIPLE — a deleted matter appears in NOTHING. This is enforced
  * STRUCTURALLY, not by render-time filtering: the only entry point for matters
  * is `v_monitored_work_items`, which is defined as
- *   deleted_at IS NULL AND monitoring_enabled AND monitoring_suspended_at IS NULL.
+ *   deleted_at IS NULL AND monitoring_enabled.
  * Every child query (acts, publicaciones, hearings, deadlines) is constrained by
  * `IN (<ids from that view>)`. There is no code path that reads `work_items`.
  *
@@ -52,7 +52,6 @@ import type {
   ReconciliationNoticeRow,
   SourceQualityRow,
   AutoPausedItemRow,
-  SuspendedItemRow,
   WorkItemInfo,
 } from "./types.ts";
 
@@ -468,67 +467,6 @@ Deno.serve(async (req) => {
               since: c.token_expires_at ?? null,
             });
           }
-        }
-
-        // ── OO1: asuntos ocultos del resumen (monitoring_suspended_at) ──
-        // monitoring_suspended_at gates VISIBILITY only; lifecycle_state gates
-        // INGESTION. A hidden matter with lifecycle ACTIVE is still being read.
-        const { data: rawSuspended } = await supabase
-          .from("work_items")
-          .select("id, radicado, title, workflow_type, lifecycle_state, monitoring_suspended_at, monitoring_suspended_reason")
-          .eq("owner_id", ownerId)
-          .is("deleted_at", null)
-          .eq("monitoring_enabled", true)
-          .not("monitoring_suspended_at", "is", null)
-          .order("monitoring_suspended_at", { ascending: true });
-
-        const suspended: SuspendedItemRow[] = [];
-        for (const s of rawSuspended ?? []) {
-          const sinceDate = (s.monitoring_suspended_at ?? "").slice(0, 10);
-          let acts_since = 0;
-          let estados_since = 0;
-          let last_movement_at: string | null = null;
-
-          if (sinceDate) {
-            const { data: actRows } = await supabase
-              .from("work_item_acts")
-              .select("event_date")
-              .eq("work_item_id", s.id)
-              .gt("event_date", sinceDate);
-            const { data: pubRows } = await supabase
-              .from("work_item_publicaciones")
-              .select("fecha_fijacion, published_at")
-              .eq("work_item_id", s.id);
-
-            const dates: string[] = [];
-            for (const a of actRows ?? []) {
-              if (!a.event_date) continue;
-              acts_since++;
-              dates.push(String(a.event_date).slice(0, 10));
-            }
-            for (const p of pubRows ?? []) {
-              const d = String(p.fecha_fijacion ?? p.published_at ?? "").slice(0, 10);
-              if (!d || d <= sinceDate) continue;
-              estados_since++;
-              dates.push(d);
-            }
-            dates.sort();
-            last_movement_at = dates.length ? dates[dates.length - 1] : null;
-          }
-
-          suspended.push({
-            id: s.id,
-            radicado: s.radicado,
-            title: s.title,
-            workflow_type: s.workflow_type,
-            suspended_at: s.monitoring_suspended_at,
-            reason: s.monitoring_suspended_reason,
-            lifecycle_state: s.lifecycle_state ?? null,
-            reading_active: s.lifecycle_state === "ACTIVE",
-            acts_since,
-            estados_since,
-            last_movement_at,
-          });
         }
 
 
@@ -996,7 +934,6 @@ Deno.serve(async (req) => {
 
           nonJudicialDeadlines,
           connectionIssues,
-          suspended,
           autoPaused,
           sourceQuality,
           coverageIncomplete,
