@@ -22,7 +22,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
-import { getColombiaToday } from "@/lib/colombia-date-utils";
+import { getColombiaToday, programadoLabel } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 import { hasResolvableDocument, openStoredDocument } from "@/lib/document-url-resolver";
 import { Link } from "react-router-dom";
