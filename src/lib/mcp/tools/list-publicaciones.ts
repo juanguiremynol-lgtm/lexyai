@@ -34,8 +34,9 @@ export default defineTool({
       .or("is_archived.is.null,is_archived.eq.false")
       .order("fecha_fijacion", { ascending: false })
       .limit(limit ?? 50);
-    if (date_from) q = q.gte("fecha_fijacion", date_from);
-    if (date_to) q = q.lte("fecha_fijacion", date_to);
+    // timestamptz column: bound by Bogota day instants, not date strings.
+    if (date_from) q = q.gte("fecha_fijacion", bogotaDayStartUTC(date_from));
+    if (date_to) q = q.lt("fecha_fijacion", bogotaDayStartUTC(date_to, 1));
 
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
