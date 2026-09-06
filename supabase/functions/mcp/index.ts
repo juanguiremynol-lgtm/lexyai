@@ -142,7 +142,7 @@ async function callerOrganizationId(sb, userId) {
 function bogotaToday() {
   return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
-function bogotaDayStartUTC2(day, offsetDays = 0) {
+function bogotaDayStartUTC(day, offsetDays = 0) {
   const base = /* @__PURE__ */ new Date(`${day}T05:00:00.000Z`);
   base.setUTCDate(base.getUTCDate() + offsetDays);
   return base.toISOString();
@@ -490,7 +490,7 @@ var get_estados_hoy_default = defineTool7({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
-    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").gte("fecha_fijacion", bogotaDayStartUTC2(day)).lt("fecha_fijacion", bogotaDayStartUTC2(day, 1)).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").gte("fecha_fijacion", bogotaDayStartUTC(day)).lt("fecha_fijacion", bogotaDayStartUTC(day, 1)).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
