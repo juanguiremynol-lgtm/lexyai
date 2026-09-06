@@ -144,6 +144,36 @@ export function getDeadlineUrgency(terminosInician: string | null): DeadlineUrge
   }
 }
 
+/**
+ * Programación anticipada (CGP art. 295 / Ley 2213 de 2022 art. 9).
+ *
+ * Courts publish the planilla the afternoon before the fijación, so a future
+ * fecha_fijacion / act_date is the NORMAL state of the datum, not an anomaly.
+ * These rows are never hidden — they are labelled. The condition is derived at
+ * read time from the Bogota calendar day, so it corrects itself on the day.
+ */
+export function bogotaCalendarDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d);
+}
+
+/** True when the row's legal date is later than today in Bogota. */
+export function isProgramado(value: string | null | undefined): boolean {
+  const day = bogotaCalendarDay(value);
+  return !!day && day > getColombiaToday();
+}
+
+/** Visual label "Programado para DD/MM/AAAA" — never a filter. */
+export function programadoLabel(value: string | null | undefined): string | null {
+  const day = bogotaCalendarDay(value);
+  if (!day || day <= getColombiaToday()) return null;
+  const [y, m, d] = day.split('-');
+  return `Programado para ${d}/${m}/${y}`;
+}
+
 /** Window label in Spanish */
 export function windowLabel(w: HoyWindow): string {
   return w === 'today' ? 'hoy' : w === 'three_days' ? 'últimos 3 días' : 'esta semana';
