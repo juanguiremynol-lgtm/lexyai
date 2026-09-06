@@ -8,6 +8,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { programadoLabel } from "@/lib/colombia-date-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
