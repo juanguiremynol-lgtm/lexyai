@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { bogotaToday, errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { bogotaDayStartUTC, bogotaToday, errorResult, requireAuth, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "get_estados_hoy",
