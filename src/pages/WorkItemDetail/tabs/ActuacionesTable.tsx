@@ -8,6 +8,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { programadoLabel } from "@/lib/colombia-date-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -314,7 +315,14 @@ export function ActuacionesTable({ acts, renderDocs }: ActuacionesTableProps) {
                 <TableRow key={act.id} className="align-top">
                   <TableCell className="p-3 whitespace-nowrap text-xs text-foreground/90 font-mono">
                     {act.act_date ? (
-                      fmt(act.act_date)
+                      <div className="flex flex-col gap-0.5">
+                        <span>{fmt(act.act_date)}</span>
+                        {programadoLabel(act.act_date) && (
+                          <span className="text-[10px] font-sans text-primary">
+                            {programadoLabel(act.act_date)}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="italic text-muted-foreground/60">—</span>
                     )}

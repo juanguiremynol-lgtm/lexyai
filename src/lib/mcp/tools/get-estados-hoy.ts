@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { bogotaToday, errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { bogotaDayStartUTC, bogotaToday, errorResult, requireAuth, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "get_estados_hoy",
@@ -18,10 +18,13 @@ export default defineTool({
     const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
 
+    // fecha_fijacion is timestamptz (rows land at 12:00+00): match the whole
+    // Bogota calendar day, never an equality against a midnight-UTC cast.
     const { data, error } = await sb
       .from("work_item_publicaciones")
       .select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source")
-      .eq("fecha_fijacion", day)
+      .gte("fecha_fijacion", bogotaDayStartUTC(day))
+      .lt("fecha_fijacion", bogotaDayStartUTC(day, 1))
       .or("is_archived.is.null,is_archived.eq.false")
       .order("despacho", { ascending: true })
       .limit(limit ?? 100);

@@ -142,6 +142,11 @@ async function callerOrganizationId(sb, userId) {
 function bogotaToday() {
   return (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 }
+function bogotaDayStartUTC(day, offsetDays = 0) {
+  const base = /* @__PURE__ */ new Date(`${day}T05:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + offsetDays);
+  return base.toISOString();
+}
 var NOT_PLATFORM_ADMIN = "Esta herramienta est\xE1 restringida a administradores de la plataforma.";
 async function requirePlatformAdmin(ctx) {
   const sb = sbForUser(ctx);
@@ -456,8 +461,8 @@ var list_publicaciones_default = defineTool6({
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
-    if (date_from) q = q.gte("fecha_fijacion", date_from);
-    if (date_to) q = q.lte("fecha_fijacion", date_to);
+    if (date_from) q = q.gte("fecha_fijacion", bogotaDayStartUTC(date_from));
+    if (date_to) q = q.lt("fecha_fijacion", bogotaDayStartUTC(date_to, 1));
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
     return textResult(
@@ -485,7 +490,7 @@ var get_estados_hoy_default = defineTool7({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
-    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").eq("fecha_fijacion", day).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
+    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").gte("fecha_fijacion", bogotaDayStartUTC(day)).lt("fecha_fijacion", bogotaDayStartUTC(day, 1)).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };

@@ -154,6 +154,19 @@ export function bogotaToday(): string {
 }
 
 /**
+ * UTC instant for the start of a Bogota calendar day (fixed UTC-05:00).
+ *
+ * `fecha_fijacion` / `published_at` are timestamptz and rows land at 12:00+00,
+ * so comparing them against a bare "YYYY-MM-DD" (cast to midnight UTC) never
+ * matches. Always filter with [start of day, start of next day).
+ */
+export function bogotaDayStartUTC(day: string, offsetDays = 0): string {
+  const base = new Date(`${day}T05:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + offsetDays);
+  return base.toISOString();
+}
+
+/**
  * Server-side platform-admin gate for the Atenia observability tools.
  *
  * The OAuth scope is NEVER enough: we validate the token's `sub` against

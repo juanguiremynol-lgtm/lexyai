@@ -22,7 +22,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
-import { getColombiaToday } from "@/lib/colombia-date-utils";
+import { getColombiaToday, programadoLabel } from "@/lib/colombia-date-utils";
 import { PendientesFijacionAlert } from "@/components/estados/PendientesFijacionAlert";
 import { hasResolvableDocument, openStoredDocument } from "@/lib/document-url-resolver";
 import { Link } from "react-router-dom";
@@ -468,6 +468,11 @@ function EstadoCard({ e, kind }: { e: EstadoRow; kind: "today" | "late" }) {
             <span className="text-foreground font-semibold">
               Fijado: <span className="text-primary">{fmtFecha(e.fecha_fijacion)}</span>
             </span>
+            {programadoLabel(e.fecha_fijacion) && (
+              <span className="text-primary font-medium">
+                {programadoLabel(e.fecha_fijacion)}
+              </span>
+            )}
             <span className="text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" />
               Detectado: {fmtFecha(e.detected_at)}
