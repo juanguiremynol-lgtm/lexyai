@@ -4413,8 +4413,11 @@ Deno.serve(withSyncTimeline(async (req) => {
             : result.errors.length > 0
               ? 'PARTIAL'
               : 'SUCCESS';
+        // chk_failed_run_declares_reason — a FAILED row without a code is
+        // rejected by the database and the failure disappears from history.
         const runErrorCode = result.code
-          || (persistedZeroDespiteData ? 'PERSIST_MISMATCH' : null);
+          || (persistedZeroDespiteData ? 'PERSIST_MISMATCH' : null)
+          || (runStatus === 'FAILED' ? 'UNSPECIFIED_ERROR' : null);
         const runErrorMessage = result.errors.length > 0
           ? result.errors.join('; ').slice(0, 500)
           : persistedZeroDespiteData

@@ -33,7 +33,6 @@ import {
   Zap,
   Clock,
   AlertTriangle,
-  Pause,
   Lock,
   Trash2,
 } from "lucide-react";
@@ -58,7 +57,7 @@ interface WorkItemMonitoringControlsProps {
 }
 
 
-type ConfirmAction = "pausar" | "cerrar" | "eliminar" | null;
+type ConfirmAction = "cerrar" | "eliminar" | null;
 
 export function WorkItemMonitoringControls({
   workItem,
@@ -76,27 +75,6 @@ export function WorkItemMonitoringControls({
   }, []);
 
   const isClosed = workItem.stage === "CLOSED";
-
-  // ── Pausar ──────────────────────────────────────────────
-  const pausarMutation = useMutation({
-    mutationFn: async (razon: string) => {
-      const r = await setWorkItemLifecycle(supabase, {
-        workItemId: workItem.id,
-        newState: "PAUSED",
-        reason: razon || "USER_SUSPENDED",
-        actor: "USER",
-        actorUserId: userId,
-      });
-      if (!r.ok) throw new Error(r.error || "pause failed");
-    },
-    onSuccess: () => {
-      toast.success("Monitoreo pausado");
-      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      closeDialog();
-      onUpdate();
-    },
-    onError: (err: any) => toast.error(`Error: ${err.message}`),
-  });
 
   // ── Reactivar ───────────────────────────────────────────
   const reactivarMutation = useMutation({
@@ -177,9 +155,6 @@ export function WorkItemMonitoringControls({
 
   function handleConfirm() {
     switch (confirmAction) {
-      case "pausar":
-        pausarMutation.mutate(reason);
-        break;
       case "cerrar":
         cerrarMutation.mutate(reason);
         break;
@@ -190,18 +165,11 @@ export function WorkItemMonitoringControls({
   }
 
   const isPending =
-    pausarMutation.isPending ||
     reactivarMutation.isPending ||
     cerrarMutation.isPending ||
     eliminarMutation.isPending;
 
   const dialogConfig: Record<string, { title: string; description: string; confirmLabel: string; variant: "destructive" | "default" }> = {
-    pausar: {
-      title: "Pausar monitoreo",
-      description: "Pausar detiene la consulta a los proveedores: lo que el despacho publique mientras esté pausado no se capturará y quedará un vacío en el expediente. Es distinto de ocultar el asunto del resumen, que no detiene la lectura. Puede reactivarlo en cualquier momento.",
-      confirmLabel: "Pausar",
-      variant: "destructive",
-    },
     cerrar: {
       title: "Cerrar radicado",
       description: "El radicado se marcará como cerrado (proceso terminado). El monitoreo se desactivará.",
@@ -262,19 +230,8 @@ export function WorkItemMonitoringControls({
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-2">
-            {/* Pausar / Reactivar — mutually exclusive */}
-            {workItem.monitoring_enabled && !isClosed ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setConfirmAction("pausar")}
-                disabled={isPending}
-                className="gap-1.5 border border-border"
-              >
-                <Pause className="h-3.5 w-3.5" />
-                Pausar monitoreo
-              </Button>
-            ) : !isClosed ? (
+            {/* Reactivar — solo cuando el monitoreo está inactivo */}
+            {!workItem.monitoring_enabled && !isClosed ? (
               <Button
                 variant="default"
                 size="sm"
