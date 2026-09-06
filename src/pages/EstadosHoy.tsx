@@ -468,6 +468,11 @@ function EstadoCard({ e, kind }: { e: EstadoRow; kind: "today" | "late" }) {
             <span className="text-foreground font-semibold">
               Fijado: <span className="text-primary">{fmtFecha(e.fecha_fijacion)}</span>
             </span>
+            {programadoLabel(e.fecha_fijacion) && (
+              <span className="text-primary font-medium">
+                {programadoLabel(e.fecha_fijacion)}
+              </span>
+            )}
             <span className="text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" />
               Detectado: {fmtFecha(e.detected_at)}
