@@ -473,6 +473,11 @@ async function writePublicacionesAttemptRow(
       finished_at: new Date().toISOString(),
       duration_ms: result?.provider_latency_ms || 0,
       status,
+      // chk_failed_run_declares_reason — a FAILED run must always name a cause,
+      // otherwise the insert is rejected and the failure vanishes from history.
+      error_code: status === 'FAILED'
+        ? (result?.result_code || 'UNSPECIFIED_ERROR')
+        : (outcome === 'pending_upstream' ? 'PENDING_UPSTREAM' : null),
       provider_attempts: [
         {
           provider: 'publicaciones',
@@ -2931,6 +2936,10 @@ Deno.serve(withSyncTimeline(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: result.provider_latency_ms || 0,
         status: result.ok ? 'SUCCESS' : (result.errors.length > 0 ? 'FAILED' : 'PARTIAL'),
+        // chk_failed_run_declares_reason — never write a FAILED row without a code.
+        error_code: (!result.ok && result.errors.length > 0)
+          ? (result.result_code || 'UNSPECIFIED_ERROR')
+          : null,
         provider_attempts: [
           {
             provider: 'publicaciones',
