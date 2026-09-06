@@ -170,7 +170,16 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                     )}
                   </TableCell>
                   <TableCell className="p-3 whitespace-nowrap text-xs text-foreground/80 font-mono">
-                    {r.fecha ? fmt(r.fecha) : (
+                    {r.fecha ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span>{fmt(r.fecha)}</span>
+                        {programadoLabel(r.fecha) && (
+                          <span className="text-[10px] font-sans text-primary">
+                            {programadoLabel(r.fecha)}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
                       <span className="text-muted-foreground/40">—</span>
                     )}
                   </TableCell>
