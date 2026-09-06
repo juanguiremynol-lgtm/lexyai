@@ -230,7 +230,7 @@ export function WorkItemMonitoringControls({
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-2">
-            {/* Pausar / Reactivar — mutually exclusive */}
+            {/* Reactivar — solo cuando el monitoreo está inactivo */}
             {!workItem.monitoring_enabled && !isClosed ? (
               <Button
                 variant="default"
