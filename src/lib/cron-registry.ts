@@ -30,7 +30,7 @@ export interface CronRegistryEntry {
 export const CRON_REGISTRY: CronRegistryEntry[] = [
   // ── SYNC PIPELINE ──
   {
-    jobname: "publicaciones-monitor-6am-cot",
+    jobname: "publicaciones-monitor",
     label: "Monitor de Publicaciones",
     schedule_utc: "0 11 * * *",
     schedule_cot: "06:00 COT",
@@ -46,7 +46,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "daily-sync-7am-cot",
+    jobname: "daily-sync",
     label: "Sync Diario Principal",
     schedule_utc: "0 12 * * *",
     schedule_cot: "07:00 COT",
@@ -94,10 +94,10 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "process-retry-queue-every-2min",
+    jobname: "process-retry-queue",
     label: "Procesador de Reintentos",
-    schedule_utc: "*/2 * * * *",
-    schedule_cot: "Cada 2 min",
+    schedule_utc: "0 * * * *",
+    schedule_cot: "Cada hora",
     edge_function: "process-retry-queue",
     role: "SYNC",
     critical: true,
@@ -112,8 +112,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "cpnu-job-poller",
     label: "Poller Jobs CPNU",
-    schedule_utc: "*/3 * * * *",
-    schedule_cot: "Cada 3 min",
+    schedule_utc: "*/10 * * * *",
+    schedule_cot: "Cada 10 min",
     edge_function: "cpnu-job-poller",
     role: "SYNC",
     critical: false,
@@ -129,7 +129,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
 
   // ── AI & ANALYSIS ──
   {
-    jobname: "atenia-ai-supervisor-daily",
+    jobname: "atenia-ai-supervisor",
     label: "Supervisor AI (Post-Sync)",
     schedule_utc: "30 12 * * *",
     schedule_cot: "07:30 COT",
@@ -165,8 +165,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "atenia-cron-watchdog",
     label: "Watchdog Auto-Sanación",
-    schedule_utc: "*/10 * * * *",
-    schedule_cot: "Cada 10 min",
+    schedule_utc: "0 * * * *",
+    schedule_cot: "Cada hora",
     edge_function: "atenia-cron-watchdog",
     role: "OBSERVABILITY",
     critical: true,
@@ -181,8 +181,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "atenia-server-heartbeat",
     label: "Heartbeat de Servidor",
-    schedule_utc: "*/30 * * * *",
-    schedule_cot: "Cada 30 min",
+    schedule_utc: "0 */6 * * *",
+    schedule_cot: "Cada 6 horas",
     edge_function: "atenia-ai-supervisor",
     role: "OBSERVABILITY",
     critical: true,
@@ -197,8 +197,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "atenia-self-health",
     label: "Auto-Diagnóstico",
-    schedule_utc: "*/15 * * * *",
-    schedule_cot: "Cada 15 min",
+    schedule_utc: "0 * * * *",
+    schedule_cot: "Cada hora",
     edge_function: "atenia-ai-supervisor",
     role: "OBSERVABILITY",
     critical: false,
@@ -245,10 +245,10 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
 
   // ── EMAIL & ALERTS ──
   {
-    jobname: "dispatch-update-emails-5min",
+    jobname: "dispatch-update-emails",
     label: "Despacho de Emails",
-    schedule_utc: "*/5 * * * *",
-    schedule_cot: "Cada 5 min",
+    schedule_utc: "40 * * * *",
+    schedule_cot: "Cada hora (min 40)",
     edge_function: "dispatch-update-emails",
     role: "EMAIL",
     critical: true,
@@ -261,10 +261,10 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "process-email-outbox-every-minute",
+    jobname: "process-email-outbox",
     label: "Worker Cola de Emails",
-    schedule_utc: "* * * * *",
-    schedule_cot: "Cada minuto",
+    schedule_utc: "*/5 * * * *",
+    schedule_cot: "Cada 5 min",
     edge_function: "process-email-outbox",
     role: "EMAIL",
     critical: true,
@@ -278,7 +278,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "hearing-reminders-daily-615-cot",
+    jobname: "hearing-reminders",
     label: "Recordatorios de Audiencias",
     schedule_utc: "15 11 * * *",
     schedule_cot: "06:15 COT",
@@ -295,7 +295,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "peticion-reminders-daily-630-cot",
+    jobname: "peticion-reminders",
     label: "Recordatorios de Peticiones",
     schedule_utc: "30 11 * * *",
     schedule_cot: "06:30 COT",
@@ -314,8 +314,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "scheduled-alert-evaluator",
     label: "Evaluador de Alertas",
-    schedule_utc: "*/30 * * * *",
-    schedule_cot: "Cada 30 min",
+    schedule_utc: "0 */2 * * *",
+    schedule_cot: "Cada 2 horas",
     edge_function: "scheduled-alert-evaluator",
     role: "ALERTS",
     critical: true,
@@ -348,7 +348,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
 
   // ── MAINTENANCE ──
   {
-    jobname: "cleanup-rate-limits-hourly",
+    jobname: "cleanup-rate-limits",
     label: "Limpieza Rate Limits",
     schedule_utc: "0 * * * *",
     schedule_cot: "Cada hora",
@@ -364,7 +364,7 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
     },
   },
   {
-    jobname: "purge-trashed-emails-daily",
+    jobname: "purge-trashed-emails",
     label: "Purga Emails Papelera",
     schedule_utc: "0 3 * * *",
     schedule_cot: "22:00 COT",
