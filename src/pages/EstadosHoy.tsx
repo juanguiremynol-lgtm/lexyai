@@ -178,7 +178,10 @@ export default function EstadosHoy() {
     for (const e of estados || []) {
       const ffKey = bogotaDayKey(e.fecha_fijacion);
       const dtKey = bogotaDayKey(e.detected_at);
-      if (ffKey === todayKey) {
+      // Fijados hoy: la fecha de fijación es hoy, O fueron detectados hoy con
+      // fecha futura (programación anticipada, CGP art. 295 / Ley 2213 de 2022 art. 9).
+      // La etiqueta "Programado para ..." distingue los futuros.
+      if (ffKey === todayKey || (dtKey === todayKey && ffKey && ffKey > todayKey)) {
         fijados.push(e);
       } else if (dtKey === todayKey && ffKey && ffKey < todayKey) {
         tardios.push(e);
