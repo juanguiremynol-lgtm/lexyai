@@ -444,7 +444,8 @@ function sourceQualityBlock(p: DigestPayload): string {
             ? `<br><span style="color:#94a3b8;font-size:11px;">${r.routing_skipped_count} asunto(s) fuera de su cadena: no se le consultan y no cuentan.</span>`
             : ""))}
         ${td(`${ratioOf(r)} respondidas<br>${verdictOf(r)}` +
-          matterList(r.source, "PENDING_UPSTREAM", "Pendientes en la fuente — verificables en el portal:", "#fbbf24") +
+          // LX — los pendientes crónicos viven en su propia sección, con su
+          // antigüedad; repetirlos aquí sin edad los vuelve ruido.
           matterList(r.source, "READ_FAILED", "Sin lectura por falla:", "#f87171") +
           matterList(r.source, "RESTRICTED", "El proveedor los marcó «proceso privado» (afirmación suya, sin comprobar):", "#94a3b8"))}
         ${td(esc(outcomeBreakdown(r)))}
