@@ -25911,6 +25911,22 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      source_coverage_persistence: {
+        Args: { _lookback_days?: number; _source: string }
+        Returns: {
+          consecutive_days: number
+          despacho: string
+          kind: string
+          last_day: string
+          last_outcome: string
+          radicado: string
+          since_date: string
+          source: string
+          status: string
+          title: string
+          work_item_id: string
+        }[]
+      }
       stage_rank: { Args: { p_stage: string }; Returns: number }
       sub_business_days_sql: {
         Args: { p_days: number; p_start: string }
