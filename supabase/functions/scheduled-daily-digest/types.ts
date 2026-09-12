@@ -306,6 +306,8 @@ export interface DigestPayload {
   coverageIncomplete: boolean;
   /** LW3/LW4 — the named matters behind each source's gap. */
   coverageExceptions: CoverageExceptionRow[];
+  /** LX — the same matters with their consecutive-day age and today's movement. */
+  coveragePersistence: CoveragePersistenceRow[];
   /**
    * ZZ3 — the window the SOURCE table was computed over. It is not always the
    * novedades window (the latter continues from the previous digest), and the
@@ -377,6 +379,26 @@ export interface SourceQualityRow {
  * LW3/LW4 — the matters behind a source's gap, one row per matter. He can act
  * on a radicado; he cannot act on the number 11.
  */
+/**
+ * LX — how long the gap has lasted, per matter. A warning that repeats the same
+ * population every day stops being read, so the daily headline reports movement
+ * and this row carries the standing population with its age.
+ */
+export interface CoveragePersistenceRow {
+  source: string;
+  work_item_id: string;
+  radicado: string | null;
+  title: string | null;
+  despacho: string | null;
+  kind: string | null;
+  consecutive_days: number;
+  since_date: string | null;
+  last_day: string | null;
+  last_outcome: string | null;
+  /** CHRONIC | JOINED_TODAY | RECOVERED_TODAY */
+  status: string;
+}
+
 export interface CoverageExceptionRow {
   source: string;
   kind: "PENDING_UPSTREAM" | "RESTRICTED" | "READ_FAILED" | string;

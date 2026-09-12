@@ -178,20 +178,20 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
     expect(index).toMatch(/reconciliations\.length \+[\s\S]{0,80}> 0 \|\|\s*\n?\s*coverageIncomplete/);
   });
 
-  it("qualifies the headline per source and renders the source block above novedades", () => {
-    // LW2 — the verdict names the partial source; it never calls the day
-    // incomplete when a source read its whole chain.
-    expect(html).toMatch(/Lectura parcial en \$\{nombres\(partials\)\}/);
-    expect(html).toMatch(/no permite concluir que no haya movimiento/);
+  it("qualifies the headline and renders the source block above novedades", () => {
+    // LW2/LX — the headline reports movement, and still says plainly when every
+    // source read its whole chain.
     expect(html).toMatch(/Todas las fuentes leyeron completa su cadena/);
+    expect(html).toMatch(/La cobertura no cambió/);
     const q = html.indexOf("${sourceQualityBlock(");
     const n = html.indexOf("${novedadesBlock(");
     expect(q).toBeGreaterThan(-1);
     expect(q).toBeLessThan(n);
   });
 
-  it("marks the subject line with the partial source, not the whole day", () => {
-    expect(index).toMatch(/Resumen diario · lectura parcial en/);
+  it("never repeats 'cobertura incompleta' as the daily subject", () => {
+    expect(index).toMatch(/Resumen diario · cobertura sin cambios/);
+    expect(index).toMatch(/Resumen diario · cambio en la cobertura/);
     expect(index).not.toMatch(/cobertura incompleta de fuentes/);
   });
 });
@@ -214,8 +214,7 @@ describe("LW — chain denominator and named gaps", () => {
     expect(html).not.toMatch(/routing_skipped_count.*sin confirmar/);
   });
 
-  it("names the pending and restricted matters instead of counting them", () => {
-    expect(html).toMatch(/matterList\(r\.source, "PENDING_UPSTREAM"/);
+  it("names the failed and restricted matters instead of counting them", () => {
     expect(html).toMatch(/matterList\(r\.source, "RESTRICTED"/);
     expect(html).toMatch(/matterList\(r\.source, "READ_FAILED"/);
     expect(index).toMatch(/source_coverage_exceptions/);
@@ -223,6 +222,31 @@ describe("LW — chain denominator and named gaps", () => {
 
   it("says complete when the whole chain answered", () => {
     expect(html).toMatch(/Lectura completa de su cadena/);
+  });
+});
+
+/**
+ * LX — the age of a gap is the signal. One day is a hiccup; thirty is ours.
+ */
+describe("LX — consecutive-day persistence of a source gap", () => {
+  const index = read("supabase/functions/scheduled-daily-digest/index.ts");
+  const html = read("supabase/functions/scheduled-daily-digest/html.ts");
+
+  it("carries the consecutive count per matter into the payload", () => {
+    expect(index).toMatch(/source_coverage_persistence/);
+    expect(index).toMatch(/coveragePersistence,/);
+  });
+
+  it("gives the standing population its own dated section", () => {
+    expect(html).toMatch(/Fuentes que llevan días sin entregar/);
+    expect(html).toMatch(/Días consecutivos/);
+    expect(html).toMatch(/\$\{persistenceBlock\(p\)\}/);
+  });
+
+  it("distinguishes what joined, what recovered and what is chronic", () => {
+    expect(html).toMatch(/JOINED_TODAY/);
+    expect(html).toMatch(/RECOVERED_TODAY/);
+    expect(index).toMatch(/JOINED_TODAY/);
   });
 });
 

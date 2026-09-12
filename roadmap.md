@@ -18,3 +18,9 @@
 - [x] LW2 "Cobertura incompleta" por fuente, no global
 - [x] LW3 Nombrar los 11 PP y 5 SAMAI Estados pendientes en la tabla de fuentes
 - [x] LW4 Restringidos por asunto (3 asuntos / 8 intentos), no total
+
+## LX — antigüedad de la brecha (los mismos 16 todos los días)
+- [x] LX1 Sección propia "Fuentes que llevan días sin entregar" (radicado, asunto, días)
+- [x] LX2 Titular reporta movimiento; "sin cambios" cuando no hay altas ni bajas
+- [x] LX3 Días consecutivos por asunto y fuente (source_coverage_persistence)
+- [x] LX4 La falla única de CPNU se nombra cada día que persista

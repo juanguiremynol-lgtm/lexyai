@@ -19,6 +19,8 @@ import {
   actuacionSourceLabel,
   LEGACY_ACT_SOURCES,
   estadoSourceLabel,
+  ESTADO_SOURCE_LABELS,
+  ACTUACION_SOURCE_LABELS,
   type ActuacionRow,
   type ConnectionIssueRow,
   type DocumentAvailability,
@@ -444,7 +446,8 @@ function sourceQualityBlock(p: DigestPayload): string {
             ? `<br><span style="color:#94a3b8;font-size:11px;">${r.routing_skipped_count} asunto(s) fuera de su cadena: no se le consultan y no cuentan.</span>`
             : ""))}
         ${td(`${ratioOf(r)} respondidas<br>${verdictOf(r)}` +
-          matterList(r.source, "PENDING_UPSTREAM", "Pendientes en la fuente — verificables en el portal:", "#fbbf24") +
+          // LX — los pendientes crónicos viven en su propia sección, con su
+          // antigüedad; repetirlos aquí sin edad los vuelve ruido.
           matterList(r.source, "READ_FAILED", "Sin lectura por falla:", "#f87171") +
           matterList(r.source, "RESTRICTED", "El proveedor los marcó «proceso privado» (afirmación suya, sin comprobar):", "#94a3b8"))}
         ${td(esc(outcomeBreakdown(r)))}
@@ -462,6 +465,63 @@ function sourceQualityBlock(p: DigestPayload): string {
       No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
     </div>` : ""}
     ${profileNote(rows)}`;
+}
+
+/**
+ * LX — "Fuentes que llevan N días sin entregar".
+ *
+ * The same sixteen matters have been pending for weeks. Repeating "cobertura
+ * incompleta" every morning over a population that never changes teaches the
+ * reader to skip the line. So the standing population lives here, named, with
+ * the number of consecutive days behind each one — that number is what tells
+ * him whether to open the portal himself — and the headline above reports only
+ * what moved today.
+ */
+function persistenceBlock(p: DigestPayload): string {
+  const rows = p.coveragePersistence ?? [];
+  if (!rows.length) return "";
+  const label = (s: string) =>
+    ESTADO_SOURCE_LABELS[s] ?? ACTUACION_SOURCE_LABELS[s] ?? s;
+  const chronic = rows.filter((r) => r.status !== "RECOVERED_TODAY")
+    .sort((a, b) => b.consecutive_days - a.consecutive_days);
+  const recovered = rows.filter((r) => r.status === "RECOVERED_TODAY");
+  const accent = "#fbbf24";
+  const ageCell = (d: number, since: string | null) =>
+    `<strong style="color:${d >= 7 ? "#f87171" : accent};">${d} día(s)</strong>` +
+    (since ? `<br><span style="color:#94a3b8;font-size:11px;">desde ${esc(since)}</span>` : "");
+  const kindText = (k: string | null) =>
+    k === "READ_FAILED"
+      ? "la lectura falló"
+      : "la fuente responde que la consulta sigue pendiente de su lado";
+
+  return sectionTitle(
+    "Fuentes que llevan días sin entregar",
+    accent,
+    "Estos asuntos se consultan todos los días y la fuente sigue sin responder con contenido. " +
+      "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
+  ) +
+    `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
+      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
+      <tbody>${chronic.map((r) => `<tr>
+        ${td(`<strong>${esc(r.radicado || "sin radicado")}</strong><br>` +
+          `<span style="color:#cbd5e1;font-size:11px;">${esc(r.title || "—")}</span>` +
+          (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : ""))}
+        ${td(esc(label(r.source)))}
+        ${td(ageCell(r.consecutive_days, r.since_date) +
+          (r.status === "JOINED_TODAY"
+            ? `<br><span style="color:#f87171;font-size:11px;">Entró hoy a esta lista</span>`
+            : ""))}
+        ${td(esc(kindText(r.kind)) + (r.last_outcome ? ` (${esc(r.last_outcome)})` : ""))}
+      </tr>`).join("")}</tbody>
+    </table>
+    ${recovered.length ? `<div style="font-size:12px;color:#4ade80;margin-top:8px;line-height:1.6;">
+      Salieron hoy de la lista: ${recovered.map((r) => esc(r.radicado || "sin radicado")).join(", ")}.
+    </div>` : ""}
+    <div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
+      Un asunto con pocos días es un tropiezo de la fuente. Un asunto con muchos días seguidos indica que
+      conviene revisarlo directamente en el portal: seguimos consultando, pero no podemos afirmar que no haya
+      movimiento en él.
+    </div>`;
 }
 
 /**
@@ -881,13 +941,28 @@ export function buildDigestHtml(p: DigestPayload): string {
     (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) >= r.expected_count,
   );
   const nombres = (list: typeof partials) => list.map((r) => esc(r.label)).join(", ");
-  const headline = partials.length
-    ? `${greeting} ${total} novedad(es) detectadas ${win}. ` +
-      `<strong style="color:#fbbf24;">Lectura parcial en ${nombres(partials)}</strong>` +
-      (completas.length ? `; lectura completa en ${nombres(completas)}` : "") +
-      `. En la(s) fuente(s) parcial(es), un cero no permite concluir que no haya movimiento.`
-    : `${greeting} ${total} novedad(es) detectadas ${win}. ` +
-      `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`;
+  // LX — the headline reports MOVEMENT, not the standing population. The same
+  // sixteen matters every morning under the word "incompleta" is a warning that
+  // stops being read; "sin cambios" says the truth and points at the section
+  // that holds the names and their age.
+  const pers = p.coveragePersistence ?? [];
+  const joined = pers.filter((r) => r.status === "JOINED_TODAY");
+  const recovered = pers.filter((r) => r.status === "RECOVERED_TODAY");
+  const standing = pers.filter((r) => r.status !== "RECOVERED_TODAY");
+  const rad = (list: typeof pers) => list.map((r) => esc(r.radicado || "sin radicado")).join(", ");
+  const coberturaFrase = !partials.length
+    ? `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`
+    : joined.length || recovered.length
+    ? `<strong style="color:#fbbf24;">Cambió la cobertura hoy</strong>: ` +
+      [
+        joined.length ? `entró(aron) ${rad(joined)}` : "",
+        recovered.length ? `salió(eron) ${rad(recovered)}` : "",
+      ].filter(Boolean).join("; ") +
+      `. Ver «Fuentes que llevan días sin entregar».`
+    : `<strong style="color:#94a3b8;">La cobertura no cambió</strong>: siguen los mismos ` +
+      `${standing.length} asunto(s) sin entrega de ${nombres(partials)}, sin altas ni bajas. ` +
+      `Ver «Fuentes que llevan días sin entregar».`;
+  const headline = `${greeting} ${total} novedad(es) detectadas ${win}. ${coberturaFrase}`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
@@ -899,6 +974,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${statStripBlock(p)}
     ${sourceQualityBlock(p)}
+    ${persistenceBlock(p)}
     ${novedadesBlock(p)}
     ${reconciliationBlock(p.reconciliations ?? [], p)}
     ${importedHistoryBlock(p)}

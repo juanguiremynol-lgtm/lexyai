@@ -52,6 +52,7 @@ import type {
   ReconciliationNoticeRow,
   SourceQualityRow,
   CoverageExceptionRow,
+  CoveragePersistenceRow,
   AutoPausedItemRow,
   WorkItemInfo,
 } from "./types.ts";
@@ -188,6 +189,7 @@ Deno.serve(async (req) => {
     const sourceWindowFrom = new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
     const sourceQuality: SourceQualityRow[] = [];
     const coverageExceptions: CoverageExceptionRow[] = [];
+    const coveragePersistence: CoveragePersistenceRow[] = [];
     for (const src of ["cpnu", "publicaciones", "samai", "samai_estados"]) {
       const { data: q, error: qErr } = await supabase.rpc("source_collection_quality", {
         _source: src,
@@ -251,6 +253,32 @@ Deno.serve(async (req) => {
             title: (e.title as string) ?? null,
             attempts: Number(e.attempts ?? 0),
             last_attempt_at: (e.last_attempt_at as string) ?? null,
+          });
+        }
+      }
+
+      // LX — how old each gap is. Eleven matters pending for one day is a
+      // provider hiccup; eleven pending for thirty is a defect we own.
+      const { data: pers, error: persErr } = await supabase.rpc("source_coverage_persistence", {
+        _source: src,
+        _lookback_days: 60,
+      });
+      if (persErr) {
+        console.warn("[scheduled-daily-digest] source_coverage_persistence failed", src, persErr.message);
+      } else {
+        for (const r of (pers ?? []) as Record<string, unknown>[]) {
+          coveragePersistence.push({
+            source: String(r.source ?? src),
+            work_item_id: String(r.work_item_id ?? ""),
+            radicado: (r.radicado as string) ?? null,
+            title: (r.title as string) ?? null,
+            despacho: (r.despacho as string) ?? null,
+            kind: (r.kind as string) ?? null,
+            consecutive_days: Number(r.consecutive_days ?? 0),
+            since_date: (r.since_date as string) ?? null,
+            last_day: (r.last_day as string) ?? null,
+            last_outcome: (r.last_outcome as string) ?? null,
+            status: String(r.status ?? "CHRONIC"),
           });
         }
       }
@@ -1025,6 +1053,7 @@ Deno.serve(async (req) => {
           sourceQuality,
           coverageIncomplete,
           coverageExceptions,
+          coveragePersistence,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
@@ -1036,16 +1065,19 @@ Deno.serve(async (req) => {
           ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
           : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
-          // TT6/LW2 — never promise a clean day when a source did not cover its
-          // chain, and never call the whole day incomplete because one source was.
+          // TT6/LW2/LX — the subject reports MOVEMENT. Repeating "cobertura
+          // incompleta" every day over the same known population trains the
+          // reader to ignore it; "sin cambios" is the true and different line.
           : coverageIncomplete
-          ? `Andromeda — Resumen diario · lectura parcial en ${
-              sourceQuality
-                .filter((s) => (s.expected_count || 0) > 0 &&
-                  (s.answered_count ?? s.usable_confirmed_count) < s.expected_count)
-                .map((s) => s.label)
-                .join(", ") || "alguna fuente"
-            }`
+          ? (coveragePersistence.some((r) => r.status !== "CHRONIC")
+            ? `Andromeda — Resumen diario · cambio en la cobertura (${
+              coveragePersistence.filter((r) => r.status === "JOINED_TODAY").length
+            } nuevo(s), ${
+              coveragePersistence.filter((r) => r.status === "RECOVERED_TODAY").length
+            } resuelto(s))`
+            : `Andromeda — Resumen diario · cobertura sin cambios · ${
+              coveragePersistence.filter((r) => r.status === "CHRONIC").length
+            } asunto(s) pendientes de antes`)
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
