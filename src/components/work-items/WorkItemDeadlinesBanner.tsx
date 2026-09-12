@@ -49,7 +49,7 @@ const ANCHOR_LABELS: Record<string, string> = {
 
 export function WorkItemDeadlinesBanner({ workItemId }: Props) {
   const { data: deadlines = [], isLoading } = useWorkItemDeadlines(workItemId);
-  if (isLoading || deadlines.length === 0) return null;
+  const decide = useCorrespondenceClosure(workItemId);
 
   const active = deadlines.filter(
     (d) =>
@@ -57,13 +57,20 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
       d.status === "REQUIERE_REVISION_MANUAL" ||
       d.status === "SUGGESTED_BY_PROVIDER",
   );
-  if (active.length === 0) return null;
+  // LV2 — the three facts the old single status hid, each rendered as itself.
+  const closures = deadlines.filter((d) => isClosureStatus(d.status));
+  // LV4 — never computed: shown apart, never counted as a live term.
+  const liveCount = active.filter((d) => !!d.deadline_date).length;
 
-  const worst = active.reduce<WorkItemDeadline>((acc, d) => {
-    const rank = { critical: 3, warning: 2, review: 1, info: 0 } as const;
-    return rank[deadlineTone(d)] > rank[deadlineTone(acc)] ? d : acc;
-  }, active[0]);
-  const tone = deadlineTone(worst);
+  if (isLoading || (active.length === 0 && closures.length === 0)) return null;
+
+  const worst = active.length
+    ? active.reduce<WorkItemDeadline>((acc, d) => {
+        const rank = { critical: 3, warning: 2, review: 1, info: 0 } as const;
+        return rank[deadlineTone(d)] > rank[deadlineTone(acc)] ? d : acc;
+      }, active[0])
+    : null;
+  const tone = worst ? deadlineTone(worst) : "info";
 
   const toneClass =
     tone === "critical"
