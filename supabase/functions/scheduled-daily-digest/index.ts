@@ -51,6 +51,7 @@ import type {
   NeverReadRow,
   ReconciliationNoticeRow,
   SourceQualityRow,
+  CoverageExceptionRow,
   AutoPausedItemRow,
   WorkItemInfo,
 } from "./types.ts";
@@ -186,6 +187,7 @@ Deno.serve(async (req) => {
     // and travels into every recipient's payload.
     const sourceWindowFrom = new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
     const sourceQuality: SourceQualityRow[] = [];
+    const coverageExceptions: CoverageExceptionRow[] = [];
     for (const src of ["cpnu", "publicaciones", "samai", "samai_estados"]) {
       const { data: q, error: qErr } = await supabase.rpc("source_collection_quality", {
         _source: src,
@@ -1022,6 +1024,7 @@ Deno.serve(async (req) => {
           autoPaused,
           sourceQuality,
           coverageIncomplete,
+          coverageExceptions,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
