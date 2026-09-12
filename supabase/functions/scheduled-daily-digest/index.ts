@@ -1065,16 +1065,19 @@ Deno.serve(async (req) => {
           ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
           : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
-          // TT6/LW2 — never promise a clean day when a source did not cover its
-          // chain, and never call the whole day incomplete because one source was.
+          // TT6/LW2/LX — the subject reports MOVEMENT. Repeating "cobertura
+          // incompleta" every day over the same known population trains the
+          // reader to ignore it; "sin cambios" is the true and different line.
           : coverageIncomplete
-          ? `Andromeda — Resumen diario · lectura parcial en ${
-              sourceQuality
-                .filter((s) => (s.expected_count || 0) > 0 &&
-                  (s.answered_count ?? s.usable_confirmed_count) < s.expected_count)
-                .map((s) => s.label)
-                .join(", ") || "alguna fuente"
-            }`
+          ? (coveragePersistence.some((r) => r.status !== "CHRONIC")
+            ? `Andromeda — Resumen diario · cambio en la cobertura (${
+              coveragePersistence.filter((r) => r.status === "JOINED_TODAY").length
+            } nuevo(s), ${
+              coveragePersistence.filter((r) => r.status === "RECOVERED_TODAY").length
+            } resuelto(s))`
+            : `Andromeda — Resumen diario · cobertura sin cambios · ${
+              coveragePersistence.filter((r) => r.status === "CHRONIC").length
+            } asunto(s) pendientes de antes`)
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
