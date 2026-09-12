@@ -421,8 +421,8 @@ function sourceQualityBlock(p: DigestPayload): string {
       `${r.success_count} con datos`,
       `${r.success_empty_count} leídos sin movimiento`,
       `${r.not_found_count} no encontrados`,
-      `${restricted} marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,
-      `${pending} pendientes en la fuente`,
+      `${restricted} asunto(s) marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,
+      `${pending} asunto(s) pendientes en la fuente`,
       `${failures} sin lectura (falla, no significa "sin novedades")`,
     ].join(" · ");
   };
