@@ -1036,9 +1036,16 @@ Deno.serve(async (req) => {
           ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
           : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
-          // TT6 — never promise a clean day when a source did not cover the portfolio.
+          // TT6/LW2 — never promise a clean day when a source did not cover its
+          // chain, and never call the whole day incomplete because one source was.
           : coverageIncomplete
-          ? `Andromeda — Resumen diario · cobertura incompleta de fuentes`
+          ? `Andromeda — Resumen diario · lectura parcial en ${
+              sourceQuality
+                .filter((s) => (s.expected_count || 0) > 0 &&
+                  (s.answered_count ?? s.usable_confirmed_count) < s.expected_count)
+                .map((s) => s.label)
+                .join(", ") || "alguna fuente"
+            }`
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
