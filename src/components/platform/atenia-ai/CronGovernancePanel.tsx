@@ -401,7 +401,7 @@ export function CronGovernancePanel() {
                         {/* Cron trigger */}
                         <div className="flex items-center gap-1 px-2 py-1 rounded bg-muted">
                           <Clock className="h-3 w-3" />
-                          <span className="font-mono">{entry.schedule_cot}</span>
+                          <span className="font-mono">{scheduleOf(entry.jobname).cot}</span>
                         </div>
                         <ArrowRight className="h-3 w-3 text-muted-foreground" />
 
