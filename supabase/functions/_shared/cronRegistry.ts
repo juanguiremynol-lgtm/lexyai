@@ -1,11 +1,14 @@
 /**
- * Cron Registry — Canonical source of truth for ALL pg_cron jobs expected in production.
+ * Cron Registry — the NON-DERIVABLE metadata of each expected pg_cron job.
  *
- * This file defines every cron job the platform needs, with its schedule,
- * edge function target, and operational metadata. Used by:
- *   - Admin Cron Governance panel (diff vs pg_cron reality)
- *   - Watchdog (health checks)
- *   - Daily ops reports
+ * LS2 / summary-column rule: the SCHEDULE IS NOT HERE. `cron.job.schedule` is
+ * the fact and `public.cron_job_health()` already returns it together with
+ * `active`. A hand-kept copy of a cadence drifts silently — it did, in three
+ * places at once (job name, this file, the UI mirror) — so this registry now
+ * declares only what pg_cron cannot tell us: label, role, criticality,
+ * whether the job is expected to exist, and its wiring.
+ *
+ * Used by: admin Cron Governance panel, watchdog, daily ops reports.
  */
 
 export interface CronRegistryEntry {
@@ -13,8 +16,6 @@ export interface CronRegistryEntry {
   jobname: string;
   /** Human-readable label */
   label: string;
-  /** Cron schedule expression (UTC) */
-  /** Equivalent time in COT for daily jobs, or description */
   /** Edge function invoked */
   edge_function: string;
   /** Functional role */
