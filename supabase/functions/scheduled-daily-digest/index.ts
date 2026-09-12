@@ -584,6 +584,8 @@ Deno.serve(async (req) => {
             // an explicit `false` is the provider answering "no PDF".
             document_availability: docs.length
               ? "DISPONIBLE"
+              : retentionExpiredPubIds.has(p.id)
+              ? "RETENCION_VENCIDA_EN_ORIGEN"
               : constanciaSinDocumento
               ? "CONSTANCIA_SIN_DOCUMENTO"
               : p.pdf_available === null || p.pdf_available === undefined
