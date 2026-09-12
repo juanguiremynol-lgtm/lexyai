@@ -74,6 +74,16 @@ export interface WorkItemDeadline {
     client_party_role?: string | null;
     attribution?: "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO";
     oral_en_audiencia?: boolean;
+    /** LV2 — what the email was, carried onto the row so he can see it. */
+    correspondence_closure?: {
+      subject?: string | null;
+      sent_at?: string | null;
+      web_link?: string | null;
+      link_id?: string | null;
+      verified?: boolean;
+      decision?: "CONFIRM" | "REOPEN";
+      decided_at?: string | null;
+    };
     email_evidence?: {
       internet_message_id?: string | null;
       subject?: string | null;
