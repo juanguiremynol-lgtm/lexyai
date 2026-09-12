@@ -534,11 +534,13 @@ async function writePublicacionesAttemptRow(
 }
 
 /**
- * Iteration 62 — schedule the estados re-check.
+ * Iteration 62 / LR1 — schedule the estados re-check.
  *
- * `pendingUpstream=true` means the provider was still working when we asked
- * (10-minute cadence, 4 attempts). Otherwise the provider answered and
- * confirmed no rows, which only warrants the slow 24h re-check.
+ * `pendingUpstream=true` means the provider accepted the radicado and has not
+ * delivered yet. That justifies fast re-query ONLY inside the first hour
+ * (+10min, +30min); afterwards the provider's own cycle is daily, so the queue
+ * worker falls back to 24h. The attempt ceiling is 4 and is NEVER raised here:
+ * a ceiling that the condition it bounds can lift is not a ceiling (LR1(b)).
  */
 async function schedulePubRecheck(
   supabase: any,
@@ -576,10 +578,11 @@ async function schedulePubRecheck(
       console.log(`[sync-pub] Enqueued PUB_RETRY for ${workItemId} → next_run_at=${nextRunAt}`);
     } else if (pendingUpstream) {
       // Pull an existing (slow) re-check forward — the provider is warm now.
+      // max_attempts is deliberately NOT touched: the existing ceiling stands,
+      // so repeated PENDING_UPSTREAM can never extend the budget it consumes.
       await (supabase.from('sync_retry_queue') as any)
         .update({
           next_run_at: nextRunAt,
-          max_attempts: Math.max(existingRetry.max_attempts ?? 2, maxAttempts),
           last_error_code: 'PENDING_UPSTREAM',
           updated_at: new Date().toISOString(),
         })
@@ -590,6 +593,7 @@ async function schedulePubRecheck(
     console.warn('[sync-pub] Failed to enqueue PUB_RETRY (non-blocking):', retryErr?.message);
   }
 }
+
 
 /**
  * ITERATION 21 — every non-2xx must carry a diagnosable body.
