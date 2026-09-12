@@ -158,6 +158,10 @@ export function useDeadlinesQuery(organizationId: string | undefined) {
         )
         .eq("work_items.organization_id", organizationId)
         .eq("status", "PENDING")
+        // LV4 — a term with no deadline_date was never computed: it cannot be
+        // fulfilled, expired or pending, and must not enter a count that
+        // implies a live deadline. It is surfaced apart as SIN FECHA.
+        .not("deadline_date", "is", null)
         .order("deadline_date", { ascending: true })
         .limit(200);
       if (error) {
