@@ -832,11 +832,11 @@ export function CronGovernancePanel() {
                 <p className="text-sm font-medium mb-2">Jobs de alta frecuencia:</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {CRON_REGISTRY
-                    .filter(e => !e.schedule_cot.includes("COT"))
+                    .filter(e => !scheduleOf(e.jobname).daily)
                     .map(entry => (
                       <div key={entry.jobname} className="flex items-center gap-2 text-sm p-2 rounded border">
                         <Badge variant="outline" className={`text-xs ${ROLE_COLORS[entry.role] ?? ""}`}>
-                          {entry.schedule_cot}
+                          {scheduleOf(entry.jobname).cot}
                         </Badge>
                         <span>{entry.label}</span>
                         {entry.critical && <Zap className="h-3.5 w-3.5 text-amber-500" />}
