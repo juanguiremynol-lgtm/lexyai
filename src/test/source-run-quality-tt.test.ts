@@ -178,20 +178,20 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
     expect(index).toMatch(/reconciliations\.length \+[\s\S]{0,80}> 0 \|\|\s*\n?\s*coverageIncomplete/);
   });
 
-  it("qualifies the headline per source and renders the source block above novedades", () => {
-    // LW2 — the verdict names the partial source; it never calls the day
-    // incomplete when a source read its whole chain.
-    expect(html).toMatch(/Lectura parcial en \$\{nombres\(partials\)\}/);
-    expect(html).toMatch(/no permite concluir que no haya movimiento/);
+  it("qualifies the headline and renders the source block above novedades", () => {
+    // LW2/LX — the headline reports movement, and still says plainly when every
+    // source read its whole chain.
     expect(html).toMatch(/Todas las fuentes leyeron completa su cadena/);
+    expect(html).toMatch(/La cobertura no cambió/);
     const q = html.indexOf("${sourceQualityBlock(");
     const n = html.indexOf("${novedadesBlock(");
     expect(q).toBeGreaterThan(-1);
     expect(q).toBeLessThan(n);
   });
 
-  it("marks the subject line with the partial source, not the whole day", () => {
-    expect(index).toMatch(/Resumen diario · lectura parcial en/);
+  it("never repeats 'cobertura incompleta' as the daily subject", () => {
+    expect(index).toMatch(/Resumen diario · cobertura sin cambios/);
+    expect(index).toMatch(/Resumen diario · cambio en la cobertura/);
     expect(index).not.toMatch(/cobertura incompleta de fuentes/);
   });
 });
