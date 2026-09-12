@@ -8,11 +8,21 @@
 import { useWorkItemDeadlines, businessDaysUntil, type WorkItemDeadline } from "@/hooks/use-work-item-deadlines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { AlarmClock, AlertTriangle, Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlarmClock, AlertTriangle, Info, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
+import {
+  CLOSURE_EXPLANATIONS,
+  CLOSURE_LABELS,
+  SIN_FECHA_EXPLANATION,
+  SIN_FECHA_LABEL,
+  isClosureStatus,
+  isCorrespondenceClosure,
+} from "@/lib/deadline-closure";
+import { useCorrespondenceClosure } from "@/hooks/use-correspondence-closure";
 
 interface Props {
   workItemId: string;
