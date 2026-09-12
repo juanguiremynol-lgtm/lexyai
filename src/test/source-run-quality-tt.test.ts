@@ -200,6 +200,9 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
  * LW — coverage is measured against the source's own chain.
  */
 describe("LW — chain denominator and named gaps", () => {
+  const index = read("supabase/functions/scheduled-daily-digest/index.ts");
+  const html = read("supabase/functions/scheduled-daily-digest/html.ts");
+
   it("measures coverage with answered_count over the chain denominator", () => {
     expect(html).toMatch(/const den = r\.expected_count \|\| 0;/);
     expect(html).toMatch(/r\.answered_count \?\? r\.usable_confirmed_count/);
