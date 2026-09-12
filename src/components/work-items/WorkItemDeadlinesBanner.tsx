@@ -88,7 +88,7 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
       <Icon className="h-4 w-4" />
       <AlertTitle className="flex items-center gap-2">
         Términos procesales activos
-        <Badge variant="secondary">{active.length}</Badge>
+        <Badge variant="secondary">{liveCount}</Badge>
       </AlertTitle>
       <AlertDescription>
         <ul className="mt-2 space-y-2">
