@@ -128,9 +128,27 @@ export function CronGovernancePanel() {
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
 
+  // ── LS2: the schedule is READ FROM pg_cron, never from the registry ──
+  // cron_job_health() returns jobname, schedule and active straight from
+  // cron.job. The registry only supplies what pg_cron cannot know.
+  const { data: liveJobs } = useQuery({
+    queryKey: ["cron-live-jobs"],
+    queryFn: async () => {
+      const { data } = await (supabase.rpc as any)("cron_job_health");
+      const map = new Map<string, { schedule: string | null; active: boolean | null }>();
+      for (const j of (data ?? []) as any[]) {
+        map.set(j.jobname, { schedule: j.schedule ?? null, active: j.active ?? null });
+      }
+      return map;
+    },
+    refetchInterval: 60_000,
+  });
+
+  const scheduleOf = (jobname: string) => describeSchedule(liveJobs?.get(jobname)?.schedule);
+
   // Fetch health snapshots
   const { data: snapshots, isLoading, refetch } = useQuery({
-    queryKey: ["cron-governance-snapshots"],
+    queryKey: ["cron-governance-snapshots", liveJobs ? Array.from(liveJobs.keys()).join(",") : ""],
     queryFn: async () => {
       const { data: heartbeats } = await (supabase
         .from("platform_job_heartbeats") as any)
