@@ -137,6 +137,25 @@ export interface DeadlineRow {
   } | null;
 }
 
+/**
+ * LV2/LV4 — terms that are not live and must never be counted as if they were.
+ * Three of them were closed by something other than a reading of the record;
+ * the fourth was never computed at all.
+ */
+export interface UnverifiedTermRow {
+  id: string;
+  work_item_id: string;
+  label: string | null;
+  deadline_type: string | null;
+  deadline_date: string | null;
+  status: string;
+  /** The email that closed it, when correspondence was the closing fact. */
+  correspondence_subject: string | null;
+  correspondence_sent_at: string | null;
+  /** True once the lawyer confirmed or reopened it himself. */
+  decided: boolean;
+}
+
 export const BOUND_PARTY_SHORT: Record<string, string> = {
   DEMANDANTE: "demandante",
   DEMANDADO: "demandado",
