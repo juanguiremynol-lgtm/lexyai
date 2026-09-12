@@ -376,11 +376,38 @@ function sourceQualityBlock(p: DigestPayload): string {
   // 10/38: every source is listed with its coverage fraction and percentage,
   // degraded or not.
   const accent = degraded.length > 0 ? "#fbbf24" : "#94a3b8";
+  // LW1 — the denominator is the source's own chain. A matter the source was
+  // correctly never asked about (routing skip) is not in the numerator, not in
+  // the denominator, and never appears as "sin confirmar".
+  // LW2 — a "proceso privado" answer counts as an answered read: the source
+  // reached the matter. What it refused is reported on its own line.
   const ratioOf = (r: typeof rows[number]) => {
-    const den = r.expected_count || r.attempted_count || 0;
+    const den = r.expected_count || 0;
     if (!den) return "—";
-    const pct = Math.round((r.usable_confirmed_count / den) * 100);
-    return `${r.usable_confirmed_count}/${den} (${pct}%)`;
+    const answered = r.answered_count ?? r.usable_confirmed_count;
+    const pct = Math.round((answered / den) * 100);
+    return `${answered}/${den} (${pct}%)`;
+  };
+  const verdictOf = (r: typeof rows[number]) => {
+    const den = r.expected_count || 0;
+    const answered = r.answered_count ?? r.usable_confirmed_count;
+    if (den > 0 && answered >= den) {
+      return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
+    }
+    const faltan = Math.max(den - answered, 0);
+    return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${faltan} asunto(s) sin respuesta</span>`;
+  };
+  // LW3/LW4 — one line per matter, never a bare count.
+  const exceptionsOf = (source: string, kind: string) =>
+    (p.coverageExceptions ?? []).filter((e) => e.source === source && e.kind === kind);
+  const matterList = (source: string, kind: string, title: string, color: string) => {
+    const list = exceptionsOf(source, kind);
+    if (!list.length) return "";
+    return `<div style="margin-top:6px;font-size:11px;color:${color};">${title}</div>` +
+      `<ul style="margin:2px 0 0 16px;padding:0;font-size:11px;color:#cbd5e1;">` +
+      list.map((e) =>
+        `<li>${esc(e.radicado || "sin radicado")} — ${esc(e.title || "—")}</li>`,
+      ).join("") + `</ul>`;
   };
   // JC2 — the two zeros are different facts and are never merged. Only an
   // ANSWERED empty read is "sin movimiento"; a refusal is "privados"; a fast
