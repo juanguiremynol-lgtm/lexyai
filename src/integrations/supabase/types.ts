@@ -25862,10 +25862,13 @@ export type Database = {
         }
         Returns: Json
       }
+      source_chain: { Args: { _source: string }; Returns: string[] }
       source_collection_quality: {
         Args: { _from?: string; _source: string; _to?: string }
         Returns: {
+          answered_count: number
           attempted_count: number
+          chain: string[]
           coverage_ratio: number
           error_count: number
           expected_count: number
@@ -25873,6 +25876,8 @@ export type Database = {
           not_found_count: number
           pending_upstream_count: number
           restricted_count: number
+          restricted_matter_count: number
+          routing_skipped_count: number
           source: string
           source_quality_state: string
           success_count: number
@@ -25891,6 +25896,19 @@ export type Database = {
           source: string
           trailing_3_week_median: number
           week_start: string
+        }[]
+      }
+      source_coverage_exceptions: {
+        Args: { _from?: string; _source: string; _to?: string }
+        Returns: {
+          attempts: number
+          despacho: string
+          kind: string
+          last_attempt_at: string
+          radicado: string
+          source: string
+          title: string
+          work_item_id: string
         }[]
       }
       stage_rank: { Args: { p_stage: string }; Returns: number }
