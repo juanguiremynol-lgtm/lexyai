@@ -111,9 +111,12 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
                   {isReview ? (
                     <Badge
                       variant="outline"
+                      title={!d.deadline_date ? SIN_FECHA_EXPLANATION : undefined}
                       className="max-w-[16rem] whitespace-normal border-amber-500 text-amber-700 dark:text-amber-300"
                     >
-                      ⚠️ Requiere verificación manual — sin fecha de fijación confirmada
+                      {!d.deadline_date
+                        ? SIN_FECHA_LABEL
+                        : "⚠️ Requiere verificación manual — sin fecha de fijación confirmada"}
                     </Badge>
                   ) : (
                     <>
