@@ -19,6 +19,8 @@ import {
   actuacionSourceLabel,
   LEGACY_ACT_SOURCES,
   estadoSourceLabel,
+  ESTADO_SOURCE_LABELS,
+  ACTUACION_SOURCE_LABELS,
   type ActuacionRow,
   type ConnectionIssueRow,
   type DocumentAvailability,
@@ -957,6 +959,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${statStripBlock(p)}
     ${sourceQualityBlock(p)}
+    ${persistenceBlock(p)}
     ${novedadesBlock(p)}
     ${reconciliationBlock(p.reconciliations ?? [], p)}
     ${importedHistoryBlock(p)}
