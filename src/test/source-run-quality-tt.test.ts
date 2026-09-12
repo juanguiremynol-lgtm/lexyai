@@ -178,17 +178,51 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
     expect(index).toMatch(/reconciliations\.length \+[\s\S]{0,80}> 0 \|\|\s*\n?\s*coverageIncomplete/);
   });
 
-  it("qualifies the headline and renders the source block above novedades", () => {
-    expect(html).toMatch(/cobertura incompleta de fuentes/);
+  it("qualifies the headline per source and renders the source block above novedades", () => {
+    // LW2 — the verdict names the partial source; it never calls the day
+    // incomplete when a source read its whole chain.
+    expect(html).toMatch(/Lectura parcial en \$\{nombres\(partials\)\}/);
     expect(html).toMatch(/no permite concluir que no haya movimiento/);
+    expect(html).toMatch(/Todas las fuentes leyeron completa su cadena/);
     const q = html.indexOf("${sourceQualityBlock(");
     const n = html.indexOf("${novedadesBlock(");
     expect(q).toBeGreaterThan(-1);
     expect(q).toBeLessThan(n);
   });
 
-  it("marks the subject line when coverage is incomplete", () => {
-    expect(index).toMatch(/Resumen diario · cobertura incompleta de fuentes/);
+  it("marks the subject line with the partial source, not the whole day", () => {
+    expect(index).toMatch(/Resumen diario · lectura parcial en/);
+    expect(index).not.toMatch(/cobertura incompleta de fuentes/);
+  });
+});
+
+/**
+ * LW — coverage is measured against the source's own chain.
+ */
+describe("LW — chain denominator and named gaps", () => {
+  const index = read("supabase/functions/scheduled-daily-digest/index.ts");
+  const html = read("supabase/functions/scheduled-daily-digest/html.ts");
+
+  it("measures coverage with answered_count over the chain denominator", () => {
+    expect(html).toMatch(/const den = r\.expected_count \|\| 0;/);
+    expect(html).toMatch(/r\.answered_count \?\? r\.usable_confirmed_count/);
+  });
+
+  it("never lets a routing skip appear as a missing read", () => {
+    // The skip is disclosed as out-of-chain, never counted as pending.
+    expect(html).toMatch(/fuera de su cadena: no se le consultan y no cuentan/);
+    expect(html).not.toMatch(/routing_skipped_count.*sin confirmar/);
+  });
+
+  it("names the pending and restricted matters instead of counting them", () => {
+    expect(html).toMatch(/matterList\(r\.source, "PENDING_UPSTREAM"/);
+    expect(html).toMatch(/matterList\(r\.source, "RESTRICTED"/);
+    expect(html).toMatch(/matterList\(r\.source, "READ_FAILED"/);
+    expect(index).toMatch(/source_coverage_exceptions/);
+  });
+
+  it("says complete when the whole chain answered", () => {
+    expect(html).toMatch(/Lectura completa de su cadena/);
   });
 });
 

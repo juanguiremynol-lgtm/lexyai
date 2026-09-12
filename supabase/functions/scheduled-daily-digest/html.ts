@@ -376,11 +376,38 @@ function sourceQualityBlock(p: DigestPayload): string {
   // 10/38: every source is listed with its coverage fraction and percentage,
   // degraded or not.
   const accent = degraded.length > 0 ? "#fbbf24" : "#94a3b8";
+  // LW1 — the denominator is the source's own chain. A matter the source was
+  // correctly never asked about (routing skip) is not in the numerator, not in
+  // the denominator, and never appears as "sin confirmar".
+  // LW2 — a "proceso privado" answer counts as an answered read: the source
+  // reached the matter. What it refused is reported on its own line.
   const ratioOf = (r: typeof rows[number]) => {
-    const den = r.expected_count || r.attempted_count || 0;
+    const den = r.expected_count || 0;
     if (!den) return "—";
-    const pct = Math.round((r.usable_confirmed_count / den) * 100);
-    return `${r.usable_confirmed_count}/${den} (${pct}%)`;
+    const answered = r.answered_count ?? r.usable_confirmed_count;
+    const pct = Math.round((answered / den) * 100);
+    return `${answered}/${den} (${pct}%)`;
+  };
+  const verdictOf = (r: typeof rows[number]) => {
+    const den = r.expected_count || 0;
+    const answered = r.answered_count ?? r.usable_confirmed_count;
+    if (den > 0 && answered >= den) {
+      return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
+    }
+    const faltan = Math.max(den - answered, 0);
+    return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${faltan} asunto(s) sin respuesta</span>`;
+  };
+  // LW3/LW4 — one line per matter, never a bare count.
+  const exceptionsOf = (source: string, kind: string) =>
+    (p.coverageExceptions ?? []).filter((e) => e.source === source && e.kind === kind);
+  const matterList = (source: string, kind: string, title: string, color: string) => {
+    const list = exceptionsOf(source, kind);
+    if (!list.length) return "";
+    return `<div style="margin-top:6px;font-size:11px;color:${color};">${title}</div>` +
+      `<ul style="margin:2px 0 0 16px;padding:0;font-size:11px;color:#cbd5e1;">` +
+      list.map((e) =>
+        `<li>${esc(e.radicado || "sin radicado")} — ${esc(e.title || "—")}</li>`,
+      ).join("") + `</ul>`;
   };
   // JC2 — the two zeros are different facts and are never merged. Only an
   // ANSWERED empty read is "sin movimiento"; a refusal is "privados"; a fast
@@ -394,27 +421,32 @@ function sourceQualityBlock(p: DigestPayload): string {
       `${r.success_count} con datos`,
       `${r.success_empty_count} leídos sin movimiento`,
       `${r.not_found_count} no encontrados`,
-      `${restricted} marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,
-      `${pending} pendientes en la fuente`,
+      `${restricted} asunto(s) marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,
+      `${pending} asunto(s) pendientes en la fuente`,
       `${failures} sin lectura (falla, no significa "sin novedades")`,
     ].join(" · ");
   };
 
 
+  // LW2 — the verdict is per source. «CPNU leyó completo» y «Publicaciones leyó
+  // parcial» son hechos distintos del mismo día y no se resumen en una palabra.
   return sectionTitle(
-    degraded.length > 0
-      ? "Estado de las fuentes — cobertura incompleta"
-      : "Estado de las fuentes — cobertura",
+    "Estado de las fuentes — cobertura por fuente",
     accent,
-    degraded.length > 0
-      ? "Un cero en estas fuentes significa que no obtuvimos información autorizada, no que no haya novedades."
-      : "Cobertura = asuntos con lectura confirmada sobre asuntos esperados en la ventana.",
+    "Cada fuente se mide contra su propia cadena de asuntos. Lo que una fuente no debe leer " +
+      "(p. ej. Publicaciones frente a un asunto CPACA) no se cuenta como lectura faltante.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fuente", accent)}${th("Cobertura útil", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
+      <thead><tr>${th("Fuente", accent)}${th("Cobertura de su cadena", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
       <tbody>${rows.map((r) => `<tr>
-        ${td(`<strong>${esc(r.label)}</strong>`)}
-        ${td(`${ratioOf(r)} confirmadas`)}
+        ${td(`<strong>${esc(r.label)}</strong>` +
+          (r.routing_skipped_count
+            ? `<br><span style="color:#94a3b8;font-size:11px;">${r.routing_skipped_count} asunto(s) fuera de su cadena: no se le consultan y no cuentan.</span>`
+            : ""))}
+        ${td(`${ratioOf(r)} respondidas<br>${verdictOf(r)}` +
+          matterList(r.source, "PENDING_UPSTREAM", "Pendientes en la fuente — verificables en el portal:", "#fbbf24") +
+          matterList(r.source, "READ_FAILED", "Sin lectura por falla:", "#f87171") +
+          matterList(r.source, "RESTRICTED", "El proveedor los marcó «proceso privado» (afirmación suya, sin comprobar):", "#94a3b8"))}
         ${td(esc(outcomeBreakdown(r)))}
         ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
       </tr>`).join("")}</tbody>
@@ -526,6 +558,51 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
         </tr>`;
       }).join("")}</tbody>
     </table>`;
+}
+
+/**
+ * LV2/LV4 — the terms that are not running. Each says what actually closed it,
+ * and a correspondence closure says plainly that an email is not compliance.
+ * None of these is counted among his live terms.
+ */
+function unverifiedTermsBlock(p: DigestPayload): string {
+  const rows = p.unverifiedTerms ?? [];
+  if (!rows.length) return "";
+  const LABELS: Record<string, string> = {
+    CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR: "Cerrado por correspondencia — sin verificar",
+    VENCIDO_ANTES_DEL_MOTOR: "Vencido antes del motor de términos",
+    VENCIDO_RETRODETECTADO: "Vencido — detectado después",
+  };
+  const accent = "#a78bfa";
+  return `
+    <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
+      TÉRMINOS CERRADOS SIN VERIFICACIÓN (${rows.length}) — no cuentan como términos vivos
+    </div>
+    <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:8px;">
+      <thead><tr>${th("Asunto", accent)}${th("Término", accent)}${th("Vencimiento", accent)}${th("Por qué se cerró", accent)}</tr></thead>
+      <tbody>${rows.map((d) => {
+        const wi = p.workItems.get(d.work_item_id);
+        const correo = d.correspondence_subject
+          ? `<br><span style="color:#94a3b8;font-size:11px;">Correo: «${esc(d.correspondence_subject)}»${
+              d.correspondence_sent_at ? ` · ${fmtDate(d.correspondence_sent_at.slice(0, 10))}` : ""
+            }</span>`
+          : "";
+        const decidido = d.decided
+          ? `<br><span style="color:#4ade80;font-size:11px;">Usted ya decidió sobre este cierre.</span>`
+          : "";
+        return `<tr>
+          ${td(esc(wi?.radicado || wi?.title || "—"))}
+          ${td(esc(d.label || d.deadline_type || "—"))}
+          ${td(d.deadline_date ? fmtDate(d.deadline_date) : `<span style="color:#fbbf24;">SIN FECHA — REQUIERE REVISIÓN</span>`)}
+          ${td(esc(LABELS[d.status] ?? d.status) + correo + decidido)}
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:14px;">
+      Un correo enviado al despacho dentro de la ventana del término es correspondencia, no constancia de cumplimiento.
+      Confirme o reabra cada uno de estos términos desde el asunto. Los que aparecen SIN FECHA nunca se calcularon:
+      no están corriendo ni vencidos, y quedan fuera de todo conteo.
+    </div>`;
 }
 
 function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
@@ -795,11 +872,22 @@ export function buildDigestHtml(p: DigestPayload): string {
   // ZZ2(b) — the window stated as a day the reader can check, with the exact
   // boundaries beside it.
   const win = `del día ${esc(p.windowLabel)} (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}, hora de Bogotá)`;
-  const headline = p.coverageIncomplete
-    ? `${greeting} ${total} novedad(es) detectadas ${win} ` +
-      `sobre una <strong style="color:#fbbf24;">cobertura incompleta de fuentes</strong>: ` +
-      `esta cifra no permite concluir que no haya movimiento.`
-    : `${greeting} ${total} novedad(es) detectadas ${win}.`;
+  // LW2 — nombrar la fuente parcial y la fuente completa. Decir «cobertura
+  // incompleta» cuando una fuente leyó toda su cadena es falso sobre esa fuente.
+  const partials = (p.sourceQuality ?? []).filter(
+    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) < r.expected_count,
+  );
+  const completas = (p.sourceQuality ?? []).filter(
+    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) >= r.expected_count,
+  );
+  const nombres = (list: typeof partials) => list.map((r) => esc(r.label)).join(", ");
+  const headline = partials.length
+    ? `${greeting} ${total} novedad(es) detectadas ${win}. ` +
+      `<strong style="color:#fbbf24;">Lectura parcial en ${nombres(partials)}</strong>` +
+      (completas.length ? `; lectura completa en ${nombres(completas)}` : "") +
+      `. En la(s) fuente(s) parcial(es), un cero no permite concluir que no haya movimiento.`
+    : `${greeting} ${total} novedad(es) detectadas ${win}. ` +
+      `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
@@ -817,6 +905,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${hearingsBlock(p.hearings, p)}
     ${hearingsBeyondBlock(p.hearingsBeyond ?? [], p)}
     ${deadlinesBlock(p.deadlines, p)}
+    ${unverifiedTermsBlock(p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
     ${autoPausedBlock(p.autoPaused, p.appBaseUrl)}

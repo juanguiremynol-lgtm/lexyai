@@ -36,6 +36,12 @@ export interface WorkItemDeadline {
      *  surfaces after a 3 business-day grace. The row is kept in full. */
     | "VENCIDO_SIN_ACTUACION"
     | "PRESUNCION_DESCARTADA_POR_AVANCE"
+    /** LV2 — an email closed it. Correspondence, not verified compliance. */
+    | "CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR"
+    /** LV2 — expired before the term engine existed. Never closed by evidence. */
+    | "VENCIDO_ANTES_DEL_MOTOR"
+    /** LV2 — expiry found by back-detection, not by a reading of the day. */
+    | "VENCIDO_RETRODETECTADO"
     | "DISMISSED"
     | "CANCELLED";
   /** ITER51 — materialised attribution: which party this term binds. */
@@ -68,6 +74,16 @@ export interface WorkItemDeadline {
     client_party_role?: string | null;
     attribution?: "PROPIO" | "CONTRAPARTE" | "JUEZ" | "DESCONOCIDO";
     oral_en_audiencia?: boolean;
+    /** LV2 — what the email was, carried onto the row so he can see it. */
+    correspondence_closure?: {
+      subject?: string | null;
+      sent_at?: string | null;
+      web_link?: string | null;
+      link_id?: string | null;
+      verified?: boolean;
+      decision?: "CONFIRM" | "REOPEN";
+      decided_at?: string | null;
+    };
     email_evidence?: {
       internet_message_id?: string | null;
       subject?: string | null;

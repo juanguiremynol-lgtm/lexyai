@@ -137,6 +137,25 @@ export interface DeadlineRow {
   } | null;
 }
 
+/**
+ * LV2/LV4 — terms that are not live and must never be counted as if they were.
+ * Three of them were closed by something other than a reading of the record;
+ * the fourth was never computed at all.
+ */
+export interface UnverifiedTermRow {
+  id: string;
+  work_item_id: string;
+  label: string | null;
+  deadline_type: string | null;
+  deadline_date: string | null;
+  status: string;
+  /** The email that closed it, when correspondence was the closing fact. */
+  correspondence_subject: string | null;
+  correspondence_sent_at: string | null;
+  /** True once the lawyer confirmed or reopened it himself. */
+  decided: boolean;
+}
+
 export const BOUND_PARTY_SHORT: Record<string, string> = {
   DEMANDANTE: "demandante",
   DEMANDADO: "demandado",
@@ -269,6 +288,8 @@ export interface DigestPayload {
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
+  /** LV2/LV4 — closed without verification, or never computed. Apart, uncounted. */
+  unverifiedTerms: UnverifiedTermRow[];
   /** D3 — rows detected in the window that are initial import, not novedad. */
   importedHistory: ImportedHistoryRow[];
   /** YY3 — one-time reconciliation notices pending delivery. */
@@ -283,6 +304,8 @@ export interface DigestPayload {
   sourceQuality: SourceQualityRow[];
   /** true when at least one source did not reach authoritative coverage. */
   coverageIncomplete: boolean;
+  /** LW3/LW4 — the named matters behind each source's gap. */
+  coverageExceptions: CoverageExceptionRow[];
   /**
    * ZZ3 — the window the SOURCE table was computed over. It is not always the
    * novedades window (the latter continues from the previous digest), and the
@@ -336,6 +359,32 @@ export interface SourceQualityRow {
    */
   expected_before_profile?: number;
   excluded_by_profile?: number;
+  /**
+   * LW1/LW2 — matters of this source's own chain that ANSWERED, including a
+   * provider that answered "proceso privado": reaching the matter and being
+   * refused its content is an answer, not a hole. Coverage is measured with
+   * this figure over `expected_count`, which holds only the chain.
+   */
+  answered_count?: number;
+  restricted_matter_count?: number;
+  /** Reads correctly never made — outside the chain. Counted nowhere else. */
+  routing_skipped_count?: number;
+  /** The workflow types this source is responsible for. */
+  chain?: string[];
+}
+
+/**
+ * LW3/LW4 — the matters behind a source's gap, one row per matter. He can act
+ * on a radicado; he cannot act on the number 11.
+ */
+export interface CoverageExceptionRow {
+  source: string;
+  kind: "PENDING_UPSTREAM" | "RESTRICTED" | "READ_FAILED" | string;
+  work_item_id: string;
+  radicado: string | null;
+  title: string | null;
+  attempts: number;
+  last_attempt_at: string | null;
 }
 
 

@@ -8,11 +8,21 @@
 import { useWorkItemDeadlines, businessDaysUntil, type WorkItemDeadline } from "@/hooks/use-work-item-deadlines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { AlarmClock, AlertTriangle, Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlarmClock, AlertTriangle, Info, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { DERIVED_DATE_LABEL, formatDeadlineLabel, isDerivedDate } from "@/lib/deadline-labels";
+import {
+  CLOSURE_EXPLANATIONS,
+  CLOSURE_LABELS,
+  SIN_FECHA_EXPLANATION,
+  SIN_FECHA_LABEL,
+  isClosureStatus,
+  isCorrespondenceClosure,
+} from "@/lib/deadline-closure";
+import { useCorrespondenceClosure } from "@/hooks/use-correspondence-closure";
 
 interface Props {
   workItemId: string;
@@ -39,7 +49,7 @@ const ANCHOR_LABELS: Record<string, string> = {
 
 export function WorkItemDeadlinesBanner({ workItemId }: Props) {
   const { data: deadlines = [], isLoading } = useWorkItemDeadlines(workItemId);
-  if (isLoading || deadlines.length === 0) return null;
+  const decide = useCorrespondenceClosure(workItemId);
 
   const active = deadlines.filter(
     (d) =>
@@ -47,13 +57,20 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
       d.status === "REQUIERE_REVISION_MANUAL" ||
       d.status === "SUGGESTED_BY_PROVIDER",
   );
-  if (active.length === 0) return null;
+  // LV2 — the three facts the old single status hid, each rendered as itself.
+  const closures = deadlines.filter((d) => isClosureStatus(d.status));
+  // LV4 — never computed: shown apart, never counted as a live term.
+  const liveCount = active.filter((d) => !!d.deadline_date).length;
 
-  const worst = active.reduce<WorkItemDeadline>((acc, d) => {
-    const rank = { critical: 3, warning: 2, review: 1, info: 0 } as const;
-    return rank[deadlineTone(d)] > rank[deadlineTone(acc)] ? d : acc;
-  }, active[0]);
-  const tone = deadlineTone(worst);
+  if (isLoading || (active.length === 0 && closures.length === 0)) return null;
+
+  const worst = active.length
+    ? active.reduce<WorkItemDeadline>((acc, d) => {
+        const rank = { critical: 3, warning: 2, review: 1, info: 0 } as const;
+        return rank[deadlineTone(d)] > rank[deadlineTone(acc)] ? d : acc;
+      }, active[0])
+    : null;
+  const tone = worst ? deadlineTone(worst) : "info";
 
   const toneClass =
     tone === "critical"
@@ -71,7 +88,7 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
       <Icon className="h-4 w-4" />
       <AlertTitle className="flex items-center gap-2">
         Términos procesales activos
-        <Badge variant="secondary">{active.length}</Badge>
+        <Badge variant="secondary">{liveCount}</Badge>
       </AlertTitle>
       <AlertDescription>
         <ul className="mt-2 space-y-2">
@@ -94,9 +111,12 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
                   {isReview ? (
                     <Badge
                       variant="outline"
+                      title={!d.deadline_date ? SIN_FECHA_EXPLANATION : undefined}
                       className="max-w-[16rem] whitespace-normal border-amber-500 text-amber-700 dark:text-amber-300"
                     >
-                      ⚠️ Requiere verificación manual — sin fecha de fijación confirmada
+                      {!d.deadline_date
+                        ? SIN_FECHA_LABEL
+                        : "⚠️ Requiere verificación manual — sin fecha de fijación confirmada"}
                     </Badge>
                   ) : (
                     <>
@@ -128,6 +148,74 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
         </ul>
         {active.length > 5 && (
           <p className="mt-2 text-xs text-muted-foreground">+ {active.length - 5} término(s) adicional(es)</p>
+        )}
+
+        {closures.length > 0 && (
+          <div className="mt-4 border-t pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Términos cerrados sin verificación
+            </div>
+            <ul className="mt-2 space-y-3">
+              {closures.slice(0, 5).map((d) => {
+                const closure = d.calculation_meta?.correspondence_closure;
+                const pendingDecision = isCorrespondenceClosure(d.status) && !closure?.decision;
+                return (
+                  <li key={d.id} className="text-sm">
+                    <div className="font-medium">{formatDeadlineLabel(d.deadline_type, d.label)}</div>
+                    <Badge variant="outline" className="mt-1 whitespace-normal">
+                      {CLOSURE_LABELS[d.status] ?? d.status}
+                    </Badge>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {CLOSURE_EXPLANATIONS[d.status]}
+                    </p>
+                    {closure?.subject && (
+                      <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                        <Mail className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span>
+                          «{closure.subject}»
+                          {closure.sent_at
+                            ? ` · enviado el ${format(new Date(closure.sent_at), "d MMM yyyy", { locale: es })}`
+                            : ""}
+                        </span>
+                      </p>
+                    )}
+                    {pendingDecision && (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={decide.isPending}
+                          onClick={() => decide.mutate({ deadlineId: d.id, decision: "CONFIRM" })}
+                        >
+                          Confirmar cumplimiento
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={decide.isPending}
+                          onClick={() => decide.mutate({ deadlineId: d.id, decision: "REOPEN" })}
+                        >
+                          Reabrir término
+                        </Button>
+                      </div>
+                    )}
+                    {closure?.decision && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {closure.decision === "CONFIRM"
+                          ? "Confirmado por usted."
+                          : "Reabierto por usted."}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {closures.length > 5 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                + {closures.length - 5} término(s) cerrado(s) sin verificación
+              </p>
+            )}
+          </div>
         )}
       </AlertDescription>
     </Alert>

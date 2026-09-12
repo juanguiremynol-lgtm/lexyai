@@ -51,6 +51,7 @@ import type {
   NeverReadRow,
   ReconciliationNoticeRow,
   SourceQualityRow,
+  CoverageExceptionRow,
   AutoPausedItemRow,
   WorkItemInfo,
 } from "./types.ts";
@@ -186,6 +187,7 @@ Deno.serve(async (req) => {
     // and travels into every recipient's payload.
     const sourceWindowFrom = new Date(Date.now() - DEFAULT_WINDOW_HOURS * 3600_000).toISOString();
     const sourceQuality: SourceQualityRow[] = [];
+    const coverageExceptions: CoverageExceptionRow[] = [];
     for (const src of ["cpnu", "publicaciones", "samai", "samai_estados"]) {
       const { data: q, error: qErr } = await supabase.rpc("source_collection_quality", {
         _source: src,
@@ -223,8 +225,38 @@ Deno.serve(async (req) => {
         // YY1(e) — the profiles' effect on the denominator, always disclosed.
         expected_before_profile: Number(row.expected_before_profile ?? counts.expected_count),
         excluded_by_profile: Number(row.excluded_by_profile ?? 0),
+        // LW1/LW2 — chain denominator, answered reads, and the skips that are
+        // counted nowhere.
+        answered_count: Number(row.answered_count ?? counts.usable_confirmed_count),
+        restricted_matter_count: Number(row.restricted_matter_count ?? counts.restricted_count),
+        routing_skipped_count: Number(row.routing_skipped_count ?? 0),
+        chain: Array.isArray(row.chain) ? (row.chain as string[]) : [],
       });
+
+      // LW3/LW4 — name the matters behind the gap instead of counting them.
+      const { data: exc, error: excErr } = await supabase.rpc("source_coverage_exceptions", {
+        _source: src,
+        _from: sourceWindowFrom,
+        _to: nowIso,
+      });
+      if (excErr) {
+        console.warn("[scheduled-daily-digest] source_coverage_exceptions failed", src, excErr.message);
+      } else {
+        for (const e of (exc ?? []) as Record<string, unknown>[]) {
+          coverageExceptions.push({
+            source: String(e.source ?? src),
+            kind: String(e.kind ?? ""),
+            work_item_id: String(e.work_item_id ?? ""),
+            radicado: (e.radicado as string) ?? null,
+            title: (e.title as string) ?? null,
+            attempts: Number(e.attempts ?? 0),
+            last_attempt_at: (e.last_attempt_at as string) ?? null,
+          });
+        }
+      }
     }
+    // LW2 — a source whose whole chain answered is complete, whatever another
+    // source did that day. The two facts are never merged into one verdict.
     const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
 
 
@@ -425,6 +457,23 @@ Deno.serve(async (req) => {
           .eq("status", "PENDING")
           .lte("deadline_date", dueBy)
           .order("deadline_date", { ascending: true });
+
+        // LV2/LV4 — terms that are NOT live: closed by correspondence without
+        // verification, expired before the engine existed, found by
+        // back-detection, or never computed for want of an anchor. They are
+        // read here only to be shown apart; none of them enters a count of
+        // running terms, and nothing is recomputed.
+        const { data: rawUnverified } = await supabase
+          .from("work_item_deadlines")
+          .select("id, work_item_id, label, deadline_type, deadline_date, status, calculation_meta")
+          .in("work_item_id", ids)
+          .in("status", [
+            "CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR",
+            "VENCIDO_ANTES_DEL_MOTOR",
+            "VENCIDO_RETRODETECTADO",
+          ])
+          .order("trigger_date", { ascending: false })
+          .limit(40);
 
         // ── JJ1(c): estado del canal de correo de la firma ──
         const { data: rawConns } = await supabase
@@ -821,6 +870,23 @@ Deno.serve(async (req) => {
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
         const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
+        // LV2 — carry the email onto the row so the closure can be judged.
+        const unverifiedTerms = (rawUnverified ?? []).map((d: Record<string, unknown>) => {
+          const meta = (d.calculation_meta ?? {}) as Record<string, unknown>;
+          const closure = (meta.correspondence_closure ?? {}) as Record<string, unknown>;
+          return {
+            id: String(d.id),
+            work_item_id: String(d.work_item_id),
+            label: (d.label as string) ?? null,
+            deadline_type: (d.deadline_type as string) ?? null,
+            deadline_date: (d.deadline_date as string) ?? null,
+            status: String(d.status),
+            correspondence_subject: closure.subject ? String(closure.subject) : null,
+            correspondence_sent_at: closure.sent_at ? String(closure.sent_at) : null,
+            decided: !!closure.decision,
+          };
+        });
+
         // D3 — «historial importado»: one line per matter, with the span of
         // the imported rows. A reactivated expediente produces ONE fact — that
         // it was reactivated — plus its history; never N novedades.
@@ -953,10 +1019,12 @@ Deno.serve(async (req) => {
           reconciliations,
 
           nonJudicialDeadlines,
+          unverifiedTerms,
           connectionIssues,
           autoPaused,
           sourceQuality,
           coverageIncomplete,
+          coverageExceptions,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
@@ -968,9 +1036,16 @@ Deno.serve(async (req) => {
           ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
           : novedades > 0
           ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
-          // TT6 — never promise a clean day when a source did not cover the portfolio.
+          // TT6/LW2 — never promise a clean day when a source did not cover its
+          // chain, and never call the whole day incomplete because one source was.
           : coverageIncomplete
-          ? `Andromeda — Resumen diario · cobertura incompleta de fuentes`
+          ? `Andromeda — Resumen diario · lectura parcial en ${
+              sourceQuality
+                .filter((s) => (s.expected_count || 0) > 0 &&
+                  (s.answered_count ?? s.usable_confirmed_count) < s.expected_count)
+                .map((s) => s.label)
+                .join(", ") || "alguna fuente"
+            }`
           : `Andromeda — Resumen diario: audiencias y términos`;
 
         if (dryRun) {
