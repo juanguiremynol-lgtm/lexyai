@@ -7,3 +7,4 @@
 - [Email Entity Resolution](mem://architecture/email-entity-resolution-admissibility) — Signal admissibility classes, confidence ceiling, authority registry, thread continuity
 - [Signing Out of Scope](mem://governance/signing-out-of-scope-agreecolombia) — Andromeda produces work-item-scoped document content only; signature and execution live with AgreeColombia; signing tables are abandoned-feature residue, never a task
 - [Fingerprint Immutability Rule](mem://architecture/fingerprint-immutability-rule) — No component added to an existing fingerprint; new components = versioned fingerprint. instancia is store-and-display only
+- [Summary-Column Rule](mem://governance/summary-column-rule) — The copy is not the fact: cron schedules/status mirrors must be derived from the authority or not shown
