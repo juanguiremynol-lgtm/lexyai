@@ -288,6 +288,8 @@ export interface DigestPayload {
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
+  /** LV2/LV4 — closed without verification, or never computed. Apart, uncounted. */
+  unverifiedTerms: UnverifiedTermRow[];
   /** D3 — rows detected in the window that are initial import, not novedad. */
   importedHistory: ImportedHistoryRow[];
   /** YY3 — one-time reconciliation notices pending delivery. */
