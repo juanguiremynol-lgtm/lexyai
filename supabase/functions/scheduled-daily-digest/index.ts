@@ -838,6 +838,23 @@ Deno.serve(async (req) => {
         const deadlines = allDeadlines.filter((d) => !nonJudicialIds.has(d.work_item_id));
         const nonJudicialDeadlines = allDeadlines.filter((d) => nonJudicialIds.has(d.work_item_id));
 
+        // LV2 — carry the email onto the row so the closure can be judged.
+        const unverifiedTerms = (rawUnverified ?? []).map((d: Record<string, unknown>) => {
+          const meta = (d.calculation_meta ?? {}) as Record<string, unknown>;
+          const closure = (meta.correspondence_closure ?? {}) as Record<string, unknown>;
+          return {
+            id: String(d.id),
+            work_item_id: String(d.work_item_id),
+            label: (d.label as string) ?? null,
+            deadline_type: (d.deadline_type as string) ?? null,
+            deadline_date: (d.deadline_date as string) ?? null,
+            status: String(d.status),
+            correspondence_subject: closure.subject ? String(closure.subject) : null,
+            correspondence_sent_at: closure.sent_at ? String(closure.sent_at) : null,
+            decided: !!closure.decision,
+          };
+        });
+
         // D3 — «historial importado»: one line per matter, with the span of
         // the imported rows. A reactivated expediente produces ONE fact — that
         // it was reactivated — plus its history; never N novedades.
