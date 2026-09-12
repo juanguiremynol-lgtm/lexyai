@@ -428,20 +428,25 @@ function sourceQualityBlock(p: DigestPayload): string {
   };
 
 
+  // LW2 — the verdict is per source. «CPNU leyó completo» y «Publicaciones leyó
+  // parcial» son hechos distintos del mismo día y no se resumen en una palabra.
   return sectionTitle(
-    degraded.length > 0
-      ? "Estado de las fuentes — cobertura incompleta"
-      : "Estado de las fuentes — cobertura",
+    "Estado de las fuentes — cobertura por fuente",
     accent,
-    degraded.length > 0
-      ? "Un cero en estas fuentes significa que no obtuvimos información autorizada, no que no haya novedades."
-      : "Cobertura = asuntos con lectura confirmada sobre asuntos esperados en la ventana.",
+    "Cada fuente se mide contra su propia cadena de asuntos. Lo que una fuente no debe leer " +
+      "(p. ej. Publicaciones frente a un asunto CPACA) no se cuenta como lectura faltante.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fuente", accent)}${th("Cobertura útil", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
+      <thead><tr>${th("Fuente", accent)}${th("Cobertura de su cadena", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
       <tbody>${rows.map((r) => `<tr>
-        ${td(`<strong>${esc(r.label)}</strong>`)}
-        ${td(`${ratioOf(r)} confirmadas`)}
+        ${td(`<strong>${esc(r.label)}</strong>` +
+          (r.routing_skipped_count
+            ? `<br><span style="color:#94a3b8;font-size:11px;">${r.routing_skipped_count} asunto(s) fuera de su cadena: no se le consultan y no cuentan.</span>`
+            : ""))}
+        ${td(`${ratioOf(r)} respondidas<br>${verdictOf(r)}` +
+          matterList(r.source, "PENDING_UPSTREAM", "Pendientes en la fuente — verificables en el portal:", "#fbbf24") +
+          matterList(r.source, "READ_FAILED", "Sin lectura por falla:", "#f87171") +
+          matterList(r.source, "RESTRICTED", "El proveedor los marcó «proceso privado» (afirmación suya, sin comprobar):", "#94a3b8"))}
         ${td(esc(outcomeBreakdown(r)))}
         ${td(esc(describeSourceQuality(r, novedadesOf(r.source))))}
       </tr>`).join("")}</tbody>
