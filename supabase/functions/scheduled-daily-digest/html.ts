@@ -528,6 +528,51 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
     </table>`;
 }
 
+/**
+ * LV2/LV4 — the terms that are not running. Each says what actually closed it,
+ * and a correspondence closure says plainly that an email is not compliance.
+ * None of these is counted among his live terms.
+ */
+function unverifiedTermsBlock(p: DigestPayload): string {
+  const rows = p.unverifiedTerms ?? [];
+  if (!rows.length) return "";
+  const LABELS: Record<string, string> = {
+    CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR: "Cerrado por correspondencia — sin verificar",
+    VENCIDO_ANTES_DEL_MOTOR: "Vencido antes del motor de términos",
+    VENCIDO_RETRODETECTADO: "Vencido — detectado después",
+  };
+  const accent = "#a78bfa";
+  return `
+    <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
+      TÉRMINOS CERRADOS SIN VERIFICACIÓN (${rows.length}) — no cuentan como términos vivos
+    </div>
+    <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:8px;">
+      <thead><tr>${th("Asunto", accent)}${th("Término", accent)}${th("Vencimiento", accent)}${th("Por qué se cerró", accent)}</tr></thead>
+      <tbody>${rows.map((d) => {
+        const wi = p.workItems.get(d.work_item_id);
+        const correo = d.correspondence_subject
+          ? `<br><span style="color:#94a3b8;font-size:11px;">Correo: «${esc(d.correspondence_subject)}»${
+              d.correspondence_sent_at ? ` · ${fmtDate(d.correspondence_sent_at.slice(0, 10))}` : ""
+            }</span>`
+          : "";
+        const decidido = d.decided
+          ? `<br><span style="color:#4ade80;font-size:11px;">Usted ya decidió sobre este cierre.</span>`
+          : "";
+        return `<tr>
+          ${td(esc(wi?.radicado || wi?.title || "—"))}
+          ${td(esc(d.label || d.deadline_type || "—"))}
+          ${td(d.deadline_date ? fmtDate(d.deadline_date) : `<span style="color:#fbbf24;">SIN FECHA — REQUIERE REVISIÓN</span>`)}
+          ${td(esc(LABELS[d.status] ?? d.status) + correo + decidido)}
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:14px;">
+      Un correo enviado al despacho dentro de la ventana del término es correspondencia, no constancia de cumplimiento.
+      Confirme o reabra cada uno de estos términos desde el asunto. Los que aparecen SIN FECHA nunca se calcularon:
+      no están corriendo ni vencidos, y quedan fuera de todo conteo.
+    </div>`;
+}
+
 function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
   if (!rows.length) return "";
   const propios = rows.filter((d) => d.attribution === "PROPIO");
@@ -817,6 +862,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${hearingsBlock(p.hearings, p)}
     ${hearingsBeyondBlock(p.hearingsBeyond ?? [], p)}
     ${deadlinesBlock(p.deadlines, p)}
+    ${unverifiedTermsBlock(p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
     ${autoPausedBlock(p.autoPaused, p.appBaseUrl)}
