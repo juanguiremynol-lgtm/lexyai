@@ -426,6 +426,23 @@ Deno.serve(async (req) => {
           .lte("deadline_date", dueBy)
           .order("deadline_date", { ascending: true });
 
+        // LV2/LV4 — terms that are NOT live: closed by correspondence without
+        // verification, expired before the engine existed, found by
+        // back-detection, or never computed for want of an anchor. They are
+        // read here only to be shown apart; none of them enters a count of
+        // running terms, and nothing is recomputed.
+        const { data: rawUnverified } = await supabase
+          .from("work_item_deadlines")
+          .select("id, work_item_id, label, deadline_type, deadline_date, status, calculation_meta")
+          .in("work_item_id", ids)
+          .in("status", [
+            "CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR",
+            "VENCIDO_ANTES_DEL_MOTOR",
+            "VENCIDO_RETRODETECTADO",
+          ])
+          .order("trigger_date", { ascending: false })
+          .limit(40);
+
         // ── JJ1(c): estado del canal de correo de la firma ──
         const { data: rawConns } = await supabase
           .from("user_email_connections")
