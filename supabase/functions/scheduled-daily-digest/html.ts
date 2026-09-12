@@ -81,6 +81,11 @@ function docsCell(
     }
     // IW1 — the planilla was announced by the provider without the file.
     // It must not read as if we hold a PDF, nor as if nothing was published.
+    // LS4(b) — the provider served it and no longer keeps it. The publication
+    // and its date stand; the copy is requested from the despacho.
+    if (availability === "RETENCION_VENCIDA_EN_ORIGEN") {
+      return `<span style="color:${MUTED};font-style:italic;">El proveedor ya no conserva la copia — la publicación y su fecha siguen registradas; el documento se solicita al despacho</span>`;
+    }
     if (availability === "CONSTANCIA_SIN_DOCUMENTO") {
       return `<span style="color:${MUTED};font-style:italic;">Constancia de fijación sin documento adjunto — el proveedor informa la publicación en el estado y no entrega el listado</span>`;
     }

@@ -540,6 +540,24 @@ Deno.serve(async (req) => {
           };
         });
 
+        // LS4(b) — "no tenemos la copia" and "the provider no longer keeps it"
+        // are different facts. The attachment queue records the second one.
+        const retentionExpiredPubIds = new Set<string>();
+        {
+          const pubIds = (rawPubs ?? []).map((p) => p.id).filter(Boolean);
+          if (pubIds.length) {
+            const { data: skipped } = await supabase
+              .from("estado_attachment_queue")
+              .select("publicacion_id")
+              .in("publicacion_id", pubIds)
+              .eq("status", "skipped")
+              .eq("last_error", "SOURCE_RETENTION_EXPIRED");
+            for (const r of skipped ?? []) {
+              if ((r as any).publicacion_id) retentionExpiredPubIds.add((r as any).publicacion_id);
+            }
+          }
+        }
+
         const estados: EstadoRow[] = (rawPubs ?? []).map((p) => {
           const docs: DigestDocument[] = [];
           if (p.pdf_storage_path || isHttp(p.pdf_url) || p.pdf_available) {
@@ -566,6 +584,8 @@ Deno.serve(async (req) => {
             // an explicit `false` is the provider answering "no PDF".
             document_availability: docs.length
               ? "DISPONIBLE"
+              : retentionExpiredPubIds.has(p.id)
+              ? "RETENCION_VENCIDA_EN_ORIGEN"
               : constanciaSinDocumento
               ? "CONSTANCIA_SIN_DOCUMENTO"
               : p.pdf_available === null || p.pdf_available === undefined

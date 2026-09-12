@@ -106,17 +106,29 @@ Deno.serve(async (req) => {
 
   let storagePath: string | null =
     typeof pub.pdf_storage_path === "string" && pub.pdf_storage_path.trim() ? pub.pdf_storage_path : null;
+  let retentionExpired = false;
   if (!storagePath) {
-    const { data: q } = await admin
+    const { data: rows } = await admin
       .from("estado_attachment_queue")
-      .select("storage_path")
+      .select("storage_path, status, last_error, downloaded_at")
       .eq("publicacion_id", pub.id)
-      .eq("status", "downloaded")
-      .not("storage_path", "is", null)
-      .order("downloaded_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    storagePath = q?.storage_path ?? null;
+      .order("downloaded_at", { ascending: false, nullsFirst: false })
+      .limit(5);
+    storagePath =
+      (rows ?? []).find((r: any) => r.status === "downloaded" && r.storage_path)?.storage_path ?? null;
+    // LS4(b) — "no tenemos la copia" y "el proveedor ya no la conserva" son
+    // hechos distintos. El segundo se dice con su nombre.
+    retentionExpired = (rows ?? []).some(
+      (r: any) => r.status === "skipped" && r.last_error === "SOURCE_RETENTION_EXPIRED",
+    );
+  }
+
+  if (!storagePath && retentionExpired) {
+    return page(
+      "El proveedor ya no conserva la copia",
+      "La publicación y su fecha siguen registradas; el proveedor retiró el archivo de su sitio por vencimiento de retención. La providencia puede solicitarse directamente al despacho.",
+      410,
+    );
   }
 
   if (storagePath) {

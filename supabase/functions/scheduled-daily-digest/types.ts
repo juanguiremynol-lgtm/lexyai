@@ -20,6 +20,8 @@
 export type DocumentAvailability =
   | "DISPONIBLE"
   | "CONSTANCIA_SIN_DOCUMENTO"
+  /** LS4(b) — the provider served the file once and no longer keeps it. */
+  | "RETENCION_VENCIDA_EN_ORIGEN"
   | "SIN_DOCUMENTO"
   | "NO_CONSULTADO";
 

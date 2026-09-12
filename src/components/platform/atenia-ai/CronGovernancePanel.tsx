@@ -46,6 +46,7 @@ import {
   PROVIDER_LABELS,
   type CronRegistryEntry,
 } from "@/lib/cron-registry";
+import { describeSchedule } from "@/lib/cron-schedule-format";
 
 // ── Types ──
 
@@ -128,9 +129,27 @@ export function CronGovernancePanel() {
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
 
+  // ── LS2: the schedule is READ FROM pg_cron, never from the registry ──
+  // cron_job_health() returns jobname, schedule and active straight from
+  // cron.job. The registry only supplies what pg_cron cannot know.
+  const { data: liveJobs } = useQuery({
+    queryKey: ["cron-live-jobs"],
+    queryFn: async () => {
+      const { data } = await (supabase.rpc as any)("cron_job_health");
+      const map = new Map<string, { schedule: string | null; active: boolean | null }>();
+      for (const j of (data ?? []) as any[]) {
+        map.set(j.jobname, { schedule: j.schedule ?? null, active: j.active ?? null });
+      }
+      return map;
+    },
+    refetchInterval: 60_000,
+  });
+
+  const scheduleOf = (jobname: string) => describeSchedule(liveJobs?.get(jobname)?.schedule);
+
   // Fetch health snapshots
   const { data: snapshots, isLoading, refetch } = useQuery({
-    queryKey: ["cron-governance-snapshots"],
+    queryKey: ["cron-governance-snapshots", liveJobs ? Array.from(liveJobs.keys()).join(",") : ""],
     queryFn: async () => {
       const { data: heartbeats } = await (supabase
         .from("platform_job_heartbeats") as any)
@@ -157,8 +176,12 @@ export function CronGovernancePanel() {
       for (const entry of CRON_REGISTRY) {
         const hb = hbByJob.get(entry.edge_function) ?? hbByJob.get(entry.jobname);
         const cr = cronByJob.get(entry.jobname);
+        // Reality first: does pg_cron have this job, and is it on?
+        const live = liveJobs?.get(entry.jobname) ?? null;
         let diffStatus: CronHealthSnapshot["diff_status"] = "OK";
         if (!entry.expected_active) diffStatus = "SHOULD_DISABLE";
+        else if (!live) diffStatus = "MISSING";
+        else if (live.active === false) diffStatus = "MISSING";
 
         results.push({
           jobname: entry.jobname,
@@ -166,8 +189,8 @@ export function CronGovernancePanel() {
           role: entry.role,
           critical: entry.critical,
           expected_active: entry.expected_active,
-          pg_cron_active: true,
-          pg_cron_schedule: entry.schedule_utc,
+          pg_cron_active: live?.active ?? null,
+          pg_cron_schedule: live?.schedule ?? null,
           schedule_match: true,
           last_run_at: hb?.started_at ?? cr?.started_at ?? null,
           last_status: hb?.status ?? cr?.status ?? null,
@@ -333,7 +356,7 @@ export function CronGovernancePanel() {
                       </TableCell>
                       <TableCell>
                         <span className="text-sm">
-                          {CRON_REGISTRY_MAP.get(s.jobname)?.schedule_cot ?? s.pg_cron_schedule}
+                          {describeSchedule(s.pg_cron_schedule).cot}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -378,7 +401,7 @@ export function CronGovernancePanel() {
                         {/* Cron trigger */}
                         <div className="flex items-center gap-1 px-2 py-1 rounded bg-muted">
                           <Clock className="h-3 w-3" />
-                          <span className="font-mono">{entry.schedule_cot}</span>
+                          <span className="font-mono">{scheduleOf(entry.jobname).cot}</span>
                         </div>
                         <ArrowRight className="h-3 w-3 text-muted-foreground" />
 
@@ -782,12 +805,12 @@ export function CronGovernancePanel() {
               </p>
               <div className="relative">
                 {CRON_REGISTRY
-                  .filter(e => e.schedule_cot.includes("COT"))
-                  .sort((a, b) => a.schedule_utc.localeCompare(b.schedule_utc))
+                  .filter(e => scheduleOf(e.jobname).daily)
+                  .sort((a, b) => scheduleOf(a.jobname).cotSortKey.localeCompare(scheduleOf(b.jobname).cotSortKey))
                   .map((entry) => (
                     <div key={entry.jobname} className="flex items-center gap-3 py-2">
                       <div className="w-20 text-right text-sm font-mono text-muted-foreground">
-                        {entry.schedule_cot.replace(" COT", "")}
+                        {scheduleOf(entry.jobname).cotSortKey}
                       </div>
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${entry.critical ? "bg-amber-500" : "bg-muted-foreground/50"}`} />
                       <div className="flex items-center gap-2">
@@ -809,11 +832,11 @@ export function CronGovernancePanel() {
                 <p className="text-sm font-medium mb-2">Jobs de alta frecuencia:</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {CRON_REGISTRY
-                    .filter(e => !e.schedule_cot.includes("COT"))
+                    .filter(e => !scheduleOf(e.jobname).daily)
                     .map(entry => (
                       <div key={entry.jobname} className="flex items-center gap-2 text-sm p-2 rounded border">
                         <Badge variant="outline" className={`text-xs ${ROLE_COLORS[entry.role] ?? ""}`}>
-                          {entry.schedule_cot}
+                          {scheduleOf(entry.jobname).cot}
                         </Badge>
                         <span>{entry.label}</span>
                         {entry.critical && <Zap className="h-3.5 w-3.5 text-amber-500" />}

@@ -878,19 +878,22 @@ async function refreshLegacyPdfRowsForProxy(
 
     try {
       const filename = (pub.pdf_url!.split('/').pop() || pub.titulo || 'attachment.pdf').slice(0, 255);
+      // LS1(a) — a URL refresh may only touch a row that has NOT concluded.
+      // 'failed' and 'skipped' are terminal: their budget was spent, and a
+      // re-sync is not a decision to spend more.
       await supabase
         .from('estado_attachment_queue')
         .update({
           remote_url: pub.pdf_url,
-          status: 'pending',
-          attempt_count: 0,
-          last_error: null,
           next_retry_at: new Date().toISOString(),
         })
         .eq('publicacion_id', row.id)
         .neq('remote_url', pub.pdf_url)
-        .in('status', ['pending', 'failed']);
+        .eq('status', 'pending');
 
+      // LS1(a)/(c) — insert-if-absent ONLY. On conflict the existing row keeps
+      // its status and its attempt_count: an exhausted or SOURCE_RETENTION_EXPIRED
+      // row is never revived by a routine sync.
       await supabase
         .from('estado_attachment_queue')
         .upsert({
@@ -903,7 +906,7 @@ async function refreshLegacyPdfRowsForProxy(
           attempt_count: 0,
           max_attempts: 5,
           next_retry_at: new Date().toISOString(),
-        }, { onConflict: 'publicacion_id,remote_url' } as any);
+        }, { onConflict: 'publicacion_id,remote_url', ignoreDuplicates: true } as any);
     } catch (queueErr: any) {
       console.warn(`[sync-pub] legacy pdf refresh queue update failed for ${row.id}: ${queueErr?.message}`);
     }
@@ -2627,25 +2630,23 @@ Deno.serve(withSyncTimeline(async (req) => {
 
               // ── Re-point stale queue rows for THIS publicacion ──
               // A previous sync may have enqueued the same publication with an
-              // older remote URL (e.g. samaicore.consejodeestado.gov.co). The
-              // upstream now hands us Cloud Run URLs served by our own PDF
-              // proxy — repoint any pending/failed rows to the fresh URL and
-              // reset attempts so the worker retries against the good source.
+              // older remote URL. Repoint rows that are STILL PENDING.
+              // LS1(a)/(c): 'failed' and 'skipped' are conclusions, not pauses.
+              // A routine sync neither revives them nor refunds their attempts.
               try {
                 await supabase
                   .from('estado_attachment_queue')
                   .update({
                     remote_url: pub.pdf_url,
-                    status: 'pending',
-                    attempt_count: 0,
-                    last_error: null,
                     next_retry_at: new Date().toISOString(),
                   })
                   .eq('publicacion_id', pubRow.id)
                   .neq('remote_url', pub.pdf_url)
-                  .in('status', ['pending', 'failed']);
+                  .eq('status', 'pending');
               } catch (_e) { /* best-effort */ }
 
+              // Insert-if-absent only: on conflict the existing row keeps its
+              // status and attempt_count (no budget reset — LS1(a)).
               const { error: enqueueErr } = await supabase
                 .from('estado_attachment_queue')
                 .upsert(
@@ -2660,7 +2661,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                     max_attempts: 5,
                     next_retry_at: new Date().toISOString(),
                   },
-                  { onConflict: 'publicacion_id,remote_url' } as any,
+                  { onConflict: 'publicacion_id,remote_url', ignoreDuplicates: true } as any,
                 );
 
               if (enqueueErr) {
