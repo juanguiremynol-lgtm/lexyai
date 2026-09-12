@@ -96,8 +96,8 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
   {
     jobname: "process-retry-queue",
     label: "Procesador de Reintentos",
-    schedule_utc: "0 * * * *",
-    schedule_cot: "Cada hora",
+    schedule_utc: "0 5-13 * * *",
+    schedule_cot: "Cada hora, 00:00–08:00 COT",
     edge_function: "process-retry-queue",
     role: "SYNC",
     critical: true,
@@ -109,6 +109,25 @@ export const CRON_REGISTRY: CronRegistryEntry[] = [
       downstream: ["atenia_ai_remediation_queue", "external_sync_runs"],
     },
   },
+  {
+    // Second entry ONLY because cron cannot express "0 5-13 plus 18" in one
+    // expression. Same edge function as process-retry-queue.
+    jobname: "process-retry-queue-night-net",
+    label: "Procesador de Reintentos — pasada nocturna",
+    schedule_utc: "0 18 * * *",
+    schedule_cot: "13:00 COT",
+    edge_function: "process-retry-queue",
+    role: "SYNC",
+    critical: false,
+    expected_active: true,
+    wiring: {
+      orchestrator_phase: "PROCESS_QUEUE",
+      is_orchestrator_job: false,
+      providers_impacted: ["cpnu", "samai", "publicaciones"],
+      downstream: ["atenia_ai_remediation_queue", "external_sync_runs"],
+    },
+  },
+
   {
     jobname: "cpnu-job-poller",
     label: "Poller Jobs CPNU",
