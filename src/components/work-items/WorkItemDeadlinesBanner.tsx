@@ -149,6 +149,74 @@ export function WorkItemDeadlinesBanner({ workItemId }: Props) {
         {active.length > 5 && (
           <p className="mt-2 text-xs text-muted-foreground">+ {active.length - 5} término(s) adicional(es)</p>
         )}
+
+        {closures.length > 0 && (
+          <div className="mt-4 border-t pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Términos cerrados sin verificación
+            </div>
+            <ul className="mt-2 space-y-3">
+              {closures.slice(0, 5).map((d) => {
+                const closure = d.calculation_meta?.correspondence_closure;
+                const pendingDecision = isCorrespondenceClosure(d.status) && !closure?.decision;
+                return (
+                  <li key={d.id} className="text-sm">
+                    <div className="font-medium">{formatDeadlineLabel(d.deadline_type, d.label)}</div>
+                    <Badge variant="outline" className="mt-1 whitespace-normal">
+                      {CLOSURE_LABELS[d.status] ?? d.status}
+                    </Badge>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {CLOSURE_EXPLANATIONS[d.status]}
+                    </p>
+                    {closure?.subject && (
+                      <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                        <Mail className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span>
+                          «{closure.subject}»
+                          {closure.sent_at
+                            ? ` · enviado el ${format(new Date(closure.sent_at), "d MMM yyyy", { locale: es })}`
+                            : ""}
+                        </span>
+                      </p>
+                    )}
+                    {pendingDecision && (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={decide.isPending}
+                          onClick={() => decide.mutate({ deadlineId: d.id, decision: "CONFIRM" })}
+                        >
+                          Confirmar cumplimiento
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={decide.isPending}
+                          onClick={() => decide.mutate({ deadlineId: d.id, decision: "REOPEN" })}
+                        >
+                          Reabrir término
+                        </Button>
+                      </div>
+                    )}
+                    {closure?.decision && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {closure.decision === "CONFIRM"
+                          ? "Confirmado por usted."
+                          : "Reabierto por usted."}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {closures.length > 5 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                + {closures.length - 5} término(s) cerrado(s) sin verificación
+              </p>
+            )}
+          </div>
+        )}
       </AlertDescription>
     </Alert>
   );
