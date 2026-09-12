@@ -356,7 +356,7 @@ export function CronGovernancePanel() {
                       </TableCell>
                       <TableCell>
                         <span className="text-sm">
-                          {CRON_REGISTRY_MAP.get(s.jobname)?.schedule_cot ?? s.pg_cron_schedule}
+                          {describeSchedule(s.pg_cron_schedule).cot}
                         </span>
                       </TableCell>
                       <TableCell>
