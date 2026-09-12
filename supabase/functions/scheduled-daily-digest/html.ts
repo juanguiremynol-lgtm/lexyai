@@ -941,13 +941,28 @@ export function buildDigestHtml(p: DigestPayload): string {
     (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) >= r.expected_count,
   );
   const nombres = (list: typeof partials) => list.map((r) => esc(r.label)).join(", ");
-  const headline = partials.length
-    ? `${greeting} ${total} novedad(es) detectadas ${win}. ` +
-      `<strong style="color:#fbbf24;">Lectura parcial en ${nombres(partials)}</strong>` +
-      (completas.length ? `; lectura completa en ${nombres(completas)}` : "") +
-      `. En la(s) fuente(s) parcial(es), un cero no permite concluir que no haya movimiento.`
-    : `${greeting} ${total} novedad(es) detectadas ${win}. ` +
-      `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`;
+  // LX — the headline reports MOVEMENT, not the standing population. The same
+  // sixteen matters every morning under the word "incompleta" is a warning that
+  // stops being read; "sin cambios" says the truth and points at the section
+  // that holds the names and their age.
+  const pers = p.coveragePersistence ?? [];
+  const joined = pers.filter((r) => r.status === "JOINED_TODAY");
+  const recovered = pers.filter((r) => r.status === "RECOVERED_TODAY");
+  const standing = pers.filter((r) => r.status !== "RECOVERED_TODAY");
+  const rad = (list: typeof pers) => list.map((r) => esc(r.radicado || "sin radicado")).join(", ");
+  const coberturaFrase = !partials.length
+    ? `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`
+    : joined.length || recovered.length
+    ? `<strong style="color:#fbbf24;">Cambió la cobertura hoy</strong>: ` +
+      [
+        joined.length ? `entró(aron) ${rad(joined)}` : "",
+        recovered.length ? `salió(eron) ${rad(recovered)}` : "",
+      ].filter(Boolean).join("; ") +
+      `. Ver «Fuentes que llevan días sin entregar».`
+    : `<strong style="color:#94a3b8;">La cobertura no cambió</strong>: siguen los mismos ` +
+      `${standing.length} asunto(s) sin entrega de ${nombres(partials)}, sin altas ni bajas. ` +
+      `Ver «Fuentes que llevan días sin entregar».`;
+  const headline = `${greeting} ${total} novedad(es) detectadas ${win}. ${coberturaFrase}`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
