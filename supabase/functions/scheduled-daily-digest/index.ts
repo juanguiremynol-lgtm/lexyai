@@ -223,8 +223,38 @@ Deno.serve(async (req) => {
         // YY1(e) — the profiles' effect on the denominator, always disclosed.
         expected_before_profile: Number(row.expected_before_profile ?? counts.expected_count),
         excluded_by_profile: Number(row.excluded_by_profile ?? 0),
+        // LW1/LW2 — chain denominator, answered reads, and the skips that are
+        // counted nowhere.
+        answered_count: Number(row.answered_count ?? counts.usable_confirmed_count),
+        restricted_matter_count: Number(row.restricted_matter_count ?? counts.restricted_count),
+        routing_skipped_count: Number(row.routing_skipped_count ?? 0),
+        chain: Array.isArray(row.chain) ? (row.chain as string[]) : [],
       });
+
+      // LW3/LW4 — name the matters behind the gap instead of counting them.
+      const { data: exc, error: excErr } = await supabase.rpc("source_coverage_exceptions", {
+        _source: src,
+        _from: sourceWindowFrom,
+        _to: nowIso,
+      });
+      if (excErr) {
+        console.warn("[scheduled-daily-digest] source_coverage_exceptions failed", src, excErr.message);
+      } else {
+        for (const e of (exc ?? []) as Record<string, unknown>[]) {
+          coverageExceptions.push({
+            source: String(e.source ?? src),
+            kind: String(e.kind ?? ""),
+            work_item_id: String(e.work_item_id ?? ""),
+            radicado: (e.radicado as string) ?? null,
+            title: (e.title as string) ?? null,
+            attempts: Number(e.attempts ?? 0),
+            last_attempt_at: (e.last_attempt_at as string) ?? null,
+          });
+        }
+      }
     }
+    // LW2 — a source whose whole chain answered is complete, whatever another
+    // source did that day. The two facts are never merged into one verdict.
     const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
 
 
