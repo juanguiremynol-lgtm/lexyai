@@ -402,14 +402,22 @@ Deno.serve(async (req) => {
           // Reschedule. PUB_RETRY uses a fixed 24h cadence so the two
           // remaining attempts land at +24h and +48h from the first empty
           // response. Other kinds keep the policy-driven jitter.
-          // Iteration 62 — a PENDING_UPSTREAM re-check must keep its fast
-          // cadence: overwriting it with the 24h "empty" schedule left a
-          // brand-new matter without estados for a full day.
+          // LR1(a) — PENDING_UPSTREAM means the provider accepted and has not
+          // delivered. Fast re-query is only justified inside the first hour
+          // (attempts at +10min and +30min); after that the provider's own
+          // cycle is daily, so the cadence must fall back to 24h. Asking every
+          // 10 minutes forever cannot change a daily publication.
           const isPendingUpstream = task.last_error_code === 'PENDING_UPSTREAM';
+          const pendingUpstreamDelayMs = task.attempt <= 1
+            ? 10 * 60 * 1000
+            : task.attempt === 2
+              ? 30 * 60 * 1000
+              : 24 * 60 * 60 * 1000;
           const delayMs = task.kind === 'PUB_RETRY'
-            ? (isPendingUpstream ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000)
+            ? (isPendingUpstream ? pendingUpstreamDelayMs : 24 * 60 * 60 * 1000)
             : retryJitterMs();
           const nextRunAt = new Date(Date.now() + delayMs).toISOString();
+
 
           await (supabase.from('sync_retry_queue') as any)
             .update({
