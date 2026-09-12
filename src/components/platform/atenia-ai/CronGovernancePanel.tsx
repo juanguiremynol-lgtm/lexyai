@@ -46,6 +46,7 @@ import {
   PROVIDER_LABELS,
   type CronRegistryEntry,
 } from "@/lib/cron-registry";
+import { describeSchedule } from "@/lib/cron-schedule-format";
 
 // ── Types ──
 
