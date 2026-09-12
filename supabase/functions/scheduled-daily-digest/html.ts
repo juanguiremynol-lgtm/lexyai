@@ -872,11 +872,22 @@ export function buildDigestHtml(p: DigestPayload): string {
   // ZZ2(b) — the window stated as a day the reader can check, with the exact
   // boundaries beside it.
   const win = `del día ${esc(p.windowLabel)} (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}, hora de Bogotá)`;
-  const headline = p.coverageIncomplete
-    ? `${greeting} ${total} novedad(es) detectadas ${win} ` +
-      `sobre una <strong style="color:#fbbf24;">cobertura incompleta de fuentes</strong>: ` +
-      `esta cifra no permite concluir que no haya movimiento.`
-    : `${greeting} ${total} novedad(es) detectadas ${win}.`;
+  // LW2 — nombrar la fuente parcial y la fuente completa. Decir «cobertura
+  // incompleta» cuando una fuente leyó toda su cadena es falso sobre esa fuente.
+  const partials = (p.sourceQuality ?? []).filter(
+    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) < r.expected_count,
+  );
+  const completas = (p.sourceQuality ?? []).filter(
+    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) >= r.expected_count,
+  );
+  const nombres = (list: typeof partials) => list.map((r) => esc(r.label)).join(", ");
+  const headline = partials.length
+    ? `${greeting} ${total} novedad(es) detectadas ${win}. ` +
+      `<strong style="color:#fbbf24;">Lectura parcial en ${nombres(partials)}</strong>` +
+      (completas.length ? `; lectura completa en ${nombres(completas)}` : "") +
+      `. En la(s) fuente(s) parcial(es), un cero no permite concluir que no haya movimiento.`
+    : `${greeting} ${total} novedad(es) detectadas ${win}. ` +
+      `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:920px;margin:0 auto;padding:24px;background:${BG};color:${TEXT};">
