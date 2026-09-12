@@ -176,8 +176,12 @@ export function CronGovernancePanel() {
       for (const entry of CRON_REGISTRY) {
         const hb = hbByJob.get(entry.edge_function) ?? hbByJob.get(entry.jobname);
         const cr = cronByJob.get(entry.jobname);
+        // Reality first: does pg_cron have this job, and is it on?
+        const live = liveJobs?.get(entry.jobname) ?? null;
         let diffStatus: CronHealthSnapshot["diff_status"] = "OK";
         if (!entry.expected_active) diffStatus = "SHOULD_DISABLE";
+        else if (!live) diffStatus = "MISSING";
+        else if (live.active === false) diffStatus = "MISSING";
 
         results.push({
           jobname: entry.jobname,
@@ -185,8 +189,8 @@ export function CronGovernancePanel() {
           role: entry.role,
           critical: entry.critical,
           expected_active: entry.expected_active,
-          pg_cron_active: true,
-          pg_cron_schedule: entry.schedule_utc,
+          pg_cron_active: live?.active ?? null,
+          pg_cron_schedule: live?.schedule ?? null,
           schedule_match: true,
           last_run_at: hb?.started_at ?? cr?.started_at ?? null,
           last_status: hb?.status ?? cr?.status ?? null,
