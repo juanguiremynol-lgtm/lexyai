@@ -25165,6 +25165,10 @@ export type Database = {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
       }
+      decide_correspondence_closure: {
+        Args: { p_deadline_id: string; p_decision: string }
+        Returns: Json
+      }
       decide_deadline_discharge: {
         Args: { p_confirm: boolean; p_suggestion_id: string }
         Returns: Json
