@@ -214,8 +214,7 @@ describe("LW — chain denominator and named gaps", () => {
     expect(html).not.toMatch(/routing_skipped_count.*sin confirmar/);
   });
 
-  it("names the pending and restricted matters instead of counting them", () => {
-    expect(html).toMatch(/matterList\(r\.source, "PENDING_UPSTREAM"/);
+  it("names the failed and restricted matters instead of counting them", () => {
     expect(html).toMatch(/matterList\(r\.source, "RESTRICTED"/);
     expect(html).toMatch(/matterList\(r\.source, "READ_FAILED"/);
     expect(index).toMatch(/source_coverage_exceptions/);
@@ -223,6 +222,31 @@ describe("LW — chain denominator and named gaps", () => {
 
   it("says complete when the whole chain answered", () => {
     expect(html).toMatch(/Lectura completa de su cadena/);
+  });
+});
+
+/**
+ * LX — the age of a gap is the signal. One day is a hiccup; thirty is ours.
+ */
+describe("LX — consecutive-day persistence of a source gap", () => {
+  const index = read("supabase/functions/scheduled-daily-digest/index.ts");
+  const html = read("supabase/functions/scheduled-daily-digest/html.ts");
+
+  it("carries the consecutive count per matter into the payload", () => {
+    expect(index).toMatch(/source_coverage_persistence/);
+    expect(index).toMatch(/coveragePersistence,/);
+  });
+
+  it("gives the standing population its own dated section", () => {
+    expect(html).toMatch(/Fuentes que llevan días sin entregar/);
+    expect(html).toMatch(/Días consecutivos/);
+    expect(html).toMatch(/\$\{persistenceBlock\(p\)\}/);
+  });
+
+  it("distinguishes what joined, what recovered and what is chronic", () => {
+    expect(html).toMatch(/JOINED_TODAY/);
+    expect(html).toMatch(/RECOVERED_TODAY/);
+    expect(index).toMatch(/JOINED_TODAY/);
   });
 });
 
