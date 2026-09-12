@@ -987,6 +987,7 @@ Deno.serve(async (req) => {
           reconciliations,
 
           nonJudicialDeadlines,
+          unverifiedTerms,
           connectionIssues,
           autoPaused,
           sourceQuality,
