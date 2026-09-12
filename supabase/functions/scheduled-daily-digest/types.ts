@@ -304,6 +304,8 @@ export interface DigestPayload {
   sourceQuality: SourceQualityRow[];
   /** true when at least one source did not reach authoritative coverage. */
   coverageIncomplete: boolean;
+  /** LW3/LW4 — the named matters behind each source's gap. */
+  coverageExceptions: CoverageExceptionRow[];
   /**
    * ZZ3 — the window the SOURCE table was computed over. It is not always the
    * novedades window (the latter continues from the previous digest), and the
@@ -357,6 +359,32 @@ export interface SourceQualityRow {
    */
   expected_before_profile?: number;
   excluded_by_profile?: number;
+  /**
+   * LW1/LW2 — matters of this source's own chain that ANSWERED, including a
+   * provider that answered "proceso privado": reaching the matter and being
+   * refused its content is an answer, not a hole. Coverage is measured with
+   * this figure over `expected_count`, which holds only the chain.
+   */
+  answered_count?: number;
+  restricted_matter_count?: number;
+  /** Reads correctly never made — outside the chain. Counted nowhere else. */
+  routing_skipped_count?: number;
+  /** The workflow types this source is responsible for. */
+  chain?: string[];
+}
+
+/**
+ * LW3/LW4 — the matters behind a source's gap, one row per matter. He can act
+ * on a radicado; he cannot act on the number 11.
+ */
+export interface CoverageExceptionRow {
+  source: string;
+  kind: "PENDING_UPSTREAM" | "RESTRICTED" | "READ_FAILED" | string;
+  work_item_id: string;
+  radicado: string | null;
+  title: string | null;
+  attempts: number;
+  last_attempt_at: string | null;
 }
 
 
