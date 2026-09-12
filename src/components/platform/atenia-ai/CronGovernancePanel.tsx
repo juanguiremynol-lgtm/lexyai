@@ -805,12 +805,12 @@ export function CronGovernancePanel() {
               </p>
               <div className="relative">
                 {CRON_REGISTRY
-                  .filter(e => e.schedule_cot.includes("COT"))
-                  .sort((a, b) => a.schedule_utc.localeCompare(b.schedule_utc))
+                  .filter(e => scheduleOf(e.jobname).daily)
+                  .sort((a, b) => scheduleOf(a.jobname).cotSortKey.localeCompare(scheduleOf(b.jobname).cotSortKey))
                   .map((entry) => (
                     <div key={entry.jobname} className="flex items-center gap-3 py-2">
                       <div className="w-20 text-right text-sm font-mono text-muted-foreground">
-                        {entry.schedule_cot.replace(" COT", "")}
+                        {scheduleOf(entry.jobname).cotSortKey}
                       </div>
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${entry.critical ? "bg-amber-500" : "bg-muted-foreground/50"}`} />
                       <div className="flex items-center gap-2">
