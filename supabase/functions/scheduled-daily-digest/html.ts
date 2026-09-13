@@ -493,6 +493,28 @@ function persistenceBlock(p: DigestPayload): string {
     k === "READ_FAILED"
       ? "la lectura falló"
       : "la fuente responde que la consulta sigue pendiente de su lado";
+  // LY — dos hechos distintos que la tabla llamaba igual.
+  const classCell = (r: typeof rows[number]) => {
+    if (r.gap_class === "NEVER_ANSWERED") {
+      const dias = r.days_since_enrolment ?? r.consecutive_days;
+      return `<strong style="color:#f87171;">NUNCA HA RESPONDIDO</strong><br>` +
+        `<span style="color:#cbd5e1;font-size:11px;">Ni una publicación desde el alta` +
+        (r.enrolled_at ? ` (${esc(r.enrolled_at)}, hace ${dias} día(s))` : "") +
+        (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
+        `</span>`;
+    }
+    return `<strong style="color:${accent};">DEJÓ DE RESPONDER</strong><br>` +
+      `<span style="color:#cbd5e1;font-size:11px;">` +
+      (r.last_row_at ? `Última publicación recibida: ${esc(r.last_row_at)}` : "Recibió publicaciones antes") +
+      (r.rows_ever ? ` · ${r.rows_ever} en total` : "") + `</span>`;
+  };
+  // LY2 — se enuncia la forma observada del radicado, no una causa.
+  const instanciaNote = (r: typeof rows[number]) =>
+    r.instancia === "SEGUNDA"
+      ? `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
+        (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
+        `: el canal de estados no ha entregado ninguna publicación desde el alta.</span>`
+      : "";
 
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
