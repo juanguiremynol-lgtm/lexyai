@@ -25914,12 +25914,21 @@ export type Database = {
       source_coverage_persistence: {
         Args: { _lookback_days?: number; _source: string }
         Returns: {
+          attempts_total: number
           consecutive_days: number
+          days_since_enrolment: number
           despacho: string
+          enrolled_at: string
+          first_attempt_date: string
+          gap_class: string
+          instancia: string
           kind: string
           last_day: string
           last_outcome: string
+          last_row_at: string
+          origin_monitored: boolean
           radicado: string
+          rows_ever: number
           since_date: string
           source: string
           status: string
