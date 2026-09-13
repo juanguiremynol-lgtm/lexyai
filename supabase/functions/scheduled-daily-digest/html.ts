@@ -522,6 +522,18 @@ function persistenceBlock(p: DigestPayload): string {
     "Estos asuntos se consultan todos los días y la fuente sigue sin responder con contenido. " +
       "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
   ) +
+    (() => {
+      const nunca = chronic.filter((r) => r.gap_class === "NEVER_ANSWERED").length;
+      const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
+      if (!chronic.length) return "";
+      return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
+        `${nunca} de ${chronic.length} no han recibido ni una publicación desde su alta; ` +
+        `los demás sí recibieron antes y dejaron de recibir. ` +
+        (segundas
+          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
+          : "") +
+        `</div>`;
+    })() +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Qué clase de silencio", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
       <tbody>${chronic.map((r) => `<tr>
