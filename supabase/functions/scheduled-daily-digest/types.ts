@@ -397,6 +397,21 @@ export interface CoveragePersistenceRow {
   last_outcome: string | null;
   /** CHRONIC | JOINED_TODAY | RECOVERED_TODAY */
   status: string;
+  /**
+   * LY — "never answered" and "stopped answering" are different facts and the
+   * table called both PENDING_UPSTREAM. NEVER_ANSWERED = not one usable row from
+   * this source since the matter was enrolled.
+   */
+  gap_class?: string;
+  rows_ever?: number;
+  last_row_at?: string | null;
+  first_attempt_date?: string | null;
+  attempts_total?: number;
+  enrolled_at?: string | null;
+  days_since_enrolment?: number;
+  /** PRIMERA | SEGUNDA — consecutivo del recurso in the radicado. Observed only. */
+  instancia?: string;
+  origin_monitored?: boolean;
 }
 
 export interface CoverageExceptionRow {

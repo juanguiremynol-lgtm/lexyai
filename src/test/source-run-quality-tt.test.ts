@@ -250,6 +250,33 @@ describe("LX — consecutive-day persistence of a source gap", () => {
   });
 });
 
+/**
+ * LY — "never answered since enrolment" and "answered, then went quiet" are
+ * different facts, and the second-instance shape is stated as observed, never
+ * as a cause.
+ */
+describe("LY — never answered vs stopped answering", () => {
+  const index = read("supabase/functions/scheduled-daily-digest/index.ts");
+  const html = read("supabase/functions/scheduled-daily-digest/html.ts");
+
+  it("carries the classification and the enrolment age", () => {
+    expect(index).toMatch(/gap_class/);
+    expect(index).toMatch(/days_since_enrolment/);
+    expect(index).toMatch(/instancia/);
+  });
+
+  it("names both classes in Spanish and shows the last row for the second", () => {
+    expect(html).toMatch(/NUNCA HA RESPONDIDO/);
+    expect(html).toMatch(/DEJÓ DE RESPONDER/);
+    expect(html).toMatch(/Última publicación recibida/);
+  });
+
+  it("states the second-instance shape without asserting a cause", () => {
+    expect(html).toMatch(/Segunda instancia/);
+    expect(html).toMatch(/no afirmamos por qué la fuente no entrega/);
+  });
+});
+
 describe("TT10 — the pre-existing NOT_FOUND distinctions survive", () => {
   it("the run-outcome taxonomy still treats NOT_FOUND as an answered read", () => {
     const tax = read("supabase/functions/_shared/runOutcomeTaxonomy.ts");

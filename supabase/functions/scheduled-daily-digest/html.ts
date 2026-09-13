@@ -493,6 +493,28 @@ function persistenceBlock(p: DigestPayload): string {
     k === "READ_FAILED"
       ? "la lectura falló"
       : "la fuente responde que la consulta sigue pendiente de su lado";
+  // LY — dos hechos distintos que la tabla llamaba igual.
+  const classCell = (r: typeof rows[number]) => {
+    if (r.gap_class === "NEVER_ANSWERED") {
+      const dias = r.days_since_enrolment ?? r.consecutive_days;
+      return `<strong style="color:#f87171;">NUNCA HA RESPONDIDO</strong><br>` +
+        `<span style="color:#cbd5e1;font-size:11px;">Ni una publicación desde el alta` +
+        (r.enrolled_at ? ` (${esc(r.enrolled_at)}, hace ${dias} día(s))` : "") +
+        (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
+        `</span>`;
+    }
+    return `<strong style="color:${accent};">DEJÓ DE RESPONDER</strong><br>` +
+      `<span style="color:#cbd5e1;font-size:11px;">` +
+      (r.last_row_at ? `Última publicación recibida: ${esc(r.last_row_at)}` : "Recibió publicaciones antes") +
+      (r.rows_ever ? ` · ${r.rows_ever} en total` : "") + `</span>`;
+  };
+  // LY2 — se enuncia la forma observada del radicado, no una causa.
+  const instanciaNote = (r: typeof rows[number]) =>
+    r.instancia === "SEGUNDA"
+      ? `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
+        (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
+        `: el canal de estados no ha entregado ninguna publicación desde el alta.</span>`
+      : "";
 
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
@@ -500,13 +522,27 @@ function persistenceBlock(p: DigestPayload): string {
     "Estos asuntos se consultan todos los días y la fuente sigue sin responder con contenido. " +
       "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
   ) +
+    (() => {
+      const nunca = chronic.filter((r) => r.gap_class === "NEVER_ANSWERED").length;
+      const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
+      if (!chronic.length) return "";
+      return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
+        `${nunca} de ${chronic.length} no han recibido ni una publicación desde su alta; ` +
+        `los demás sí recibieron antes y dejaron de recibir. ` +
+        (segundas
+          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
+          : "") +
+        `</div>`;
+    })() +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
+      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Qué clase de silencio", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
       <tbody>${chronic.map((r) => `<tr>
         ${td(`<strong>${esc(r.radicado || "sin radicado")}</strong><br>` +
           `<span style="color:#cbd5e1;font-size:11px;">${esc(r.title || "—")}</span>` +
-          (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : ""))}
+          (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : "") +
+          instanciaNote(r))}
         ${td(esc(label(r.source)))}
+        ${td(classCell(r))}
         ${td(ageCell(r.consecutive_days, r.since_date) +
           (r.status === "JOINED_TODAY"
             ? `<br><span style="color:#f87171;font-size:11px;">Entró hoy a esta lista</span>`
