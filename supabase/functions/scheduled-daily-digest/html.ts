@@ -523,12 +523,14 @@ function persistenceBlock(p: DigestPayload): string {
       "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
+      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Qué clase de silencio", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
       <tbody>${chronic.map((r) => `<tr>
         ${td(`<strong>${esc(r.radicado || "sin radicado")}</strong><br>` +
           `<span style="color:#cbd5e1;font-size:11px;">${esc(r.title || "—")}</span>` +
-          (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : ""))}
+          (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : "") +
+          instanciaNote(r))}
         ${td(esc(label(r.source)))}
+        ${td(classCell(r))}
         ${td(ageCell(r.consecutive_days, r.since_date) +
           (r.status === "JOINED_TODAY"
             ? `<br><span style="color:#f87171;font-size:11px;">Entró hoy a esta lista</span>`
