@@ -279,6 +279,15 @@ Deno.serve(async (req) => {
             last_day: (r.last_day as string) ?? null,
             last_outcome: (r.last_outcome as string) ?? null,
             status: String(r.status ?? "CHRONIC"),
+            gap_class: (r.gap_class as string) ?? undefined,
+            rows_ever: Number(r.rows_ever ?? 0),
+            last_row_at: (r.last_row_at as string) ?? null,
+            first_attempt_date: (r.first_attempt_date as string) ?? null,
+            attempts_total: Number(r.attempts_total ?? 0),
+            enrolled_at: (r.enrolled_at as string) ?? null,
+            days_since_enrolment: Number(r.days_since_enrolment ?? 0),
+            instancia: (r.instancia as string) ?? undefined,
+            origin_monitored: Boolean(r.origin_monitored),
           });
         }
       }
