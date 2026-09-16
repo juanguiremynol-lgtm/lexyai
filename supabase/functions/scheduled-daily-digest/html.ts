@@ -503,18 +503,31 @@ function persistenceBlock(p: DigestPayload): string {
         (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
         `</span>`;
     }
+    // Sin fila registrada no se puede afirmar que antes sí recibía: se enuncia
+    // sólo lo observado (la fuente contestó, pero nunca con contenido).
+    if (!r.last_row_at && !r.rows_ever) {
+      return `<strong style="color:${accent};">SIN CONTENIDO</strong><br>` +
+        `<span style="color:#cbd5e1;font-size:11px;">La fuente contesta, pero no hay ninguna publicación registrada` +
+        (r.attempts_total ? ` · ${r.attempts_total} consulta(s)` : "") + `</span>`;
+    }
     return `<strong style="color:${accent};">DEJÓ DE RESPONDER</strong><br>` +
       `<span style="color:#cbd5e1;font-size:11px;">` +
       (r.last_row_at ? `Última publicación recibida: ${esc(r.last_row_at)}` : "Recibió publicaciones antes") +
       (r.rows_ever ? ` · ${r.rows_ever} en total` : "") + `</span>`;
   };
   // LY2 — se enuncia la forma observada del radicado, no una causa.
-  const instanciaNote = (r: typeof rows[number]) =>
-    r.instancia === "SEGUNDA"
-      ? `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
-        (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
-        `: el canal de estados no ha entregado ninguna publicación desde el alta.</span>`
-      : "";
+  // La frase de "ninguna publicación desde el alta" sólo aplica cuando en efecto
+  // no hay ninguna fila registrada para ese asunto.
+  const instanciaNote = (r: typeof rows[number]) => {
+    if (r.instancia !== "SEGUNDA") return "";
+    const sinFilas = !r.last_row_at && !r.rows_ever;
+    return `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
+      (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
+      (sinFilas
+        ? `: el canal de estados no ha entregado ninguna publicación desde el alta.`
+        : `.`) +
+      `</span>`;
+  };
 
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
@@ -523,12 +536,15 @@ function persistenceBlock(p: DigestPayload): string {
       "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
   ) +
     (() => {
-      const nunca = chronic.filter((r) => r.gap_class === "NEVER_ANSWERED").length;
+      // El conteo se hace sobre filas efectivamente recibidas, no sobre la clase
+      // calculada: un asunto que siempre contestó vacío tampoco recibió nada.
+      const sinFilas = chronic.filter((r) => !r.last_row_at && !r.rows_ever).length;
+      const conFilas = chronic.length - sinFilas;
       const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
       if (!chronic.length) return "";
       return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
-        `${nunca} de ${chronic.length} no han recibido ni una publicación desde su alta; ` +
-        `los demás sí recibieron antes y dejaron de recibir. ` +
+        `${sinFilas} de ${chronic.length} no han recibido ni una publicación desde su alta` +
+        (conFilas ? `; los ${conFilas} restantes sí recibieron antes y dejaron de recibir. ` : ". ") +
         (segundas
           ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
           : "") +

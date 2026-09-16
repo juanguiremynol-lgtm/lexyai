@@ -181,7 +181,9 @@ export default function EstadosHoy() {
       // Fijados hoy: la fecha de fijación es hoy, O fueron detectados hoy con
       // fecha futura (programación anticipada, CGP art. 295 / Ley 2213 de 2022 art. 9).
       // La etiqueta "Programado para ..." distingue los futuros.
-      if (ffKey === todayKey || (dtKey === todayKey && ffKey && ffKey > todayKey)) {
+      // Un estado programado sigue visible todos los días hasta su fijación,
+      // no sólo el día en que se detectó.
+      if (ffKey === todayKey || (ffKey && ffKey > todayKey)) {
         fijados.push(e);
       } else if (dtKey === todayKey && ffKey && ffKey < todayKey) {
         tardios.push(e);
