@@ -562,23 +562,29 @@ function persistenceBlock(p: DigestPayload): string {
       const conFilas = chronic.length - sinFilas;
       const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
       if (!chronic.length) return "";
+      const mismoDespacho = chronic.filter((r) => r.despacho_class === "OTRAS_SI_ENTREGAN").length;
+      const sinPares = chronic.filter((r) => r.despacho_class === "SIN_COMPARACION").length;
       return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
         `${sinFilas} de ${chronic.length} no han recibido ni una publicación desde su alta` +
         (conFilas ? `; los ${conFilas} restantes sí recibieron antes y dejaron de recibir. ` : ". ") +
         (segundas
-          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
+          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega. `
           : "") +
+        `${mismoDespacho} está(n) en un despacho que sí entrega para otro asunto; ` +
+        `${sinPares} no tiene(n) otro asunto en el mismo despacho con el cual comparar.` +
         `</div>`;
     })() +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Qué clase de silencio", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
+      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Despacho (12 dígitos)", accent)}${th("Qué clase de silencio", accent)}${th("Consultas", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
       <tbody>${chronic.map((r) => `<tr>
         ${td(`<strong>${esc(r.radicado || "sin radicado")}</strong><br>` +
           `<span style="color:#cbd5e1;font-size:11px;">${esc(r.title || "—")}</span>` +
           (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : "") +
           instanciaNote(r))}
         ${td(esc(label(r.source)))}
+        ${td(despachoCell(r))}
         ${td(classCell(r))}
+        ${td(consultasCell(r))}
         ${td(ageCell(r.consecutive_days, r.since_date) +
           (r.status === "JOINED_TODAY"
             ? `<br><span style="color:#f87171;font-size:11px;">Entró hoy a esta lista</span>`
