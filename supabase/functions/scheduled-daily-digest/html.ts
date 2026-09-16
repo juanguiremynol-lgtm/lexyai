@@ -529,6 +529,26 @@ function persistenceBlock(p: DigestPayload): string {
       `</span>`;
   };
 
+  // MA1 — el despacho son los primeros 12 dígitos del radicado. Se enuncia
+  // únicamente la comparación observada; no se afirma causa.
+  const despachoCell = (r: typeof rows[number]) => {
+    const code = r.despacho_code ? `<strong>${esc(r.despacho_code)}</strong>` : "—";
+    const cls = r.despacho_class;
+    const nota = cls === "OTRAS_SI_ENTREGAN"
+      ? `El mismo despacho sí entrega para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más: la diferencia está en este radicado.`
+      : cls === "NINGUNA_ENTREGA"
+      ? `Ninguno de los ${r.siblings_monitored} asunto(s) de este despacho recibe publicaciones: la diferencia está en el despacho.`
+      : `No hay otro asunto en seguimiento en este despacho con el cual comparar.`;
+    return `${code}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
+  };
+  // MA3 — el número de consultas es lo que distingue "expediente quieto" de
+  // "petición que la fuente no puede satisfacer".
+  const consultasCell = (r: typeof rows[number]) =>
+    r.attempts_total
+      ? `<strong style="color:${r.attempts_total >= 50 ? "#f87171" : accent};">${r.attempts_total} consulta(s)</strong>` +
+        (!r.rows_ever ? `<br><span style="color:#cbd5e1;font-size:11px;">ni una respuesta con contenido</span>` : "")
+      : "—";
+
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
     accent,
