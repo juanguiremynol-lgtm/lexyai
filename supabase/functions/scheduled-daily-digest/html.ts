@@ -627,6 +627,7 @@ function persistenceBlock(p: DigestPayload): string {
         ${td(esc(kindText(r.kind)) + (r.last_outcome ? ` (${esc(r.last_outcome)})` : ""))}
       </tr>`).join("")}</tbody>
     </table>
+    ${soloDespachoBlock()}
     ${recovered.length ? `<div style="font-size:12px;color:#4ade80;margin-top:8px;line-height:1.6;">
       Salieron hoy de la lista: ${recovered.map((r) => esc(r.radicado || "sin radicado")).join(", ")}.
     </div>` : ""}
