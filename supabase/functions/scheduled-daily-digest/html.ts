@@ -533,13 +533,46 @@ function persistenceBlock(p: DigestPayload): string {
   // únicamente la comparación observada; no se afirma causa.
   const despachoCell = (r: typeof rows[number]) => {
     const code = r.despacho_code ? `<strong>${esc(r.despacho_code)}</strong>` : "—";
+    const nombre = r.despacho_nombre
+      ? `<br><span style="color:#cbd5e1;font-size:11px;">${esc(r.despacho_nombre)}</span>`
+      : "";
     const cls = r.despacho_class;
+    // MB1 — sin otro asunto en el mismo despacho no hay evidencia interna que
+    // pueda cerrar el caso: es una verificación de portal, no un reporte de falla.
     const nota = cls === "OTRAS_SI_ENTREGAN"
       ? `El mismo despacho sí entrega para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más: la diferencia está en este radicado.`
       : cls === "NINGUNA_ENTREGA"
       ? `Ninguno de los ${r.siblings_monitored} asunto(s) de este despacho recibe publicaciones: la diferencia está en el despacho.`
-      : `No hay otro asunto en seguimiento en este despacho con el cual comparar.`;
-    return `${code}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
+      : `Único asunto suyo en este despacho — no hay con qué comparar desde aquí; verificable solo en el portal.`;
+    return `${code}${nombre}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
+  };
+  // MB1 — los asuntos sin par se agrupan por NOMBRE de despacho para poder
+  // revisarlos juzgado por juzgado en el portal.
+  const soloDespachoBlock = () => {
+    const solos = chronic.filter((r) => r.despacho_class === "SIN_COMPARACION");
+    if (!solos.length) return "";
+    const groups = new Map<string, typeof solos>();
+    for (const r of solos) {
+      const key = r.despacho_nombre || (r.despacho_code ? `Despacho ${r.despacho_code}` : "Despacho sin identificar");
+      const list = groups.get(key) ?? [];
+      list.push(r);
+      groups.set(key, list);
+    }
+    const items = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], "es"))
+      .map(([nombre, list]) =>
+        `<li style="margin-bottom:4px;"><strong>${esc(nombre)}</strong>: ` +
+        list.map((r) =>
+          `${esc(r.radicado || "sin radicado")} (${r.attempts_total ?? 0} consulta(s))`
+        ).join(", ") + `</li>`
+      ).join("");
+    return `<div style="font-size:12px;color:${MUTED};margin-top:10px;line-height:1.6;">
+      <strong style="color:${accent};">Para revisar en el portal, por juzgado</strong><br>
+      Estos asuntos son el único suyo en su despacho: desde aquí no hay otro asunto con el cual comparar,
+      así que ninguna consulta adicional los resuelve. La verificación manual en el portal del juzgado es
+      lo único que los ha cerrado hasta hoy.
+      <ul style="margin:6px 0 0 16px;padding:0;">${items}</ul>
+    </div>`;
   };
   // MA3 — el número de consultas es lo que distingue "expediente quieto" de
   // "petición que la fuente no puede satisfacer".
