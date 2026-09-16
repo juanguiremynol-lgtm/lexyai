@@ -503,18 +503,31 @@ function persistenceBlock(p: DigestPayload): string {
         (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
         `</span>`;
     }
+    // Sin fila registrada no se puede afirmar que antes sí recibía: se enuncia
+    // sólo lo observado (la fuente contestó, pero nunca con contenido).
+    if (!r.last_row_at && !r.rows_ever) {
+      return `<strong style="color:${accent};">SIN CONTENIDO</strong><br>` +
+        `<span style="color:#cbd5e1;font-size:11px;">La fuente contesta, pero no hay ninguna publicación registrada` +
+        (r.attempts_total ? ` · ${r.attempts_total} consulta(s)` : "") + `</span>`;
+    }
     return `<strong style="color:${accent};">DEJÓ DE RESPONDER</strong><br>` +
       `<span style="color:#cbd5e1;font-size:11px;">` +
       (r.last_row_at ? `Última publicación recibida: ${esc(r.last_row_at)}` : "Recibió publicaciones antes") +
       (r.rows_ever ? ` · ${r.rows_ever} en total` : "") + `</span>`;
   };
   // LY2 — se enuncia la forma observada del radicado, no una causa.
-  const instanciaNote = (r: typeof rows[number]) =>
-    r.instancia === "SEGUNDA"
-      ? `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
-        (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
-        `: el canal de estados no ha entregado ninguna publicación desde el alta.</span>`
-      : "";
+  // La frase de "ninguna publicación desde el alta" sólo aplica cuando en efecto
+  // no hay ninguna fila registrada para ese asunto.
+  const instanciaNote = (r: typeof rows[number]) => {
+    if (r.instancia !== "SEGUNDA") return "";
+    const sinFilas = !r.last_row_at && !r.rows_ever;
+    return `<br><span style="color:#fbbf24;font-size:11px;">Segunda instancia` +
+      (r.origin_monitored ? ` — su proceso de origen también está en seguimiento` : "") +
+      (sinFilas
+        ? `: el canal de estados no ha entregado ninguna publicación desde el alta.`
+        : `.`) +
+      `</span>`;
+  };
 
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
