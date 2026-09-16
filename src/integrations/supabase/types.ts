@@ -25305,6 +25305,16 @@ export type Database = {
       emit_appellate_blindspot_alerts: { Args: never; Returns: Json }
       estados_coverage_reconciliation: { Args: never; Returns: Json }
       estados_coverage_summary: { Args: never; Returns: Json }
+      estados_probe_deferred_ids: {
+        Args: {
+          _probe_every_days?: number
+          _source: string
+          _streak_threshold?: number
+        }
+        Returns: {
+          work_item_id: string
+        }[]
+      }
       estados_provider_for_workflow: {
         Args: { p_workflow: string }
         Returns: string
@@ -25918,6 +25928,8 @@ export type Database = {
           consecutive_days: number
           days_since_enrolment: number
           despacho: string
+          despacho_class: string
+          despacho_code: string
           enrolled_at: string
           first_attempt_date: string
           gap_class: string
@@ -25929,6 +25941,8 @@ export type Database = {
           origin_monitored: boolean
           radicado: string
           rows_ever: number
+          siblings_delivering: number
+          siblings_monitored: number
           since_date: string
           source: string
           status: string
