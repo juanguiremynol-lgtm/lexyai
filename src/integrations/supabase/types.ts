@@ -25930,6 +25930,7 @@ export type Database = {
           despacho: string
           despacho_class: string
           despacho_code: string
+          despacho_nombre: string
           enrolled_at: string
           first_attempt_date: string
           gap_class: string
