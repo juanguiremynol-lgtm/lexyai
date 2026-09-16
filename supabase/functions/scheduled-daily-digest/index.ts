@@ -288,6 +288,10 @@ Deno.serve(async (req) => {
             days_since_enrolment: Number(r.days_since_enrolment ?? 0),
             instancia: (r.instancia as string) ?? undefined,
             origin_monitored: Boolean(r.origin_monitored),
+            despacho_code: (r.despacho_code as string) ?? null,
+            siblings_monitored: Number(r.siblings_monitored ?? 0),
+            siblings_delivering: Number(r.siblings_delivering ?? 0),
+            despacho_class: (r.despacho_class as string) ?? undefined,
           });
         }
       }

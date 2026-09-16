@@ -529,11 +529,33 @@ function persistenceBlock(p: DigestPayload): string {
       `</span>`;
   };
 
+  // MA1 — el despacho son los primeros 12 dígitos del radicado. Se enuncia
+  // únicamente la comparación observada; no se afirma causa.
+  const despachoCell = (r: typeof rows[number]) => {
+    const code = r.despacho_code ? `<strong>${esc(r.despacho_code)}</strong>` : "—";
+    const cls = r.despacho_class;
+    const nota = cls === "OTRAS_SI_ENTREGAN"
+      ? `El mismo despacho sí entrega para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más: la diferencia está en este radicado.`
+      : cls === "NINGUNA_ENTREGA"
+      ? `Ninguno de los ${r.siblings_monitored} asunto(s) de este despacho recibe publicaciones: la diferencia está en el despacho.`
+      : `No hay otro asunto en seguimiento en este despacho con el cual comparar.`;
+    return `${code}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
+  };
+  // MA3 — el número de consultas es lo que distingue "expediente quieto" de
+  // "petición que la fuente no puede satisfacer".
+  const consultasCell = (r: typeof rows[number]) =>
+    r.attempts_total
+      ? `<strong style="color:${r.attempts_total >= 50 ? "#f87171" : accent};">${r.attempts_total} consulta(s)</strong>` +
+        (!r.rows_ever ? `<br><span style="color:#cbd5e1;font-size:11px;">ni una respuesta con contenido</span>` : "")
+      : "—";
+
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
     accent,
-    "Estos asuntos se consultan todos los días y la fuente sigue sin responder con contenido. " +
-      "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
+    "Estos asuntos se consultan a diario y la fuente sigue sin responder con contenido. " +
+      "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento. " +
+      "Cuando un asunto acumula 14 días seguidos sin una sola respuesta con contenido, pasa a consultarse " +
+      "una vez por semana: sigue en seguimiento, solo se pregunta menos.",
   ) +
     (() => {
       // El conteo se hace sobre filas efectivamente recibidas, no sobre la clase
@@ -542,23 +564,29 @@ function persistenceBlock(p: DigestPayload): string {
       const conFilas = chronic.length - sinFilas;
       const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
       if (!chronic.length) return "";
+      const mismoDespacho = chronic.filter((r) => r.despacho_class === "OTRAS_SI_ENTREGAN").length;
+      const sinPares = chronic.filter((r) => r.despacho_class === "SIN_COMPARACION").length;
       return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
         `${sinFilas} de ${chronic.length} no han recibido ni una publicación desde su alta` +
         (conFilas ? `; los ${conFilas} restantes sí recibieron antes y dejaron de recibir. ` : ". ") +
         (segundas
-          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
+          ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega. `
           : "") +
+        `${mismoDespacho} está(n) en un despacho que sí entrega para otro asunto; ` +
+        `${sinPares} no tiene(n) otro asunto en el mismo despacho con el cual comparar.` +
         `</div>`;
     })() +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Qué clase de silencio", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
+      <thead><tr>${th("Asunto", accent)}${th("Fuente", accent)}${th("Despacho (12 dígitos)", accent)}${th("Qué clase de silencio", accent)}${th("Consultas", accent)}${th("Días consecutivos", accent)}${th("Qué responde", accent)}</tr></thead>
       <tbody>${chronic.map((r) => `<tr>
         ${td(`<strong>${esc(r.radicado || "sin radicado")}</strong><br>` +
           `<span style="color:#cbd5e1;font-size:11px;">${esc(r.title || "—")}</span>` +
           (r.despacho ? `<br><span style="color:#94a3b8;font-size:11px;">${esc(r.despacho)}</span>` : "") +
           instanciaNote(r))}
         ${td(esc(label(r.source)))}
+        ${td(despachoCell(r))}
         ${td(classCell(r))}
+        ${td(consultasCell(r))}
         ${td(ageCell(r.consecutive_days, r.since_date) +
           (r.status === "JOINED_TODAY"
             ? `<br><span style="color:#f87171;font-size:11px;">Entró hoy a esta lista</span>`

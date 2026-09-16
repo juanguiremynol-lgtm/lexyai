@@ -412,6 +412,17 @@ export interface CoveragePersistenceRow {
   /** PRIMERA | SEGUNDA — consecutivo del recurso in the radicado. Observed only. */
   instancia?: string;
   origin_monitored?: boolean;
+  /**
+   * MA1 — despacho = first 12 digits of the radicado. `despacho_class` says
+   * whether the silence is a fact about the radicado (other matters at the same
+   * despacho do deliver) or about the despacho (none delivers), or whether
+   * there is no comparison available at all.
+   * SIN_COMPARACION | OTRAS_SI_ENTREGAN | NINGUNA_ENTREGA
+   */
+  despacho_code?: string | null;
+  siblings_monitored?: number;
+  siblings_delivering?: number;
+  despacho_class?: string;
 }
 
 export interface CoverageExceptionRow {
