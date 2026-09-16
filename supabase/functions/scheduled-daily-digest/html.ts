@@ -552,8 +552,10 @@ function persistenceBlock(p: DigestPayload): string {
   return sectionTitle(
     "Fuentes que llevan días sin entregar",
     accent,
-    "Estos asuntos se consultan todos los días y la fuente sigue sin responder con contenido. " +
-      "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
+    "Estos asuntos se consultan a diario y la fuente sigue sin responder con contenido. " +
+      "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento. " +
+      "Cuando un asunto acumula 14 días seguidos sin una sola respuesta con contenido, pasa a consultarse " +
+      "una vez por semana: sigue en seguimiento, solo se pregunta menos.",
   ) +
     (() => {
       // El conteo se hace sobre filas efectivamente recibidas, no sobre la clase
