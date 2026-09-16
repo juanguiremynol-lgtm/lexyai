@@ -536,12 +536,15 @@ function persistenceBlock(p: DigestPayload): string {
       "No están pausados ni ocultos: lo que falta es la respuesta de la fuente, no el seguimiento.",
   ) +
     (() => {
-      const nunca = chronic.filter((r) => r.gap_class === "NEVER_ANSWERED").length;
+      // El conteo se hace sobre filas efectivamente recibidas, no sobre la clase
+      // calculada: un asunto que siempre contestó vacío tampoco recibió nada.
+      const sinFilas = chronic.filter((r) => !r.last_row_at && !r.rows_ever).length;
+      const conFilas = chronic.length - sinFilas;
       const segundas = chronic.filter((r) => r.instancia === "SEGUNDA").length;
       if (!chronic.length) return "";
       return `<div style="font-size:12px;color:${MUTED};margin:0 0 8px;line-height:1.6;">` +
-        `${nunca} de ${chronic.length} no han recibido ni una publicación desde su alta; ` +
-        `los demás sí recibieron antes y dejaron de recibir. ` +
+        `${sinFilas} de ${chronic.length} no han recibido ni una publicación desde su alta` +
+        (conFilas ? `; los ${conFilas} restantes sí recibieron antes y dejaron de recibir. ` : ". ") +
         (segundas
           ? `${segundas} de ellos son segundas instancias. Es lo observado en el radicado; no afirmamos por qué la fuente no entrega.`
           : "") +
