@@ -292,6 +292,7 @@ Deno.serve(async (req) => {
             siblings_monitored: Number(r.siblings_monitored ?? 0),
             siblings_delivering: Number(r.siblings_delivering ?? 0),
             despacho_class: (r.despacho_class as string) ?? undefined,
+            despacho_nombre: (r.despacho_nombre as string) ?? null,
           });
         }
       }

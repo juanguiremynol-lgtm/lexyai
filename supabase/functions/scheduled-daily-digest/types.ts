@@ -423,6 +423,11 @@ export interface CoveragePersistenceRow {
   siblings_monitored?: number;
   siblings_delivering?: number;
   despacho_class?: string;
+  /**
+   * MB1 — the despacho's name from the directory, so a solo-despacho matter can
+   * be checked by court on the portal. A directory fact, never a cause.
+   */
+  despacho_nombre?: string | null;
 }
 
 export interface CoverageExceptionRow {
