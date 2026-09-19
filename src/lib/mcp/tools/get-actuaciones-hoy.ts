@@ -94,9 +94,11 @@ export default defineTool({
     const { data: items } = ids.length
       ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null)
       : { data: [] as Row[] };
-    const wiById = new Map<string, Row>((items ?? []).map((i) => [String((i as Row).id), i as Row]));
+    const wiById = new Map<string, Row>(
+      (items ?? []).map((i) => [String((i as Row).id), i as Row] as [string, Row]),
+    );
 
-    const rows = [...byId.values()]
+    const rows: Row[] = [...byId.values()]
       .map((r) => {
         const id = String(r.id);
         const detectada = detectedIds.has(id);

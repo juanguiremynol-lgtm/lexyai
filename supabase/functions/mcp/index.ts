@@ -554,7 +554,9 @@ var get_actuaciones_hoy_default = defineTool8({
     }
     const ids = [...new Set([...byId.values()].map((r) => String(r.work_item_id)))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
-    const wiById = new Map((items ?? []).map((i) => [String(i.id), i]));
+    const wiById = new Map(
+      (items ?? []).map((i) => [String(i.id), i])
+    );
     const rows = [...byId.values()].map((r) => {
       const id = String(r.id);
       const detectada = detectedIds.has(id);
