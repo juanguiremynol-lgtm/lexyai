@@ -31,13 +31,8 @@ import {
 } from "@/components/ui/select";
 import { MessageSquare, ExternalLink, ShieldCheck, ShieldOff, RefreshCw, Send } from "lucide-react";
 
-const CONSENT_METHODS = [
-  { value: "VERBAL_EN_OFICINA", label: "Verbal, en oficina" },
-  { value: "ESCRITO_FIRMADO", label: "Escrito firmado" },
-  { value: "CORREO_DEL_CLIENTE", label: "Correo del cliente" },
-  { value: "WHATSAPP_DEL_CLIENTE", label: "WhatsApp del cliente" },
-  { value: "OTRO", label: "Otro (detallar en la nota)" },
-];
+// "Forma del consentimiento" es texto libre: lo escribe el abogado con sus
+// propias palabras. No hay lista cerrada inventada por el sistema.
 
 function fmt(d: string | null) {
   if (!d) return "—";
@@ -192,7 +187,7 @@ export default function ClientWhatsAppNotices() {
   // ── Consentimiento ───────────────────────────────────────────────
   const [newClient, setNewClient] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newMethod, setNewMethod] = useState("VERBAL_EN_OFICINA");
+  const [newMethod, setNewMethod] = useState("");
   const [newNote, setNewNote] = useState("");
 
   const recordConsent = useMutation({
@@ -205,6 +200,7 @@ export default function ClientWhatsAppNotices() {
         throw new Error("Número con indicativo del país y sin el signo +, por ejemplo 573001112233");
       }
       if (!newClient) throw new Error("Seleccione el cliente");
+      if (!newMethod.trim()) throw new Error("Escriba cómo dio el cliente su consentimiento");
       const { error } = await supabase.from("client_wa_consent").insert({
         organization_id: orgId!,
         client_id: newClient,
@@ -219,6 +215,7 @@ export default function ClientWhatsAppNotices() {
       toast({ title: "Consentimiento registrado" });
       setNewClient("");
       setNewPhone("");
+      setNewMethod("");
       setNewNote("");
       refresh();
     },
@@ -288,7 +285,7 @@ export default function ClientWhatsAppNotices() {
             <Card>
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 No hay borradores por aprobar. Sólo se preparan avisos de clientes con consentimiento
-                vigente y únicamente sobre hechos reportados por el juzgado.
+                vigente y únicamente sobre hechos reportados por el sistema de consulta judicial.
               </CardContent>
             </Card>
           )}
@@ -373,18 +370,11 @@ export default function ClientWhatsAppNotices() {
                 value={newPhone}
                 onChange={(e) => setNewPhone(e.target.value)}
               />
-              <Select value={newMethod} onValueChange={setNewMethod}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONSENT_METHODS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                placeholder="Cómo lo autorizó (con sus palabras). Ej: me lo autorizó en la oficina el 12/09"
+                value={newMethod}
+                onChange={(e) => setNewMethod(e.target.value)}
+              />
               <Input
                 placeholder="Nota (opcional)"
                 value={newNote}
@@ -407,7 +397,7 @@ export default function ClientWhatsAppNotices() {
                   <div className="text-sm">
                     <p className="font-medium">{cl?.name ?? "Cliente"}</p>
                     <p className="text-muted-foreground">
-                      {c.phone_e164} · {CONSENT_METHODS.find((m) => m.value === c.consent_method)?.label ?? c.consent_method} ·{" "}
+                      {c.phone_e164} · {c.consent_method} ·{" "}
                       {fmt(c.granted_at)}
                       {c.consent_note ? ` · ${c.consent_note}` : ""}
                     </p>
