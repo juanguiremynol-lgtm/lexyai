@@ -18,11 +18,12 @@ const digestTypes = read("supabase/functions/scheduled-daily-digest/types.ts");
 describe("JJ1 — mailbox connection is a headline condition", () => {
   it("reads the connection state and classifies error, expiry and pre-expiry", () => {
     expect(digestIndex).toMatch(/from\("user_email_connections"\)/);
-    expect(digestIndex).toMatch(/"ERROR"/);
-    expect(digestIndex).toMatch(/expiringSoon/);
-    // JJ1(d): 7-day warning window, before expiry.
-    expect(digestIndex).toMatch(/7 \* 86_400_000/);
+    // The digest no longer classifies on its own: it asks the single shared
+    // policy, so screen, digest and SQL detector cannot drift apart.
+    expect(digestIndex).toMatch(/digestConnectionIssue/);
+    expect(digestIndex).toMatch(/emailConnectionHealth\.ts/);
   });
+
 
   it("renders the connection block before novedades", () => {
     const conn = digestHtml.indexOf("${connectionBlock(");

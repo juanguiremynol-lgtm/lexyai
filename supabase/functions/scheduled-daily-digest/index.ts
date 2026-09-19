@@ -452,11 +452,9 @@ Deno.serve(async (req) => {
         const PAGE = 500;
         const MAX_ROWS = 5000;
         let feedTruncated = false;
+        let feedError: string | null = null;
 
         // ── Novedades: actuaciones (acts in the expediente) ──
-        const rawActsAll: NonNullable<
-          Awaited<ReturnType<typeof fetchActsPage>>["data"]
-        > = [];
         function fetchActsPage(offset: number) {
           return supabase
             .from("work_item_acts")
@@ -468,22 +466,18 @@ Deno.serve(async (req) => {
             .order("detected_at", { ascending: false })
             .range(offset, offset + PAGE - 1);
         }
-        {
-          let done = false;
-          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
-            const { data, error } = await fetchActsPage(offset);
-            if (error) { await fail(`acts: ${error.message}`); done = true; break; }
-            rawActsAll.push(...(data ?? []));
-            if ((data ?? []).length < PAGE) done = true;
-          }
-          if (!done) feedTruncated = true;
-          if (done === false && rawActsAll.length === 0) { /* unreachable */ }
+        const rawActsAll: NonNullable<Awaited<ReturnType<typeof fetchActsPage>>["data"]> = [];
+        for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
+          const { data, error } = await fetchActsPage(offset);
+          if (error) { feedError = `acts: ${error.message}`; break; }
+          const batch = data ?? [];
+          rawActsAll.push(...batch);
+          if (batch.length < PAGE) break;
+          if (offset + PAGE >= MAX_ROWS) feedTruncated = true;
         }
+        if (feedError) { await fail(feedError); continue; }
 
         // ── Novedades: estados (publications fixed on the list) ──
-        const rawPubsAll: NonNullable<
-          Awaited<ReturnType<typeof fetchPubsPage>>["data"]
-        > = [];
         function fetchPubsPage(offset: number) {
           return supabase
             .from("work_item_publicaciones")
@@ -495,21 +489,23 @@ Deno.serve(async (req) => {
             .order("detected_at", { ascending: false })
             .range(offset, offset + PAGE - 1);
         }
-        {
-          let done = false;
-          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
-            const { data, error } = await fetchPubsPage(offset);
-            if (error) { await fail(`publicaciones: ${error.message}`); done = true; break; }
-            rawPubsAll.push(...(data ?? []));
-            if ((data ?? []).length < PAGE) done = true;
-          }
-          if (!done) feedTruncated = true;
+        const rawPubsAll: NonNullable<Awaited<ReturnType<typeof fetchPubsPage>>["data"]> = [];
+        for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
+          const { data, error } = await fetchPubsPage(offset);
+          if (error) { feedError = `publicaciones: ${error.message}`; break; }
+          const batch = data ?? [];
+          rawPubsAll.push(...batch);
+          if (batch.length < PAGE) break;
+          if (offset + PAGE >= MAX_ROWS) feedTruncated = true;
         }
+        if (feedError) { await fail(feedError); continue; }
+
         if (feedTruncated) {
           console.warn(
             `[scheduled-daily-digest] feed hit the ${MAX_ROWS}-row ceiling for owner ${ownerId}`,
           );
         }
+
 
 
 

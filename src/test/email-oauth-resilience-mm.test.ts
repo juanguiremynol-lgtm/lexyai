@@ -79,13 +79,15 @@ describe("MM2 — proactive refresh", () => {
 
 describe("MM3 — visible, self-service connection state", () => {
   it("derives one health state the UI can render", () => {
+    const policy = read("src/lib/email-connection-health.ts");
     const hook = read("src/hooks/use-email-connection.ts");
-    expect(hook).toMatch(/export function connectionHealth/);
+    expect(policy).toMatch(/export function emailConnectionHealth/);
     for (const s of ["ACTIVA", "POR_VENCER", "ERROR", "NO_CONECTADO", "CONECTANDO"]) {
-      expect(hook).toContain(s);
+      expect(policy).toContain(s);
     }
-    expect(hook).toMatch(/token_expires_at, last_refresh_at, last_refresh_outcome/);
+    expect(hook).toMatch(/token_expires_at, last_refresh_at, last_refresh_success_at, last_refresh_outcome/);
   });
+
 
   it("shows the state and disables retry when retrying cannot help", () => {
     const ui = read("src/pages/SettingsConnections.tsx");

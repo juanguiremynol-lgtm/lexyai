@@ -234,7 +234,11 @@ describe("LX — consecutive-day persistence of a source gap", () => {
 
   it("carries the consecutive count per matter into the payload", () => {
     expect(index).toMatch(/source_coverage_persistence/);
-    expect(index).toMatch(/coveragePersistence,/);
+    // Scoped to the recipient's own matters before it enters the payload: a
+    // digest may never carry another firm's coverage rows.
+    expect(index).toMatch(/coveragePersistence: myCoveragePersistence,/);
+    expect(index).toMatch(/coveragePersistence\.filter\(\(r\) => ownedIds\.has\(r\.work_item_id\)\)/);
+
   });
 
   it("gives the standing population its own dated section", () => {
