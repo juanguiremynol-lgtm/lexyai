@@ -6,12 +6,16 @@ export default defineTool({
   name: "list_hearings",
   title: "Audiencias programadas",
   description:
-    "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+    "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
     date_from: z.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
     date_to: z.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
+    include_placeholders: z
+      .boolean()
+      .optional()
+      .describe("Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."),
     limit: z.number().int().min(1).max(100).optional().describe("Máximo de filas (default 50)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },

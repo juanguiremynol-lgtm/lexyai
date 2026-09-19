@@ -924,12 +924,13 @@ import { z as z14 } from "npm:zod@^3.25.76";
 var list_hearings_default = defineTool15({
   name: "list_hearings",
   title: "Audiencias programadas",
-  description: "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+  description: "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
     work_item_id: z14.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z14.string().trim().optional().describe("Limitar a un asunto por radicado."),
     date_from: z14.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
     date_to: z14.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
+    include_placeholders: z14.boolean().optional().describe("Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."),
     limit: z14.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
