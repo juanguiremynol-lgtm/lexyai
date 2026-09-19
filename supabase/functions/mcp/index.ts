@@ -1880,15 +1880,6 @@ var manage_task_default = defineTool29({
 // src/lib/mcp/tools/email-integration-status.ts
 import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z25 } from "npm:zod@^3.25.76";
-function deriveHealth(c) {
-  const status = String(c.status ?? "");
-  if (c.revoked_at) return "REVOCADA";
-  if (status === "PENDING") return "CONECTANDO";
-  if (status === "ERROR" || status === "REVOKED") return "ERROR";
-  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
-  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
-  return "ACTIVA";
-}
 var email_integration_status_default = defineTool30({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",

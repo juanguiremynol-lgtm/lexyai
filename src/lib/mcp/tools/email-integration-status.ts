@@ -1,6 +1,12 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import {
+  EMAIL_HEALTH_POLICY,
+  emailConnectionHealth,
+  emailHealthReason,
+  isExternalRevocation,
+} from "../../email-connection-health";
 
 /**
  * Email plumbing, from the lawyer's point of view.
@@ -11,25 +17,11 @@ import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
  * digest, document delivery — `email_outbox`). Both are reported here, and
  * neither exposes a secret: token ciphertext columns are never selected.
  *
- * The legacy `integrations` table is NOT read: Outlook has not lived there
- * since the mailbox connection moved to `user_email_connections`, and reading
- * it produced "no mailbox connected" answers while Outlook was syncing fine.
+ * Health is NOT derived here: it comes from `lib/email-connection-health`,
+ * the one policy the screen, the digest and the SQL detector also apply, so
+ * this tool cannot report ACTIVA while the digest reports a dead channel.
  */
 
-/**
- * Health, derived exactly like the web app does. An access token that expires
- * within the hour is normal OAuth behaviour, never a degradation: only a
- * failed/absent refresh, an error status or a revocation is.
- */
-function deriveHealth(c: Record<string, unknown>): string {
-  const status = String(c.status ?? "");
-  if (c.revoked_at) return "REVOCADA";
-  if (status === "PENDING") return "CONECTANDO";
-  if (status === "ERROR" || status === "REVOKED") return "ERROR";
-  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
-  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
-  return "ACTIVA";
-}
 
 export default defineTool({
   name: "email_integration_status",
