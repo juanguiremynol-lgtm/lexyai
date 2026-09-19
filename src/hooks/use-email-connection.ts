@@ -117,7 +117,7 @@ export function useEmailConnection() {
     queryFn: async (): Promise<EmailConnection | null> => {
       const { data, error } = await supabase
         .from("user_email_connections")
-        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at, token_expires_at, last_refresh_at, last_refresh_outcome")
+        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count")
         .eq("provider", "outlook")
         .maybeSingle();
       if (error) throw error;
