@@ -215,6 +215,7 @@ export default function ClientWhatsAppNotices() {
       toast({ title: "Consentimiento registrado" });
       setNewClient("");
       setNewPhone("");
+      setNewMethod("");
       setNewNote("");
       refresh();
     },
