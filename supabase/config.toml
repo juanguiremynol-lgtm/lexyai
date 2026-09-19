@@ -398,3 +398,6 @@ verify_jwt = false
 
 [functions.digest-failure-watchdog]
 verify_jwt = false
+
+[functions.whatsapp-send-client-notice]
+verify_jwt = true
