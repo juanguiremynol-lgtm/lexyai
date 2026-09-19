@@ -1705,10 +1705,19 @@ var manage_task_default = defineTool29({
 // src/lib/mcp/tools/email-integration-status.ts
 import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z25 } from "npm:zod@^3.25.76";
+function deriveHealth(c) {
+  const status = String(c.status ?? "");
+  if (c.revoked_at) return "REVOCADA";
+  if (status === "PENDING") return "CONECTANDO";
+  if (status === "ERROR" || status === "REVOKED") return "ERROR";
+  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
+  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
+  return "ACTIVA";
+}
 var email_integration_status_default = defineTool30({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",
-  description: "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+  description: "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
   inputSchema: {
     include_outbox: z25.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
     outbox_status: z25.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
@@ -1719,8 +1728,18 @@ var email_integration_status_default = defineTool30({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { data: integrations, error: intErr } = await sb.from("integrations").select("id, provider, status, username, expires_at, last_sync_at, last_error, session_last_ok_at, created_at, updated_at").order("updated_at", { ascending: false }).limit(20);
-    if (intErr) return errorResult(intErr.message);
+    const { data: rawConns, error: connErr } = await sb.from("user_email_connections").select(
+      "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at"
+    ).order("updated_at", { ascending: false }).limit(20);
+    if (connErr) return errorResult(connErr.message);
+    const conexiones = (rawConns ?? []).map((c) => {
+      const row = c;
+      return {
+        ...row,
+        salud: deriveHealth(row),
+        nota_token: "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar."
+      };
+    });
     let outbox = [];
     if (include_outbox !== false) {
       let q = sb.from("email_outbox").select("id, to_email, subject, status, created_at, sent_at, error, failure_type, work_item_id, trigger_reason, last_event_type").order("created_at", { ascending: false }).limit(limit ?? 20);
@@ -1729,8 +1748,7 @@ var email_integration_status_default = defineTool30({
       if (error) return errorResult(error.message);
       outbox = data ?? [];
     }
-    const conexiones = integrations ?? [];
-    const activas = conexiones.filter((c) => String(c.status ?? "").toUpperCase() === "CONNECTED").length;
+    const activas = conexiones.filter((c) => c.salud === "ACTIVA").length;
     const fallidos = outbox.filter((o) => String(o.status ?? "").toUpperCase() === "FAILED").length;
     return textResult(
       conexiones.length === 0 ? "No hay ninguna casilla de correo conectada para lectura." : `${conexiones.length} conexi\xF3n(es) de correo (${activas} activa(s)); ${outbox.length} env\xEDo(s) reciente(s), ${fallidos} fallido(s).`,
