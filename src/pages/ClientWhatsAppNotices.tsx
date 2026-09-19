@@ -31,13 +31,8 @@ import {
 } from "@/components/ui/select";
 import { MessageSquare, ExternalLink, ShieldCheck, ShieldOff, RefreshCw, Send } from "lucide-react";
 
-const CONSENT_METHODS = [
-  { value: "VERBAL_EN_OFICINA", label: "Verbal, en oficina" },
-  { value: "ESCRITO_FIRMADO", label: "Escrito firmado" },
-  { value: "CORREO_DEL_CLIENTE", label: "Correo del cliente" },
-  { value: "WHATSAPP_DEL_CLIENTE", label: "WhatsApp del cliente" },
-  { value: "OTRO", label: "Otro (detallar en la nota)" },
-];
+// "Forma del consentimiento" es texto libre: lo escribe el abogado con sus
+// propias palabras. No hay lista cerrada inventada por el sistema.
 
 function fmt(d: string | null) {
   if (!d) return "—";
@@ -192,7 +187,7 @@ export default function ClientWhatsAppNotices() {
   // ── Consentimiento ───────────────────────────────────────────────
   const [newClient, setNewClient] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newMethod, setNewMethod] = useState("VERBAL_EN_OFICINA");
+  const [newMethod, setNewMethod] = useState("");
   const [newNote, setNewNote] = useState("");
 
   const recordConsent = useMutation({
@@ -205,6 +200,7 @@ export default function ClientWhatsAppNotices() {
         throw new Error("Número con indicativo del país y sin el signo +, por ejemplo 573001112233");
       }
       if (!newClient) throw new Error("Seleccione el cliente");
+      if (!newMethod.trim()) throw new Error("Escriba cómo dio el cliente su consentimiento");
       const { error } = await supabase.from("client_wa_consent").insert({
         organization_id: orgId!,
         client_id: newClient,
