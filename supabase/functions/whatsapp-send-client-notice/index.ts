@@ -91,6 +91,27 @@ Deno.serve(async (req) => {
     const caratula = item?.title || item?.radicado || "su proceso";
     const firm = org?.name || "su abogado";
 
+    // {{4}} — contacto real del abogado que aprueba. Sin teléfono y correo no se envía:
+    // un aviso que dice "llame a su abogado" sin el número genera una llamada perdida.
+    const { data: approver } = await admin
+      .from("profiles")
+      .select("phone, litigation_email, email")
+      .eq("id", draft.approved_by)
+      .maybeSingle();
+    const lawyerPhone = (approver?.phone ?? "").trim();
+    const lawyerEmail = (approver?.litigation_email ?? approver?.email ?? "").trim();
+    if (!lawyerPhone || !lawyerEmail) {
+      return json(
+        {
+          error: "contacto_incompleto",
+          message:
+            "Falta su teléfono o su correo en el perfil. El aviso no se envió porque el cliente quedaría sin a quién llamar.",
+        },
+        412,
+      );
+    }
+    const contacto = `${lawyerPhone} · ${lawyerEmail}`;
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY");
     if (!LOVABLE_API_KEY || !WHATSAPP_API_KEY) {
