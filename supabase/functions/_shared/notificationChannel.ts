@@ -117,10 +117,19 @@ export async function notYetDispatched(
 export async function recordDispatch(
   supabase: Client,
   entries: LedgerEntry[],
-): Promise<void> {
-  if (entries.length === 0) return;
+): Promise<{ ok: boolean; error: string | null }> {
+  if (entries.length === 0) return { ok: true, error: null };
+  // Idempotent by (recipient, entity): a retried run re-writes the same rows
+  // instead of creating a second record of the same movement.
   const { error } = await supabase
     .from("notification_dispatch_ledger")
     .upsert(entries, { onConflict: "recipient_user_id,entity_kind,entity_id", ignoreDuplicates: true });
-  if (error) console.warn(`[notificationChannel] ledger write failed: ${error.message}`);
+  if (error) {
+    // A silent failure here means the per-event channel will mail the same
+    // movements again. The caller must surface it, not swallow it.
+    console.error(`[notificationChannel] ledger write failed: ${error.message}`);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, error: null };
 }
+

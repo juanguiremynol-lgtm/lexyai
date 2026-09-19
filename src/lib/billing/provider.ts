@@ -32,13 +32,36 @@ export interface IBillingProvider {
   syncSubscriptionFromProviderEvent(payload: unknown): Promise<void>;
 }
 
-// Mock provider implementation (default)
+/**
+ * AUDIT FINDING 15 — this stub used to hand out a "checkout" URL in any
+ * environment. In production that is a paid plan granted without a payment.
+ * The mock only operates when it is explicitly selected AND the build is not a
+ * production build; otherwise every entry point fails closed.
+ */
+const MOCK_ALLOWED =
+  !import.meta.env.PROD || import.meta.env.VITE_BILLING_ALLOW_MOCK === 'true';
+
+class BillingNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'El cobro en línea no está configurado en este entorno. No se creó ninguna suscripción ni se cobró nada.',
+    );
+    this.name = 'BillingNotConfiguredError';
+  }
+}
+
+// Mock provider implementation (non-production only)
 class MockBillingProvider implements IBillingProvider {
   getProviderName(): BillingProvider {
     return 'mock';
   }
 
+  private guard() {
+    if (!MOCK_ALLOWED) throw new BillingNotConfiguredError();
+  }
+
   async createCheckoutSession(params: CreateCheckoutSessionParams): Promise<CreateCheckoutSessionResult> {
+    this.guard();
     // Generate a mock session ID
     const sessionId = `mock_session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
@@ -49,6 +72,7 @@ class MockBillingProvider implements IBillingProvider {
   }
 
   async createBillingPortalSession(params: CreatePortalSessionParams): Promise<CreatePortalSessionResult> {
+    this.guard();
     // Return a mock portal URL
     const url = `/billing/portal/mock?org=${params.organizationId}&return=${encodeURIComponent(params.returnUrl)}`;
     
@@ -56,10 +80,12 @@ class MockBillingProvider implements IBillingProvider {
   }
 
   async syncSubscriptionFromProviderEvent(_payload: unknown): Promise<void> {
+    this.guard();
     // Mock implementation - no-op
     console.log('[MockBillingProvider] syncSubscriptionFromProviderEvent called (no-op in mock mode)');
   }
 }
+
 
 // Provider factory
 let providerInstance: IBillingProvider | null = null;

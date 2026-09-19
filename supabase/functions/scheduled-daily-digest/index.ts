@@ -28,6 +28,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 import {
   type LedgerEntry,
@@ -114,7 +115,13 @@ interface TokenSpec {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // AUDIT FINDING 2 — the digest reads every firm's matters and enqueues mail.
+  // Verified before the service-role client, the run claim or the heartbeat.
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok) return gate.response!;
+
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const dryRun = body?.dry_run === true;
   const triggerSource = typeof body?.trigger_source === "string" ? body.trigger_source : "UNSPECIFIED";
@@ -197,12 +204,36 @@ Deno.serve(async (req) => {
         _from: sourceWindowFrom,
         _to: nowIso,
       });
-      if (qErr) {
-        console.warn("[scheduled-daily-digest] source_collection_quality failed", src, qErr.message);
+      const row = qErr ? null : ((Array.isArray(q) ? q[0] : q) as Record<string, unknown> | null);
+      if (!row) {
+        // AUDIT FINDING 9 — silence here used to REMOVE the source from the
+        // report, and a report with no degraded sources reads as "cobertura
+        // completa". A failed check is not a clean check: the source enters the
+        // report as unverifiable, which keeps the digest from asserting silence.
+        if (qErr) {
+          console.warn("[scheduled-daily-digest] source_collection_quality failed", src, qErr.message);
+        }
+        sourceQuality.push({
+          source: src,
+          label: SOURCE_LABEL[src] ?? src,
+          expected_count: 0,
+          attempted_count: 0,
+          usable_confirmed_count: 0,
+          success_count: 0,
+          success_empty_count: 0,
+          not_found_count: 0,
+          restricted_count: 0,
+          pending_upstream_count: 0,
+          error_count: 0,
+          state: qErr ? "SOURCE_RUN_FAILED" : "SOURCE_STALE",
+          authoritative: false,
+          check_failed: true,
+          check_failed_reason: qErr?.message ?? "la verificación de cobertura no devolvió datos",
+          chain: [],
+        });
         continue;
       }
-      const row = (Array.isArray(q) ? q[0] : q) as Record<string, unknown> | null;
-      if (!row) continue;
+
       const counts = {
         source: src,
         expected_count: Number(row.expected_count ?? 0),
@@ -392,6 +423,14 @@ Deno.serve(async (req) => {
 
         const ids = items.map((i) => i.id);
         const wiMap = new Map<string, WorkItemInfo>(items.map((i) => [i.id, i]));
+        // AUDIT FINDING 4 — coverage diagnostics are computed once, globally,
+        // for every firm on the platform. Radicados, titles and identifiers of
+        // another firm must never reach this recipient's email; only the
+        // aggregate provider-health counters stay global.
+        const ownedIds = new Set(ids);
+        const myCoverageExceptions = coverageExceptions.filter((e) => ownedIds.has(e.work_item_id));
+        const myCoveragePersistence = coveragePersistence.filter((r) => ownedIds.has(r.work_item_id));
+
         // JJ3 — PETICION / GOV_PROCEDURE are not judicial: no provider ever
         // reads them, so they are never queried against provider tables and
         // never counted with the judicial portfolio.
@@ -407,28 +446,72 @@ Deno.serve(async (req) => {
         // predates the matter. The digest MUST honour it; counting by
         // `detected_at` alone turns a reactivated expediente's whole history
         // into today's news.
-        const { data: rawActsAll, error: actErr } = await supabase
-          .from("work_item_acts")
-          .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id, is_notifiable")
-          .in("work_item_id", judicialIds)
-          .eq("is_archived", false)
-          .gt("detected_at", windowFrom)
-          .lte("detected_at", windowTo)
-          .order("detected_at", { ascending: false })
-          .limit(400);
-        if (actErr) { await fail(`acts: ${actErr.message}`); continue; }
+        // AUDIT FINDING 11 — a flat cap of 400 silently DROPPED movements on a
+        // busy day, and the reader had no way to know. Both feeds are paged to
+        // a hard ceiling, and reaching the ceiling is reported, never hidden.
+        const PAGE = 500;
+        const MAX_ROWS = 5000;
+        let feedTruncated = false;
+
+        // ── Novedades: actuaciones (acts in the expediente) ──
+        const rawActsAll: NonNullable<
+          Awaited<ReturnType<typeof fetchActsPage>>["data"]
+        > = [];
+        function fetchActsPage(offset: number) {
+          return supabase
+            .from("work_item_acts")
+            .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id, is_notifiable")
+            .in("work_item_id", judicialIds)
+            .eq("is_archived", false)
+            .gt("detected_at", windowFrom)
+            .lte("detected_at", windowTo)
+            .order("detected_at", { ascending: false })
+            .range(offset, offset + PAGE - 1);
+        }
+        {
+          let done = false;
+          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
+            const { data, error } = await fetchActsPage(offset);
+            if (error) { await fail(`acts: ${error.message}`); done = true; break; }
+            rawActsAll.push(...(data ?? []));
+            if ((data ?? []).length < PAGE) done = true;
+          }
+          if (!done) feedTruncated = true;
+          if (done === false && rawActsAll.length === 0) { /* unreachable */ }
+        }
 
         // ── Novedades: estados (publications fixed on the list) ──
-        const { data: rawPubsAll, error: pubErr } = await supabase
-          .from("work_item_publicaciones")
-          .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, raw_data, organization_id, is_notifiable")
-          .in("work_item_id", judicialIds)
-          .eq("is_archived", false)
-          .gt("detected_at", windowFrom)
-          .lte("detected_at", windowTo)
-          .order("detected_at", { ascending: false })
-          .limit(400);
-        if (pubErr) { await fail(`publicaciones: ${pubErr.message}`); continue; }
+        const rawPubsAll: NonNullable<
+          Awaited<ReturnType<typeof fetchPubsPage>>["data"]
+        > = [];
+        function fetchPubsPage(offset: number) {
+          return supabase
+            .from("work_item_publicaciones")
+            .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, raw_data, organization_id, is_notifiable")
+            .in("work_item_id", judicialIds)
+            .eq("is_archived", false)
+            .gt("detected_at", windowFrom)
+            .lte("detected_at", windowTo)
+            .order("detected_at", { ascending: false })
+            .range(offset, offset + PAGE - 1);
+        }
+        {
+          let done = false;
+          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
+            const { data, error } = await fetchPubsPage(offset);
+            if (error) { await fail(`publicaciones: ${error.message}`); done = true; break; }
+            rawPubsAll.push(...(data ?? []));
+            if ((data ?? []).length < PAGE) done = true;
+          }
+          if (!done) feedTruncated = true;
+        }
+        if (feedTruncated) {
+          console.warn(
+            `[scheduled-daily-digest] feed hit the ${MAX_ROWS}-row ceiling for owner ${ownerId}`,
+          );
+        }
+
+
 
         // D3 — historial importado: everything detected in the window that the
         // DB does not consider a novedad. Reported apart, never counted.
@@ -1056,8 +1139,8 @@ Deno.serve(async (req) => {
           autoPaused,
           sourceQuality,
           coverageIncomplete,
-          coverageExceptions,
-          coveragePersistence,
+          coverageExceptions: myCoverageExceptions,
+          coveragePersistence: myCoveragePersistence,
           workItems: wiMap,
           appBaseUrl: APP_BASE_URL,
           linkExpiryDays: LINK_EXPIRY_DAYS,
@@ -1073,14 +1156,14 @@ Deno.serve(async (req) => {
           // incompleta" every day over the same known population trains the
           // reader to ignore it; "sin cambios" is the true and different line.
           : coverageIncomplete
-          ? (coveragePersistence.some((r) => r.status !== "CHRONIC")
+          ? (myCoveragePersistence.some((r) => r.status !== "CHRONIC")
             ? `Andromeda — Resumen diario · cambio en la cobertura (${
-              coveragePersistence.filter((r) => r.status === "JOINED_TODAY").length
+              myCoveragePersistence.filter((r) => r.status === "JOINED_TODAY").length
             } nuevo(s), ${
-              coveragePersistence.filter((r) => r.status === "RECOVERED_TODAY").length
+              myCoveragePersistence.filter((r) => r.status === "RECOVERED_TODAY").length
             } resuelto(s))`
             : `Andromeda — Resumen diario · cobertura sin cambios · ${
-              coveragePersistence.filter((r) => r.status === "CHRONIC").length
+              myCoveragePersistence.filter((r) => r.status === "CHRONIC").length
             } asunto(s) pendientes de antes`)
           : `Andromeda — Resumen diario: audiencias y términos`;
 
@@ -1111,7 +1194,25 @@ Deno.serve(async (req) => {
           dedupe_key: `daily-digest-${ownerId}-${digestDate}`,
         }).select("id").maybeSingle();
 
-        if (outErr) { await fail(`outbox: ${outErr.message}`); continue; }
+        // AUDIT FINDING 10 — 23505 means today's digest is ALREADY queued for
+        // this recipient. That is the idempotency key doing its job, not a
+        // failure: the run must go on and still write the ledger, otherwise the
+        // per-event channel re-mails movements the queued digest already
+        // carries.
+        let outboxId = outbox?.id ?? null;
+        if (outErr) {
+          if ((outErr as { code?: string }).code !== "23505") {
+            await fail(`outbox: ${outErr.message}`);
+            continue;
+          }
+          const { data: existing } = await supabase
+            .from("email_outbox")
+            .select("id")
+            .eq("dedupe_key", `daily-digest-${ownerId}-${digestDate}`)
+            .maybeSingle();
+          outboxId = existing?.id ?? null;
+          console.warn(`[scheduled-daily-digest] digest already queued for ${ownerId} on ${digestDate}`);
+        }
 
         summary.sent++;
         summary.documents_linked += tokens.length;
@@ -1136,7 +1237,8 @@ Deno.serve(async (req) => {
             channel: "DIGEST" as const,
           })),
         ];
-        await recordDispatch(supabase, ledgerRows);
+        const ledger = await recordDispatch(supabase, ledgerRows);
+
 
         // YY3 — a reconciliation notice is consumed only by a real send. A dry
         // run returned long before this point, so a preview never burns it.
@@ -1158,9 +1260,16 @@ Deno.serve(async (req) => {
           deadlines_count: allDeadlines.length,
           documents_linked: tokens.length,
           recipient_email: email,
-          email_outbox_id: outbox?.id ?? null,
+          email_outbox_id: outboxId,
+          // The mail is queued; these two conditions do not undo that, but they
+          // must be visible to the watchdog instead of dying in the logs.
+          error_summary: [
+            ledger.ok ? null : `ledger: ${ledger.error}`,
+            feedTruncated ? "feed truncado: el día superó el tope de movimientos leídos" : null,
+          ].filter(Boolean).join(" · ") || null,
           finished_at: new Date().toISOString(),
         }).eq("id", runId);
+
       } catch (ownerErr) {
         summary.failed++;
         summary.errors.push(`${ownerId}: ${String(ownerErr)}`);

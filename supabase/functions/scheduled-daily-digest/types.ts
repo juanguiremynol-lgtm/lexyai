@@ -354,6 +354,14 @@ export interface SourceQualityRow {
   /** TT6 — may a zero count on this source be read as "sin novedades"? */
   authoritative: boolean;
   /**
+   * The coverage check itself could not be run (RPC error or empty answer).
+   * The source is reported as unverifiable; it is never dropped from the
+   * report, because a missing source reads as a healthy one.
+   */
+  check_failed?: boolean;
+  check_failed_reason?: string;
+
+  /**
    * YY1(e) — the denominator BEFORE the learned despacho profiles removed the
    * matters whose court is evidenced not to use this channel, and how many
    * they removed. Both travel to the reader: a profile may never shrink the

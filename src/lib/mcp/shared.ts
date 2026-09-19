@@ -76,19 +76,29 @@ export function textResult(text: string, structuredContent?: Record<string, unkn
     return { content: [{ type: "text" as const, text }] };
   }
   let json = JSON.stringify(structuredContent, null, 2);
-  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) json = JSON.stringify(structuredContent);
   if (json.length > MAX_JSON_CHARS) {
-    json = JSON.stringify(structuredContent);
-    if (json.length > MAX_JSON_CHARS) {
-      json = json.slice(0, MAX_JSON_CHARS);
-      truncated = true;
-    }
+    // Slicing the JSON used to produce a broken document that the model then
+    // "completed" by guessing. Better to return no JSON block at all and say so.
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text:
+            `${text}\n\nLa respuesta es demasiado extensa para incluirla completa. ` +
+            `Reduce el parámetro \`limit\` o pide menos columnas: no se muestran datos parciales ` +
+            `porque un fragmento podría leerse como el total.`,
+        },
+      ],
+      structuredContent,
+    };
   }
-  const body = truncated
-    ? `${text}\n\n(Respuesta truncada: reduce el parámetro \`limit\` para ver todo.)\n\n\`\`\`json\n${json}\n\`\`\``
-    : `${text}\n\n\`\`\`json\n${json}\n\`\`\``;
-  return { content: [{ type: "text" as const, text: body }], structuredContent };
+  return {
+    content: [{ type: "text" as const, text: `${text}\n\n\`\`\`json\n${json}\n\`\`\`` }],
+    structuredContent,
+  };
 }
+
 
 /** Business days (Mon-Fri) between two ISO dates, excluding provided holidays. */
 export function businessDaysBetween(fromISO: string, toISO: string, holidays: Set<string> = new Set()): number {

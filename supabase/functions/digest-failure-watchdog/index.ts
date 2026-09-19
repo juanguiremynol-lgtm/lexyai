@@ -21,6 +21,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { finishHeartbeat, startHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 import {
   classifyDigestDay,
@@ -55,7 +56,12 @@ function bogotaDate(now = new Date()): string {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // AUDIT FINDING 2 — verified before any read, heartbeat or alert is written.
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok) return gate.response!;
+
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
   const dryRun = body?.dry_run === true;

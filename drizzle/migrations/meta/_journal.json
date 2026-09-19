@@ -29,6 +29,34 @@
       "when": 1789847637441,
       "tag": "0003_email_health_sql_matches_shared_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789849664248,
+      "tag": "0004_lock_down_monitored_view_and_privileged_functions",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789849696927,
+      "tag": "0005_restore_wa_generate_drafts_grant",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789849981568,
+      "tag": "0006_whatsapp_atomic_claim_and_approval_immutability",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789850239021,
+      "tag": "0007_atomic_work_item_note_append",
+      "breakpoints": true
     }
   ]
 }

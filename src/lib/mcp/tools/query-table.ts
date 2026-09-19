@@ -47,6 +47,29 @@ export default defineTool({
       );
     }
 
+    // AUDIT FINDING 13 — a PostgREST select string can embed related tables
+    // (`clients(*)`, `alias:otra_tabla(col)`), which reaches tables that are NOT
+    // in the catalogue. Only plain column names are accepted here.
+    const COLUMN_RE = /^[a-z0-9_]+$/;
+    const requested = (columns?.trim() || "*")
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const invalid = requested.filter((c) => c !== "*" && !COLUMN_RE.test(c));
+    if (invalid.length > 0) {
+      return errorResult(
+        `Columnas no válidas: ${invalid.join(", ")}. Solo se aceptan nombres simples de columna de esta tabla; ` +
+          `no se pueden traer tablas relacionadas desde aquí.`,
+      );
+    }
+    const badFilterCols = [
+      ...(filters ?? []).map((f) => f.column.trim()),
+      ...(order_by ? [order_by.trim()] : []),
+    ].filter((c) => !COLUMN_RE.test(c));
+    if (badFilterCols.length > 0) {
+      return errorResult(`Columnas no válidas en filtros u ordenamiento: ${badFilterCols.join(", ")}.`);
+    }
+
     const sb = sbForUser(ctx);
     // PostgREST's generated filter union is not callable through a dynamic
     // operator name; the builder is intentionally widened to its runtime shape.
@@ -54,7 +77,8 @@ export default defineTool({
       order: (col: string, opts: { ascending: boolean }) => AnyFilter;
       then: PromiseLike<{ data: unknown; error: { message: string } | null }>["then"];
     };
-    let q = sb.from(name).select(columns?.trim() || "*").limit(limit ?? 50) as unknown as AnyFilter;
+    let q = sb.from(name).select(requested.join(",")).limit(limit ?? 50) as unknown as AnyFilter;
+
 
     for (const f of filters ?? []) {
       const col = f.column.trim();

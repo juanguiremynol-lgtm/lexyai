@@ -22,19 +22,22 @@ export default defineTool({
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 
-    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, deleted_at");
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    if (item.deleted_at) {
+      return errorResult("El asunto está archivado; restáurelo antes de agregar notas.");
+    }
 
     const stamp = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
     const entry = `[${stamp} · vía asistente IA] ${content}`;
-    const previous = ((item.notes as string | null) ?? "").trim();
-    const nextNotes = previous ? `${previous}\n\n${entry}` : entry;
 
-    const { error: upErr } = await sb
-      .from("work_items")
-      .update({ notes: nextNotes, updated_at: new Date().toISOString() })
-      .eq("id", item.id as string);
+    // Read-modify-write used to overwrite a note written seconds earlier by the
+    // lawyer. The append is one statement in the database.
+    const { error: upErr } = await sb.rpc("append_work_item_note", {
+      _work_item: item.id as string,
+      _entry: entry,
+    });
     if (upErr) return errorResult(upErr.message);
 
     return textResult(`${resolved.note ? `${resolved.note}\n` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
@@ -44,3 +47,4 @@ export default defineTool({
     });
   },
 });
+

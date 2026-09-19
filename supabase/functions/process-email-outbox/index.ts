@@ -10,6 +10,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -370,9 +371,16 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // AUDIT FINDING 2 — the caller is verified BEFORE the service-role client
+  // exists. A signed-in lawyer may nudge the drain right after composing an
+  // email; an anonymous caller may not touch it at all.
+  const gate = await requirePrivilegedCaller(req, corsHeaders, { allowAuthenticatedUser: true });
+  if (!gate.ok) return gate.response!;
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
 
   const result: ProcessResult = {
     ok: true,

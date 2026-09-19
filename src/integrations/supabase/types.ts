@@ -25023,6 +25023,10 @@ export type Database = {
         Returns: string
       }
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
+      append_work_item_note: {
+        Args: { _entry: string; _work_item: string }
+        Returns: string
+      }
       apply_detalle_exposicion: {
         Args: {
           p_concluyente?: boolean
@@ -25357,6 +25361,35 @@ export type Database = {
           source_table: string
           work_item_id: string
         }[]
+      }
+      client_wa_claim_draft: {
+        Args: { _draft: string }
+        Returns: {
+          approved_at: string | null
+          approved_by: string | null
+          body_text: string
+          client_id: string
+          consent_id: string
+          created_at: string
+          discard_reason: string | null
+          edited_body_text: string | null
+          expires_at: string
+          fact_date: string
+          fact_text: string
+          id: string
+          organization_id: string
+          source_id: string
+          source_kind: string
+          source_table: string
+          status: string
+          work_item_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "client_wa_drafts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       client_wa_generate_drafts: {
         Args: { _lookback_days?: number; _org: string }
