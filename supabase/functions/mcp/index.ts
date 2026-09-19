@@ -965,7 +965,7 @@ var list_hearings_default = defineTool15({
     const hearings = rows.map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
-      return {
+      const out = {
         ...row,
         radicado: wi?.radicado ?? null,
         titulo_asunto: wi?.title ?? null,

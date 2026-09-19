@@ -61,10 +61,10 @@ export default defineTool({
       ),
     );
 
-    const hearings = rows.map((r) => {
+    const hearings: Record<string, unknown>[] = rows.map((r) => {
       const row = r as Record<string, unknown>;
       const wi = byId.get(String(row.work_item_id)) ?? null;
-      return {
+      const out: Record<string, unknown> = {
         ...row,
         radicado: wi?.radicado ?? null,
         titulo_asunto: wi?.title ?? null,
