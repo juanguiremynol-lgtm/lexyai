@@ -520,14 +520,27 @@ Deno.serve(async (req) => {
         // ── JJ1(c): estado del canal de correo de la firma ──
         const { data: rawConns } = await supabase
           .from("user_email_connections")
-          .select("ms_account_email, status, token_expires_at, failure_code, last_sync_at, revoked_at")
+          .select(
+            "ms_account_email, status, token_expires_at, failure_code, last_sync_at, revoked_at, last_refresh_at, last_refresh_outcome, refresh_failure_count",
+          )
           .eq("user_id", ownerId);
 
         const connectionIssues: ConnectionIssueRow[] = [];
         for (const c of rawConns ?? []) {
+          // token_expires_at is the Microsoft ACCESS token (~1 h), renewed
+          // automatically from the refresh token. Its expiry is NOT a problem
+          // and never asks the lawyer to reconnect: only a failed or long
+          // absent RENEWAL is. (Three identical "vence hoy" notices on three
+          // consecutive days came from reading this field as a consent date.)
+          const lastOk =
+            c.last_refresh_outcome === "SUCCESS" && c.last_refresh_at
+              ? new Date(c.last_refresh_at).getTime()
+              : null;
+          const renewalStale = lastOk === null || lastOk < Date.now() - 24 * 3_600_000;
           const expires = c.token_expires_at ? new Date(c.token_expires_at).getTime() : null;
-          const expired = expires !== null && expires < Date.now();
-          const expiringSoon = expires !== null && !expired && expires < Date.now() + 7 * 86_400_000;
+          const expired = expires !== null && expires < Date.now() && renewalStale;
+          const expiringSoon =
+            !expired && (c.last_refresh_outcome === "FAILED" || Number(c.refresh_failure_count ?? 0) >= 3);
           if (c.status === "ERROR" || c.status === "REVOKED" || c.revoked_at) {
             connectionIssues.push({
               mailbox: c.ms_account_email ?? null,
