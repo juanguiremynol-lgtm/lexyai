@@ -333,7 +333,7 @@
       {
         "name": "list_deadlines",
         "title": "Términos procesales",
-        "description": "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active — request them explicitly and never present them as live obligations.",
+        "description": "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations — request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / DESCONOCIDO); DESCONOCIDO means the attribution is unknown, not the client's.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
