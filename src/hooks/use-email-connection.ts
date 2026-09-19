@@ -30,6 +30,8 @@ export interface EmailConnection {
   /** Stamped on every renewal attempt, successful or not. */
   last_refresh_at: string | null;
   last_refresh_outcome: "SUCCESS" | "FAILED" | null;
+  /** Consecutive failed renewals; reset to 0 on success. */
+  refresh_failure_count: number | null;
 }
 
 /** Single, user-facing health state derived from the stored connection row. */
@@ -40,14 +42,26 @@ export type EmailConnectionHealth =
   | "POR_VENCER"
   | "ERROR";
 
-/** 24 h without a successful renewal while the token is dead = degraded. */
+/**
+ * Health of the mailbox connection.
+ *
+ * `token_expires_at` is the Microsoft ACCESS token, valid about an hour and
+ * renewed automatically from the refresh token: its imminent expiry is normal
+ * OAuth behaviour, never a reason to ask the lawyer to reconnect. Degradation
+ * is a failed/absent RENEWAL, an error status or a revocation — an expired
+ * access token only counts when no renewal has succeeded for 24 h.
+ */
 export function connectionHealth(c: EmailConnection | null): EmailConnectionHealth {
   if (!c) return "NO_CONECTADO";
   if (c.status === "PENDING") return "CONECTANDO";
-  if (c.status === "ERROR" || c.status === "REVOKED") return "ERROR";
+  if (c.status === "ERROR" || c.status === "REVOKED" || c.revoked_at) return "ERROR";
   if (c.last_refresh_outcome === "FAILED") return "POR_VENCER";
+  if ((c.refresh_failure_count ?? 0) >= 3) return "POR_VENCER";
   const expires = c.token_expires_at ? Date.parse(c.token_expires_at) : null;
-  if (expires !== null && expires < Date.now()) return "POR_VENCER";
+  const lastOk =
+    c.last_refresh_outcome === "SUCCESS" && c.last_refresh_at ? Date.parse(c.last_refresh_at) : null;
+  const staleRenewal = lastOk === null || lastOk < Date.now() - 24 * 3_600_000;
+  if (expires !== null && expires < Date.now() && staleRenewal) return "POR_VENCER";
   return "ACTIVA";
 }
 
@@ -103,7 +117,7 @@ export function useEmailConnection() {
     queryFn: async (): Promise<EmailConnection | null> => {
       const { data, error } = await supabase
         .from("user_email_connections")
-        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at, token_expires_at, last_refresh_at, last_refresh_outcome")
+        .select("id, provider, ms_account_email, status, last_error, connected_at, last_sync_at, can_send, failure_code, failure_detail, admin_consent_url, revoked_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count")
         .eq("provider", "outlook")
         .maybeSingle();
       if (error) throw error;

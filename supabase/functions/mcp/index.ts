@@ -220,10 +220,10 @@ function canonicalWorkflowType(raw) {
 var list_work_items_default = defineTool({
   name: "list_work_items",
   title: "Listar asuntos (work items)",
-  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
+  description: "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
   inputSchema: {
     search: z.string().trim().optional().describe("Free-text match on radicado, t\xEDtulo, partes, o autoridad."),
-    workflow_type: z.string().trim().optional().describe("Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
+    workflow_type: z.string().trim().optional().describe("Filter by workflow_type: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -506,17 +506,19 @@ var get_estados_hoy_default = defineTool7({
 import { defineTool as defineTool8 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z7 } from "npm:zod@^3.25.76";
 var WINDOW_DAYS = { today: 1, "3days": 3, week: 7 };
+var SELECT = "id, work_item_id, act_date, act_type, description, event_summary, despacho, source, detected_at";
 var get_actuaciones_hoy_default = defineTool8({
   name: "get_actuaciones_hoy",
   title: "Actuaciones recientes de la cartera",
-  description: "Lists actuaciones registered across the whole portfolio within a recent window (today, last 3 days, or last week), based on act_date in America/Bogota.",
+  description: "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses the meaning: `detectadas` (detected_at \u2014 the canonical feed used by the sidebar badge and the daily digest, DEFAULT), `fechadas` (act_date, the court's own date), or `ambas` (union, each row tagged, with late detections flagged).",
   inputSchema: {
     date: z7.string().optional().describe("D\xEDa final YYYY-MM-DD en America/Bogota. Default: hoy."),
     window: z7.enum(["today", "3days", "week"]).optional().describe("Ventana hacia atr\xE1s. Default: today."),
+    basis: z7.enum(["detectadas", "fechadas", "ambas"]).optional().describe("Qu\xE9 significa 'de hoy': detectadas (default, can\xF3nico), fechadas (act_date) o ambas."),
     limit: z7.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 100).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ date, window, limit }, ctx) => {
+  handler: async ({ date, window, basis, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -525,19 +527,66 @@ var get_actuaciones_hoy_default = defineTool8({
     const start = /* @__PURE__ */ new Date(`${end}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate() - (days - 1));
     const from = start.toISOString().slice(0, 10);
-    const { data, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, act_type, description, despacho, source, detected_at").gte("act_date", from).lte("act_date", end).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(limit ?? 100);
-    if (error) return errorResult(error.message);
-    const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
+    const startUTC = (/* @__PURE__ */ new Date(`${from}T00:00:00-05:00`)).toISOString();
+    const endUTC = (/* @__PURE__ */ new Date(`${end}T23:59:59.999-05:00`)).toISOString();
+    const cap = limit ?? 100;
+    const mode = basis ?? "detectadas";
+    const wantDetected = mode !== "fechadas";
+    const wantDated = mode !== "detectadas";
+    const byId = /* @__PURE__ */ new Map();
+    const detectedIds = /* @__PURE__ */ new Set();
+    const datedIds = /* @__PURE__ */ new Set();
+    if (wantDetected) {
+      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("detected_at", startUTC).lte("detected_at", endUTC).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(cap);
+      if (error) return errorResult(error.message);
+      for (const r of data ?? []) {
+        byId.set(String(r.id), r);
+        detectedIds.add(String(r.id));
+      }
+    }
+    if (wantDated) {
+      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("act_date", from).lte("act_date", end).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(cap);
+      if (error) return errorResult(error.message);
+      for (const r of data ?? []) {
+        byId.set(String(r.id), r);
+        datedIds.add(String(r.id));
+      }
+    }
+    const ids = [...new Set([...byId.values()].map((r) => String(r.work_item_id)))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
-    const byId = new Map(
-      (items ?? []).map((i) => [i.id, i])
+    const wiById = new Map(
+      (items ?? []).map((i) => [String(i.id), i])
     );
-    const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
-    return textResult(`${rows.length} actuaciones entre ${from} y ${end} (America/Bogota).`, {
-      date_from: from,
-      date_to: end,
-      actuaciones: rows
-    });
+    const rows = [...byId.values()].map((r) => {
+      const id = String(r.id);
+      const detectada = detectedIds.has(id);
+      const fechada = datedIds.has(id);
+      const out = {
+        ...r,
+        work_item: wiById.get(String(r.work_item_id)) ?? null,
+        clasificacion: detectada && fechada ? "fechada_y_detectada_hoy" : detectada ? "detectada_hoy" : "fechada_hoy",
+        deteccion_tardia: detectada && !fechada
+      };
+      return out;
+    }).sort((a, b) => String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")));
+    const detectadas = rows.filter((r) => r.clasificacion !== "fechada_hoy").length;
+    const fechadas = rows.filter((r) => r.clasificacion !== "detectada_hoy").length;
+    const tardias = rows.filter((r) => r.deteccion_tardia).length;
+    return textResult(
+      `${rows.length} actuaci\xF3n(es) entre ${from} y ${end} (America/Bogota), criterio "${mode}": ${detectadas} detectada(s) en la ventana, ${fechadas} con fecha del juzgado en la ventana, ${tardias} detecci\xF3n(es) tard\xEDa(s).`,
+      {
+        date_from: from,
+        date_to: end,
+        basis: mode,
+        conteos: { detectadas_en_ventana: detectadas, fechadas_en_ventana: fechadas, detecciones_tardias: tardias },
+        definiciones: {
+          detectadas_en_ventana: "detected_at dentro de la ventana \u2014 es lo que cuentan el badge lateral y el correo diario.",
+          fechadas_en_ventana: "act_date (fecha del juzgado) dentro de la ventana.",
+          detecciones_tardias: "detectada en la ventana pero con fecha del juzgado anterior."
+        },
+        actuaciones: rows
+      }
+    );
   }
 });
 
@@ -701,18 +750,18 @@ var add_note_default = defineTool12({
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const entry = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
+    const entry2 = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
     const previous = (item.notes ?? "").trim();
     const nextNotes = previous ? `${previous}
 
-${entry}` : entry;
+${entry2}` : entry2;
     const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
     if (upErr) return errorResult(upErr.message);
     return textResult(`${resolved.note ? `${resolved.note}
 ` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
       resolucion: resolved.note ?? null,
       work_item_id: item.id,
-      note: entry
+      note: entry2
     });
   }
 });
@@ -740,7 +789,7 @@ var search_default = defineTool13({
   description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
     query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
-    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
+    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
     client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z12.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
@@ -875,16 +924,17 @@ import { z as z14 } from "npm:zod@^3.25.76";
 var list_hearings_default = defineTool15({
   name: "list_hearings",
   title: "Audiencias programadas",
-  description: "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+  description: "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
     work_item_id: z14.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z14.string().trim().optional().describe("Limitar a un asunto por radicado."),
     date_from: z14.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
     date_to: z14.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
+    include_placeholders: z14.boolean().optional().describe("Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."),
     limit: z14.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
+  handler: async ({ work_item_id, radicado, date_from, date_to, include_placeholders, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -894,13 +944,17 @@ var list_hearings_default = defineTool15({
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       itemId = resolved.item.id;
     }
-    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(limit ?? 50);
+    const cap = limit ?? 50;
+    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(cap + 1);
     if (itemId) q = q.eq("work_item_id", itemId);
     if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
+    if (include_placeholders === false || date_from || date_to) q = q.not("scheduled_at", "is", null);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    const rows = data ?? [];
+    const fetched = data ?? [];
+    const hayMas = fetched.length > cap;
+    const rows = fetched.slice(0, cap);
     const ids = [...new Set(rows.map((r) => String(r.work_item_id)))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
     const byId = new Map(
@@ -911,24 +965,27 @@ var list_hearings_default = defineTool15({
     const hearings = rows.map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
-      return {
+      const out = {
         ...row,
         radicado: wi?.radicado ?? null,
         titulo_asunto: wi?.title ?? null,
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null
       };
+      return out;
     });
-    const cap = limit ?? 50;
-    const hayMas = hearings.length === cap;
+    const programadas = hearings.filter((h) => h.scheduled_at);
+    const marcadores = hearings.filter((h) => !h.scheduled_at);
     return textResult(
-      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado \u2014 puede haber m\xE1s; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      `${programadas.length} audiencia(s) con fecha programada${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` \u2014 tope de ${cap} alcanzado, hay m\xE1s filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
       {
         work_item_id: itemId,
         range: { from: date_from ?? null, to: date_to ?? null },
         limit: cap,
         hay_mas: hayMas,
-        hearings
+        audiencias_programadas: programadas,
+        marcadores_sin_fecha: marcadores,
+        nota: "Solo `audiencias_programadas` tiene fecha y hora. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda."
       }
     );
   }
@@ -1308,76 +1365,172 @@ var list_app_screens_default = defineTool24({
 
 // src/lib/mcp/tools/describe-data-model.ts
 import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+function entry(_table, que_es, columnas_clave) {
+  return { que_es, columnas_clave };
+}
 var READABLE_TABLES = {
-  work_items: {
-    que_es: "Entidad can\xF3nica: un asunto/expediente.",
-    columnas_clave: ["id", "radicado", "title", "workflow_type", "stage", "status", "authority_name", "client_id", "demandantes", "demandados", "monitoring_enabled", "last_action_date", "created_at"]
-  },
-  work_item_acts: {
-    que_es: "Actuaciones reportadas por los proveedores judiciales.",
-    columnas_clave: ["id", "work_item_id", "act_date", "title", "description", "source", "detected_at"]
-  },
-  work_item_publicaciones: {
-    que_es: "Estados electr\xF3nicos / publicaciones.",
-    columnas_clave: ["id", "work_item_id", "estado_numero", "fecha_fijacion", "detected_at", "descripcion", "documento_url"]
-  },
-  work_item_deadlines: {
-    que_es: "T\xE9rminos procesales. PENDING_REVIEW y los estados hist\xF3ricos NO son obligaciones vigentes.",
-    columnas_clave: ["id", "work_item_id", "deadline_type", "label", "trigger_date", "deadline_date", "business_days_count", "status", "notes"]
-  },
-  work_item_tasks: {
-    que_es: "Tareas del despacho asociadas a un asunto.",
-    columnas_clave: ["id", "work_item_id", "title", "description", "status", "priority", "due_date", "completed_at"]
-  },
-  work_item_email_links: {
-    que_es: "Metadatos de correos vinculados a un asunto (nunca el cuerpo).",
-    columnas_clave: ["id", "work_item_id", "subject", "direction", "sender", "received_at", "link_status", "confidence"]
-  },
-  hearings: {
-    que_es: "Audiencias programadas y celebradas.",
-    columnas_clave: ["id", "work_item_id", "hearing_type_id", "scheduled_at", "status", "location", "notes"]
-  },
-  clients: {
-    que_es: "Clientes del despacho.",
-    columnas_clave: ["id", "name", "id_number", "email", "city", "notes", "created_at"]
-  },
-  alert_instances: {
-    que_es: "Alertas generadas por el monitoreo.",
-    columnas_clave: ["id", "work_item_id", "alert_type", "severity", "title", "message", "status", "created_at"]
-  },
-  detected_processes: {
-    que_es: "Radicados detectados en el buz\xF3n que a\xFAn no son asunto.",
-    columnas_clave: ["id", "radicado", "source", "status", "detected_at"]
-  },
-  client_wa_consent: {
-    que_es: "Consentimientos de WhatsApp por cliente (revocables).",
-    columnas_clave: ["id", "client_id", "phone_e164", "consent_method", "granted_at", "revoked_at"]
-  },
-  client_wa_drafts: {
-    que_es: "Borradores de avisos de WhatsApp en espera de aprobaci\xF3n del abogado.",
-    columnas_clave: ["id", "client_id", "work_item_id", "fact_date", "fact_text", "body_text", "status", "expires_at"]
-  },
-  client_wa_sends: {
-    que_es: "Bit\xE1cora de avisos de WhatsApp efectivamente enviados.",
-    columnas_clave: ["id", "client_id", "work_item_id", "phone_e164", "body_text", "sent_at", "delivery_status"]
-  },
-  email_outbox: {
-    que_es: "Correos que Andromeda env\xEDa (alertas, digest). Sin cuerpos de terceros.",
-    columnas_clave: ["id", "to_email", "subject", "status", "created_at", "sent_at", "error", "work_item_id"]
-  },
-  generated_documents: {
-    que_es: "Documentos generados por la plataforma.",
-    columnas_clave: ["id", "work_item_id", "client_id", "document_type", "status", "created_at"]
-  },
-  contracts: {
-    que_es: "Contratos con clientes.",
-    columnas_clave: ["id", "client_id", "status", "start_date", "end_date", "created_at"]
-  }
+  work_items: entry("work_items", "Entidad can\xF3nica: un asunto/expediente.", [
+    "id",
+    "radicado",
+    "title",
+    "workflow_type",
+    "stage",
+    "status",
+    "authority_name",
+    "client_id",
+    "demandantes",
+    "demandados",
+    "monitoring_enabled",
+    "last_action_date",
+    "created_at"
+  ]),
+  work_item_acts: entry("work_item_acts", "Actuaciones reportadas por los proveedores judiciales.", [
+    "id",
+    "work_item_id",
+    "act_date",
+    "act_type",
+    "description",
+    "event_summary",
+    "despacho",
+    "source",
+    "detected_at",
+    "is_archived"
+  ]),
+  work_item_publicaciones: entry("work_item_publicaciones", "Estados electr\xF3nicos / publicaciones.", [
+    "id",
+    "work_item_id",
+    "title",
+    "annotation",
+    "fecha_fijacion",
+    "fecha_desfijacion",
+    "detected_at",
+    "despacho",
+    "tipo_publicacion",
+    "pdf_url",
+    "source",
+    "is_archived"
+  ]),
+  work_item_deadlines: entry(
+    "work_item_deadlines",
+    "T\xE9rminos procesales. REQUIERE_REVISION_MANUAL y los estados hist\xF3ricos NO son obligaciones vigentes.",
+    ["id", "work_item_id", "deadline_type", "label", "trigger_date", "deadline_date", "business_days_count", "status", "term_class", "notes"]
+  ),
+  work_item_tasks: entry("work_item_tasks", "Tareas del despacho asociadas a un asunto.", [
+    "id",
+    "work_item_id",
+    "title",
+    "description",
+    "status",
+    "priority",
+    "due_date",
+    "completed_at"
+  ]),
+  work_item_email_links: entry("work_item_email_links", "Metadatos de correos vinculados a un asunto (nunca el cuerpo).", [
+    "id",
+    "work_item_id",
+    "subject",
+    "direction",
+    "sender",
+    "received_at",
+    "link_status",
+    "confidence"
+  ]),
+  work_item_hearings: entry(
+    "work_item_hearings",
+    "Audiencias \u2014 tabla can\xF3nica. Con scheduled_at nulo la fila es un marcador detectado, no una audiencia con fecha.",
+    ["id", "work_item_id", "hearing_type_id", "custom_name", "scheduled_at", "occurred_at", "status", "modality", "location", "meeting_link"]
+  ),
+  clients: entry("clients", "Clientes del despacho.", [
+    "id",
+    "name",
+    "id_number",
+    "email",
+    "city",
+    "notes",
+    "created_at"
+  ]),
+  alert_instances: entry("alert_instances", "Alertas generadas por el monitoreo. El asunto va en entity_id cuando entity_type lo indica.", [
+    "id",
+    "entity_type",
+    "entity_id",
+    "alert_type",
+    "alert_source",
+    "severity",
+    "title",
+    "message",
+    "status",
+    "created_at"
+  ]),
+  detected_processes: entry("detected_processes", "Radicados detectados en el buz\xF3n que a\xFAn no son asunto.", [
+    "id",
+    "radicado",
+    "subject",
+    "sender",
+    "status",
+    "first_seen_at",
+    "last_seen_at",
+    "created_work_item_id"
+  ]),
+  client_wa_consent: entry("client_wa_consent", "Consentimientos de WhatsApp por cliente (revocables).", [
+    "id",
+    "client_id",
+    "phone_e164",
+    "consent_method",
+    "granted_at",
+    "revoked_at"
+  ]),
+  client_wa_drafts: entry("client_wa_drafts", "Borradores de avisos de WhatsApp en espera de aprobaci\xF3n del abogado.", [
+    "id",
+    "client_id",
+    "work_item_id",
+    "fact_date",
+    "fact_text",
+    "body_text",
+    "status",
+    "expires_at"
+  ]),
+  client_wa_sends: entry("client_wa_sends", "Bit\xE1cora de avisos de WhatsApp efectivamente enviados.", [
+    "id",
+    "client_id",
+    "work_item_id",
+    "phone_e164",
+    "body_text",
+    "sent_at",
+    "delivery_status"
+  ]),
+  email_outbox: entry("email_outbox", "Correos que Andromeda env\xEDa (alertas, digest). Sin cuerpos de terceros.", [
+    "id",
+    "to_email",
+    "subject",
+    "status",
+    "created_at",
+    "sent_at",
+    "error",
+    "work_item_id"
+  ]),
+  generated_documents: entry("generated_documents", "Documentos generados por la plataforma.", [
+    "id",
+    "work_item_id",
+    "document_type",
+    "title",
+    "status",
+    "created_at",
+    "finalized_at"
+  ]),
+  contracts: entry("contracts", "Contratos con clientes.", [
+    "id",
+    "client_id",
+    "service_description",
+    "contract_value",
+    "contract_date",
+    "status",
+    "created_at"
+  ])
 };
 var describe_data_model_default = defineTool25({
   name: "describe_data_model",
   title: "Modelo de datos consultable",
-  description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns, and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
+  description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns (validated against the real schema), and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
   inputSchema: {},
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async (_args, ctx) => {
@@ -1705,10 +1858,19 @@ var manage_task_default = defineTool29({
 // src/lib/mcp/tools/email-integration-status.ts
 import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z25 } from "npm:zod@^3.25.76";
+function deriveHealth(c) {
+  const status = String(c.status ?? "");
+  if (c.revoked_at) return "REVOCADA";
+  if (status === "PENDING") return "CONECTANDO";
+  if (status === "ERROR" || status === "REVOKED") return "ERROR";
+  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
+  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
+  return "ACTIVA";
+}
 var email_integration_status_default = defineTool30({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",
-  description: "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+  description: "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
   inputSchema: {
     include_outbox: z25.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
     outbox_status: z25.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
@@ -1719,8 +1881,18 @@ var email_integration_status_default = defineTool30({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const { data: integrations, error: intErr } = await sb.from("integrations").select("id, provider, status, username, expires_at, last_sync_at, last_error, session_last_ok_at, created_at, updated_at").order("updated_at", { ascending: false }).limit(20);
-    if (intErr) return errorResult(intErr.message);
+    const { data: rawConns, error: connErr } = await sb.from("user_email_connections").select(
+      "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at"
+    ).order("updated_at", { ascending: false }).limit(20);
+    if (connErr) return errorResult(connErr.message);
+    const conexiones = (rawConns ?? []).map((c) => {
+      const row = c;
+      return {
+        ...row,
+        salud: deriveHealth(row),
+        nota_token: "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar."
+      };
+    });
     let outbox = [];
     if (include_outbox !== false) {
       let q = sb.from("email_outbox").select("id, to_email, subject, status, created_at, sent_at, error, failure_type, work_item_id, trigger_reason, last_event_type").order("created_at", { ascending: false }).limit(limit ?? 20);
@@ -1729,8 +1901,7 @@ var email_integration_status_default = defineTool30({
       if (error) return errorResult(error.message);
       outbox = data ?? [];
     }
-    const conexiones = integrations ?? [];
-    const activas = conexiones.filter((c) => String(c.status ?? "").toUpperCase() === "CONNECTED").length;
+    const activas = conexiones.filter((c) => c.salud === "ACTIVA").length;
     const fallidos = outbox.filter((o) => String(o.status ?? "").toUpperCase() === "FAILED").length;
     return textResult(
       conexiones.length === 0 ? "No hay ninguna casilla de correo conectada para lectura." : `${conexiones.length} conexi\xF3n(es) de correo (${activas} activa(s)); ${outbox.length} env\xEDo(s) reciente(s), ${fallidos} fallido(s).`,

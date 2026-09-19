@@ -51,7 +51,7 @@
             },
             "workflow_type": {
               "type": "string",
-              "description": "Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."
+              "description": "Filtro opcional: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."
             },
             "client_id": {
               "type": "string",
@@ -84,7 +84,7 @@
       {
         "name": "list_work_items",
         "title": "Listar asuntos (work items)",
-        "description": "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
+        "description": "Lists the signed-in user's active legal matters (asuntos) from Andromeda. Supports optional text search and workflow_type filter (CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -99,7 +99,7 @@
             },
             "workflow_type": {
               "type": "string",
-              "description": "Filter by workflow_type, e.g. CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."
+              "description": "Filter by workflow_type: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."
             },
             "limit": {
               "type": "integer",
@@ -287,7 +287,7 @@
       {
         "name": "get_actuaciones_hoy",
         "title": "Actuaciones recientes de la cartera",
-        "description": "Lists actuaciones registered across the whole portfolio within a recent window (today, last 3 days, or last week), based on act_date in America/Bogota.",
+        "description": "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses the meaning: `detectadas` (detected_at — the canonical feed used by the sidebar badge and the daily digest, DEFAULT), `fechadas` (act_date, the court's own date), or `ambas` (union, each row tagged, with late detections flagged).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -308,6 +308,15 @@
                 "week"
               ],
               "description": "Ventana hacia atrás. Default: today."
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "detectadas",
+                "fechadas",
+                "ambas"
+              ],
+              "description": "Qué significa 'de hoy': detectadas (default, canónico), fechadas (act_date) o ambas."
             },
             "limit": {
               "type": "integer",
@@ -398,7 +407,7 @@
       {
         "name": "list_hearings",
         "title": "Audiencias programadas",
-        "description": "Lists scheduled hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+        "description": "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -423,6 +432,10 @@
             "date_to": {
               "type": "string",
               "description": "Fecha final ISO (YYYY-MM-DD)."
+            },
+            "include_placeholders": {
+              "type": "boolean",
+              "description": "Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."
             },
             "limit": {
               "type": "integer",
@@ -743,7 +756,7 @@
       {
         "name": "describe_data_model",
         "title": "Modelo de datos consultable",
-        "description": "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns, and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
+        "description": "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns (validated against the real schema), and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -1087,7 +1100,7 @@
       {
         "name": "email_integration_status",
         "title": "Estado de la integración de correo",
-        "description": "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error — never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+        "description": "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code — never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,

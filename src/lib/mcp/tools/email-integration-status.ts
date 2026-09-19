@@ -6,15 +6,36 @@ import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
  * Email plumbing, from the lawyer's point of view.
  *
  * Two different things share the word "correo": the mailbox Andromeda READS
- * (Outlook, via `integrations`) and the mail Andromeda SENDS (alerts, digest,
- * document delivery — `email_outbox`). Both are reported here, and neither
- * exposes a secret: tokens and passwords are never selected.
+ * (Outlook, stored in `user_email_connections` — the SAME table the web app
+ * reads via use-email-connection.ts) and the mail Andromeda SENDS (alerts,
+ * digest, document delivery — `email_outbox`). Both are reported here, and
+ * neither exposes a secret: token ciphertext columns are never selected.
+ *
+ * The legacy `integrations` table is NOT read: Outlook has not lived there
+ * since the mailbox connection moved to `user_email_connections`, and reading
+ * it produced "no mailbox connected" answers while Outlook was syncing fine.
  */
+
+/**
+ * Health, derived exactly like the web app does. An access token that expires
+ * within the hour is normal OAuth behaviour, never a degradation: only a
+ * failed/absent refresh, an error status or a revocation is.
+ */
+function deriveHealth(c: Record<string, unknown>): string {
+  const status = String(c.status ?? "");
+  if (c.revoked_at) return "REVOCADA";
+  if (status === "PENDING") return "CONECTANDO";
+  if (status === "ERROR" || status === "REVOKED") return "ERROR";
+  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
+  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
+  return "ACTIVA";
+}
+
 export default defineTool({
   name: "email_integration_status",
   title: "Estado de la integración de correo",
   description:
-    "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error — never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+    "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code — never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
   inputSchema: {
     include_outbox: z.boolean().optional().describe("Incluir los envíos recientes (default true)."),
     outbox_status: z.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los envíos. Default: ALL."),
@@ -26,12 +47,24 @@ export default defineTool({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
 
-    const { data: integrations, error: intErr } = await sb
-      .from("integrations")
-      .select("id, provider, status, username, expires_at, last_sync_at, last_error, session_last_ok_at, created_at, updated_at")
+    const { data: rawConns, error: connErr } = await sb
+      .from("user_email_connections")
+      .select(
+        "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at",
+      )
       .order("updated_at", { ascending: false })
       .limit(20);
-    if (intErr) return errorResult(intErr.message);
+    if (connErr) return errorResult(connErr.message);
+
+    const conexiones = (rawConns ?? []).map((c) => {
+      const row = c as Record<string, unknown>;
+      return {
+        ...row,
+        salud: deriveHealth(row),
+        nota_token:
+          "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar.",
+      };
+    });
 
     let outbox: Record<string, unknown>[] = [];
     if (include_outbox !== false) {
@@ -46,8 +79,7 @@ export default defineTool({
       outbox = (data ?? []) as Record<string, unknown>[];
     }
 
-    const conexiones = (integrations ?? []) as Record<string, unknown>[];
-    const activas = conexiones.filter((c) => String(c.status ?? "").toUpperCase() === "CONNECTED").length;
+    const activas = conexiones.filter((c) => c.salud === "ACTIVA").length;
     const fallidos = outbox.filter((o) => String(o.status ?? "").toUpperCase() === "FAILED").length;
 
     return textResult(
