@@ -510,12 +510,12 @@ var SELECT = "id, work_item_id, act_date, act_type, description, event_summary, 
 var get_actuaciones_hoy_default = defineTool8({
   name: "get_actuaciones_hoy",
   title: "Actuaciones recientes de la cartera",
-  description: "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses the meaning: `detectadas` (detected_at \u2014 the canonical feed used by the sidebar badge and the daily digest, DEFAULT), `fechadas` (act_date, the court's own date), or `ambas` (union, each row tagged, with late detections flagged).",
+  description: "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses which rows are returned: `detectadas` (detected_at, DEFAULT), `fechadas` (act_date, the court's own date) or `ambas` (the union). Every returned row is classified from its own dates, independently of the query that fetched it. Counts are over the rows actually returned; `parcial` says when the limit truncated them. These numbers are NOT expected to equal the daily digest or the sidebar badge, which apply extra filters of their own.",
   inputSchema: {
     date: z7.string().optional().describe("D\xEDa final YYYY-MM-DD en America/Bogota. Default: hoy."),
     window: z7.enum(["today", "3days", "week"]).optional().describe("Ventana hacia atr\xE1s. Default: today."),
-    basis: z7.enum(["detectadas", "fechadas", "ambas"]).optional().describe("Qu\xE9 significa 'de hoy': detectadas (default, can\xF3nico), fechadas (act_date) o ambas."),
-    limit: z7.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 100).")
+    basis: z7.enum(["detectadas", "fechadas", "ambas"]).optional().describe("Qu\xE9 filas se devuelven: detectadas (default), fechadas (act_date) o ambas."),
+    limit: z7.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas devueltas en total (default 100).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ date, window, basis, limit }, ctx) => {
@@ -529,61 +529,76 @@ var get_actuaciones_hoy_default = defineTool8({
     const from = start.toISOString().slice(0, 10);
     const startUTC = (/* @__PURE__ */ new Date(`${from}T00:00:00-05:00`)).toISOString();
     const endUTC = (/* @__PURE__ */ new Date(`${end}T23:59:59.999-05:00`)).toISOString();
+    const startMs = Date.parse(startUTC);
+    const endMs = Date.parse(endUTC);
     const cap = limit ?? 100;
     const mode = basis ?? "detectadas";
     const wantDetected = mode !== "fechadas";
     const wantDated = mode !== "detectadas";
     const byId = /* @__PURE__ */ new Map();
-    const detectedIds = /* @__PURE__ */ new Set();
-    const datedIds = /* @__PURE__ */ new Set();
     if (wantDetected) {
-      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("detected_at", startUTC).lte("detected_at", endUTC).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(cap);
+      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("detected_at", startUTC).lte("detected_at", endUTC).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(cap + 1);
       if (error) return errorResult(error.message);
-      for (const r of data ?? []) {
-        byId.set(String(r.id), r);
-        detectedIds.add(String(r.id));
-      }
+      for (const r of data ?? []) byId.set(String(r.id), r);
     }
     if (wantDated) {
-      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("act_date", from).lte("act_date", end).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(cap);
+      const { data, error } = await sb.from("work_item_acts").select(SELECT).gte("act_date", from).lte("act_date", end).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(cap + 1);
       if (error) return errorResult(error.message);
-      for (const r of data ?? []) {
-        byId.set(String(r.id), r);
-        datedIds.add(String(r.id));
-      }
+      for (const r of data ?? []) byId.set(String(r.id), r);
     }
-    const ids = [...new Set([...byId.values()].map((r) => String(r.work_item_id)))];
+    const union = [...byId.values()].sort(
+      (a, b) => String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? ""))
+    );
+    const hayMas = union.length > cap;
+    const page = union.slice(0, cap);
+    const ids = [...new Set(page.map((r) => String(r.work_item_id)))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
     const wiById = new Map(
       (items ?? []).map((i) => [String(i.id), i])
     );
-    const rows = [...byId.values()].map((r) => {
-      const id = String(r.id);
-      const detectada = detectedIds.has(id);
-      const fechada = datedIds.has(id);
+    const rows = page.map((r) => {
+      const detMs = r.detected_at ? Date.parse(String(r.detected_at)) : NaN;
+      const detectadaEnVentana = Number.isFinite(detMs) && detMs >= startMs && detMs <= endMs;
+      const actDate = r.act_date ? String(r.act_date).slice(0, 10) : null;
+      const fechadaEnVentana = actDate !== null && actDate >= from && actDate <= end;
+      const tardia = detectadaEnVentana && actDate !== null && actDate < from;
       const out = {
         ...r,
         work_item: wiById.get(String(r.work_item_id)) ?? null,
-        clasificacion: detectada && fechada ? "fechada_y_detectada_hoy" : detectada ? "detectada_hoy" : "fechada_hoy",
-        deteccion_tardia: detectada && !fechada
+        detectada_en_ventana: detectadaEnVentana,
+        fechada_en_ventana: fechadaEnVentana,
+        deteccion_tardia: tardia,
+        clasificacion: detectadaEnVentana && fechadaEnVentana ? "fechada_y_detectada_en_ventana" : detectadaEnVentana ? tardia ? "detectada_en_ventana_con_fecha_anterior" : actDate === null ? "detectada_en_ventana_sin_fecha" : "detectada_en_ventana_con_fecha_posterior" : "fechada_en_ventana"
       };
       return out;
-    }).sort((a, b) => String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")));
-    const detectadas = rows.filter((r) => r.clasificacion !== "fechada_hoy").length;
-    const fechadas = rows.filter((r) => r.clasificacion !== "detectada_hoy").length;
+    });
+    const detectadas = rows.filter((r) => r.detectada_en_ventana).length;
+    const fechadas = rows.filter((r) => r.fechada_en_ventana).length;
     const tardias = rows.filter((r) => r.deteccion_tardia).length;
+    const sinFecha = rows.filter((r) => !r.act_date).length;
     return textResult(
-      `${rows.length} actuaci\xF3n(es) entre ${from} y ${end} (America/Bogota), criterio "${mode}": ${detectadas} detectada(s) en la ventana, ${fechadas} con fecha del juzgado en la ventana, ${tardias} detecci\xF3n(es) tard\xEDa(s).`,
+      `${rows.length} actuaci\xF3n(es) entre ${from} y ${end} (America/Bogota), criterio "${mode}": ${detectadas} detectada(s) en la ventana, ${fechadas} con fecha del juzgado en la ventana, ${tardias} detecci\xF3n(es) tard\xEDa(s)${hayMas ? ` \u2014 tope de ${cap} alcanzado, los conteos son parciales` : ""}.`,
       {
         date_from: from,
         date_to: end,
         basis: mode,
-        conteos: { detectadas_en_ventana: detectadas, fechadas_en_ventana: fechadas, detecciones_tardias: tardias },
-        definiciones: {
-          detectadas_en_ventana: "detected_at dentro de la ventana \u2014 es lo que cuentan el badge lateral y el correo diario.",
-          fechadas_en_ventana: "act_date (fecha del juzgado) dentro de la ventana.",
-          detecciones_tardias: "detectada en la ventana pero con fecha del juzgado anterior."
+        limit: cap,
+        hay_mas: hayMas,
+        parcial: hayMas,
+        conteos: {
+          filas_devueltas: rows.length,
+          detectadas_en_ventana: detectadas,
+          fechadas_en_ventana: fechadas,
+          detecciones_tardias: tardias,
+          sin_fecha_del_juzgado: sinFecha
         },
+        definiciones: {
+          detectadas_en_ventana: "detected_at dentro de la ventana.",
+          fechadas_en_ventana: "act_date (fecha del juzgado) dentro de la ventana.",
+          detecciones_tardias: "detectada dentro de la ventana Y con fecha del juzgado conocida anterior al inicio de la ventana. Una fecha futura o ausente nunca cuenta como tard\xEDa.",
+          parcial: "true cuando el tope de filas trunc\xF3 el resultado: los conteos son de la muestra, no del total."
+        },
+        comparabilidad: "Estas cifras se calculan solo sobre esta ventana y sin los filtros propios del correo diario (asuntos en la vista de monitoreo, novedades notificables y no despachadas por otro canal) ni del contador lateral. Un n\xFAmero distinto al del correo no implica un error: para compararlos hay que igualar ventana y filtros.",
         actuaciones: rows
       }
     );
@@ -924,7 +939,7 @@ import { z as z14 } from "npm:zod@^3.25.76";
 var list_hearings_default = defineTool15({
   name: "list_hearings",
   title: "Audiencias programadas",
-  description: "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+  description: "Lists hearings from the canonical work_item_hearings table, RLS-scoped to the caller, split three ways: `audiencias_programadas` (a date AND a status that is not held/cancelled/postponed \u2014 the standing agenda), `audiencias_celebradas_o_canceladas` (history, kept apart), and `marcadores_sin_fecha` (detected placeholders with no date, never part of the agenda). Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
     work_item_id: z14.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z14.string().trim().optional().describe("Limitar a un asunto por radicado."),
@@ -974,18 +989,25 @@ var list_hearings_default = defineTool15({
       };
       return out;
     });
-    const programadas = hearings.filter((h) => h.scheduled_at);
+    const conFecha = hearings.filter((h) => h.scheduled_at);
     const marcadores = hearings.filter((h) => !h.scheduled_at);
+    const cerrado = (s) => {
+      const v = String(s ?? "").toUpperCase();
+      return v === "HELD" || v === "CANCELLED" || v === "CANCELED" || v === "POSTPONED";
+    };
+    const programadas = conFecha.filter((h) => !cerrado(h.status));
+    const historicas = conFecha.filter((h) => cerrado(h.status));
     return textResult(
-      `${programadas.length} audiencia(s) con fecha programada${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` \u2014 tope de ${cap} alcanzado, hay m\xE1s filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
+      `${programadas.length} audiencia(s) vigente(s) con fecha${historicas.length ? `, ${historicas.length} ya celebrada(s) o cancelada(s)` : ""}${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` \u2014 tope de ${cap} alcanzado, hay m\xE1s filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
       {
         work_item_id: itemId,
         range: { from: date_from ?? null, to: date_to ?? null },
         limit: cap,
         hay_mas: hayMas,
         audiencias_programadas: programadas,
+        audiencias_celebradas_o_canceladas: historicas,
         marcadores_sin_fecha: marcadores,
-        nota: "Solo `audiencias_programadas` tiene fecha y hora. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda."
+        nota: "`audiencias_programadas` es la agenda vigente: tiene fecha y su estado no es celebrada, cancelada ni aplazada. `audiencias_celebradas_o_canceladas` es historial. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda."
       }
     );
   }

@@ -6,7 +6,7 @@ export default defineTool({
   name: "list_hearings",
   title: "Audiencias programadas",
   description:
-    "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+    "Lists hearings from the canonical work_item_hearings table, RLS-scoped to the caller, split three ways: `audiencias_programadas` (a date AND a status that is not held/cancelled/postponed — the standing agenda), `audiencias_celebradas_o_canceladas` (history, kept apart), and `marcadores_sin_fecha` (detected placeholders with no date, never part of the agenda). Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
@@ -74,19 +74,29 @@ export default defineTool({
       return out;
     });
 
-    const programadas = hearings.filter((h) => h.scheduled_at);
+    // Having a date is not the same as still being pending: held and
+    // cancelled hearings keep their scheduled_at and must never be presented
+    // as the standing agenda.
+    const conFecha = hearings.filter((h) => h.scheduled_at);
     const marcadores = hearings.filter((h) => !h.scheduled_at);
+    const cerrado = (s: unknown) => {
+      const v = String(s ?? "").toUpperCase();
+      return v === "HELD" || v === "CANCELLED" || v === "CANCELED" || v === "POSTPONED";
+    };
+    const programadas = conFecha.filter((h) => !cerrado(h.status));
+    const historicas = conFecha.filter((h) => cerrado(h.status));
 
     return textResult(
-      `${programadas.length} audiencia(s) con fecha programada${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` — tope de ${cap} alcanzado, hay más filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
+      `${programadas.length} audiencia(s) vigente(s) con fecha${historicas.length ? `, ${historicas.length} ya celebrada(s) o cancelada(s)` : ""}${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` — tope de ${cap} alcanzado, hay más filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
       {
         work_item_id: itemId,
         range: { from: date_from ?? null, to: date_to ?? null },
         limit: cap,
         hay_mas: hayMas,
         audiencias_programadas: programadas,
+        audiencias_celebradas_o_canceladas: historicas,
         marcadores_sin_fecha: marcadores,
-        nota: "Solo `audiencias_programadas` tiene fecha y hora. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda.",
+        nota: "`audiencias_programadas` es la agenda vigente: tiene fecha y su estado no es celebrada, cancelada ni aplazada. `audiencias_celebradas_o_canceladas` es historial. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda.",
       },
     );
   },
