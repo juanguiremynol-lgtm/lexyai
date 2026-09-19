@@ -3,6 +3,7 @@ import {
   Briefcase, 
   CheckSquare, 
   Bell, 
+  MessageSquare,
   Settings,
   Scale,
   LogOut,
