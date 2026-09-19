@@ -701,18 +701,18 @@ var add_note_default = defineTool12({
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
-    const entry = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
+    const entry2 = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
     const previous = (item.notes ?? "").trim();
     const nextNotes = previous ? `${previous}
 
-${entry}` : entry;
+${entry2}` : entry2;
     const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
     if (upErr) return errorResult(upErr.message);
     return textResult(`${resolved.note ? `${resolved.note}
 ` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
       resolucion: resolved.note ?? null,
       work_item_id: item.id,
-      note: entry
+      note: entry2
     });
   }
 });
@@ -1308,76 +1308,172 @@ var list_app_screens_default = defineTool24({
 
 // src/lib/mcp/tools/describe-data-model.ts
 import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+function entry(_table, que_es, columnas_clave) {
+  return { que_es, columnas_clave };
+}
 var READABLE_TABLES = {
-  work_items: {
-    que_es: "Entidad can\xF3nica: un asunto/expediente.",
-    columnas_clave: ["id", "radicado", "title", "workflow_type", "stage", "status", "authority_name", "client_id", "demandantes", "demandados", "monitoring_enabled", "last_action_date", "created_at"]
-  },
-  work_item_acts: {
-    que_es: "Actuaciones reportadas por los proveedores judiciales.",
-    columnas_clave: ["id", "work_item_id", "act_date", "title", "description", "source", "detected_at"]
-  },
-  work_item_publicaciones: {
-    que_es: "Estados electr\xF3nicos / publicaciones.",
-    columnas_clave: ["id", "work_item_id", "estado_numero", "fecha_fijacion", "detected_at", "descripcion", "documento_url"]
-  },
-  work_item_deadlines: {
-    que_es: "T\xE9rminos procesales. PENDING_REVIEW y los estados hist\xF3ricos NO son obligaciones vigentes.",
-    columnas_clave: ["id", "work_item_id", "deadline_type", "label", "trigger_date", "deadline_date", "business_days_count", "status", "notes"]
-  },
-  work_item_tasks: {
-    que_es: "Tareas del despacho asociadas a un asunto.",
-    columnas_clave: ["id", "work_item_id", "title", "description", "status", "priority", "due_date", "completed_at"]
-  },
-  work_item_email_links: {
-    que_es: "Metadatos de correos vinculados a un asunto (nunca el cuerpo).",
-    columnas_clave: ["id", "work_item_id", "subject", "direction", "sender", "received_at", "link_status", "confidence"]
-  },
-  hearings: {
-    que_es: "Audiencias programadas y celebradas.",
-    columnas_clave: ["id", "work_item_id", "hearing_type_id", "scheduled_at", "status", "location", "notes"]
-  },
-  clients: {
-    que_es: "Clientes del despacho.",
-    columnas_clave: ["id", "name", "id_number", "email", "city", "notes", "created_at"]
-  },
-  alert_instances: {
-    que_es: "Alertas generadas por el monitoreo.",
-    columnas_clave: ["id", "work_item_id", "alert_type", "severity", "title", "message", "status", "created_at"]
-  },
-  detected_processes: {
-    que_es: "Radicados detectados en el buz\xF3n que a\xFAn no son asunto.",
-    columnas_clave: ["id", "radicado", "source", "status", "detected_at"]
-  },
-  client_wa_consent: {
-    que_es: "Consentimientos de WhatsApp por cliente (revocables).",
-    columnas_clave: ["id", "client_id", "phone_e164", "consent_method", "granted_at", "revoked_at"]
-  },
-  client_wa_drafts: {
-    que_es: "Borradores de avisos de WhatsApp en espera de aprobaci\xF3n del abogado.",
-    columnas_clave: ["id", "client_id", "work_item_id", "fact_date", "fact_text", "body_text", "status", "expires_at"]
-  },
-  client_wa_sends: {
-    que_es: "Bit\xE1cora de avisos de WhatsApp efectivamente enviados.",
-    columnas_clave: ["id", "client_id", "work_item_id", "phone_e164", "body_text", "sent_at", "delivery_status"]
-  },
-  email_outbox: {
-    que_es: "Correos que Andromeda env\xEDa (alertas, digest). Sin cuerpos de terceros.",
-    columnas_clave: ["id", "to_email", "subject", "status", "created_at", "sent_at", "error", "work_item_id"]
-  },
-  generated_documents: {
-    que_es: "Documentos generados por la plataforma.",
-    columnas_clave: ["id", "work_item_id", "client_id", "document_type", "status", "created_at"]
-  },
-  contracts: {
-    que_es: "Contratos con clientes.",
-    columnas_clave: ["id", "client_id", "status", "start_date", "end_date", "created_at"]
-  }
+  work_items: entry("work_items", "Entidad can\xF3nica: un asunto/expediente.", [
+    "id",
+    "radicado",
+    "title",
+    "workflow_type",
+    "stage",
+    "status",
+    "authority_name",
+    "client_id",
+    "demandantes",
+    "demandados",
+    "monitoring_enabled",
+    "last_action_date",
+    "created_at"
+  ]),
+  work_item_acts: entry("work_item_acts", "Actuaciones reportadas por los proveedores judiciales.", [
+    "id",
+    "work_item_id",
+    "act_date",
+    "act_type",
+    "description",
+    "event_summary",
+    "despacho",
+    "source",
+    "detected_at",
+    "is_archived"
+  ]),
+  work_item_publicaciones: entry("work_item_publicaciones", "Estados electr\xF3nicos / publicaciones.", [
+    "id",
+    "work_item_id",
+    "title",
+    "annotation",
+    "fecha_fijacion",
+    "fecha_desfijacion",
+    "detected_at",
+    "despacho",
+    "tipo_publicacion",
+    "pdf_url",
+    "source",
+    "is_archived"
+  ]),
+  work_item_deadlines: entry(
+    "work_item_deadlines",
+    "T\xE9rminos procesales. REQUIERE_REVISION_MANUAL y los estados hist\xF3ricos NO son obligaciones vigentes.",
+    ["id", "work_item_id", "deadline_type", "label", "trigger_date", "deadline_date", "business_days_count", "status", "term_class", "notes"]
+  ),
+  work_item_tasks: entry("work_item_tasks", "Tareas del despacho asociadas a un asunto.", [
+    "id",
+    "work_item_id",
+    "title",
+    "description",
+    "status",
+    "priority",
+    "due_date",
+    "completed_at"
+  ]),
+  work_item_email_links: entry("work_item_email_links", "Metadatos de correos vinculados a un asunto (nunca el cuerpo).", [
+    "id",
+    "work_item_id",
+    "subject",
+    "direction",
+    "sender",
+    "received_at",
+    "link_status",
+    "confidence"
+  ]),
+  work_item_hearings: entry(
+    "work_item_hearings",
+    "Audiencias \u2014 tabla can\xF3nica. Con scheduled_at nulo la fila es un marcador detectado, no una audiencia con fecha.",
+    ["id", "work_item_id", "hearing_type_id", "custom_name", "scheduled_at", "occurred_at", "status", "modality", "location", "meeting_link"]
+  ),
+  clients: entry("clients", "Clientes del despacho.", [
+    "id",
+    "name",
+    "id_number",
+    "email",
+    "city",
+    "notes",
+    "created_at"
+  ]),
+  alert_instances: entry("alert_instances", "Alertas generadas por el monitoreo. El asunto va en entity_id cuando entity_type lo indica.", [
+    "id",
+    "entity_type",
+    "entity_id",
+    "alert_type",
+    "alert_source",
+    "severity",
+    "title",
+    "message",
+    "status",
+    "created_at"
+  ]),
+  detected_processes: entry("detected_processes", "Radicados detectados en el buz\xF3n que a\xFAn no son asunto.", [
+    "id",
+    "radicado",
+    "subject",
+    "sender",
+    "status",
+    "first_seen_at",
+    "last_seen_at",
+    "created_work_item_id"
+  ]),
+  client_wa_consent: entry("client_wa_consent", "Consentimientos de WhatsApp por cliente (revocables).", [
+    "id",
+    "client_id",
+    "phone_e164",
+    "consent_method",
+    "granted_at",
+    "revoked_at"
+  ]),
+  client_wa_drafts: entry("client_wa_drafts", "Borradores de avisos de WhatsApp en espera de aprobaci\xF3n del abogado.", [
+    "id",
+    "client_id",
+    "work_item_id",
+    "fact_date",
+    "fact_text",
+    "body_text",
+    "status",
+    "expires_at"
+  ]),
+  client_wa_sends: entry("client_wa_sends", "Bit\xE1cora de avisos de WhatsApp efectivamente enviados.", [
+    "id",
+    "client_id",
+    "work_item_id",
+    "phone_e164",
+    "body_text",
+    "sent_at",
+    "delivery_status"
+  ]),
+  email_outbox: entry("email_outbox", "Correos que Andromeda env\xEDa (alertas, digest). Sin cuerpos de terceros.", [
+    "id",
+    "to_email",
+    "subject",
+    "status",
+    "created_at",
+    "sent_at",
+    "error",
+    "work_item_id"
+  ]),
+  generated_documents: entry("generated_documents", "Documentos generados por la plataforma.", [
+    "id",
+    "work_item_id",
+    "document_type",
+    "title",
+    "status",
+    "created_at",
+    "finalized_at"
+  ]),
+  contracts: entry("contracts", "Contratos con clientes.", [
+    "id",
+    "client_id",
+    "service_description",
+    "contract_value",
+    "contract_date",
+    "status",
+    "created_at"
+  ])
 };
 var describe_data_model_default = defineTool25({
   name: "describe_data_model",
   title: "Modelo de datos consultable",
-  description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns, and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
+  description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns (validated against the real schema), and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
   inputSchema: {},
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async (_args, ctx) => {
