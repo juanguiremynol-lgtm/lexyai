@@ -287,7 +287,7 @@
       {
         "name": "get_actuaciones_hoy",
         "title": "Actuaciones recientes de la cartera",
-        "description": "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses the meaning: `detectadas` (detected_at — the canonical feed used by the sidebar badge and the daily digest, DEFAULT), `fechadas` (act_date, the court's own date), or `ambas` (union, each row tagged, with late detections flagged).",
+        "description": "Lists actuaciones across the whole portfolio within a recent window (today, last 3 days, or last week) in America/Bogota. `basis` chooses which rows are returned: `detectadas` (detected_at, DEFAULT), `fechadas` (act_date, the court's own date) or `ambas` (the union). Every returned row is classified from its own dates, independently of the query that fetched it. Counts are over the rows actually returned; `parcial` says when the limit truncated them. These numbers are NOT expected to equal the daily digest or the sidebar badge, which apply extra filters of their own.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -316,13 +316,13 @@
                 "fechadas",
                 "ambas"
               ],
-              "description": "Qué significa 'de hoy': detectadas (default, canónico), fechadas (act_date) o ambas."
+              "description": "Qué filas se devuelven: detectadas (default), fechadas (act_date) o ambas."
             },
             "limit": {
               "type": "integer",
               "minimum": 1,
               "maximum": 200,
-              "description": "Máximo de filas (default 100)."
+              "description": "Máximo de filas devueltas en total (default 100)."
             }
           },
           "additionalProperties": false,
@@ -407,7 +407,7 @@
       {
         "name": "list_hearings",
         "title": "Audiencias programadas",
-        "description": "Lists hearings (audiencias) from the canonical work_item_hearings table, RLS-scoped to the caller. Rows WITH scheduled_at are hearings actually scheduled; rows WITHOUT it are detected placeholders with no date and are returned apart, never mixed into the agenda. Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
+        "description": "Lists hearings from the canonical work_item_hearings table, RLS-scoped to the caller, split three ways: `audiencias_programadas` (a date AND a status that is not held/cancelled/postponed — the standing agenda), `audiencias_celebradas_o_canceladas` (history, kept apart), and `marcadores_sin_fecha` (detected placeholders with no date, never part of the agenda). Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
