@@ -2086,9 +2086,27 @@ Deno.serve(withSyncTimeline(async (req) => {
           //                     didn't fill the gap (Step 3 will schedule a re-scrape)
       //   CONTRACT_MISMATCH  → SAMAI Estados adapter flagged shape drift
       //   SUCCESS_EMPTY      → both sources answered and confirmed no news
+      /**
+       * NA1 — a routing skip is not a cold provider.
+       * When PP is not in the chain (CPACA), the synthesized PP result carries
+       * resultCode='NO_DATA' purely so the merge path runs unchanged. Reading
+       * that as "upstream still warming" turned every SAMAI Estados answered
+       * absence into a permanent PENDING_UPSTREAM — a matter that HAS been
+       * answered ("this radicado has no estados") was reported as one the
+       * source never answered, and re-checks were scheduled forever.
+       * If SAMAI Estados answered on its own (HTTP 200/404, no adapter error),
+       * the run is an answered empty.
+       */
+      const samai = result.samai_estados_summary;
+      const samaiAnswered = Boolean(
+        samai?.called &&
+        !samai.error &&
+        (samai.status === 'EMPTY' || samai.status === 'SUCCESS') &&
+        (samai.http_status === 200 || samai.http_status === 404),
+      );
       if (result.samai_estados_summary?.contract_mismatch) {
         result.result_code = 'CONTRACT_MISMATCH';
-      } else if (fetchResult.resultCode === 'NO_DATA') {
+      } else if (fetchResult.resultCode === 'NO_DATA' && !(!shouldFetchPP && samaiAnswered)) {
         result.result_code = 'PENDING_UPSTREAM';
       } else {
         result.result_code = 'SUCCESS_EMPTY';
