@@ -60,12 +60,17 @@ export default defineTool({
 
     // Radicado enrichment so each deadline is self-describing.
     const ids = [...new Set(rows.map((r) => (r as { work_item_id: string }).work_item_id))];
+    // AUDIT FINDING 12 — a term whose matter was archived must not reappear in
+    // the assistant's list: only live parents are resolved, and rows without one
+    // are dropped below.
     const { data: items } = ids.length
       ? await sb
           .from("work_items")
           .select("id, radicado, title, workflow_type, authority_name, demandantes, demandados")
           .in("id", ids)
+          .is("deleted_at", null)
       : { data: [] as Array<Record<string, unknown>> };
+
     const byId = new Map<string, Record<string, unknown>>(
       (items ?? []).map(
         (i) => [(i as { id: string }).id, i as Record<string, unknown>] as [string, Record<string, unknown>],
