@@ -30,6 +30,8 @@ export interface EmailConnection {
   /** Stamped on every renewal attempt, successful or not. */
   last_refresh_at: string | null;
   last_refresh_outcome: "SUCCESS" | "FAILED" | null;
+  /** Consecutive failed renewals; reset to 0 on success. */
+  refresh_failure_count: number | null;
 }
 
 /** Single, user-facing health state derived from the stored connection row. */
