@@ -17847,6 +17847,7 @@ export type Database = {
           last_error: string | null
           last_refresh_at: string | null
           last_refresh_outcome: string | null
+          last_refresh_success_at: string | null
           last_sync_at: string | null
           ms_account_email: string | null
           ms_tenant_id: string | null
@@ -17880,6 +17881,7 @@ export type Database = {
           last_error?: string | null
           last_refresh_at?: string | null
           last_refresh_outcome?: string | null
+          last_refresh_success_at?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null
@@ -17913,6 +17915,7 @@ export type Database = {
           last_error?: string | null
           last_refresh_at?: string | null
           last_refresh_outcome?: string | null
+          last_refresh_success_at?: string | null
           last_sync_at?: string | null
           ms_account_email?: string | null
           ms_tenant_id?: string | null

@@ -365,6 +365,9 @@ export async function ensureAccessToken(
     failure_detail: null,
     revoked_at: null,
     last_refresh_at: new Date().toISOString(),
+    // Kept apart from last_refresh_at, which every ATTEMPT overwrites: the
+    // 24-hour staleness rule needs the last SUCCESS, not the last try.
+    last_refresh_success_at: new Date().toISOString(),
     last_refresh_outcome: "SUCCESS",
     refresh_failure_count: 0,
   };

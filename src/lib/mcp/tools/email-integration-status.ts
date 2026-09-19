@@ -1,6 +1,12 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import {
+  EMAIL_HEALTH_POLICY,
+  emailConnectionHealth,
+  emailHealthReason,
+  isExternalRevocation,
+} from "../../email-connection-health";
 
 /**
  * Email plumbing, from the lawyer's point of view.
@@ -11,25 +17,11 @@ import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
  * digest, document delivery — `email_outbox`). Both are reported here, and
  * neither exposes a secret: token ciphertext columns are never selected.
  *
- * The legacy `integrations` table is NOT read: Outlook has not lived there
- * since the mailbox connection moved to `user_email_connections`, and reading
- * it produced "no mailbox connected" answers while Outlook was syncing fine.
+ * Health is NOT derived here: it comes from `lib/email-connection-health`,
+ * the one policy the screen, the digest and the SQL detector also apply, so
+ * this tool cannot report ACTIVA while the digest reports a dead channel.
  */
 
-/**
- * Health, derived exactly like the web app does. An access token that expires
- * within the hour is normal OAuth behaviour, never a degradation: only a
- * failed/absent refresh, an error status or a revocation is.
- */
-function deriveHealth(c: Record<string, unknown>): string {
-  const status = String(c.status ?? "");
-  if (c.revoked_at) return "REVOCADA";
-  if (status === "PENDING") return "CONECTANDO";
-  if (status === "ERROR" || status === "REVOKED") return "ERROR";
-  if (c.last_refresh_outcome === "FAILED") return "RENOVACION_FALLIDA";
-  if (Number(c.refresh_failure_count ?? 0) >= 3) return "RENOVACION_FALLIDA";
-  return "ACTIVA";
-}
 
 export default defineTool({
   name: "email_integration_status",
@@ -50,7 +42,7 @@ export default defineTool({
     const { data: rawConns, error: connErr } = await sb
       .from("user_email_connections")
       .select(
-        "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at",
+        "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_success_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at",
       )
       .order("updated_at", { ascending: false })
       .limit(20);
@@ -60,11 +52,15 @@ export default defineTool({
       const row = c as Record<string, unknown>;
       return {
         ...row,
-        salud: deriveHealth(row),
+        salud: emailConnectionHealth(row),
+        salud_motivo: emailHealthReason(row),
+        revocacion_externa: isExternalRevocation(row),
         nota_token:
           "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar.",
+        nota_renovacion: `last_refresh_at es el último INTENTO de renovación; last_refresh_success_at es la última exitosa. La regla de salud usa la exitosa y marca degradación tras ${EMAIL_HEALTH_POLICY.staleRenewalHours} horas sin ninguna.`,
       };
     });
+
 
     let outbox: Record<string, unknown>[] = [];
     if (include_outbox !== false) {
