@@ -139,6 +139,7 @@ Deno.serve(async (req) => {
               { type: "text", text: firm },
               { type: "text", text: caratula },
               { type: "text", text: text },
+              { type: "text", text: contacto },
             ],
           },
         ],
