@@ -139,8 +139,11 @@ export default function EstadosHoy() {
         .eq("work_items.organization_id", organization.id)
         .eq("is_archived", false)
         .not("fecha_fijacion", "is", null)
+        // Fijados hoy, detectados hoy, o programados para una fecha futura
+        // (CGP art. 295: la planilla se publica antes de la fijación; esas filas
+        // deben seguir visibles cada día hasta que llegue su fecha).
         .or(
-          `and(fecha_fijacion.gte.${dayStartBogotaUTC.toISOString()},fecha_fijacion.lte.${dayEndBogotaUTC.toISOString()}),and(detected_at.gte.${dayStartBogotaUTC.toISOString()},detected_at.lte.${dayEndBogotaUTC.toISOString()})`
+          `and(fecha_fijacion.gte.${dayStartBogotaUTC.toISOString()},fecha_fijacion.lte.${dayEndBogotaUTC.toISOString()}),and(detected_at.gte.${dayStartBogotaUTC.toISOString()},detected_at.lte.${dayEndBogotaUTC.toISOString()}),fecha_fijacion.gt.${dayEndBogotaUTC.toISOString()}`
         )
         .order("detected_at", { ascending: false })
         .limit(500);
