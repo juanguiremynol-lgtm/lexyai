@@ -451,50 +451,66 @@ Deno.serve(async (req) => {
         // a hard ceiling, and reaching the ceiling is reported, never hidden.
         const PAGE = 500;
         const MAX_ROWS = 5000;
-        const pageAll = async <T>(
-          table: string,
-          columns: string,
-        ): Promise<{ rows: T[]; truncated: boolean; error: string | null }> => {
-          const rows: T[] = [];
-          for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
-            const { data, error } = await supabase
-              .from(table)
-              .select(columns)
-              .in("work_item_id", judicialIds)
-              .eq("is_archived", false)
-              .gt("detected_at", windowFrom)
-              .lte("detected_at", windowTo)
-              .order("detected_at", { ascending: false })
-              .range(offset, offset + PAGE - 1);
-            if (error) return { rows, truncated: false, error: error.message };
-            const batch = (data ?? []) as T[];
-            rows.push(...batch);
-            if (batch.length < PAGE) return { rows, truncated: false, error: null };
-          }
-          return { rows, truncated: true, error: null };
-        };
+        let feedTruncated = false;
 
         // ── Novedades: actuaciones (acts in the expediente) ──
-        const actsPage = await pageAll<Record<string, unknown>>(
-          "work_item_acts",
-          "id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id, is_notifiable",
-        );
-        if (actsPage.error) { await fail(`acts: ${actsPage.error}`); continue; }
-        const rawActsAll = actsPage.rows as never[];
+        const rawActsAll: NonNullable<
+          Awaited<ReturnType<typeof fetchActsPage>>["data"]
+        > = [];
+        function fetchActsPage(offset: number) {
+          return supabase
+            .from("work_item_acts")
+            .select("id, work_item_id, source, act_date, detected_at, description, act_type, event_summary, despacho, documentos, documentos_observados_en, organization_id, is_notifiable")
+            .in("work_item_id", judicialIds)
+            .eq("is_archived", false)
+            .gt("detected_at", windowFrom)
+            .lte("detected_at", windowTo)
+            .order("detected_at", { ascending: false })
+            .range(offset, offset + PAGE - 1);
+        }
+        {
+          let done = false;
+          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
+            const { data, error } = await fetchActsPage(offset);
+            if (error) { await fail(`acts: ${error.message}`); done = true; break; }
+            rawActsAll.push(...(data ?? []));
+            if ((data ?? []).length < PAGE) done = true;
+          }
+          if (!done) feedTruncated = true;
+          if (done === false && rawActsAll.length === 0) { /* unreachable */ }
+        }
 
         // ── Novedades: estados (publications fixed on the list) ──
-        const pubsPage = await pageAll<Record<string, unknown>>(
-          "work_item_publicaciones",
-          "id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, raw_data, organization_id, is_notifiable",
-        );
-        if (pubsPage.error) { await fail(`publicaciones: ${pubsPage.error}`); continue; }
-        const rawPubsAll = pubsPage.rows as never[];
-        const feedTruncated = actsPage.truncated || pubsPage.truncated;
+        const rawPubsAll: NonNullable<
+          Awaited<ReturnType<typeof fetchPubsPage>>["data"]
+        > = [];
+        function fetchPubsPage(offset: number) {
+          return supabase
+            .from("work_item_publicaciones")
+            .select("id, work_item_id, source, title, annotation, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, pdf_available, raw_data, organization_id, is_notifiable")
+            .in("work_item_id", judicialIds)
+            .eq("is_archived", false)
+            .gt("detected_at", windowFrom)
+            .lte("detected_at", windowTo)
+            .order("detected_at", { ascending: false })
+            .range(offset, offset + PAGE - 1);
+        }
+        {
+          let done = false;
+          for (let offset = 0; offset < MAX_ROWS && !done; offset += PAGE) {
+            const { data, error } = await fetchPubsPage(offset);
+            if (error) { await fail(`publicaciones: ${error.message}`); done = true; break; }
+            rawPubsAll.push(...(data ?? []));
+            if ((data ?? []).length < PAGE) done = true;
+          }
+          if (!done) feedTruncated = true;
+        }
         if (feedTruncated) {
           console.warn(
             `[scheduled-daily-digest] feed hit the ${MAX_ROWS}-row ceiling for owner ${ownerId}`,
           );
         }
+
 
 
         // D3 — historial importado: everything detected in the window that the
