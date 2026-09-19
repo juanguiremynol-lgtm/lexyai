@@ -129,12 +129,19 @@ export default defineTool({
           : "Incluye activos, en revisión y cerrados; solo los ACTIVO son obligaciones vigentes. 'atribucion: DESCONOCIDO' significa que no se sabe a quién obliga el término.";
 
 
-    return textResult(`${resolucion ? `${resolucion}\n` : ""}${deadlines.length} términos. ${note} (hoy = ${today}, America/Bogota)`, {
-      resolucion,
-      status: mode,
-      hoy: today,
-      work_item: workItem,
-      deadlines,
-    });
+    return textResult(
+      `${resolucion ? `${resolucion}\n` : ""}${deadlines.length} términos. ${note}${
+        archived > 0 ? ` (${archived} de asuntos archivados, no se muestran)` : ""
+      } (hoy = ${today}, America/Bogota)`,
+      {
+        resolucion,
+        status: mode,
+        hoy: today,
+        work_item: workItem,
+        omitidos_por_asunto_archivado: archived,
+        deadlines,
+      },
+    );
   },
+
 });

@@ -721,14 +721,18 @@ var list_deadlines_default = defineTool9({
       };
     });
     const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n manual (REQUIERE_REVISION_MANUAL y equivalentes): NO son obligaciones vigentes." : "Incluye activos, en revisi\xF3n y cerrados; solo los ACTIVO son obligaciones vigentes. 'atribucion: DESCONOCIDO' significa que no se sabe a qui\xE9n obliga el t\xE9rmino.";
-    return textResult(`${resolucion ? `${resolucion}
-` : ""}${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
-      resolucion,
-      status: mode,
-      hoy: today,
-      work_item: workItem,
-      deadlines
-    });
+    return textResult(
+      `${resolucion ? `${resolucion}
+` : ""}${deadlines.length} t\xE9rminos. ${note}${archived > 0 ? ` (${archived} de asuntos archivados, no se muestran)` : ""} (hoy = ${today}, America/Bogota)`,
+      {
+        resolucion,
+        status: mode,
+        hoy: today,
+        work_item: workItem,
+        omitidos_por_asunto_archivado: archived,
+        deadlines
+      }
+    );
   }
 });
 
