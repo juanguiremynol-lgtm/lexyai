@@ -35,6 +35,7 @@ import {
   recordDispatch,
 } from "../_shared/notificationChannel.ts";
 import { buildDigestHtml } from "./html.ts";
+import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
 import { isNonJudicial } from "./types.ts";
 import {
   classifySourceRunQuality,
