@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.4.1",
+      "version": "0.5.0",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -718,6 +718,535 @@
           "required": [
             "date",
             "description"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_app_screens",
+        "title": "Pantallas de Andromeda y enlaces directos",
+        "description": "Maps every Andromeda screen to what it shows and returns a clickable deep link. Use it to tell the user exactly where in the app to look, or to build a link to a specific matter (/app/radicados/<radicado>). Read-only; it does not render the UI.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "describe_data_model",
+        "title": "Modelo de datos consultable",
+        "description": "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns, and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "query_table",
+        "title": "Consultar una tabla de Andromeda",
+        "description": "Runs a filtered, ordered, limited read against one catalogued Andromeda table using the caller's own credentials (RLS enforced). Call `describe_data_model` first for table and column names. Read-only: it can never write, delete, or run raw SQL.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "table": {
+              "type": "string",
+              "description": "Nombre de la tabla (ver `describe_data_model`)."
+            },
+            "columns": {
+              "type": "string",
+              "description": "Columnas separadas por coma. Default: todas."
+            },
+            "filters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "column": {
+                    "type": "string"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "gt",
+                      "gte",
+                      "lt",
+                      "lte",
+                      "like",
+                      "ilike",
+                      "is",
+                      "in"
+                    ],
+                    "description": "eq, neq, gt, gte, lt, lte, like, ilike, is, in"
+                  },
+                  "value": {
+                    "type": "string",
+                    "description": "Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false."
+                  }
+                },
+                "required": [
+                  "column",
+                  "op",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 8,
+              "description": "Condiciones combinadas con AND."
+            },
+            "order_by": {
+              "type": "string",
+              "description": "Columna de ordenamiento."
+            },
+            "descending": {
+              "type": "boolean",
+              "description": "Orden descendente (default true cuando hay order_by)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de filas (default 50)."
+            }
+          },
+          "required": [
+            "table"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_work_item",
+        "title": "Editar datos de un asunto",
+        "description": "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "radicado": {
+              "type": "string",
+              "description": "Radicado del asunto (cualquier forma)."
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Carátula / título del asunto."
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 4000
+            },
+            "demandantes": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "demandados": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "authority_name": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Nombre del despacho."
+            },
+            "authority_email": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 200,
+              "description": "Correo del despacho."
+            },
+            "authority_city": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "expediente_url": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2000
+            },
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Cliente al que se vincula el asunto."
+            },
+            "is_flagged": {
+              "type": "boolean",
+              "description": "Marcar/desmarcar como destacado."
+            },
+            "monitoring_enabled": {
+              "type": "boolean",
+              "description": "Activar o desactivar el monitoreo automático."
+            },
+            "email_linking_enabled": {
+              "type": "boolean",
+              "description": "Activar o desactivar la vinculación de correos."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "manage_deadline",
+        "title": "Crear, editar o cerrar un término",
+        "description": "Creates a manual procedural deadline on a matter, edits its label/date/notes, or closes it as FULFILLED, CANCELLED or DISMISSED. It never computes a date by itself — the date given by the user is stored verbatim and marked as manual.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "update",
+                "close"
+              ],
+              "description": "Qué hacer con el término."
+            },
+            "deadline_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Requerido para update y close."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Asunto del término (para create)."
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto (para create)."
+            },
+            "deadline_type": {
+              "type": "string",
+              "maxLength": 80,
+              "description": "Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Nombre visible del término."
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "trigger_event": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Hecho que lo origina, tal como lo describe el usuario."
+            },
+            "trigger_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Fecha del hecho (YYYY-MM-DD)."
+            },
+            "deadline_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."
+            },
+            "business_days_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 365,
+              "description": "Días hábiles del término, si el usuario los indica."
+            },
+            "notes": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "close_as": {
+              "type": "string",
+              "enum": [
+                "FULFILLED",
+                "CANCELLED",
+                "DISMISSED"
+              ],
+              "description": "Estado de cierre (para close)."
+            },
+            "close_reason": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Motivo del cierre."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "manage_task",
+        "title": "Crear, editar o completar una tarea",
+        "description": "Creates a task on a matter, edits its title/description/priority/due date, or marks it done or reopened. Tasks are internal work reminders — they are never procedural deadlines.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "update",
+                "complete",
+                "reopen"
+              ]
+            },
+            "task_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Requerido salvo para create."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Asunto de la tarea (para create)."
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 3000
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "URGENT"
+              ]
+            },
+            "due_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Fecha límite interna (YYYY-MM-DD)."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "email_integration_status",
+        "title": "Estado de la integración de correo",
+        "description": "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error — never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "include_outbox": {
+              "type": "boolean",
+              "description": "Incluir los envíos recientes (default true)."
+            },
+            "outbox_status": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "SENT",
+                "FAILED",
+                "ALL"
+              ],
+              "description": "Filtrar los envíos. Default: ALL."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo de envíos (default 20)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "whatsapp_notices",
+        "title": "Avisos de WhatsApp a clientes",
+        "description": "Shows the client WhatsApp notice pipeline: recorded consents, drafts awaiting the lawyer's approval, and the audit log of messages already sent. Read-only. Approval and sending happen only in the app — never over MCP.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "all",
+                "consents",
+                "drafts",
+                "sends"
+              ],
+              "description": "Qué mostrar (default all)."
+            },
+            "draft_status": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "APPROVED",
+                "SENT",
+                "DISCARDED",
+                "EXPIRED",
+                "FAILED",
+                "ALL"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Máximo por sección (default 30)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "whatsapp_prepare",
+        "title": "Preparar avisos de WhatsApp (sin enviar)",
+        "description": "Records or revokes a client's WhatsApp consent, generates drafts from provider-reported facts, edits a draft's text, or discards one with a reason. It can NEVER approve or send a message — that always happens in the app, one message at a time.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "record_consent",
+                "revoke_consent",
+                "generate_drafts",
+                "edit_draft",
+                "discard_draft"
+              ],
+              "description": "Qué hacer. No existe acción de aprobar ni de enviar."
+            },
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Cliente (para record_consent)."
+            },
+            "phone_e164": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{7,14}$",
+              "description": "Número con indicativo, solo dígitos, sin '+'. Ej: 573001234567."
+            },
+            "consent_method": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 500,
+              "description": "Cómo autorizó el cliente, con las palabras del abogado. Obligatorio para record_consent."
+            },
+            "consent_note": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "consent_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Consentimiento a revocar."
+            },
+            "revocation_reason": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "lookback_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "description": "Ventana de hechos para generate_drafts (default 7)."
+            },
+            "draft_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Borrador a editar o descartar."
+            },
+            "body_text": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 900,
+              "description": "Texto corregido del borrador."
+            },
+            "discard_reason": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 500,
+              "description": "Motivo del descarte (obligatorio)."
+            }
+          },
+          "required": [
+            "action"
           ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
