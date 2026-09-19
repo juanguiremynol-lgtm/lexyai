@@ -4706,6 +4706,253 @@ export type Database = {
           },
         ]
       }
+      client_wa_consent: {
+        Row: {
+          client_id: string
+          consent_method: string
+          consent_note: string | null
+          created_at: string
+          granted_at: string
+          granted_by: string
+          id: string
+          organization_id: string
+          phone_e164: string
+          revocation_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          consent_method: string
+          consent_note?: string | null
+          created_at?: string
+          granted_at?: string
+          granted_by: string
+          id?: string
+          organization_id: string
+          phone_e164: string
+          revocation_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          consent_method?: string
+          consent_note?: string | null
+          created_at?: string
+          granted_at?: string
+          granted_by?: string
+          id?: string
+          organization_id?: string
+          phone_e164?: string
+          revocation_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_wa_consent_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_wa_drafts: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          body_text: string
+          client_id: string
+          consent_id: string
+          created_at: string
+          discard_reason: string | null
+          edited_body_text: string | null
+          expires_at: string
+          fact_date: string
+          fact_text: string
+          id: string
+          organization_id: string
+          source_id: string
+          source_kind: string
+          source_table: string
+          status: string
+          work_item_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          body_text: string
+          client_id: string
+          consent_id: string
+          created_at?: string
+          discard_reason?: string | null
+          edited_body_text?: string | null
+          expires_at?: string
+          fact_date: string
+          fact_text: string
+          id?: string
+          organization_id: string
+          source_id: string
+          source_kind: string
+          source_table: string
+          status?: string
+          work_item_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          body_text?: string
+          client_id?: string
+          consent_id?: string
+          created_at?: string
+          discard_reason?: string | null
+          edited_body_text?: string | null
+          expires_at?: string
+          fact_date?: string
+          fact_text?: string
+          id?: string
+          organization_id?: string
+          source_id?: string
+          source_kind?: string
+          source_table?: string
+          status?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_wa_drafts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_consent_id_fkey"
+            columns: ["consent_id"]
+            isOneToOne: false
+            referencedRelation: "client_wa_consent"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_wa_drafts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_wa_sends: {
+        Row: {
+          approved_at: string
+          approved_by: string
+          body_text: string
+          client_id: string
+          delivery_status: string
+          draft_id: string
+          error_text: string | null
+          id: string
+          organization_id: string
+          phone_e164: string
+          provider_response: Json | null
+          sent_at: string
+          template_name: string
+          wa_message_id: string | null
+          work_item_id: string
+        }
+        Insert: {
+          approved_at: string
+          approved_by: string
+          body_text: string
+          client_id: string
+          delivery_status?: string
+          draft_id: string
+          error_text?: string | null
+          id?: string
+          organization_id: string
+          phone_e164: string
+          provider_response?: Json | null
+          sent_at?: string
+          template_name: string
+          wa_message_id?: string | null
+          work_item_id: string
+        }
+        Update: {
+          approved_at?: string
+          approved_by?: string
+          body_text?: string
+          client_id?: string
+          delivery_status?: string
+          draft_id?: string
+          error_text?: string | null
+          id?: string
+          organization_id?: string
+          phone_e164?: string
+          provider_response?: Json | null
+          sent_at?: string
+          template_name?: string
+          wa_message_id?: string | null
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      client_wa_source_blocklist: {
+        Row: {
+          created_at: string
+          id: string
+          reason: string
+          source_id: string
+          source_table: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reason: string
+          source_id: string
+          source_table: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reason?: string
+          source_id?: string
+          source_table?: string
+        }
+        Relationships: []
+      }
       clients: {
         Row: {
           address: string | null
@@ -25092,6 +25339,26 @@ export type Database = {
         Returns: number
       }
       cleanup_trigger_error_log: { Args: never; Returns: undefined }
+      client_wa_candidates: {
+        Args: { _lookback_days?: number; _org: string }
+        Returns: {
+          caratula: string
+          client_id: string
+          consent_id: string
+          fact_date: string
+          fact_text: string
+          radicado: string
+          reject_reason: string
+          source_id: string
+          source_kind: string
+          source_table: string
+          work_item_id: string
+        }[]
+      }
+      client_wa_generate_drafts: {
+        Args: { _lookback_days?: number; _org: string }
+        Returns: number
+      }
       compute_deadline_for_actuacion: {
         Args: { p_act_id: string }
         Returns: string
