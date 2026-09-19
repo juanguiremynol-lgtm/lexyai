@@ -1258,12 +1258,639 @@ var atenia_recent_incidents_default = defineTool23({
   }
 });
 
+// src/lib/mcp/tools/list-app-screens.ts
+import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var BASE = "https://andromeda.legal";
+var SCREENS = [
+  { path: "/app/dashboard", nombre: "Tablero", para: "Resumen del d\xEDa: novedades, tableros por tipo de proceso y pendientes." },
+  { path: "/app/estados-hoy", nombre: "Estados de hoy", para: "Estados electr\xF3nicos fijados o detectados hoy, incluidos los programados a futuro." },
+  { path: "/app/actuaciones-hoy", nombre: "Actuaciones de hoy", para: "Actuaciones le\xEDdas hoy por los proveedores judiciales." },
+  { path: "/app/processes", nombre: "Procesos", para: "Listado completo de asuntos con filtros por tipo, etapa y cliente." },
+  { path: "/app/work-items/:id", nombre: "Detalle del asunto", para: "Actuaciones, estados, t\xE9rminos, audiencias, documentos, partes y notas de un asunto." },
+  { path: "/app/radicados/:radicado", nombre: "Detalle por radicado", para: "Mismo detalle, abierto directamente por n\xFAmero de radicado." },
+  { path: "/app/clients", nombre: "Clientes", para: "Clientes, sus procesos, contratos y documentos." },
+  { path: "/app/tasks", nombre: "Tareas", para: "Tareas del despacho con vencimiento y responsable." },
+  { path: "/app/alerts", nombre: "Alertas", para: "Alertas sin resolver del monitoreo judicial." },
+  { path: "/app/hearings", nombre: "Audiencias", para: "Agenda de audiencias y sus insumos." },
+  { path: "/app/email", nombre: "Correo", para: "Buz\xF3n vinculado: correos asociados a expedientes." },
+  { path: "/app/procesos-detectados", nombre: "Procesos detectados", para: "Radicados hallados en el buz\xF3n que a\xFAn no existen como asunto." },
+  { path: "/app/avisos-whatsapp", nombre: "Avisos WhatsApp", para: "Cola de aprobaci\xF3n de avisos a clientes, consentimientos y env\xEDos." },
+  { path: "/app/documentos-legales", nombre: "Documentos legales", para: "Contratos, firmas y plantillas." },
+  { path: "/app/documents", nombre: "Buscador de documentos", para: "B\xFAsqueda transversal de documentos." },
+  { path: "/app/cpaca", nombre: "CPACA", para: "Tablero de procesos contencioso-administrativos." },
+  { path: "/app/process-status", nombre: "Estado del monitoreo", para: "Cobertura y salud de los proveedores por asunto." },
+  { path: "/app/sistema", nombre: "Salud del sistema", para: "Diagn\xF3stico de sincronizaciones y proveedores." },
+  { path: "/app/utilities", nombre: "Utilidades", para: "Calculadora de t\xE9rminos, festivos y herramientas sueltas." },
+  { path: "/app/settings", nombre: "Configuraci\xF3n", para: "Perfil, organizaci\xF3n, plan y facturaci\xF3n." },
+  { path: "/app/settings/connections", nombre: "Conexiones", para: "Correo (Outlook), proveedores y asistentes conectados." },
+  { path: "/app/connect", nombre: "Conectar asistente", para: "Instrucciones para conectar ChatGPT, Claude u otro cliente MCP." },
+  { path: "/app/new-process", nombre: "Nuevo proceso", para: "Alta de un asunto nuevo y su inscripci\xF3n al monitoreo." }
+];
+var list_app_screens_default = defineTool24({
+  name: "list_app_screens",
+  title: "Pantallas de Andromeda y enlaces directos",
+  description: "Maps every Andromeda screen to what it shows and returns a clickable deep link. Use it to tell the user exactly where in the app to look, or to build a link to a specific matter (/app/radicados/<radicado>). Read-only; it does not render the UI.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (_args, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    return textResult(
+      `${SCREENS.length} pantallas. Para abrir un asunto concreto usa ${BASE}/app/radicados/<radicado>.`,
+      {
+        base_url: BASE,
+        pantallas: SCREENS.map((s) => ({ ...s, url: `${BASE}${s.path}` })),
+        nota: "Los segmentos :id y :radicado se reemplazan por el UUID del asunto o su radicado de 23 d\xEDgitos."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/describe-data-model.ts
+import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var READABLE_TABLES = {
+  work_items: {
+    que_es: "Entidad can\xF3nica: un asunto/expediente.",
+    columnas_clave: ["id", "radicado", "title", "workflow_type", "stage", "status", "authority_name", "client_id", "demandantes", "demandados", "monitoring_enabled", "last_action_date", "created_at"]
+  },
+  work_item_acts: {
+    que_es: "Actuaciones reportadas por los proveedores judiciales.",
+    columnas_clave: ["id", "work_item_id", "act_date", "title", "description", "source", "detected_at"]
+  },
+  work_item_publicaciones: {
+    que_es: "Estados electr\xF3nicos / publicaciones.",
+    columnas_clave: ["id", "work_item_id", "estado_numero", "fecha_fijacion", "detected_at", "descripcion", "documento_url"]
+  },
+  work_item_deadlines: {
+    que_es: "T\xE9rminos procesales. PENDING_REVIEW y los estados hist\xF3ricos NO son obligaciones vigentes.",
+    columnas_clave: ["id", "work_item_id", "deadline_type", "label", "trigger_date", "deadline_date", "business_days_count", "status", "notes"]
+  },
+  work_item_tasks: {
+    que_es: "Tareas del despacho asociadas a un asunto.",
+    columnas_clave: ["id", "work_item_id", "title", "description", "status", "priority", "due_date", "completed_at"]
+  },
+  work_item_email_links: {
+    que_es: "Metadatos de correos vinculados a un asunto (nunca el cuerpo).",
+    columnas_clave: ["id", "work_item_id", "subject", "direction", "sender", "received_at", "link_status", "confidence"]
+  },
+  hearings: {
+    que_es: "Audiencias programadas y celebradas.",
+    columnas_clave: ["id", "work_item_id", "hearing_type_id", "scheduled_at", "status", "location", "notes"]
+  },
+  clients: {
+    que_es: "Clientes del despacho.",
+    columnas_clave: ["id", "name", "id_number", "email", "city", "notes", "created_at"]
+  },
+  alert_instances: {
+    que_es: "Alertas generadas por el monitoreo.",
+    columnas_clave: ["id", "work_item_id", "alert_type", "severity", "title", "message", "status", "created_at"]
+  },
+  detected_processes: {
+    que_es: "Radicados detectados en el buz\xF3n que a\xFAn no son asunto.",
+    columnas_clave: ["id", "radicado", "source", "status", "detected_at"]
+  },
+  client_wa_consent: {
+    que_es: "Consentimientos de WhatsApp por cliente (revocables).",
+    columnas_clave: ["id", "client_id", "phone_e164", "consent_method", "granted_at", "revoked_at"]
+  },
+  client_wa_drafts: {
+    que_es: "Borradores de avisos de WhatsApp en espera de aprobaci\xF3n del abogado.",
+    columnas_clave: ["id", "client_id", "work_item_id", "fact_date", "fact_text", "body_text", "status", "expires_at"]
+  },
+  client_wa_sends: {
+    que_es: "Bit\xE1cora de avisos de WhatsApp efectivamente enviados.",
+    columnas_clave: ["id", "client_id", "work_item_id", "phone_e164", "body_text", "sent_at", "delivery_status"]
+  },
+  email_outbox: {
+    que_es: "Correos que Andromeda env\xEDa (alertas, digest). Sin cuerpos de terceros.",
+    columnas_clave: ["id", "to_email", "subject", "status", "created_at", "sent_at", "error", "work_item_id"]
+  },
+  generated_documents: {
+    que_es: "Documentos generados por la plataforma.",
+    columnas_clave: ["id", "work_item_id", "client_id", "document_type", "status", "created_at"]
+  },
+  contracts: {
+    que_es: "Contratos con clientes.",
+    columnas_clave: ["id", "client_id", "status", "start_date", "end_date", "created_at"]
+  }
+};
+var describe_data_model_default = defineTool25({
+  name: "describe_data_model",
+  title: "Modelo de datos consultable",
+  description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns, and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (_args, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const names = Object.keys(READABLE_TABLES);
+    const counts = await Promise.all(
+      names.map(async (t) => {
+        const { count, error } = await sb.from(t).select("id", { count: "exact", head: true });
+        return [t, error ? null : count ?? 0];
+      })
+    );
+    const byName = new Map(counts);
+    return textResult(
+      `${names.length} tablas consultables. Los conteos son lo que TU usuario puede ver (RLS aplicado).`,
+      {
+        tablas: names.map((t) => ({
+          tabla: t,
+          ...READABLE_TABLES[t],
+          filas_visibles: byName.get(t) ?? null
+        })),
+        nota: "Toda lectura usa tu propio token: nunca se usa una llave de servicio ni se saltan las pol\xEDticas RLS."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/query-table.ts
+import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z21 } from "npm:zod@^3.25.76";
+var OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"];
+var query_table_default = defineTool26({
+  name: "query_table",
+  title: "Consultar una tabla de Andromeda",
+  description: "Runs a filtered, ordered, limited read against one catalogued Andromeda table using the caller's own credentials (RLS enforced). Call `describe_data_model` first for table and column names. Read-only: it can never write, delete, or run raw SQL.",
+  inputSchema: {
+    table: z21.string().trim().describe("Nombre de la tabla (ver `describe_data_model`)."),
+    columns: z21.string().trim().optional().describe("Columnas separadas por coma. Default: todas."),
+    filters: z21.array(
+      z21.object({
+        column: z21.string().trim(),
+        op: z21.enum(OPERATORS).describe("eq, neq, gt, gte, lt, lte, like, ilike, is, in"),
+        value: z21.string().describe("Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false.")
+      })
+    ).max(8).optional().describe("Condiciones combinadas con AND."),
+    order_by: z21.string().trim().optional().describe("Columna de ordenamiento."),
+    descending: z21.boolean().optional().describe("Orden descendente (default true cuando hay order_by)."),
+    limit: z21.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ table, columns, filters, order_by, descending, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const name = table.trim().toLowerCase();
+    if (!READABLE_TABLES[name]) {
+      return errorResult(
+        `La tabla "${table}" no est\xE1 habilitada para consulta por MCP. Usa \`describe_data_model\` para ver las disponibles.`
+      );
+    }
+    const sb = sbForUser(ctx);
+    let q = sb.from(name).select(columns?.trim() || "*").limit(limit ?? 50);
+    for (const f of filters ?? []) {
+      const col = f.column.trim();
+      const v = f.value;
+      switch (f.op) {
+        case "in":
+          q = q.in(col, v.split(",").map((s) => s.trim()).filter(Boolean));
+          break;
+        case "is":
+          q = q.is(col, v === "null" ? null : v === "true");
+          break;
+        default:
+          q = q[f.op](col, v);
+      }
+    }
+    if (order_by) q = q.order(order_by.trim(), { ascending: descending === false });
+    const { data, error } = await q;
+    if (error) return errorResult(`Consulta rechazada: ${error.message}`);
+    const rows = Array.isArray(data) ? data : [];
+    return textResult(`${rows.length} fila(s) de ${name}.`, {
+      tabla: name,
+      total: rows.length,
+      filas: rows,
+      nota: "Resultados limitados por RLS a lo que tu usuario puede ver."
+    });
+  }
+});
+
+// src/lib/mcp/tools/update-work-item.ts
+import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z22 } from "npm:zod@^3.25.76";
+var update_work_item_default = defineTool27({
+  name: "update_work_item",
+  title: "Editar datos de un asunto",
+  description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+  inputSchema: {
+    radicado: z22.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
+    id: z22.string().uuid().optional().describe("UUID del asunto."),
+    title: z22.string().trim().max(300).optional().describe("Car\xE1tula / t\xEDtulo del asunto."),
+    description: z22.string().trim().max(4e3).optional(),
+    demandantes: z22.string().trim().max(1e3).optional(),
+    demandados: z22.string().trim().max(1e3).optional(),
+    authority_name: z22.string().trim().max(300).optional().describe("Nombre del despacho."),
+    authority_email: z22.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_city: z22.string().trim().max(120).optional(),
+    expediente_url: z22.string().trim().url().max(2e3).optional(),
+    client_id: z22.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
+    is_flagged: z22.boolean().optional().describe("Marcar/desmarcar como destacado."),
+    monitoring_enabled: z22.boolean().optional().describe("Activar o desactivar el monitoreo autom\xE1tico."),
+    email_linking_enabled: z22.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
+    const item = resolved.item;
+    if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    const EDITABLE = [
+      "title",
+      "description",
+      "demandantes",
+      "demandados",
+      "authority_name",
+      "authority_email",
+      "authority_city",
+      "expediente_url",
+      "client_id",
+      "is_flagged",
+      "monitoring_enabled",
+      "email_linking_enabled"
+    ];
+    const patch = {};
+    for (const key of EDITABLE) {
+      const v = args[key];
+      if (v !== void 0) patch[key] = v;
+    }
+    if (Object.keys(patch).length === 0) {
+      return errorResult("No indicaste ning\xFAn campo para cambiar.");
+    }
+    if (patch.client_id) {
+      const { data: client } = await sb.from("clients").select("id, name").is("deleted_at", null).eq("id", patch.client_id).maybeSingle();
+      if (!client) return errorResult("Ese cliente no existe o no pertenece a tu cuenta.");
+    }
+    patch.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    const { data, error } = await sb.from("work_items").update(patch).eq("id", item.id).select("id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, email_linking_enabled, expediente_url").maybeSingle();
+    if (error) return errorResult(error.message);
+    return textResult(
+      `${resolved.note ? `${resolved.note}
+` : ""}Asunto ${item.radicado ?? item.id} actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`,
+      {
+        work_item: data,
+        titulo: workItemTitle(data ?? item),
+        cambios: patch,
+        nota: "Radicado, tipo de proceso y etapa procesal no se modifican por esta v\xEDa."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/manage-deadline.ts
+import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z23 } from "npm:zod@^3.25.76";
+var CLOSEABLE = ["FULFILLED", "CANCELLED", "DISMISSED"];
+var manage_deadline_default = defineTool28({
+  name: "manage_deadline",
+  title: "Crear, editar o cerrar un t\xE9rmino",
+  description: "Creates a manual procedural deadline on a matter, edits its label/date/notes, or closes it as FULFILLED, CANCELLED or DISMISSED. It never computes a date by itself \u2014 the date given by the user is stored verbatim and marked as manual.",
+  inputSchema: {
+    action: z23.enum(["create", "update", "close"]).describe("Qu\xE9 hacer con el t\xE9rmino."),
+    deadline_id: z23.string().uuid().optional().describe("Requerido para update y close."),
+    radicado: z23.string().trim().optional().describe("Asunto del t\xE9rmino (para create)."),
+    work_item_id: z23.string().uuid().optional().describe("UUID del asunto (para create)."),
+    deadline_type: z23.string().trim().max(80).optional().describe("Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."),
+    label: z23.string().trim().max(200).optional().describe("Nombre visible del t\xE9rmino."),
+    description: z23.string().trim().max(2e3).optional(),
+    trigger_event: z23.string().trim().max(200).optional().describe("Hecho que lo origina, tal como lo describe el usuario."),
+    trigger_date: z23.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha del hecho (YYYY-MM-DD)."),
+    deadline_date: z23.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."),
+    business_days_count: z23.number().int().min(0).max(365).optional().describe("D\xEDas h\xE1biles del t\xE9rmino, si el usuario los indica."),
+    notes: z23.string().trim().max(2e3).optional(),
+    close_as: z23.enum(CLOSEABLE).optional().describe("Estado de cierre (para close)."),
+    close_reason: z23.string().trim().max(500).optional().describe("Motivo del cierre.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const userId = ctx.getUserId?.();
+    if (!userId) return errorResult("No se pudo identificar al usuario del token.");
+    if (args.action === "create") {
+      const resolved = await resolveWorkItem(sb, { id: args.work_item_id, radicado: args.radicado });
+      const item = resolved.item;
+      if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      if (!args.deadline_date) return errorResult("Indica la fecha de vencimiento (deadline_date, YYYY-MM-DD).");
+      if (!args.label) return errorResult("Indica el nombre del t\xE9rmino (label).");
+      const orgId = await callerOrganizationId(sb, userId);
+      const { data: data2, error: error2 } = await sb.from("work_item_deadlines").insert({
+        owner_id: userId,
+        organization_id: orgId,
+        work_item_id: item.id,
+        deadline_type: args.deadline_type?.toUpperCase() ?? "MANUAL",
+        label: args.label,
+        description: args.description ?? null,
+        trigger_event: args.trigger_event ?? null,
+        trigger_date: args.trigger_date ?? null,
+        deadline_date: args.deadline_date,
+        business_days_count: args.business_days_count ?? null,
+        status: "PENDING",
+        notes: args.notes ?? null,
+        calculation_meta: {
+          origin: "MANUAL_MCP",
+          declared_by: userId,
+          declared_at: (/* @__PURE__ */ new Date()).toISOString(),
+          note: "Fecha indicada por el usuario; no calculada por el motor de t\xE9rminos."
+        }
+      }).select("id, work_item_id, deadline_type, label, trigger_date, deadline_date, status").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      return textResult(`T\xE9rmino creado para ${item.radicado ?? item.id}, vence el ${args.deadline_date}.`, {
+        deadline: data2,
+        nota: "Registrado como manual (MANUAL_MCP): la fecha es la que indic\xF3 el usuario."
+      });
+    }
+    if (!args.deadline_id) return errorResult("Indica el deadline_id del t\xE9rmino.");
+    if (args.action === "close") {
+      if (!args.close_as) return errorResult("Indica close_as: FULFILLED, CANCELLED o DISMISSED.");
+      const patch2 = {
+        status: args.close_as,
+        closure_reason: args.close_reason ?? "Cerrado por el usuario v\xEDa asistente IA",
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (args.close_as === "FULFILLED") patch2.met_at = (/* @__PURE__ */ new Date()).toISOString();
+      const { data: data2, error: error2 } = await sb.from("work_item_deadlines").update(patch2).eq("id", args.deadline_id).select("id, work_item_id, label, deadline_date, status, closure_reason").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      if (!data2) return errorResult("T\xE9rmino no encontrado (o no pertenece a tu cuenta).");
+      return textResult(`T\xE9rmino cerrado como ${args.close_as}.`, { deadline: data2 });
+    }
+    const patch = {};
+    for (const k of ["label", "description", "trigger_event", "trigger_date", "deadline_date", "business_days_count", "notes"]) {
+      const v = args[k];
+      if (v !== void 0) patch[k] = v;
+    }
+    if (Object.keys(patch).length === 0) return errorResult("No indicaste ning\xFAn campo para cambiar.");
+    patch.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    const { data, error } = await sb.from("work_item_deadlines").update(patch).eq("id", args.deadline_id).select("id, work_item_id, label, trigger_date, deadline_date, business_days_count, status, notes").maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!data) return errorResult("T\xE9rmino no encontrado (o no pertenece a tu cuenta).");
+    return textResult(`T\xE9rmino actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`, {
+      deadline: data
+    });
+  }
+});
+
+// src/lib/mcp/tools/manage-task.ts
+import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z24 } from "npm:zod@^3.25.76";
+var manage_task_default = defineTool29({
+  name: "manage_task",
+  title: "Crear, editar o completar una tarea",
+  description: "Creates a task on a matter, edits its title/description/priority/due date, or marks it done or reopened. Tasks are internal work reminders \u2014 they are never procedural deadlines.",
+  inputSchema: {
+    action: z24.enum(["create", "update", "complete", "reopen"]),
+    task_id: z24.string().uuid().optional().describe("Requerido salvo para create."),
+    radicado: z24.string().trim().optional().describe("Asunto de la tarea (para create)."),
+    work_item_id: z24.string().uuid().optional(),
+    title: z24.string().trim().max(300).optional(),
+    description: z24.string().trim().max(3e3).optional(),
+    priority: z24.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    due_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const userId = ctx.getUserId?.();
+    if (!userId) return errorResult("No se pudo identificar al usuario del token.");
+    const dueISO = args.due_date ? `${args.due_date}T17:00:00-05:00` : void 0;
+    if (args.action === "create") {
+      if (!args.title) return errorResult("Indica el t\xEDtulo de la tarea.");
+      const resolved = await resolveWorkItem(sb, { id: args.work_item_id, radicado: args.radicado });
+      const item = resolved.item;
+      if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+      const orgId = await callerOrganizationId(sb, userId);
+      const { data: data2, error: error2 } = await sb.from("work_item_tasks").insert({
+        owner_id: userId,
+        organization_id: orgId,
+        work_item_id: item.id,
+        title: args.title,
+        description: args.description ?? null,
+        priority: args.priority ?? "MEDIUM",
+        due_date: dueISO ?? null,
+        status: "OPEN"
+      }).select("id, work_item_id, title, priority, due_date, status").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      return textResult(`Tarea creada en ${item.radicado ?? item.id}.`, { task: data2 });
+    }
+    if (!args.task_id) return errorResult("Indica el task_id.");
+    const patch = { updated_at: (/* @__PURE__ */ new Date()).toISOString() };
+    if (args.action === "complete") {
+      patch.status = "DONE";
+      patch.completed_at = (/* @__PURE__ */ new Date()).toISOString();
+      patch.completed_by = userId;
+    } else if (args.action === "reopen") {
+      patch.status = "OPEN";
+      patch.completed_at = null;
+      patch.completed_by = null;
+    } else {
+      if (args.title !== void 0) patch.title = args.title;
+      if (args.description !== void 0) patch.description = args.description;
+      if (args.priority !== void 0) patch.priority = args.priority;
+      if (dueISO !== void 0) patch.due_date = dueISO;
+      if (Object.keys(patch).length === 1) return errorResult("No indicaste ning\xFAn campo para cambiar.");
+    }
+    const { data, error } = await sb.from("work_item_tasks").update(patch).eq("id", args.task_id).select("id, work_item_id, title, priority, due_date, status, completed_at").maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!data) return errorResult("Tarea no encontrada (o no pertenece a tu cuenta).");
+    return textResult(`Tarea actualizada (${args.action}).`, { task: data });
+  }
+});
+
+// src/lib/mcp/tools/email-integration-status.ts
+import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z25 } from "npm:zod@^3.25.76";
+var email_integration_status_default = defineTool30({
+  name: "email_integration_status",
+  title: "Estado de la integraci\xF3n de correo",
+  description: "Reports the mailbox connection Andromeda reads from (provider, status, last sync, last error \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures.",
+  inputSchema: {
+    include_outbox: z25.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
+    outbox_status: z25.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
+    limit: z25.number().int().min(1).max(100).optional().describe("M\xE1ximo de env\xEDos (default 20).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ include_outbox, outbox_status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const { data: integrations, error: intErr } = await sb.from("integrations").select("id, provider, status, username, expires_at, last_sync_at, last_error, session_last_ok_at, created_at, updated_at").order("updated_at", { ascending: false }).limit(20);
+    if (intErr) return errorResult(intErr.message);
+    let outbox = [];
+    if (include_outbox !== false) {
+      let q = sb.from("email_outbox").select("id, to_email, subject, status, created_at, sent_at, error, failure_type, work_item_id, trigger_reason, last_event_type").order("created_at", { ascending: false }).limit(limit ?? 20);
+      if (outbox_status && outbox_status !== "ALL") q = q.eq("status", outbox_status);
+      const { data, error } = await q;
+      if (error) return errorResult(error.message);
+      outbox = data ?? [];
+    }
+    const conexiones = integrations ?? [];
+    const activas = conexiones.filter((c) => String(c.status ?? "").toUpperCase() === "CONNECTED").length;
+    const fallidos = outbox.filter((o) => String(o.status ?? "").toUpperCase() === "FAILED").length;
+    return textResult(
+      conexiones.length === 0 ? "No hay ninguna casilla de correo conectada para lectura." : `${conexiones.length} conexi\xF3n(es) de correo (${activas} activa(s)); ${outbox.length} env\xEDo(s) reciente(s), ${fallidos} fallido(s).`,
+      {
+        buzon_lectura: conexiones,
+        envios_recientes: outbox,
+        resumen: { conexiones: conexiones.length, activas, envios: outbox.length, fallidos },
+        nota: "Nunca se exponen tokens, contrase\xF1as ni cuerpos de correos de terceros."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/whatsapp-notices.ts
+import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z26 } from "npm:zod@^3.25.76";
+var whatsapp_notices_default = defineTool31({
+  name: "whatsapp_notices",
+  title: "Avisos de WhatsApp a clientes",
+  description: "Shows the client WhatsApp notice pipeline: recorded consents, drafts awaiting the lawyer's approval, and the audit log of messages already sent. Read-only. Approval and sending happen only in the app \u2014 never over MCP.",
+  inputSchema: {
+    view: z26.enum(["all", "consents", "drafts", "sends"]).optional().describe("Qu\xE9 mostrar (default all)."),
+    draft_status: z26.enum(["PENDING", "APPROVED", "SENT", "DISCARDED", "EXPIRED", "FAILED", "ALL"]).optional(),
+    limit: z26.number().int().min(1).max(100).optional().describe("M\xE1ximo por secci\xF3n (default 30).")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ view, draft_status, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const cap = limit ?? 30;
+    const want = view ?? "all";
+    const payload = {};
+    if (want === "all" || want === "consents") {
+      const { data, error } = await sb.from("client_wa_consent").select("id, client_id, phone_e164, consent_method, consent_note, granted_at, revoked_at, revocation_reason").order("granted_at", { ascending: false }).limit(cap);
+      if (error) return errorResult(error.message);
+      payload.consentimientos = data ?? [];
+    }
+    if (want === "all" || want === "drafts") {
+      let q = sb.from("client_wa_drafts").select("id, client_id, work_item_id, source_kind, fact_date, fact_text, body_text, edited_body_text, status, discard_reason, expires_at, created_at").order("created_at", { ascending: false }).limit(cap);
+      const st = draft_status ?? "PENDING";
+      if (st !== "ALL") q = q.eq("status", st);
+      const { data, error } = await q;
+      if (error) return errorResult(error.message);
+      payload.borradores = data ?? [];
+    }
+    if (want === "all" || want === "sends") {
+      const { data, error } = await sb.from("client_wa_sends").select("id, client_id, work_item_id, phone_e164, template_name, body_text, approved_by, approved_at, sent_at, delivery_status, error_text").order("sent_at", { ascending: false }).limit(cap);
+      if (error) return errorResult(error.message);
+      payload.enviados = data ?? [];
+    }
+    const nDrafts = payload.borradores?.length ?? 0;
+    const nConsents = payload.consentimientos?.length ?? 0;
+    const nSends = payload.enviados?.length ?? 0;
+    return textResult(
+      `Avisos WhatsApp \u2014 ${nConsents} consentimiento(s), ${nDrafts} borrador(es), ${nSends} env\xEDo(s).`,
+      {
+        ...payload,
+        nota: "La aprobaci\xF3n y el env\xEDo se hacen \xFAnicamente en la pantalla Avisos WhatsApp de Andromeda: ninguna herramienta env\xEDa mensajes a clientes."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/whatsapp-prepare.ts
+import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z27 } from "npm:zod@^3.25.76";
+var whatsapp_prepare_default = defineTool32({
+  name: "whatsapp_prepare",
+  title: "Preparar avisos de WhatsApp (sin enviar)",
+  description: "Records or revokes a client's WhatsApp consent, generates drafts from provider-reported facts, edits a draft's text, or discards one with a reason. It can NEVER approve or send a message \u2014 that always happens in the app, one message at a time.",
+  inputSchema: {
+    action: z27.enum(["record_consent", "revoke_consent", "generate_drafts", "edit_draft", "discard_draft"]).describe("Qu\xE9 hacer. No existe acci\xF3n de aprobar ni de enviar."),
+    client_id: z27.string().uuid().optional().describe("Cliente (para record_consent)."),
+    phone_e164: z27.string().trim().regex(/^[1-9][0-9]{7,14}$/).optional().describe("N\xFAmero con indicativo, solo d\xEDgitos, sin '+'. Ej: 573001234567."),
+    consent_method: z27.string().trim().min(3).max(500).optional().describe("C\xF3mo autoriz\xF3 el cliente, con las palabras del abogado. Obligatorio para record_consent."),
+    consent_note: z27.string().trim().max(1e3).optional(),
+    consent_id: z27.string().uuid().optional().describe("Consentimiento a revocar."),
+    revocation_reason: z27.string().trim().max(500).optional(),
+    lookback_days: z27.number().int().min(1).max(30).optional().describe("Ventana de hechos para generate_drafts (default 7)."),
+    draft_id: z27.string().uuid().optional().describe("Borrador a editar o descartar."),
+    body_text: z27.string().trim().min(5).max(900).optional().describe("Texto corregido del borrador."),
+    discard_reason: z27.string().trim().min(3).max(500).optional().describe("Motivo del descarte (obligatorio).")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const userId = ctx.getUserId?.();
+    if (!userId) return errorResult("No se pudo identificar al usuario del token.");
+    const orgId = await callerOrganizationId(sb, userId);
+    if (!orgId) return errorResult("No se encontr\xF3 la organizaci\xF3n del usuario.");
+    if (args.action === "record_consent") {
+      if (!args.client_id) return errorResult("Indica el cliente (client_id).");
+      if (!args.phone_e164) return errorResult("Indica el n\xFAmero del cliente (solo d\xEDgitos, con indicativo, sin '+').");
+      if (!args.consent_method) return errorResult("Escribe con tus palabras c\xF3mo autoriz\xF3 el cliente el env\xEDo. El consentimiento nunca se deduce.");
+      const { data: data2, error: error2 } = await sb.from("client_wa_consent").insert({
+        organization_id: orgId,
+        client_id: args.client_id,
+        phone_e164: args.phone_e164,
+        consent_method: args.consent_method,
+        consent_note: args.consent_note ?? null,
+        granted_by: userId,
+        granted_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).select("id, client_id, phone_e164, consent_method, granted_at").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      return textResult("Consentimiento registrado. El n\xFAmero queda solo en este registro, nunca en la ficha del cliente.", {
+        consentimiento: data2
+      });
+    }
+    if (args.action === "revoke_consent") {
+      if (!args.consent_id) return errorResult("Indica el consent_id a revocar.");
+      const { data: data2, error: error2 } = await sb.from("client_wa_consent").update({
+        revoked_at: (/* @__PURE__ */ new Date()).toISOString(),
+        revoked_by: userId,
+        revocation_reason: args.revocation_reason ?? "Revocado por el abogado v\xEDa asistente IA"
+      }).eq("id", args.consent_id).is("revoked_at", null).select("id, client_id, phone_e164, revoked_at").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      if (!data2) return errorResult("Consentimiento no encontrado o ya revocado.");
+      const { count } = await sb.from("client_wa_drafts").update({ status: "DISCARDED", discard_reason: "Consentimiento revocado" }, { count: "exact" }).eq("consent_id", args.consent_id).eq("status", "PENDING").select("id");
+      return textResult(`Consentimiento revocado; ${count ?? 0} borrador(es) pendiente(s) retirado(s).`, {
+        consentimiento: data2,
+        borradores_retirados: count ?? 0
+      });
+    }
+    if (args.action === "generate_drafts") {
+      const { data: data2, error: error2 } = await sb.rpc("client_wa_generate_drafts", {
+        _org: orgId,
+        _lookback_days: args.lookback_days ?? 7
+      });
+      if (error2) return errorResult(error2.message);
+      return textResult(
+        "Borradores preparados. Quedan en la cola para que los leas y apruebes uno por uno en la pantalla Avisos WhatsApp.",
+        { resultado: data2, nota: "Ning\xFAn mensaje se env\xEDa desde aqu\xED." }
+      );
+    }
+    if (args.action === "edit_draft") {
+      if (!args.draft_id) return errorResult("Indica el draft_id.");
+      if (!args.body_text) return errorResult("Indica el texto corregido (body_text).");
+      const { data: data2, error: error2 } = await sb.from("client_wa_drafts").update({ edited_body_text: args.body_text }).eq("id", args.draft_id).eq("status", "PENDING").select("id, client_id, work_item_id, body_text, edited_body_text, status, expires_at").maybeSingle();
+      if (error2) return errorResult(error2.message);
+      if (!data2) return errorResult("Borrador no encontrado o ya no est\xE1 pendiente.");
+      return textResult("Texto del borrador actualizado; sigue pendiente de tu aprobaci\xF3n en la app.", { borrador: data2 });
+    }
+    if (!args.draft_id) return errorResult("Indica el draft_id.");
+    if (!args.discard_reason) return errorResult("El descarte exige un motivo.");
+    const { data, error } = await sb.from("client_wa_drafts").update({ status: "DISCARDED", discard_reason: args.discard_reason }).eq("id", args.draft_id).eq("status", "PENDING").select("id, status, discard_reason").maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!data) return errorResult("Borrador no encontrado o ya no est\xE1 pendiente.");
+    return textResult("Borrador descartado.", { borrador: data });
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.4.1",
+  version: "0.5.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -1275,7 +1902,11 @@ var mcp_default = defineMcp({
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
-    "Escritura: solo `add_note` y `add_hearing`, y ambas exigen el permiso `read_write`. Nunca existe eliminaci\xF3n, reclasificaci\xF3n ni cambio de ciclo de vida v\xEDa MCP.",
+    "Datos crudos: `describe_data_model` lista las tablas consultables y `query_table` ejecuta lecturas filtradas sobre ellas con el token del usuario (RLS aplicado, nunca SQL libre).",
+    "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente d\xF3nde mirar o abrirle un asunto.",
+    "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
+    "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
+    "Escritura: `add_note`, `add_hearing`, `update_work_item` (campos descriptivos), `manage_deadline` y `manage_task`. Todas exigen el permiso `read_write`. Nunca existe eliminaci\xF3n, archivado, cambio de radicado, de tipo de proceso ni de etapa procesal v\xEDa MCP, y los t\xE9rminos creados aqu\xED se marcan como manuales: el asistente nunca calcula una fecha.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
@@ -1304,6 +1935,15 @@ var mcp_default = defineMcp({
     get_client_default,
     add_note_default,
     add_hearing_default,
+    list_app_screens_default,
+    describe_data_model_default,
+    query_table_default,
+    update_work_item_default,
+    manage_deadline_default,
+    manage_task_default,
+    email_integration_status_default,
+    whatsapp_notices_default,
+    whatsapp_prepare_default,
     atenia_health_overview_default,
     atenia_provider_status_default,
     atenia_recent_incidents_default

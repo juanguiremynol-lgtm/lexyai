@@ -22,6 +22,15 @@ import listDetectedProcesses from "./tools/list-detected-processes";
 import ateniaHealthOverview from "./tools/atenia-health-overview";
 import ateniaProviderStatus from "./tools/atenia-provider-status";
 import ateniaRecentIncidents from "./tools/atenia-recent-incidents";
+import listAppScreens from "./tools/list-app-screens";
+import describeDataModel from "./tools/describe-data-model";
+import queryTable from "./tools/query-table";
+import updateWorkItem from "./tools/update-work-item";
+import manageDeadline from "./tools/manage-deadline";
+import manageTask from "./tools/manage-task";
+import emailIntegrationStatus from "./tools/email-integration-status";
+import whatsappNotices from "./tools/whatsapp-notices";
+import whatsappPrepare from "./tools/whatsapp-prepare";
 
 // Build issuer from the project ref (Vite inlines this at build time, so it
 // stays import-safe). mcp-js requires the direct supabase.co host, never a
@@ -32,7 +41,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.4.1",
+  version: "0.5.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
@@ -44,7 +53,11 @@ export default defineMcp({
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el día calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "Términos: `list_deadlines`. Los términos con estado PENDING_REVIEW provienen de un backfill histórico y NO son obligaciones vigentes.",
-    "Escritura: solo `add_note` y `add_hearing`, y ambas exigen el permiso `read_write`. Nunca existe eliminación, reclasificación ni cambio de ciclo de vida vía MCP.",
+    "Datos crudos: `describe_data_model` lista las tablas consultables y `query_table` ejecuta lecturas filtradas sobre ellas con el token del usuario (RLS aplicado, nunca SQL libre).",
+    "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente dónde mirar o abrirle un asunto.",
+    "Correo: `email_integration_status` reporta la casilla conectada para lectura y los envíos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
+    "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni envía mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
+    "Escritura: `add_note`, `add_hearing`, `update_work_item` (campos descriptivos), `manage_deadline` y `manage_task`. Todas exigen el permiso `read_write`. Nunca existe eliminación, archivado, cambio de radicado, de tipo de proceso ni de etapa procesal vía MCP, y los términos creados aquí se marcan como manuales: el asistente nunca calcula una fecha.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo explícitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador.",
   ].join(" "),
@@ -73,6 +86,15 @@ export default defineMcp({
     getClient,
     addNote,
     addHearing,
+    listAppScreens,
+    describeDataModel,
+    queryTable,
+    updateWorkItem,
+    manageDeadline,
+    manageTask,
+    emailIntegrationStatus,
+    whatsappNotices,
+    whatsappPrepare,
     ateniaHealthOverview,
     ateniaProviderStatus,
     ateniaRecentIncidents,
