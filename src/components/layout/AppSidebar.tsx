@@ -49,6 +49,7 @@ const navItems = [
   { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
   { title: "Tareas", url: "/app/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/app/alerts", icon: Bell },
+  { title: "Avisos WhatsApp", url: "/app/avisos-whatsapp", icon: MessageSquare },
   { title: "Correo", url: "/app/email", icon: Mail },
   { title: "Documentos", url: "/app/documentos-legales", icon: FileSignature },
   { title: "Utilidades", url: "/app/utilities", icon: Wrench },
