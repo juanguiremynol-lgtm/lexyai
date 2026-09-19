@@ -103,12 +103,13 @@ export default defineTool({
         const id = String(r.id);
         const detectada = detectedIds.has(id);
         const fechada = datedIds.has(id);
-        return {
+        const out: Row = {
           ...r,
           work_item: wiById.get(String(r.work_item_id)) ?? null,
           clasificacion: detectada && fechada ? "fechada_y_detectada_hoy" : detectada ? "detectada_hoy" : "fechada_hoy",
           deteccion_tardia: detectada && !fechada,
         };
+        return out;
       })
       .sort((a, b) => String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")));
 
