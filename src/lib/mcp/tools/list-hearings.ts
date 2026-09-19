@@ -19,7 +19,7 @@ export default defineTool({
     limit: z.number().int().min(1).max(100).optional().describe("Máximo de filas (default 50)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
+  handler: async ({ work_item_id, radicado, date_from, date_to, include_placeholders, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -31,20 +31,26 @@ export default defineTool({
       itemId = resolved.item.id as string;
     }
 
+    const cap = limit ?? 50;
+    // One extra row is fetched so `hay_mas` reports a fact, not a coincidence
+    // of the page being exactly full.
     let q = sb
       .from("work_item_hearings")
       .select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary")
       .order("scheduled_at", { ascending: true })
-      .limit(limit ?? 50);
+      .limit(cap + 1);
 
     if (itemId) q = q.eq("work_item_id", itemId);
     if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
+    if (include_placeholders === false || date_from || date_to) q = q.not("scheduled_at", "is", null);
 
     const { data, error } = await q;
     if (error) return errorResult(error.message);
 
-    const rows = data ?? [];
+    const fetched = data ?? [];
+    const hayMas = fetched.length > cap;
+    const rows = fetched.slice(0, cap);
     const ids = [...new Set(rows.map((r) => String((r as { work_item_id: string }).work_item_id)))];
     const { data: items } = ids.length
       ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids)
