@@ -972,6 +972,7 @@ var list_hearings_default = defineTool15({
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null
       };
+      return out;
     });
     const programadas = hearings.filter((h) => h.scheduled_at);
     const marcadores = hearings.filter((h) => !h.scheduled_at);

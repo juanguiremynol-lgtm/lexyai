@@ -71,6 +71,7 @@ export default defineTool({
         workflow_type: wi?.workflow_type ?? null,
         despacho: wi?.authority_name ?? null,
       };
+      return out;
     });
 
     const programadas = hearings.filter((h) => h.scheduled_at);
