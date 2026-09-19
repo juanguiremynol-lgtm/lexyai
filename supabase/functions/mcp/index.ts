@@ -789,7 +789,7 @@ var search_default = defineTool13({
   description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
     query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
-    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906)."),
+    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
     client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
     status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
     city: z12.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
