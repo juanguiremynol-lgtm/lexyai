@@ -48,7 +48,13 @@ export default defineTool({
     }
 
     const sb = sbForUser(ctx);
-    let q = sb.from(name).select(columns?.trim() || "*").limit(limit ?? 50);
+    // PostgREST's generated filter union is not callable through a dynamic
+    // operator name; the builder is intentionally widened to its runtime shape.
+    type AnyFilter = Record<string, (col: string, value: unknown) => AnyFilter> & {
+      order: (col: string, opts: { ascending: boolean }) => AnyFilter;
+      then: PromiseLike<{ data: unknown; error: { message: string } | null }>["then"];
+    };
+    let q = sb.from(name).select(columns?.trim() || "*").limit(limit ?? 50) as unknown as AnyFilter;
 
     for (const f of filters ?? []) {
       const col = f.column.trim();
@@ -60,22 +66,19 @@ export default defineTool({
         case "is":
           q = q.is(col, v === "null" ? null : v === "true");
           break;
-        case "like":
-          q = q.like(col, v);
-          break;
-        case "ilike":
-          q = q.ilike(col, v);
-          break;
         default:
           q = q[f.op](col, v);
       }
     }
     if (order_by) q = q.order(order_by.trim(), { ascending: descending === false });
 
-    const { data, error } = await q;
+    const { data, error } = await (q as unknown as PromiseLike<{
+      data: unknown;
+      error: { message: string } | null;
+    }>);
     if (error) return errorResult(`Consulta rechazada: ${error.message}`);
 
-    const rows = (data ?? []) as Record<string, unknown>[];
+    const rows = (Array.isArray(data) ? data : []) as Record<string, unknown>[];
     return textResult(`${rows.length} fila(s) de ${name}.`, {
       tabla: name,
       total: rows.length,
