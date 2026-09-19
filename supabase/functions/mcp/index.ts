@@ -84,26 +84,28 @@ function textResult(text, structuredContent) {
     return { content: [{ type: "text", text }] };
   }
   let json = JSON.stringify(structuredContent, null, 2);
-  let truncated = false;
+  if (json.length > MAX_JSON_CHARS) json = JSON.stringify(structuredContent);
   if (json.length > MAX_JSON_CHARS) {
-    json = JSON.stringify(structuredContent);
-    if (json.length > MAX_JSON_CHARS) {
-      json = json.slice(0, MAX_JSON_CHARS);
-      truncated = true;
-    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${text}
+
+La respuesta es demasiado extensa para incluirla completa. Reduce el par\xE1metro \`limit\` o pide menos columnas: no se muestran datos parciales porque un fragmento podr\xEDa leerse como el total.`
+        }
+      ],
+      structuredContent
+    };
   }
-  const body = truncated ? `${text}
-
-(Respuesta truncada: reduce el par\xE1metro \`limit\` para ver todo.)
-
-\`\`\`json
-${json}
-\`\`\`` : `${text}
+  return {
+    content: [{ type: "text", text: `${text}
 
 \`\`\`json
 ${json}
-\`\`\``;
-  return { content: [{ type: "text", text: body }], structuredContent };
+\`\`\`` }],
+    structuredContent
+  };
 }
 function businessDaysBetween(fromISO, toISO, holidays = /* @__PURE__ */ new Set()) {
   const start = /* @__PURE__ */ new Date(`${fromISO}T12:00:00Z`);
@@ -608,10 +610,48 @@ var get_actuaciones_hoy_default = defineTool8({
 // src/lib/mcp/tools/list-deadlines.ts
 import { defineTool as defineTool9 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z8 } from "npm:zod@^3.25.76";
+
+// src/lib/mcp/deadline-status.ts
+var ACTIVE_STATUSES = ["PENDING"];
+var MANUAL_REVIEW_STATUSES = [
+  "REQUIERE_REVISION_MANUAL",
+  "PENDING_REVIEW",
+  // legacy spelling, kept so old rows stay visible
+  "SUGGESTED_BY_PROVIDER",
+  "CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR"
+];
+function deadlineBucket(status, requiresManualReview) {
+  const s = String(status ?? "").toUpperCase();
+  if (requiresManualReview) return "REVISION_MANUAL";
+  if (MANUAL_REVIEW_STATUSES.includes(s)) return "REVISION_MANUAL";
+  if (ACTIVE_STATUSES.includes(s)) return "ACTIVO";
+  return "CERRADO";
+}
+function deadlineAttribution(row) {
+  if (row.is_judge_side) return "DESPACHO";
+  const r = String(row.bound_party_role ?? "").toUpperCase();
+  if (!r) return "DESCONOCIDO";
+  if (r.includes("CLIENT") || r.includes("PROPIO") || r.includes("MANDANTE")) return "CLIENTE";
+  if (r.includes("CONTRAPART") || r.includes("OPPOS") || r.includes("DEMANDAD") || r.includes("DEMANDANT")) {
+    return "CONTRAPARTE";
+  }
+  return "DESCONOCIDO";
+}
+function deadlineUrgency(deadlineDate, today, businessDaysRemaining) {
+  if (!deadlineDate) return "SIN_FECHA";
+  if (deadlineDate < today) return "VENCIDO";
+  if (deadlineDate === today) return "VENCE_HOY";
+  if (businessDaysRemaining == null) return "NORMAL";
+  if (businessDaysRemaining <= 2) return "CRITICO";
+  if (businessDaysRemaining <= 5) return "PROXIMO";
+  return "NORMAL";
+}
+
+// src/lib/mcp/tools/list-deadlines.ts
 var list_deadlines_default = defineTool9({
   name: "list_deadlines",
   title: "T\xE9rminos procesales",
-  description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned; deadlines flagged PENDING_REVIEW are historical/backfilled and are NOT active \u2014 request them explicitly and never present them as live obligations.",
+  description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations \u2014 request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / DESCONOCIDO); DESCONOCIDO means the attribution is unknown, not the client's.",
   inputSchema: {
     status: z8.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
     radicado: z8.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
@@ -630,10 +670,12 @@ var list_deadlines_default = defineTool9({
       workItem = resolved.item;
       resolucion = resolved.note ?? null;
     }
-    let q = sb.from("work_item_deadlines").select("id, work_item_id, deadline_type, label, description, trigger_event, trigger_date, deadline_date, business_days_count, status").order("deadline_date", { ascending: true }).limit(limit ?? 50);
+    let q = sb.from("work_item_deadlines").select(
+      "id, work_item_id, deadline_type, label, description, trigger_event, trigger_date, deadline_date, business_days_count, status, requires_manual_review, bound_party_role, bound_party_source, is_judge_side"
+    ).order("deadline_date", { ascending: true }).limit(limit ?? 50);
     const mode = status ?? "pending";
-    if (mode === "pending") q = q.eq("status", "PENDING");
-    else if (mode === "pending_review") q = q.eq("status", "PENDING_REVIEW");
+    if (mode === "pending") q = q.in("status", [...ACTIVE_STATUSES]);
+    else if (mode === "pending_review") q = q.in("status", [...MANUAL_REVIEW_STATUSES]);
     if (workItem) q = q.eq("work_item_id", workItem.id);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
@@ -656,7 +698,7 @@ var list_deadlines_default = defineTool9({
       const titulo = workItemTitle(wi, String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;
       const restantes = dd ? businessDaysBetween(today, dd, holidays) : null;
-      const urgencia = restantes == null ? "SIN_FECHA" : restantes < 0 ? "VENCIDO" : restantes === 0 ? "VENCE_HOY" : restantes <= 2 ? "CRITICO" : restantes <= 5 ? "PROXIMO" : "NORMAL";
+      const urgencia = deadlineUrgency(dd, today, restantes);
       return {
         ...row,
         radicado: wi?.radicado ?? null,
@@ -665,10 +707,19 @@ var list_deadlines_default = defineTool9({
         despacho: wi?.authority_name ?? null,
         vencimiento: dd,
         dias_habiles_restantes: restantes,
-        urgencia
+        urgencia,
+        clasificacion: deadlineBucket(
+          row.status,
+          row.requires_manual_review
+        ),
+        atribucion: deadlineAttribution({
+          bound_party_role: row.bound_party_role,
+          is_judge_side: row.is_judge_side
+        }),
+        atribucion_fuente: row.bound_party_source ?? null
       };
     });
-    const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n (vencidos en el backfill): NO son obligaciones vigentes." : "Incluye activos y en revisi\xF3n; los PENDING_REVIEW no son obligaciones vigentes.";
+    const note = mode === "pending" ? "Solo t\xE9rminos activos." : mode === "pending_review" ? "T\xE9rminos en revisi\xF3n manual (REQUIERE_REVISION_MANUAL y equivalentes): NO son obligaciones vigentes." : "Incluye activos, en revisi\xF3n y cerrados; solo los ACTIVO son obligaciones vigentes. 'atribucion: DESCONOCIDO' significa que no se sabe a qui\xE9n obliga el t\xE9rmino.";
     return textResult(`${resolucion ? `${resolucion}
 ` : ""}${deadlines.length} t\xE9rminos. ${note} (hoy = ${today}, America/Bogota)`, {
       resolucion,
@@ -761,16 +812,18 @@ var add_note_default = defineTool12({
     const denied = requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
-    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, notes");
+    const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, deleted_at");
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    if (item.deleted_at) {
+      return errorResult("El asunto est\xE1 archivado; rest\xE1urelo antes de agregar notas.");
+    }
     const stamp = (/* @__PURE__ */ new Date()).toLocaleString("es-CO", { timeZone: "America/Bogota" });
     const entry2 = `[${stamp} \xB7 v\xEDa asistente IA] ${content}`;
-    const previous = (item.notes ?? "").trim();
-    const nextNotes = previous ? `${previous}
-
-${entry2}` : entry2;
-    const { error: upErr } = await sb.from("work_items").update({ notes: nextNotes, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", item.id);
+    const { error: upErr } = await sb.rpc("append_work_item_note", {
+      _work_item: item.id,
+      _entry: entry2
+    });
     if (upErr) return errorResult(upErr.message);
     return textResult(`${resolved.note ? `${resolved.note}
 ` : ""}Nota agregada al asunto ${item.radicado ?? item.id}.`, {
@@ -1613,8 +1666,23 @@ var query_table_default = defineTool26({
         `La tabla "${table}" no est\xE1 habilitada para consulta por MCP. Usa \`describe_data_model\` para ver las disponibles.`
       );
     }
+    const COLUMN_RE = /^[a-z0-9_]+$/;
+    const requested = (columns?.trim() || "*").split(",").map((c) => c.trim()).filter(Boolean);
+    const invalid = requested.filter((c) => c !== "*" && !COLUMN_RE.test(c));
+    if (invalid.length > 0) {
+      return errorResult(
+        `Columnas no v\xE1lidas: ${invalid.join(", ")}. Solo se aceptan nombres simples de columna de esta tabla; no se pueden traer tablas relacionadas desde aqu\xED.`
+      );
+    }
+    const badFilterCols = [
+      ...(filters ?? []).map((f) => f.column.trim()),
+      ...order_by ? [order_by.trim()] : []
+    ].filter((c) => !COLUMN_RE.test(c));
+    if (badFilterCols.length > 0) {
+      return errorResult(`Columnas no v\xE1lidas en filtros u ordenamiento: ${badFilterCols.join(", ")}.`);
+    }
     const sb = sbForUser(ctx);
-    let q = sb.from(name).select(columns?.trim() || "*").limit(limit ?? 50);
+    let q = sb.from(name).select(requested.join(",")).limit(limit ?? 50);
     for (const f of filters ?? []) {
       const col = f.column.trim();
       const v = f.value;

@@ -165,7 +165,7 @@ function itemHeader(wi: WorkItemInfo | undefined, id: string, appBaseUrl: string
       </div>
       ${behaviour}
       ${providerTally(wi)}
-      <a href="${appBaseUrl}/app/work-item/${esc(id)}" style="font-size:12px;color:${ACT_ACCENT};">Abrir en Andromeda →</a>
+      <a href="${appBaseUrl}/app/work-items/${esc(id)}" style="font-size:12px;color:${ACT_ACCENT};">Abrir en Andromeda →</a>
     </div>`;
 }
 
@@ -391,8 +391,14 @@ function sourceQualityBlock(p: DigestPayload): string {
     return `${answered}/${den} (${pct}%)`;
   };
   const verdictOf = (r: typeof rows[number]) => {
+    if (r.check_failed) {
+      return `<span style="color:#fbbf24;font-weight:700;">No pudimos verificar esta fuente hoy${
+        r.check_failed_reason ? ` (${r.check_failed_reason})` : ""
+      }. No afirmamos que no haya novedades.</span>`;
+    }
     const den = r.expected_count || 0;
     const answered = r.answered_count ?? r.usable_confirmed_count;
+
     if (den > 0 && answered >= den) {
       return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
     }
@@ -896,7 +902,7 @@ function reconciliationBlock(rows: ReconciliationNoticeRow[], p: DigestPayload):
       </div>
       <div style="font-size:12px;color:${MUTED};margin-top:6px;line-height:1.6;">${esc(r.detail)}</div>
       ${r.work_item_id
-        ? `<a href="${p.appBaseUrl}/app/work-item/${esc(r.work_item_id)}" style="font-size:12px;color:#a78bfa;">Revisar el expediente →</a>`
+        ? `<a href="${p.appBaseUrl}/app/work-items/${esc(r.work_item_id)}" style="font-size:12px;color:#a78bfa;">Revisar el expediente →</a>`
         : ""}
     </div>`;
   }).join("");
@@ -925,7 +931,7 @@ function importedHistoryBlock(p: DigestPayload): string {
         ? (r.from_year === r.to_year ? String(r.from_year) : `${r.from_year} a ${r.to_year}`)
         : "Sin fecha registrada";
       return `<tr>
-        ${td(`<a href="${p.appBaseUrl}/app/work-item/${esc(r.work_item_id)}" style="color:#60a5fa;">${esc(wi?.radicado || "Sin radicado")}</a>`)}
+        ${td(`<a href="${p.appBaseUrl}/app/work-items/${esc(r.work_item_id)}" style="color:#60a5fa;">${esc(wi?.radicado || "Sin radicado")}</a>`)}
         ${td(esc(wi?.title || "—"))}
         ${td(esc(parts.join(" + ") || String(r.rows)))}
         ${td(esc(span))}
@@ -949,7 +955,7 @@ function autoPausedBlock(rows: AutoPausedItemRow[], appBaseUrl: string): string 
   `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
     <thead><tr>${th("Radicado", "#f87171")}${th("Asunto", "#f87171")}${th("Tipo", "#f87171")}${th("Pausado el", "#f87171")}${th("Motivo registrado", "#f87171")}${th("¿Ya lo había reactivado?", "#f87171")}</tr></thead>
     <tbody>${rows.map((r) => `<tr>
-      ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:#f87171;">${esc(r.radicado || "Sin radicado")}</a>`)}
+      ${td(`<a href="${appBaseUrl}/app/work-items/${esc(r.id)}" style="color:#f87171;">${esc(r.radicado || "Sin radicado")}</a>`)}
       ${td(esc(r.title || "—"))}
       ${td(esc(r.workflow_type || "—"))}
       ${td(fmtDate(r.paused_at))}
@@ -1004,7 +1010,7 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
       <thead><tr>${th("Radicado", accent)}${th("Asunto", accent)}${th("Antigüedad", accent)}${th("Última verificación", accent)}${th("Lo que sabemos", accent)}</tr></thead>
       <tbody>${group.map((r) => `<tr>
-        ${td(`<a href="${appBaseUrl}/app/work-item/${esc(r.id)}" style="color:${accent};">${esc(r.radicado || "Sin radicado")}</a>`)}
+        ${td(`<a href="${appBaseUrl}/app/work-items/${esc(r.id)}" style="color:${accent};">${esc(r.radicado || "Sin radicado")}</a>`)}
         ${td(esc(r.title || "—"))}
         ${td(r.days_since_alta === null ? "—" : `<strong style="color:${r.days_since_alta >= 90 ? "#f87171" : r.days_since_alta >= 30 ? "#fbbf24" : TEXT};">${r.days_since_alta} días</strong>`)}
         ${td(r.last_attempted_sync_at ? fmtDateTime(r.last_attempted_sync_at) : `<span style="color:${MUTED};">Nunca</span>`)}

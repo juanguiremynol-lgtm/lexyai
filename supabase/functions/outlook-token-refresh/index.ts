@@ -17,6 +17,7 @@ import {
   ConnectionRevokedError,
   REFRESH_SKEW_MS,
 } from "../_shared/outlookGraph.ts";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -27,10 +28,15 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // AUDIT FINDING 2 — mailbox credentials are only renewed for the scheduler.
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok) return gate.response!;
+
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
 
   const horizon = new Date(Date.now() + REFRESH_SKEW_MS).toISOString();
 

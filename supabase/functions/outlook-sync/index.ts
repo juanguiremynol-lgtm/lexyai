@@ -1094,10 +1094,17 @@ async function syncConnection(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // AUDIT FINDING 2 — a signed-in lawyer may sync their own mailbox; the
+  // scheduler syncs all of them. Anonymous callers get nothing.
+  const { requirePrivilegedCaller } = await import("../_shared/privilegedCaller.ts");
+  const gate = await requirePrivilegedCaller(req, corsHeaders, { allowAuthenticatedUser: true });
+  if (!gate.ok) return gate.response!;
+
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
 
   try {
     const cronKey = req.headers.get("x-cron-key");

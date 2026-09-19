@@ -46,23 +46,35 @@ Deno.serve(async (req) => {
     const draftId = typeof body?.draft_id === "string" ? body.draft_id : null;
     if (!draftId) return json({ error: "draft_id is required" }, 400);
 
-    // Read through the caller's session so RLS proves org membership.
-    const { data: draft, error: draftErr } = await asUser
-      .from("client_wa_drafts")
-      .select("*")
-      .eq("id", draftId)
-      .maybeSingle();
-    if (draftErr) return json({ error: draftErr.message }, 400);
-    if (!draft) return json({ error: "draft not found" }, 404);
-
-    if (draft.status !== "APPROVED") {
-      return json({ error: "draft is not approved", status: draft.status }, 409);
-    }
-    if (!draft.approved_by || !draft.approved_at) {
-      return json({ error: "draft has no approval record" }, 409);
-    }
-    if (new Date(draft.expires_at).getTime() < Date.now()) {
-      return json({ error: "draft expired", expires_at: draft.expires_at }, 409);
+    // AUDIT FINDING 8 — ATOMIC CLAIM. Reading an APPROVED draft and then
+    // sending leaves a window in which two callers both send the same notice to
+    // the client. The claim is a single UPDATE (APPROVED -> SENDING) executed
+    // through the caller's session, so RLS/membership, consent validity, the
+    // approval record and the expiry are all checked inside one statement.
+    const { data: claimedRow, error: claimErr } = await asUser.rpc("client_wa_claim_draft", {
+      _draft: draftId,
+    });
+    if (claimErr) return json({ error: claimErr.message }, 400);
+    const draft = (Array.isArray(claimedRow) ? claimedRow[0] : claimedRow) as
+      | Record<string, unknown>
+      | null;
+    if (!draft || !draft.id) {
+      // Either the draft is gone, not approved, expired, consent revoked, or
+      // another caller already claimed it. All of them mean: do not send.
+      const { data: current } = await asUser
+        .from("client_wa_drafts")
+        .select("status, expires_at")
+        .eq("id", draftId)
+        .maybeSingle();
+      return json(
+        {
+          error: "draft_not_claimable",
+          status: current?.status ?? "UNKNOWN",
+          message:
+            "El aviso no está aprobado y vigente, o ya fue tomado para envío. No se envió nada.",
+        },
+        409,
+      );
     }
 
     const admin = createClient(url, service);
@@ -70,24 +82,31 @@ Deno.serve(async (req) => {
     const { data: consent } = await admin
       .from("client_wa_consent")
       .select("id, phone_e164, revoked_at")
-      .eq("id", draft.consent_id)
+      .eq("id", draft.consent_id as string)
       .maybeSingle();
     if (!consent || consent.revoked_at) {
+      await admin.from("client_wa_drafts").update({ status: "APPROVED" }).eq("id", draft.id as string);
       return json({ error: "consent revoked or missing" }, 409);
     }
+
+
+    /** Give the claim back so the lawyer can retry after fixing the cause. */
+    const releaseClaim = async () => {
+      await admin.from("client_wa_drafts").update({ status: "APPROVED" }).eq("id", draft.id as string);
+    };
 
     const { data: item } = await admin
       .from("work_items")
       .select("title, radicado")
-      .eq("id", draft.work_item_id)
+      .eq("id", draft.work_item_id as string)
       .maybeSingle();
     const { data: org } = await admin
       .from("organizations")
       .select("name")
-      .eq("id", draft.organization_id)
+      .eq("id", draft.organization_id as string)
       .maybeSingle();
 
-    const text = (draft.edited_body_text ?? draft.body_text) as string;
+    const text = ((draft.edited_body_text ?? draft.body_text) ?? "") as string;
     const caratula = item?.title || item?.radicado || "su proceso";
     const firm = org?.name || "su abogado";
 
@@ -96,11 +115,12 @@ Deno.serve(async (req) => {
     const { data: approver } = await admin
       .from("profiles")
       .select("phone, litigation_email, email")
-      .eq("id", draft.approved_by)
+      .eq("id", draft.approved_by as string)
       .maybeSingle();
     const lawyerPhone = (approver?.phone ?? "").trim();
     const lawyerEmail = (approver?.litigation_email ?? approver?.email ?? "").trim();
     if (!lawyerPhone || !lawyerEmail) {
+      await releaseClaim();
       return json(
         {
           error: "contacto_incompleto",
@@ -112,9 +132,11 @@ Deno.serve(async (req) => {
     }
     const contacto = `${lawyerPhone} · ${lawyerEmail}`;
 
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY");
     if (!LOVABLE_API_KEY || !WHATSAPP_API_KEY) {
+      await releaseClaim();
       return json(
         {
           error: "whatsapp_not_connected",
@@ -124,6 +146,7 @@ Deno.serve(async (req) => {
         412,
       );
     }
+
 
     const payload = {
       messaging_product: "whatsapp",
@@ -165,7 +188,7 @@ Deno.serve(async (req) => {
 
     if (!res.ok) {
       console.error(`WhatsApp send failed [${res.status}]: ${raw}`);
-      await admin.from("client_wa_drafts").update({ status: "FAILED" }).eq("id", draft.id);
+      await admin.from("client_wa_drafts").update({ status: "FAILED" }).eq("id", draft.id as string);
       await admin.from("client_wa_sends").insert({
         organization_id: draft.organization_id,
         draft_id: draft.id,
@@ -186,7 +209,10 @@ Deno.serve(async (req) => {
     const waId =
       (parsed as { messages?: Array<{ id?: string }> })?.messages?.[0]?.id ?? null;
 
-    await admin.from("client_wa_sends").insert({
+    // The provider already accepted the message: the evidence row and the state
+    // change MUST be checked, not fired and forgotten. A silent failure here is
+    // a notice the client received and the lawyer's record denies.
+    const { error: evidenceErr } = await admin.from("client_wa_sends").insert({
       organization_id: draft.organization_id,
       draft_id: draft.id,
       client_id: draft.client_id,
@@ -200,10 +226,33 @@ Deno.serve(async (req) => {
       delivery_status: "ACCEPTED",
       provider_response: parsed as Record<string, unknown>,
     });
-    await admin.from("client_wa_drafts").update({ status: "SENT" }).eq("id", draft.id);
+    const { error: stateErr } = await admin
+      .from("client_wa_drafts")
+      .update({ status: "SENT" })
+      .eq("id", draft.id as string);
+
+    if (evidenceErr || stateErr) {
+      console.error(
+        "[whatsapp-send-client-notice] message SENT but persistence failed",
+        evidenceErr?.message,
+        stateErr?.message,
+      );
+      return json(
+        {
+          ok: true,
+          wa_message_id: waId,
+          warning: "persistencia_incompleta",
+          message:
+            "El aviso salió al cliente, pero el registro interno quedó incompleto. No lo reenvíe.",
+          details: [evidenceErr?.message, stateErr?.message].filter(Boolean),
+        },
+        207,
+      );
+    }
 
     return json({ ok: true, wa_message_id: waId });
   } catch (e) {
+
     console.error("whatsapp-send-client-notice error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
