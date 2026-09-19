@@ -554,21 +554,20 @@ Deno.serve(async (req) => {
           } else if (expired) {
             connectionIssues.push({
               mailbox: c.ms_account_email ?? null,
-              status: "PERMISO CADUCADO",
+              status: "SIN RENOVACIÓN",
               severity: "CRITICAL",
-              headline: "El permiso del buzón caducó",
+              headline: "El buzón lleva más de 24 horas sin renovar su credencial",
               detail: "La vinculación de correspondencia está detenida hasta que reconecte el buzón.",
-              since: c.token_expires_at ?? null,
+              since: c.last_refresh_at ?? c.last_sync_at ?? null,
             });
           } else if (expiringSoon) {
-            // JJ1(d): avisar ANTES del vencimiento.
             connectionIssues.push({
               mailbox: c.ms_account_email ?? null,
-              status: "POR VENCER",
+              status: "RENOVACIÓN FALLIDA",
               severity: "WARNING",
-              headline: "El permiso del buzón vence en menos de 7 días",
-              detail: "Reconéctelo antes de esa fecha para no perder correspondencia del despacho.",
-              since: c.token_expires_at ?? null,
+              headline: "La renovación automática del buzón está fallando",
+              detail: "Todavía funciona, pero si sigue fallando dejará de vincularse correspondencia. Reconéctelo cuando pueda.",
+              since: c.last_refresh_at ?? null,
             });
           }
         }
