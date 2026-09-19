@@ -42,7 +42,7 @@ export default defineTool({
     const { data: rawConns, error: connErr } = await sb
       .from("user_email_connections")
       .select(
-        "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at",
+        "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_success_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at",
       )
       .order("updated_at", { ascending: false })
       .limit(20);
@@ -52,11 +52,15 @@ export default defineTool({
       const row = c as Record<string, unknown>;
       return {
         ...row,
-        salud: deriveHealth(row),
+        salud: emailConnectionHealth(row),
+        salud_motivo: emailHealthReason(row),
+        revocacion_externa: isExternalRevocation(row),
         nota_token:
           "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar.",
+        nota_renovacion: `last_refresh_at es el último INTENTO de renovación; last_refresh_success_at es la última exitosa. La regla de salud usa la exitosa y marca degradación tras ${EMAIL_HEALTH_POLICY.staleRenewalHours} horas sin ninguna.`,
       };
     });
+
 
     let outbox: Record<string, unknown>[] = [];
     if (include_outbox !== false) {

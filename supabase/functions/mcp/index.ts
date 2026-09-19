@@ -1880,6 +1880,50 @@ var manage_task_default = defineTool29({
 // src/lib/mcp/tools/email-integration-status.ts
 import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z25 } from "npm:zod@^3.25.76";
+
+// src/lib/email-connection-health.ts
+var EMAIL_HEALTH_POLICY = {
+  /** No successful renewal for this long = the channel is down. */
+  staleRenewalHours: 24,
+  /** Consecutive failed renewals that turn a warning into a hard failure. */
+  failureCountThreshold: 3
+};
+function lastSuccessfulRenewal(c, now = Date.now()) {
+  void now;
+  if (c.last_refresh_success_at) return Date.parse(c.last_refresh_success_at);
+  if (c.last_refresh_outcome === "SUCCESS" && c.last_refresh_at) return Date.parse(c.last_refresh_at);
+  return null;
+}
+function isExternalRevocation(c) {
+  return Boolean(c.revoked_at) && Boolean(c.failure_code);
+}
+function emailConnectionHealth(c, now = Date.now()) {
+  if (!c) return "NO_CONECTADO";
+  if (c.status === "PENDING") return "CONECTANDO";
+  if (c.status === "ERROR" || c.status === "REVOKED" || c.revoked_at) return "ERROR";
+  if (c.last_refresh_outcome === "FAILED") return "POR_VENCER";
+  if ((c.refresh_failure_count ?? 0) >= EMAIL_HEALTH_POLICY.failureCountThreshold) return "POR_VENCER";
+  const lastOk = lastSuccessfulRenewal(c, now);
+  const staleRenewal = lastOk === null || lastOk < now - EMAIL_HEALTH_POLICY.staleRenewalHours * 36e5;
+  const expires = c.token_expires_at ? Date.parse(c.token_expires_at) : null;
+  if (staleRenewal && (expires === null || expires < now)) return "POR_VENCER";
+  return "ACTIVA";
+}
+function emailHealthReason(c, now = Date.now()) {
+  const h = emailConnectionHealth(c, now);
+  if (!c || h === "ACTIVA") return null;
+  if (h === "NO_CONECTADO") return "No hay ninguna casilla conectada.";
+  if (h === "CONECTANDO") return "La conexi\xF3n est\xE1 a medio completar.";
+  if (h === "ERROR") {
+    return isExternalRevocation(c) ? "Microsoft retir\xF3 el permiso: hay que volver a conectar la casilla." : c.revoked_at ? "La casilla fue desconectada." : "La conexi\xF3n est\xE1 en error.";
+  }
+  if (c.last_refresh_outcome === "FAILED" || (c.refresh_failure_count ?? 0) >= EMAIL_HEALTH_POLICY.failureCountThreshold) {
+    return `La renovaci\xF3n autom\xE1tica fall\xF3 ${c.refresh_failure_count ?? 1} vez(ces) seguidas.`;
+  }
+  return `No hay una renovaci\xF3n exitosa desde hace m\xE1s de ${EMAIL_HEALTH_POLICY.staleRenewalHours} horas.`;
+}
+
+// src/lib/mcp/tools/email-integration-status.ts
 var email_integration_status_default = defineTool30({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",
@@ -1895,15 +1939,18 @@ var email_integration_status_default = defineTool30({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const { data: rawConns, error: connErr } = await sb.from("user_email_connections").select(
-      "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at"
+      "id, provider, ms_account_email, status, can_send, connected_at, last_sync_at, token_expires_at, last_refresh_at, last_refresh_success_at, last_refresh_outcome, refresh_failure_count, failure_code, failure_detail, revoked_at, updated_at"
     ).order("updated_at", { ascending: false }).limit(20);
     if (connErr) return errorResult(connErr.message);
     const conexiones = (rawConns ?? []).map((c) => {
       const row = c;
       return {
         ...row,
-        salud: deriveHealth(row),
-        nota_token: "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar."
+        salud: emailConnectionHealth(row),
+        salud_motivo: emailHealthReason(row),
+        revocacion_externa: isExternalRevocation(row),
+        nota_token: "token_expires_at es el vencimiento del access token de Microsoft (~1 hora); se renueva solo. No indica que haya que reconectar.",
+        nota_renovacion: `last_refresh_at es el \xFAltimo INTENTO de renovaci\xF3n; last_refresh_success_at es la \xFAltima exitosa. La regla de salud usa la exitosa y marca degradaci\xF3n tras ${EMAIL_HEALTH_POLICY.staleRenewalHours} horas sin ninguna.`
       };
     });
     let outbox = [];
