@@ -87,9 +87,13 @@ export default defineTool({
       .lte("holiday_date", horizonEnd > today ? horizonEnd : today);
     const holidays = new Set((holidayRows ?? []).map((h) => String((h as { holiday_date: string }).holiday_date)));
 
-    const deadlines = rows.map((r) => {
+    const archived = rows.filter((r) => !byId.has(String((r as { work_item_id: string }).work_item_id))).length;
+    const deadlines = rows
+      .filter((r) => byId.has(String((r as { work_item_id: string }).work_item_id)))
+      .map((r) => {
       const row = r as Record<string, unknown>;
       const wi = byId.get(String(row.work_item_id)) ?? null;
+
       // Normalized title: never a workflow token, never null, never gigantic.
       const titulo = workItemTitle(wi, String(row.work_item_id));
       const dd = row.deadline_date ? String(row.deadline_date).slice(0, 10) : null;

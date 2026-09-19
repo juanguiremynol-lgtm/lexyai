@@ -692,7 +692,8 @@ var list_deadlines_default = defineTool9({
     const horizonEnd = dates[dates.length - 1] ?? today;
     const { data: holidayRows } = await sb.from("colombian_holidays").select("holiday_date").gte("holiday_date", dates[0] && dates[0] < today ? dates[0] : today).lte("holiday_date", horizonEnd > today ? horizonEnd : today);
     const holidays = new Set((holidayRows ?? []).map((h) => String(h.holiday_date)));
-    const deadlines = rows.map((r) => {
+    const archived = rows.filter((r) => !byId.has(String(r.work_item_id))).length;
+    const deadlines = rows.filter((r) => byId.has(String(r.work_item_id))).map((r) => {
       const row = r;
       const wi = byId.get(String(row.work_item_id)) ?? null;
       const titulo = workItemTitle(wi, String(row.work_item_id));
