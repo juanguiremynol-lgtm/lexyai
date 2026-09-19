@@ -73,17 +73,19 @@ export default defineTool({
       };
     });
 
-    const cap = limit ?? 50;
-    const hayMas = hearings.length === cap;
+    const programadas = hearings.filter((h) => h.scheduled_at);
+    const marcadores = hearings.filter((h) => !h.scheduled_at);
 
     return textResult(
-      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado — puede haber más; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      `${programadas.length} audiencia(s) con fecha programada${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` — tope de ${cap} alcanzado, hay más filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
       {
         work_item_id: itemId,
         range: { from: date_from ?? null, to: date_to ?? null },
         limit: cap,
         hay_mas: hayMas,
-        hearings,
+        audiencias_programadas: programadas,
+        marcadores_sin_fecha: marcadores,
+        nota: "Solo `audiencias_programadas` tiene fecha y hora. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda.",
       },
     );
   },

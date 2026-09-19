@@ -934,7 +934,7 @@ var list_hearings_default = defineTool15({
     limit: z14.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date_from, date_to, limit }, ctx) => {
+  handler: async ({ work_item_id, radicado, date_from, date_to, include_placeholders, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -944,13 +944,17 @@ var list_hearings_default = defineTool15({
       if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
       itemId = resolved.item.id;
     }
-    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(limit ?? 50);
+    const cap = limit ?? 50;
+    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(cap + 1);
     if (itemId) q = q.eq("work_item_id", itemId);
     if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
+    if (include_placeholders === false || date_from || date_to) q = q.not("scheduled_at", "is", null);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    const rows = data ?? [];
+    const fetched = data ?? [];
+    const hayMas = fetched.length > cap;
+    const rows = fetched.slice(0, cap);
     const ids = [...new Set(rows.map((r) => String(r.work_item_id)))];
     const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type, authority_name").in("id", ids) : { data: [] };
     const byId = new Map(
@@ -969,16 +973,18 @@ var list_hearings_default = defineTool15({
         despacho: wi?.authority_name ?? null
       };
     });
-    const cap = limit ?? 50;
-    const hayMas = hearings.length === cap;
+    const programadas = hearings.filter((h) => h.scheduled_at);
+    const marcadores = hearings.filter((h) => !h.scheduled_at);
     return textResult(
-      `${hearings.length} audiencias${hayMas ? ` (tope de ${cap} alcanzado \u2014 puede haber m\xE1s; sube \`limit\` o acota con date_from/date_to)` : ""}.`,
+      `${programadas.length} audiencia(s) con fecha programada${marcadores.length ? ` y ${marcadores.length} marcador(es) detectado(s) sin fecha (no son audiencias agendadas)` : ""}${hayMas ? ` \u2014 tope de ${cap} alcanzado, hay m\xE1s filas; sube \`limit\` o acota con date_from/date_to` : ""}.`,
       {
         work_item_id: itemId,
         range: { from: date_from ?? null, to: date_to ?? null },
         limit: cap,
         hay_mas: hayMas,
-        hearings
+        audiencias_programadas: programadas,
+        marcadores_sin_fecha: marcadores,
+        nota: "Solo `audiencias_programadas` tiene fecha y hora. `marcadores_sin_fecha` son filas detectadas sin fecha: nunca deben presentarse como agenda."
       }
     );
   }
