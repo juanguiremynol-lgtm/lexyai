@@ -337,9 +337,11 @@ export default function ClientWhatsAppNotices() {
           <TabsTrigger value="enviados">Enviados</TabsTrigger>
         </TabsList>
 
-        {/* ── Aprobados que no salieron ────────────────────────── */}
-        <TabsContent value="cola" className="space-y-4 pt-4" forceMount hidden={false}>
+        {/* ── Cola ─────────────────────────────────────────────── */}
+        <TabsContent value="cola" className="space-y-4 pt-4">
+          {/* Aprobados que no salieron */}
           {(stuck.data ?? []).length > 0 && (
+
             <Card className="border-destructive/40">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
