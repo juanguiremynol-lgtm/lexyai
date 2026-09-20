@@ -132,11 +132,19 @@ export default function ClientWhatsAppNotices() {
     },
   });
 
+  const clientNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of clients.data ?? []) m.set(c.id, c.name);
+    return m;
+  }, [clients.data]);
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["wa-client-drafts", orgId] });
+    qc.invalidateQueries({ queryKey: ["wa-client-stuck", orgId] });
     qc.invalidateQueries({ queryKey: ["wa-client-consents", orgId] });
     qc.invalidateQueries({ queryKey: ["wa-client-sends", orgId] });
   };
+
 
   const generate = useMutation({
     mutationFn: async () => {
