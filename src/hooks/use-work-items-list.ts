@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { WorkItem } from "@/types/work-item";
 import type { WorkflowType } from "@/lib/workflow-constants";
+import { matchesQuery, rankOf, type SearchableWorkItem } from "@/lib/search/normalized-search";
 
 export interface WorkItemListFilters {
   search?: string;
@@ -61,7 +62,8 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
           client_id,
           clients:client_id (
             id,
-            name
+            name,
+            id_number
           )
         `)
         .is("deleted_at", null)
