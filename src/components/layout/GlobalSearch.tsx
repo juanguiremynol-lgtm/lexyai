@@ -241,13 +241,15 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const buildWorkItemsQuery = () =>
     supabase.rpc("search_work_items_normalized", { p_query: query, p_limit: limitPerType });
 
+  // Clients are fetched scoped (not text-filtered server-side) so the same
+  // accent-insensitive, multi-token, digits-aware rules used for asuntos can
+  // be applied below. The caller's client list is small and RLS-scoped.
   const buildClientsQuery = () => {
     let q = supabase
       .from("clients")
       .select("id, name, id_number, city, email, owner_id")
       .is("deleted_at", null)
-      .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
-      .limit(limitPerType);
+      .limit(500);
 
     if (ctx.isAdmin && ctx.organizationId) {
       // Admin: RLS now allows all org clients
