@@ -197,6 +197,33 @@ export default function ClientWhatsAppNotices() {
       toast({ title: "No se envió", description: e.message.slice(0, 300), variant: "destructive" }),
   });
 
+  // Reintento de un aviso ya aprobado que no salió. No vuelve a aprobar nada:
+  // la aprobación original es inmutable; sólo se repite el intento de envío.
+  const retrySend = useMutation({
+    mutationFn: async (draftId: string) => {
+      const { error: backErr } = await supabase
+        .from("client_wa_drafts")
+        .update({ status: "APPROVED" })
+        .eq("id", draftId)
+        .in("status", ["FAILED", "APPROVED"]);
+      if (backErr) throw backErr;
+      const { data, error: fnErr } = await supabase.functions.invoke("whatsapp-send-client-notice", {
+        body: { draft_id: draftId },
+      });
+      if (fnErr) {
+        const details = await (fnErr as { context?: { text?: () => Promise<string> } })?.context?.text?.();
+        throw new Error(details || fnErr.message);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "Aviso enviado" });
+      refresh();
+    },
+    onError: (e: Error) =>
+      toast({ title: "No se envió", description: e.message.slice(0, 300), variant: "destructive" }),
+  });
+
   const discard = useMutation({
     mutationFn: async (draftId: string) => {
       const reason = (discardReason[draftId] ?? "").trim();
@@ -205,9 +232,10 @@ export default function ClientWhatsAppNotices() {
         .from("client_wa_drafts")
         .update({ status: "DISCARDED", discard_reason: reason })
         .eq("id", draftId)
-        .eq("status", "PENDING");
+        .in("status", ["PENDING", "APPROVED", "FAILED"]);
       if (error) throw error;
     },
+
     onSuccess: () => {
       toast({ title: "Borrador descartado" });
       refresh();
@@ -461,7 +489,7 @@ export default function ClientWhatsAppNotices() {
               <CardContent className="space-y-1 py-4 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {(s.clients as { name?: string } | null)?.name ?? "Cliente"} · {s.phone_e164}
+                    {clientNames.get(s.client_id) ?? "Cliente"} · {s.phone_e164}
                   </span>
                   <Badge variant={s.delivery_status === "FAILED" ? "destructive" : "secondary"}>
                     {s.delivery_status}
