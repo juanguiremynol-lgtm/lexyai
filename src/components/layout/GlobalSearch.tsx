@@ -313,7 +313,9 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
     };
   }).sort((a, b) => a.relevance - b.relevance);
 
-  const clients: SearchResult[] = (clientsResult.data || []).map((client) => {
+  const clients: SearchResult[] = (clientsResult.data || []).filter((client) =>
+    matchesAllTokens(query, [client.name, client.id_number, client.city, client.email]),
+  ).slice(0, limitPerType).map((client) => {
     const isOrgItem = ctx.isAdmin && client.owner_id !== ctx.userId;
     const result: SearchResult = {
       id: client.id,
@@ -330,7 +332,9 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
     return result;
   }).sort((a, b) => a.relevance - b.relevance);
 
-  const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => {
+  const actuaciones: SearchResult[] = (actuacionesResult.data || []).filter((act) =>
+    matchesAllTokens(query, [act.description, act.act_type]),
+  ).slice(0, limitPerType).map((act) => {
     const text = act.description ?? "";
     const snippet = text ? `${text.substring(0, 60)}${text.length > 60 ? "..." : ""}` : "Sin descripción";
     const result = {
