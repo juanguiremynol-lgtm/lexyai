@@ -79,13 +79,35 @@ export default function ClientWhatsAppNotices() {
     },
   });
 
+  // Borradores ya aprobados que no llegaron a enviarse (fallo del proveedor,
+  // perfil incompleto, WhatsApp sin conectar). Deben seguir a la vista con un
+  // reintento explícito: un aviso aprobado nunca puede desaparecer en silencio.
+  const stuck = useQuery({
+    queryKey: ["wa-client-stuck", orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_wa_drafts")
+        .select(
+          "id, client_id, work_item_id, source_kind, fact_date, body_text, edited_body_text, status, expires_at, approved_at, clients(name), work_items(radicado, title)",
+        )
+        .eq("organization_id", orgId!)
+        .in("status", ["APPROVED", "SENDING", "FAILED"])
+        .order("approved_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const sends = useQuery({
     queryKey: ["wa-client-sends", orgId],
     enabled: !!orgId,
     queryFn: async () => {
+      // client_wa_sends no tiene llave foránea hacia clients: el nombre se
+      // resuelve en el cliente, no con un embed que PostgREST rechaza.
       const { data, error } = await supabase
         .from("client_wa_sends")
-        .select("id, body_text, phone_e164, sent_at, delivery_status, error_text, clients:client_id(name)")
+        .select("id, client_id, body_text, phone_e164, sent_at, delivery_status, error_text")
         .eq("organization_id", orgId!)
         .order("sent_at", { ascending: false })
         .limit(100);
@@ -93,6 +115,7 @@ export default function ClientWhatsAppNotices() {
       return data ?? [];
     },
   });
+
 
   const clients = useQuery({
     queryKey: ["wa-clients", orgId],
