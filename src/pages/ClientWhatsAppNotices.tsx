@@ -337,7 +337,68 @@ export default function ClientWhatsAppNotices() {
           <TabsTrigger value="enviados">Enviados</TabsTrigger>
         </TabsList>
 
+        {/* ── Aprobados que no salieron ────────────────────────── */}
+        <TabsContent value="cola" className="space-y-4 pt-4" forceMount hidden={false}>
+          {(stuck.data ?? []).length > 0 && (
+            <Card className="border-destructive/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Aprobados que no llegaron a enviarse ({(stuck.data ?? []).length})
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Usted ya los aprobó, pero el envío no se completó. Siguen aquí hasta que los reintente
+                  o los descarte: ninguno se envió al cliente.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(stuck.data ?? []).map((d) => (
+                  <div key={d.id} className="space-y-2 rounded-md border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium">
+                        {(d.clients as { name?: string } | null)?.name ?? "Cliente"}
+                      </span>
+                      <Badge variant={d.status === "FAILED" ? "destructive" : "secondary"}>
+                        {d.status === "FAILED"
+                          ? "Falló el envío"
+                          : d.status === "SENDING"
+                            ? "Envío en curso"
+                            : "Aprobado, sin enviar"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{d.edited_body_text ?? d.body_text}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => retrySend.mutate(d.id)}
+                        disabled={retrySend.isPending || d.status === "SENDING"}
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        Reintentar envío
+                      </Button>
+                      <Input
+                        className="w-56"
+                        placeholder="Motivo para descartarlo"
+                        value={discardReason[d.id] ?? ""}
+                        onChange={(e) => setDiscardReason((p) => ({ ...p, [d.id]: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => discard.mutate(d.id)}
+                        disabled={discard.isPending}
+                      >
+                        Descartar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
         {/* ── Cola ─────────────────────────────────────────────── */}
+
         <TabsContent value="cola" className="space-y-4 pt-4">
           {drafts.isLoading && <Skeleton className="h-32 w-full" />}
           {!drafts.isLoading && (drafts.data?.length ?? 0) === 0 && (
