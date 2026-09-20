@@ -6,6 +6,7 @@ import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
 import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
 import { resolveMonitoringOffReason } from "@/lib/monitoring-reason";
+import { insertIgnoringDuplicates } from "@/lib/db/insert-ignoring-duplicates";
 
 // Interface for initial actuaciones from lookup
 interface InitialActuacion {
@@ -256,17 +257,25 @@ export function useCreateWorkItem() {
           };
         });
 
-        const { error: actsError } = await supabase
-          .from("work_item_acts")
-          .upsert(actsToInsert as any, { 
-            onConflict: 'work_item_id,hash_fingerprint',
-            ignoreDuplicates: true 
-          });
+        // NOTE: do NOT use `.upsert(..., { onConflict: 'work_item_id,hash_fingerprint' })`.
+        // The dedupe index on work_item_acts is PARTIAL (WHERE is_archived = false),
+        // so Postgres rejects the inferred ON CONFLICT with 42P10 and every act is
+        // dropped silently — that is how wizard-found actuaciones disappeared.
+        const actsResult = await insertIgnoringDuplicates(
+          supabase as any,
+          "work_item_acts",
+          actsToInsert as unknown as Record<string, unknown>[],
+        );
 
-        if (actsError) {
-          console.warn("[use-create-work-item] Failed to save initial acts to work_item_acts:", actsError);
+        if (actsResult.error) {
+          console.error("[use-create-work-item] Failed to save initial acts:", actsResult.error);
+          toast.error("El asunto se creó, pero no se pudieron guardar las actuaciones encontradas", {
+            description: "Usa \"Actualizar ahora\" en el asunto para volver a intentarlo.",
+          });
         } else {
-          console.log(`[use-create-work-item] Successfully saved ${actsToInsert.length} acts to work_item_acts`);
+          console.log(
+            `[use-create-work-item] Saved ${actsResult.inserted} acts (${actsResult.duplicates} duplicadas) to work_item_acts`,
+          );
         }
       }
 

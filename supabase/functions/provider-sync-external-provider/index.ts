@@ -31,6 +31,7 @@ import {
   reclassifyWithContext,
 } from "../_shared/syncPolicy.ts";
 import { normalizeActuaciones, normalizePublicaciones, translateSamaiFormat } from "../_shared/providerNormalize.ts";
+import { insertIgnoringDuplicates } from "../_shared/insertIgnoringDuplicates.ts";
 import { validateProviderResult } from "../_shared/providerAdapters/contractValidator.ts";
 import {
   validateSnapshotAgainstContract,
@@ -844,18 +845,15 @@ Deno.serve(async (req) => {
       console.log(`[EXT_PROVIDER] Dedup: ${normalized.length} incoming, ${fpDedupCount} fp-matched, ${semanticDedupCount} semantic-matched, ${toInsert.length} genuinely new, ${droppedMissingFields} dropped-invalid, ${hashCollisions} hash-collisions`);
 
       if (toInsert.length > 0) {
-        const { data: inserted, error: upsertErr } = await db
-          .from("work_item_acts")
-          .upsert(toInsert, { onConflict: "work_item_id,hash_fingerprint", ignoreDuplicates: true })
-          .select("id");
-        if (upsertErr) {
-          console.error(`[EXT_PROVIDER] Upsert error: ${upsertErr.message} (code: ${upsertErr.code})`);
+        // Partial dedupe index (WHERE is_archived = false) ⇒ ON CONFLICT is not
+        // inferable (42P10). Insert plainly and tolerate 23505 instead.
+        const actsWrite = await insertIgnoringDuplicates(db, "work_item_acts", toInsert);
+        if (actsWrite.error) {
+          console.error(`[EXT_PROVIDER] Acts insert error: ${actsWrite.error.message} (code: ${actsWrite.error.code})`);
         }
-        insertedActs = inserted?.length || 0;
-        if (inserted) {
-          insertedActIds.push(...inserted.map((r: any) => r.id));
-          allConfirmedActIds.push(...inserted.map((r: any) => r.id));
-        }
+        insertedActs = actsWrite.inserted;
+        insertedActIds.push(...actsWrite.insertedIds);
+        allConfirmedActIds.push(...actsWrite.insertedIds);
       }
     } else if (acts.length > 0 && isEstadosProvider) {
       // ESTADOS-family providers (samai_estados) MUST NOT write to work_item_acts.
@@ -874,12 +872,14 @@ Deno.serve(async (req) => {
         pubs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
         isEstadosProvider ? "samai_estados" : (connector?.key ?? null),
       );
-      const { data: inserted } = await db
-        .from("work_item_publicaciones")
-        .upsert(normalized, { onConflict: "hash_fingerprint", ignoreDuplicates: true })
-        .select("id");
-      insertedPubs = inserted?.length || 0;
-      if (inserted) insertedPubIds.push(...inserted.map((r: any) => r.id));
+      // Same 42P10 trap: the pubs dedupe index is partial and keyed on
+      // (work_item_id, hash_fingerprint), so `onConflict: hash_fingerprint` fails.
+      const pubsWrite = await insertIgnoringDuplicates(db, "work_item_publicaciones", normalized);
+      if (pubsWrite.error) {
+        console.error(`[EXT_PROVIDER] Pubs insert error: ${pubsWrite.error.message} (code: ${pubsWrite.error.code})`);
+      }
+      insertedPubs = pubsWrite.inserted;
+      insertedPubIds.push(...pubsWrite.insertedIds);
     }
 
     await writeTrace(db, runId, source, instance, "UPSERTED_CANONICAL", "OK", true, 0, {
