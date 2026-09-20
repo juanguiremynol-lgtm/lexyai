@@ -24,7 +24,32 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { MATCHED_FIELD_LABELS, formatRadicadoPretty } from "@/lib/search/normalized-search";
+import {
+  MATCHED_FIELD_LABELS,
+  digitsOf,
+  fold,
+  formatRadicadoPretty,
+  tokenize,
+} from "@/lib/search/normalized-search";
+
+/**
+ * Accent-insensitive, multi-token AND matching over a set of text fields.
+ * Mirrors the work-item search rules so clientes y actuaciones behave the
+ * same way as asuntos ("Medellin" finds "Medellín", "Juan Restrepo" matches
+ * "Juan Guillermo Restrepo Maya", "1.017.133.290" matches "1017133290").
+ */
+function matchesAllTokens(query: string, fields: (string | null | undefined)[]): boolean {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) return false;
+  const folded = fields.map((f) => fold(f));
+  const digits = fields.map((f) => digitsOf(f)).filter(Boolean);
+  return tokens.every((token) => {
+    const t = fold(token);
+    if (t && folded.some((f) => f.includes(t))) return true;
+    const d = digitsOf(token);
+    return d.length >= 3 && digits.some((f) => f.includes(d));
+  });
+}
 
 // ── Types ──
 interface SearchResult {
@@ -59,7 +84,7 @@ interface RecentItem {
 
 // ── Category shortcuts ──
 const CATEGORY_SHORTCUTS = [
-  { label: "Todos los asuntos", icon: <FileText className="h-4 w-4" />, route: "/app/work-items" },
+  { label: "Todos los asuntos", icon: <FileText className="h-4 w-4" />, route: "/app/processes" },
   { label: "Clientes", icon: <Users className="h-4 w-4" />, route: "/app/clients" },
   { label: "Alertas", icon: <Bell className="h-4 w-4" />, route: "/app/alerts" },
 ] as const;
