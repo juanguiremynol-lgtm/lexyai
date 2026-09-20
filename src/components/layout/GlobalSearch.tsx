@@ -344,7 +344,7 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       subtitle: snippet,
       badge: act.act_type || "Actuación",
       badgeVariant: "default" as const,
-      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
+      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/processes`,
       relevance: 5,
     };
     result.relevance = scoreResult(result, query);
