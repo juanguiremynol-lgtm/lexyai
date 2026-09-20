@@ -232,8 +232,10 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const ctx = await getSearchContext();
   if (!ctx) return { work_items: [], clients: [], actuaciones: [] };
 
-  const searchPattern = `%${query}%`;
   const limitPerType = 10;
+  const anchorToken =
+    tokenize(query).slice().sort((a, b) => b.length - a.length)[0] ?? query;
+  const anchorPattern = `%${anchorToken}%`;
 
   // Work items go through the normalized search RPC (radicado in any form,
   // partial radicado, courthouse e-mail, parties, client id). It is
