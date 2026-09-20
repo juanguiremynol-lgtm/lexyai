@@ -269,10 +269,12 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       // `work_item_acts` is the single canonical actuaciones table.
       .from("work_item_acts")
       .select("id, work_item_id, act_type, description, act_date")
-      .or(`description.ilike.${searchPattern},act_type.ilike.${searchPattern}`)
+      // Server-side narrowing uses the longest token; the full multi-token,
+      // accent-insensitive rule is applied on the fetched rows below.
+      .or(`description.ilike.${anchorPattern},act_type.ilike.${anchorPattern}`)
       .or("is_archived.is.null,is_archived.eq.false")
       .order("act_date", { ascending: false })
-      .limit(limitPerType);
+      .limit(limitPerType * 10);
 
     if (ctx.isAdmin && ctx.organizationId) {
       q = q.eq("organization_id", ctx.organizationId);
