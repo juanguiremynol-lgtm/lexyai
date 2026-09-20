@@ -397,11 +397,6 @@ export default function ClientWhatsAppNotices() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
-
-        {/* ── Cola ─────────────────────────────────────────────── */}
-
-        <TabsContent value="cola" className="space-y-4 pt-4">
           {drafts.isLoading && <Skeleton className="h-32 w-full" />}
           {!drafts.isLoading && (drafts.data?.length ?? 0) === 0 && (
             <Card>
