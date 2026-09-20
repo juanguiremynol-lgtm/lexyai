@@ -79,13 +79,35 @@ export default function ClientWhatsAppNotices() {
     },
   });
 
+  // Borradores ya aprobados que no llegaron a enviarse (fallo del proveedor,
+  // perfil incompleto, WhatsApp sin conectar). Deben seguir a la vista con un
+  // reintento explícito: un aviso aprobado nunca puede desaparecer en silencio.
+  const stuck = useQuery({
+    queryKey: ["wa-client-stuck", orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_wa_drafts")
+        .select(
+          "id, client_id, work_item_id, source_kind, fact_date, body_text, edited_body_text, status, expires_at, approved_at, clients(name), work_items(radicado, title)",
+        )
+        .eq("organization_id", orgId!)
+        .in("status", ["APPROVED", "SENDING", "FAILED"])
+        .order("approved_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const sends = useQuery({
     queryKey: ["wa-client-sends", orgId],
     enabled: !!orgId,
     queryFn: async () => {
+      // client_wa_sends no tiene llave foránea hacia clients: el nombre se
+      // resuelve en el cliente, no con un embed que PostgREST rechaza.
       const { data, error } = await supabase
         .from("client_wa_sends")
-        .select("id, body_text, phone_e164, sent_at, delivery_status, error_text, clients:client_id(name)")
+        .select("id, client_id, body_text, phone_e164, sent_at, delivery_status, error_text")
         .eq("organization_id", orgId!)
         .order("sent_at", { ascending: false })
         .limit(100);
@@ -93,6 +115,7 @@ export default function ClientWhatsAppNotices() {
       return data ?? [];
     },
   });
+
 
   const clients = useQuery({
     queryKey: ["wa-clients", orgId],
@@ -109,11 +132,19 @@ export default function ClientWhatsAppNotices() {
     },
   });
 
+  const clientNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of clients.data ?? []) m.set(c.id, c.name);
+    return m;
+  }, [clients.data]);
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["wa-client-drafts", orgId] });
+    qc.invalidateQueries({ queryKey: ["wa-client-stuck", orgId] });
     qc.invalidateQueries({ queryKey: ["wa-client-consents", orgId] });
     qc.invalidateQueries({ queryKey: ["wa-client-sends", orgId] });
   };
+
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -166,6 +197,33 @@ export default function ClientWhatsAppNotices() {
       toast({ title: "No se envió", description: e.message.slice(0, 300), variant: "destructive" }),
   });
 
+  // Reintento de un aviso ya aprobado que no salió. No vuelve a aprobar nada:
+  // la aprobación original es inmutable; sólo se repite el intento de envío.
+  const retrySend = useMutation({
+    mutationFn: async (draftId: string) => {
+      const { error: backErr } = await supabase
+        .from("client_wa_drafts")
+        .update({ status: "APPROVED" })
+        .eq("id", draftId)
+        .in("status", ["FAILED", "APPROVED"]);
+      if (backErr) throw backErr;
+      const { data, error: fnErr } = await supabase.functions.invoke("whatsapp-send-client-notice", {
+        body: { draft_id: draftId },
+      });
+      if (fnErr) {
+        const details = await (fnErr as { context?: { text?: () => Promise<string> } })?.context?.text?.();
+        throw new Error(details || fnErr.message);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "Aviso enviado" });
+      refresh();
+    },
+    onError: (e: Error) =>
+      toast({ title: "No se envió", description: e.message.slice(0, 300), variant: "destructive" }),
+  });
+
   const discard = useMutation({
     mutationFn: async (draftId: string) => {
       const reason = (discardReason[draftId] ?? "").trim();
@@ -174,9 +232,10 @@ export default function ClientWhatsAppNotices() {
         .from("client_wa_drafts")
         .update({ status: "DISCARDED", discard_reason: reason })
         .eq("id", draftId)
-        .eq("status", "PENDING");
+        .in("status", ["PENDING", "APPROVED", "FAILED"]);
       if (error) throw error;
     },
+
     onSuccess: () => {
       toast({ title: "Borrador descartado" });
       refresh();
@@ -280,6 +339,64 @@ export default function ClientWhatsAppNotices() {
 
         {/* ── Cola ─────────────────────────────────────────────── */}
         <TabsContent value="cola" className="space-y-4 pt-4">
+          {/* Aprobados que no salieron */}
+          {(stuck.data ?? []).length > 0 && (
+
+            <Card className="border-destructive/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Aprobados que no llegaron a enviarse ({(stuck.data ?? []).length})
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Usted ya los aprobó, pero el envío no se completó. Siguen aquí hasta que los reintente
+                  o los descarte: ninguno se envió al cliente.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(stuck.data ?? []).map((d) => (
+                  <div key={d.id} className="space-y-2 rounded-md border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium">
+                        {(d.clients as { name?: string } | null)?.name ?? "Cliente"}
+                      </span>
+                      <Badge variant={d.status === "FAILED" ? "destructive" : "secondary"}>
+                        {d.status === "FAILED"
+                          ? "Falló el envío"
+                          : d.status === "SENDING"
+                            ? "Envío en curso"
+                            : "Aprobado, sin enviar"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{d.edited_body_text ?? d.body_text}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => retrySend.mutate(d.id)}
+                        disabled={retrySend.isPending || d.status === "SENDING"}
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        Reintentar envío
+                      </Button>
+                      <Input
+                        className="w-56"
+                        placeholder="Motivo para descartarlo"
+                        value={discardReason[d.id] ?? ""}
+                        onChange={(e) => setDiscardReason((p) => ({ ...p, [d.id]: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => discard.mutate(d.id)}
+                        disabled={discard.isPending}
+                      >
+                        Descartar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
           {drafts.isLoading && <Skeleton className="h-32 w-full" />}
           {!drafts.isLoading && (drafts.data?.length ?? 0) === 0 && (
             <Card>
@@ -430,7 +547,7 @@ export default function ClientWhatsAppNotices() {
               <CardContent className="space-y-1 py-4 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {(s.clients as { name?: string } | null)?.name ?? "Cliente"} · {s.phone_e164}
+                    {clientNames.get(s.client_id) ?? "Cliente"} · {s.phone_e164}
                   </span>
                   <Badge variant={s.delivery_status === "FAILED" ? "destructive" : "secondary"}>
                     {s.delivery_status}
