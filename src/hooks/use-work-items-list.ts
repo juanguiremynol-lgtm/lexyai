@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { WorkItem } from "@/types/work-item";
 import type { WorkflowType } from "@/lib/workflow-constants";
+import { matchesQuery, rankOf, type SearchableWorkItem } from "@/lib/search/normalized-search";
 
 export interface WorkItemListFilters {
   search?: string;
@@ -61,7 +62,8 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
           client_id,
           clients:client_id (
             id,
-            name
+            name,
+            id_number
           )
         `)
         .is("deleted_at", null)
@@ -84,21 +86,28 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
 
       let items = data as unknown as WorkItem[];
 
-      if (filters?.search) {
-        const searchLower = filters.search.toLowerCase().trim();
-        items = items.filter((item) => {
-          const radicadoMatch = item.radicado?.toLowerCase().includes(searchLower);
-          const authorityMatch = item.authority_name?.toLowerCase().includes(searchLower);
-          const cityMatch = item.authority_city?.toLowerCase().includes(searchLower);
-          const demandantesMatch = item.demandantes?.toLowerCase().includes(searchLower);
-          const demandadosMatch = item.demandados?.toLowerCase().includes(searchLower);
-          const titleMatch = item.title?.toLowerCase().includes(searchLower);
-          const clientMatch = item.clients?.name?.toLowerCase().includes(searchLower);
-          return (
-            radicadoMatch || authorityMatch || cityMatch ||
-            demandantesMatch || demandadosMatch || titleMatch || clientMatch
-          );
+      // Same normalized rules as the global search: radicado in any form
+      // (hyphenated, spaced, 21/22-digit, partial), accent-insensitive text,
+      // multi-token AND across radicado, partes, despacho, ciudad, tipo,
+      // etapa, cliente and su identificación.
+      const term = filters?.search?.trim();
+      if (term) {
+        const toSearchable = (item: WorkItem): SearchableWorkItem => ({
+          radicado: item.radicado,
+          title: item.title,
+          demandantes: item.demandantes,
+          demandados: item.demandados,
+          authority_name: item.authority_name,
+          authority_city: item.authority_city,
+          workflow_type: item.workflow_type,
+          stage: item.stage,
+          client_name: item.clients?.name ?? null,
+          client_id_number: (item.clients as { id_number?: string | null } | null)?.id_number ?? null,
         });
+
+        items = items
+          .filter((item) => matchesQuery(toSearchable(item), term))
+          .sort((a, b) => rankOf(toSearchable(a), term) - rankOf(toSearchable(b), term));
       }
 
       return items;

@@ -55,12 +55,14 @@ export default function Processes() {
   const [search, setSearch] = useState("");
   const [selectedWorkflowTypes, setSelectedWorkflowTypes] = useState<WorkflowType[]>([
     "CGP",
+    "EJECUTIVO",
     "CPACA",
     "TUTELA",
     "GOV_PROCEDURE",
     "LABORAL",
     "PENAL_906",
     "PETICION",
+    "INDETERMINADO",
   ]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -183,7 +185,17 @@ export default function Processes() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                {(["CGP", "CPACA", "TUTELA", "PETICION", "GOV_PROCEDURE"] as WorkflowType[]).map((type) => (
+                {([
+                  "CGP",
+                  "EJECUTIVO",
+                  "CPACA",
+                  "TUTELA",
+                  "PETICION",
+                  "GOV_PROCEDURE",
+                  "LABORAL",
+                  "PENAL_906",
+                  "INDETERMINADO",
+                ] as WorkflowType[]).map((type) => (
                   <DropdownMenuCheckboxItem
                     key={type}
                     checked={selectedWorkflowTypes.includes(type)}

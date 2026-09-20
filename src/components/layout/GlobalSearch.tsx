@@ -24,7 +24,32 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { MATCHED_FIELD_LABELS, formatRadicadoPretty } from "@/lib/search/normalized-search";
+import {
+  MATCHED_FIELD_LABELS,
+  digitsOf,
+  fold,
+  formatRadicadoPretty,
+  tokenize,
+} from "@/lib/search/normalized-search";
+
+/**
+ * Accent-insensitive, multi-token AND matching over a set of text fields.
+ * Mirrors the work-item search rules so clientes y actuaciones behave the
+ * same way as asuntos ("Medellin" finds "Medellín", "Juan Restrepo" matches
+ * "Juan Guillermo Restrepo Maya", "1.017.133.290" matches "1017133290").
+ */
+function matchesAllTokens(query: string, fields: (string | null | undefined)[]): boolean {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) return false;
+  const folded = fields.map((f) => fold(f));
+  const digits = fields.map((f) => digitsOf(f)).filter(Boolean);
+  return tokens.every((token) => {
+    const t = fold(token);
+    if (t && folded.some((f) => f.includes(t))) return true;
+    const d = digitsOf(token);
+    return d.length >= 3 && digits.some((f) => f.includes(d));
+  });
+}
 
 // ── Types ──
 interface SearchResult {
@@ -59,7 +84,7 @@ interface RecentItem {
 
 // ── Category shortcuts ──
 const CATEGORY_SHORTCUTS = [
-  { label: "Todos los asuntos", icon: <FileText className="h-4 w-4" />, route: "/app/work-items" },
+  { label: "Todos los asuntos", icon: <FileText className="h-4 w-4" />, route: "/app/processes" },
   { label: "Clientes", icon: <Users className="h-4 w-4" />, route: "/app/clients" },
   { label: "Alertas", icon: <Bell className="h-4 w-4" />, route: "/app/alerts" },
 ] as const;
@@ -207,8 +232,10 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const ctx = await getSearchContext();
   if (!ctx) return { work_items: [], clients: [], actuaciones: [] };
 
-  const searchPattern = `%${query}%`;
   const limitPerType = 10;
+  const anchorToken =
+    tokenize(query).slice().sort((a, b) => b.length - a.length)[0] ?? query;
+  const anchorPattern = `%${anchorToken}%`;
 
   // Work items go through the normalized search RPC (radicado in any form,
   // partial radicado, courthouse e-mail, parties, client id). It is
@@ -216,13 +243,15 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const buildWorkItemsQuery = () =>
     supabase.rpc("search_work_items_normalized", { p_query: query, p_limit: limitPerType });
 
+  // Clients are fetched scoped (not text-filtered server-side) so the same
+  // accent-insensitive, multi-token, digits-aware rules used for asuntos can
+  // be applied below. The caller's client list is small and RLS-scoped.
   const buildClientsQuery = () => {
     let q = supabase
       .from("clients")
       .select("id, name, id_number, city, email, owner_id")
       .is("deleted_at", null)
-      .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
-      .limit(limitPerType);
+      .limit(500);
 
     if (ctx.isAdmin && ctx.organizationId) {
       // Admin: RLS now allows all org clients
@@ -242,10 +271,12 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       // `work_item_acts` is the single canonical actuaciones table.
       .from("work_item_acts")
       .select("id, work_item_id, act_type, description, act_date")
-      .or(`description.ilike.${searchPattern},act_type.ilike.${searchPattern}`)
+      // Server-side narrowing uses the longest token; the full multi-token,
+      // accent-insensitive rule is applied on the fetched rows below.
+      .or(`description.ilike.${anchorPattern},act_type.ilike.${anchorPattern}`)
       .or("is_archived.is.null,is_archived.eq.false")
       .order("act_date", { ascending: false })
-      .limit(limitPerType);
+      .limit(limitPerType * 10);
 
     if (ctx.isAdmin && ctx.organizationId) {
       q = q.eq("organization_id", ctx.organizationId);
@@ -282,7 +313,9 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
     };
   }).sort((a, b) => a.relevance - b.relevance);
 
-  const clients: SearchResult[] = (clientsResult.data || []).map((client) => {
+  const clients: SearchResult[] = (clientsResult.data || []).filter((client) =>
+    matchesAllTokens(query, [client.name, client.id_number, client.city, client.email]),
+  ).slice(0, limitPerType).map((client) => {
     const isOrgItem = ctx.isAdmin && client.owner_id !== ctx.userId;
     const result: SearchResult = {
       id: client.id,
@@ -299,7 +332,9 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
     return result;
   }).sort((a, b) => a.relevance - b.relevance);
 
-  const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => {
+  const actuaciones: SearchResult[] = (actuacionesResult.data || []).filter((act) =>
+    matchesAllTokens(query, [act.description, act.act_type]),
+  ).slice(0, limitPerType).map((act) => {
     const text = act.description ?? "";
     const snippet = text ? `${text.substring(0, 60)}${text.length > 60 ? "..." : ""}` : "Sin descripción";
     const result = {
@@ -309,7 +344,7 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       subtitle: snippet,
       badge: act.act_type || "Actuación",
       badgeVariant: "default" as const,
-      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
+      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/processes`,
       relevance: 5,
     };
     result.relevance = scoreResult(result, query);
