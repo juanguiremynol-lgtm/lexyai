@@ -1231,7 +1231,7 @@ Deno.serve(async (req) => {
           next_attempt_at: new Date().toISOString(),
           trigger_reason: "DAILY_CONSOLIDATED_DIGEST",
           trigger_event: "scheduled-daily-digest",
-          dedupe_key: `daily-digest-${ownerId}-${digestDate}`,
+          dedupe_key: dedupeKey,
         }).select("id").maybeSingle();
 
         // AUDIT FINDING 10 — 23505 means today's digest is ALREADY queued for
