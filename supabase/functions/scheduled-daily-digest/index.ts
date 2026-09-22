@@ -418,6 +418,8 @@ Deno.serve(async (req) => {
         // released, so the real 06:30 digest still runs and its window still
         // starts where the last SENT digest ended.
         const releaseClaim = async () => {
+          // A catch-up run borrows the day's real row: it must never delete it.
+          if (reusedRunId) return;
           await supabase.from("daily_digest_runs").delete().eq("id", runId);
         };
 
