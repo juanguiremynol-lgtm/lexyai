@@ -1298,6 +1298,8 @@ Deno.serve(async (req) => {
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
+          // The boundary the NEXT digest continues from — on a catch-up too.
+          window_to: windowTo,
           monitored_count: judicialItems.length,
           actuaciones_count: actuaciones.length,
           estados_count: estados.length,
