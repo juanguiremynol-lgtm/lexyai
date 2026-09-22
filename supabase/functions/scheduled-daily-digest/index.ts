@@ -130,25 +130,44 @@ Deno.serve(async (req) => {
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
 
-  // ── ZZ2 — THE WINDOW IS A CALENDAR DAY IN BOGOTÁ, NOT A ROLLING 24h ──────
-  // A lawyer reasons in judicial days: the estados of one day are one list, and
-  // a rolling window cut at generation time splits that list across two emails
-  // (which is exactly how 26-ago's act landed in the 27-ago mail here and in
-  // the 28-ago mail at GCP). The window therefore closes at 00:00 COT of the
-  // digest date and opens where the previous digest closed — so a missed day
-  // widens the window instead of dropping it.
+  // ── ZZ2 / AH1 — THE WINDOW OPENS ON A CALENDAR BOUNDARY AND CLOSES NOW ───
+  // ZZ2 closed the window at 00:00 COT of the digest date so a judicial day
+  // would not be split across two emails. That rule had a defect the reader
+  // felt every morning: everything the syncs detect BETWEEN 00:00 COT and the
+  // 08:00 COT send is already on screen ("Actuaciones de hoy") but falls after
+  // the closing boundary, so the mail that goes out minutes later never
+  // mentions it and the lawyer must wait a full day (22-sep: six memoriales
+  // detected 07:00–10:28 COT, absent from the 10:31 mail).
+  // `detected_at` is the canonical clock for the feeds and the mail, so the
+  // window now CLOSES AT GENERATION TIME. Nothing is duplicated: the next
+  // digest opens exactly where this one closed.
   const bogotaDayStart = (d: string) => `${d}T05:00:00.000Z`;
   const prevBogotaDate = (d: string) =>
     new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-  /** Closing boundary: 00:00 COT of `digestDate`. */
-  const windowTo = typeof body?.window_to === "string" ? body.window_to : bogotaDayStart(digestDate);
+  /** Closing boundary: the instant this digest is composed. */
+  const windowTo = typeof body?.window_to === "string" ? body.window_to : new Date().toISOString();
   /** Default opening boundary: 00:00 COT of the previous calendar day. */
   const calendarFrom = bogotaDayStart(prevBogotaDate(digestDate));
-  /** ZZ2(b) — the same window said in words the reader can check. */
-  const windowLabel = new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString(
-    "es-CO",
-    { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Bogota" },
-  );
+  /**
+   * ZZ2(b) — the same window said in words the reader can check: the judicial
+   * day the window opened on, up to the moment of sending.
+   */
+  const windowLabel = `${
+    new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString("es-CO", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "America/Bogota",
+    })
+  } hasta el envío de este correo`;
+  /**
+   * AH1(b) — a catch-up run for a day whose digest already went out. It claims
+   * nothing (the day's slot is spent), continues from the sent digest's own
+   * closing boundary and relies on the dispatch ledger so no movement is
+   * mailed twice.
+   */
+  const catchUp = body?.catch_up === true;
   const hb = await startHeartbeat(supabase, "scheduled-daily-digest", String(body?.source ?? "cron"), {
     digest_date: digestDate,
     dry_run: dryRun,
