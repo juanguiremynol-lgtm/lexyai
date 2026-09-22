@@ -459,7 +459,9 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle();
         // `window_from` in the request body is a dry-run/backfill aid only.
+        // AH1(b) — a catch-up continues from where the day's sent digest closed.
         const windowFrom = (typeof body?.window_from === "string" ? body.window_from : null) ??
+          existingRunWindowTo ??
           prevRun?.window_to ??
           calendarFrom;
 
