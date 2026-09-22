@@ -1221,6 +1221,11 @@ Deno.serve(async (req) => {
           if (tokErr) { await fail(`tokens: ${tokErr.message}`); continue; }
         }
 
+        // AH1(b) — a catch-up is a SECOND mail for the same day on purpose, so
+        // it carries its own idempotency key; the normal run keeps the daily one.
+        const dedupeKey = `daily-digest-${ownerId}-${digestDate}` +
+          (reusedRunId ? `-catchup-${windowTo}` : "");
+
         const { data: outbox, error: outErr } = await supabase.from("email_outbox").insert({
           organization_id: orgOf.get(ownerId) ?? "00000000-0000-0000-0000-000000000000",
           to_email: email,
