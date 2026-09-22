@@ -130,25 +130,44 @@ Deno.serve(async (req) => {
   const onlyUser = typeof body?.user_id === "string" ? body.user_id : null;
   const digestDate = typeof body?.digest_date === "string" ? body.digest_date : bogotaDate();
 
-  // ── ZZ2 — THE WINDOW IS A CALENDAR DAY IN BOGOTÁ, NOT A ROLLING 24h ──────
-  // A lawyer reasons in judicial days: the estados of one day are one list, and
-  // a rolling window cut at generation time splits that list across two emails
-  // (which is exactly how 26-ago's act landed in the 27-ago mail here and in
-  // the 28-ago mail at GCP). The window therefore closes at 00:00 COT of the
-  // digest date and opens where the previous digest closed — so a missed day
-  // widens the window instead of dropping it.
+  // ── ZZ2 / AH1 — THE WINDOW OPENS ON A CALENDAR BOUNDARY AND CLOSES NOW ───
+  // ZZ2 closed the window at 00:00 COT of the digest date so a judicial day
+  // would not be split across two emails. That rule had a defect the reader
+  // felt every morning: everything the syncs detect BETWEEN 00:00 COT and the
+  // 08:00 COT send is already on screen ("Actuaciones de hoy") but falls after
+  // the closing boundary, so the mail that goes out minutes later never
+  // mentions it and the lawyer must wait a full day (22-sep: six memoriales
+  // detected 07:00–10:28 COT, absent from the 10:31 mail).
+  // `detected_at` is the canonical clock for the feeds and the mail, so the
+  // window now CLOSES AT GENERATION TIME. Nothing is duplicated: the next
+  // digest opens exactly where this one closed.
   const bogotaDayStart = (d: string) => `${d}T05:00:00.000Z`;
   const prevBogotaDate = (d: string) =>
     new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-  /** Closing boundary: 00:00 COT of `digestDate`. */
-  const windowTo = typeof body?.window_to === "string" ? body.window_to : bogotaDayStart(digestDate);
+  /** Closing boundary: the instant this digest is composed. */
+  const windowTo = typeof body?.window_to === "string" ? body.window_to : new Date().toISOString();
   /** Default opening boundary: 00:00 COT of the previous calendar day. */
   const calendarFrom = bogotaDayStart(prevBogotaDate(digestDate));
-  /** ZZ2(b) — the same window said in words the reader can check. */
-  const windowLabel = new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString(
-    "es-CO",
-    { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Bogota" },
-  );
+  /**
+   * ZZ2(b) — the same window said in words the reader can check: the judicial
+   * day the window opened on, up to the moment of sending.
+   */
+  const windowLabel = `${
+    new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString("es-CO", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "America/Bogota",
+    })
+  } hasta el envío de este correo`;
+  /**
+   * AH1(b) — a catch-up run for a day whose digest already went out. It claims
+   * nothing (the day's slot is spent), continues from the sent digest's own
+   * closing boundary and relies on the dispatch ledger so no movement is
+   * mailed twice.
+   */
+  const catchUp = body?.catch_up === true;
   const hb = await startHeartbeat(supabase, "scheduled-daily-digest", String(body?.source ?? "cron"), {
     digest_date: digestDate,
     dry_run: dryRun,
@@ -337,18 +356,39 @@ Deno.serve(async (req) => {
     for (const [ownerId, items] of byOwner) {
       let claimedRunId: string | null = null;
       try {
+        // AH1(b) — catch-up: reuse the day's row instead of claiming it.
+        let existingRunWindowTo: string | null = null;
+        let reusedRunId: string | null = null;
+        if (catchUp) {
+          const { data: sentRun } = await supabase
+            .from("daily_digest_runs")
+            .select("id, window_to")
+            .eq("digest_date", digestDate)
+            .eq("recipient_user_id", ownerId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (sentRun?.id) {
+            reusedRunId = sentRun.id as string;
+            existingRunWindowTo = (sentRun.window_to as string | null) ?? null;
+          }
+        }
+
         // ── Idempotency lock: the unique index does the work. ──
-        const { data: claimed, error: claimErr } = await supabase
-          .from("daily_digest_runs")
-          .insert({
-            digest_date: digestDate,
-            recipient_user_id: ownerId,
-            organization_id: orgOf.get(ownerId) ?? null,
-            status: "RUNNING",
-            window_to: windowTo,
-          })
-          .select("id")
-          .maybeSingle();
+        const claimResult = reusedRunId
+          ? { data: { id: reusedRunId }, error: null }
+          : await supabase
+            .from("daily_digest_runs")
+            .insert({
+              digest_date: digestDate,
+              recipient_user_id: ownerId,
+              organization_id: orgOf.get(ownerId) ?? null,
+              status: "RUNNING",
+              window_to: windowTo,
+            })
+            .select("id")
+            .maybeSingle();
+        const { data: claimed, error: claimErr } = claimResult;
 
         if (claimErr) {
           // 23505 = a digest for this recipient/day already exists.
@@ -371,13 +411,15 @@ Deno.serve(async (req) => {
           summary.skipped_already_ran++;
           continue;
         }
-        claimedRunId = runId;
+        claimedRunId = reusedRunId ? null : runId;
 
         // A preview must never consume the day. The claim row exists only to
         // hold the unique index while the run composes; on a dry run it is
         // released, so the real 06:30 digest still runs and its window still
         // starts where the last SENT digest ended.
         const releaseClaim = async () => {
+          // A catch-up run borrows the day's real row: it must never delete it.
+          if (reusedRunId) return;
           await supabase.from("daily_digest_runs").delete().eq("id", runId);
         };
 
@@ -417,7 +459,9 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle();
         // `window_from` in the request body is a dry-run/backfill aid only.
+        // AH1(b) — a catch-up continues from where the day's sent digest closed.
         const windowFrom = (typeof body?.window_from === "string" ? body.window_from : null) ??
+          existingRunWindowTo ??
           prevRun?.window_to ??
           calendarFrom;
 
@@ -1177,6 +1221,11 @@ Deno.serve(async (req) => {
           if (tokErr) { await fail(`tokens: ${tokErr.message}`); continue; }
         }
 
+        // AH1(b) — a catch-up is a SECOND mail for the same day on purpose, so
+        // it carries its own idempotency key; the normal run keeps the daily one.
+        const dedupeKey = `daily-digest-${ownerId}-${digestDate}` +
+          (reusedRunId ? `-catchup-${windowTo}` : "");
+
         const { data: outbox, error: outErr } = await supabase.from("email_outbox").insert({
           organization_id: orgOf.get(ownerId) ?? "00000000-0000-0000-0000-000000000000",
           to_email: email,
@@ -1187,7 +1236,7 @@ Deno.serve(async (req) => {
           next_attempt_at: new Date().toISOString(),
           trigger_reason: "DAILY_CONSOLIDATED_DIGEST",
           trigger_event: "scheduled-daily-digest",
-          dedupe_key: `daily-digest-${ownerId}-${digestDate}`,
+          dedupe_key: dedupeKey,
         }).select("id").maybeSingle();
 
         // AUDIT FINDING 10 — 23505 means today's digest is ALREADY queued for
@@ -1204,7 +1253,7 @@ Deno.serve(async (req) => {
           const { data: existing } = await supabase
             .from("email_outbox")
             .select("id")
-            .eq("dedupe_key", `daily-digest-${ownerId}-${digestDate}`)
+            .eq("dedupe_key", dedupeKey)
             .maybeSingle();
           outboxId = existing?.id ?? null;
           console.warn(`[scheduled-daily-digest] digest already queued for ${ownerId} on ${digestDate}`);
@@ -1249,6 +1298,8 @@ Deno.serve(async (req) => {
         await supabase.from("daily_digest_runs").update({
           status: "SENT",
           window_from: windowFrom,
+          // The boundary the NEXT digest continues from — on a catch-up too.
+          window_to: windowTo,
           monitored_count: judicialItems.length,
           actuaciones_count: actuaciones.length,
           estados_count: estados.length,
