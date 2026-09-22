@@ -356,18 +356,39 @@ Deno.serve(async (req) => {
     for (const [ownerId, items] of byOwner) {
       let claimedRunId: string | null = null;
       try {
+        // AH1(b) — catch-up: reuse the day's row instead of claiming it.
+        let existingRunWindowTo: string | null = null;
+        let reusedRunId: string | null = null;
+        if (catchUp) {
+          const { data: sentRun } = await supabase
+            .from("daily_digest_runs")
+            .select("id, window_to")
+            .eq("digest_date", digestDate)
+            .eq("recipient_user_id", ownerId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (sentRun?.id) {
+            reusedRunId = sentRun.id as string;
+            existingRunWindowTo = (sentRun.window_to as string | null) ?? null;
+          }
+        }
+
         // ── Idempotency lock: the unique index does the work. ──
-        const { data: claimed, error: claimErr } = await supabase
-          .from("daily_digest_runs")
-          .insert({
-            digest_date: digestDate,
-            recipient_user_id: ownerId,
-            organization_id: orgOf.get(ownerId) ?? null,
-            status: "RUNNING",
-            window_to: windowTo,
-          })
-          .select("id")
-          .maybeSingle();
+        const claimResult = reusedRunId
+          ? { data: { id: reusedRunId }, error: null }
+          : await supabase
+            .from("daily_digest_runs")
+            .insert({
+              digest_date: digestDate,
+              recipient_user_id: ownerId,
+              organization_id: orgOf.get(ownerId) ?? null,
+              status: "RUNNING",
+              window_to: windowTo,
+            })
+            .select("id")
+            .maybeSingle();
+        const { data: claimed, error: claimErr } = claimResult;
 
         if (claimErr) {
           // 23505 = a digest for this recipient/day already exists.
@@ -390,7 +411,7 @@ Deno.serve(async (req) => {
           summary.skipped_already_ran++;
           continue;
         }
-        claimedRunId = runId;
+        claimedRunId = reusedRunId ? null : runId;
 
         // A preview must never consume the day. The claim row exists only to
         // hold the unique index while the run composes; on a dry run it is
