@@ -1248,7 +1248,7 @@ Deno.serve(async (req) => {
           const { data: existing } = await supabase
             .from("email_outbox")
             .select("id")
-            .eq("dedupe_key", `daily-digest-${ownerId}-${digestDate}`)
+            .eq("dedupe_key", dedupeKey)
             .maybeSingle();
           outboxId = existing?.id ?? null;
           console.warn(`[scheduled-daily-digest] digest already queued for ${ownerId} on ${digestDate}`);
