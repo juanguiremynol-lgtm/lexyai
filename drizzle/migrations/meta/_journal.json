@@ -57,6 +57,13 @@
       "when": 1789850239021,
       "tag": "0007_atomic_work_item_note_append",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790127396556,
+      "tag": "0008_fix_client_wa_claim_draft_updated_at",
+      "breakpoints": true
     }
   ]
 }
