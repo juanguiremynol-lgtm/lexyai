@@ -423,10 +423,18 @@ Deno.serve(async (req) => {
           await supabase.from("daily_digest_runs").delete().eq("id", runId);
         };
 
+        // AH1(c) — a catch-up borrows the day's DELIVERED row. Nothing it does
+        // may rewrite the record of a digest the lawyer already received: an
+        // empty, failed or opted-out catch-up leaves that SENT row (and the
+        // window boundary the next digest continues from) untouched.
         const fail = async (msg: string) => {
           summary.failed++;
           summary.errors.push(`${ownerId}: ${msg}`);
           if (dryRun) { await releaseClaim(); return; }
+          if (reusedRunId) {
+            console.warn(`[daily-digest] catch-up failed for ${digestDate} / owner ${ownerId}: ${msg}`);
+            return;
+          }
           await supabase.from("daily_digest_runs")
             .update({ status: "FAILED", error_summary: msg.slice(0, 500), finished_at: new Date().toISOString() })
             .eq("id", runId);
@@ -441,9 +449,11 @@ Deno.serve(async (req) => {
         const prefsObj = (prefs?.preferences ?? {}) as Record<string, unknown>;
         if (prefsObj.email_enabled === false) {
           summary.skipped_opted_out++;
-          await supabase.from("daily_digest_runs")
-            .update({ status: "SKIPPED_OPTED_OUT", finished_at: new Date().toISOString() })
-            .eq("id", runId);
+          if (!reusedRunId) {
+            await supabase.from("daily_digest_runs")
+              .update({ status: "SKIPPED_OPTED_OUT", finished_at: new Date().toISOString() })
+              .eq("id", runId);
+          }
           continue;
         }
         if (!email) { await fail("no_recipient_email"); continue; }
