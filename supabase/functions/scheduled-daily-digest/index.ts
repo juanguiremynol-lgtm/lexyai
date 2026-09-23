@@ -1100,6 +1100,9 @@ Deno.serve(async (req) => {
         if (!hasContent) {
           summary.empty++;
           if (dryRun) { await releaseClaim(); continue; }
+          // A catch-up that finds nothing new does not turn a delivered day
+          // into a day without email: the SENT row stays exactly as it is.
+          if (reusedRunId) continue;
           await supabase.from("daily_digest_runs").update({
             status: "EMPTY_NO_EMAIL",
             window_from: windowFrom,
