@@ -168,28 +168,55 @@ async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioI
   }));
 }
 
+/**
+ * Microsoft expires a delta bookmark after a while (HTTP 410
+ * SyncStateNotFound). Graph's documented answer is to drop the stored
+ * deltaLink and enumerate the folder again from scratch — NOT to fail the
+ * connection, which is what used to happen: the same dead bookmark was
+ * re-sent on every run and the mailbox stayed in ERROR until the lawyer
+ * reconnected it by hand.
+ */
+function isExpiredDeltaError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.includes("Graph [410]") || msg.includes("SyncStateNotFound") ||
+    msg.includes("resyncRequired");
+}
+
 async function readFolder(
   accessToken: string,
   folder: "inbox" | "sentitems",
   deltaToken: string | null,
-): Promise<{ messages: GraphMessage[]; deltaLink: string | null }> {
-  let url = deltaToken ??
+): Promise<{ messages: GraphMessage[]; deltaLink: string | null; resynced: boolean }> {
+  const baseUrl =
     `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages/delta?$select=${SELECT}&$top=50`;
-  const messages: GraphMessage[] = [];
-  let deltaLink: string | null = null;
 
-  for (let page = 0; page < PAGE_LIMIT; page++) {
-    const res = await graphGet(url, accessToken);
-    for (const m of (res.value as GraphMessage[]) ?? []) {
-      if (m?.id) messages.push(m);
+  const enumerate = async (startUrl: string) => {
+    let url = startUrl;
+    const messages: GraphMessage[] = [];
+    let deltaLink: string | null = null;
+    for (let page = 0; page < PAGE_LIMIT; page++) {
+      const res = await graphGet(url, accessToken);
+      for (const m of (res.value as GraphMessage[]) ?? []) {
+        if (m?.id) messages.push(m);
+      }
+      const next = res["@odata.nextLink"] as string | undefined;
+      const delta = res["@odata.deltaLink"] as string | undefined;
+      if (delta) { deltaLink = delta; break; }
+      if (!next) break;
+      url = next;
     }
-    const next = res["@odata.nextLink"] as string | undefined;
-    const delta = res["@odata.deltaLink"] as string | undefined;
-    if (delta) { deltaLink = delta; break; }
-    if (!next) break;
-    url = next;
+    return { messages, deltaLink };
+  };
+
+  if (!deltaToken) return { ...(await enumerate(baseUrl)), resynced: false };
+
+  try {
+    return { ...(await enumerate(deltaToken)), resynced: false };
+  } catch (e) {
+    if (!isExpiredDeltaError(e)) throw e;
+    console.warn(`[outlook-sync] delta expired for ${folder}; restarting enumeration`);
+    return { ...(await enumerate(baseUrl)), resynced: true };
   }
-  return { messages, deltaLink };
 }
 
 /**
