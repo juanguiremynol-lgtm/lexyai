@@ -1070,12 +1070,17 @@ async function syncConnection(
     }
   } else {
     for (const f of folders) {
-      const { messages, deltaLink } = await readFolder(accessToken, f.folder, f.token);
+      const { messages, deltaLink, resynced } = await readFolder(accessToken, f.folder, f.token);
       summary.messages_scanned += messages.length;
       summary.folders[f.folder] = (summary.folders[f.folder] ?? 0) + messages.length;
       for (const msg of messages) await processMessage(msg, f.direction);
       if (deltaLink) {
         await admin.from("user_email_connections").update({ [f.column]: deltaLink }).eq("id", conn.id);
+      } else if (resynced) {
+        // The old bookmark is dead and the fresh enumeration did not finish
+        // within the page budget: drop it so the next run starts clean instead
+        // of replaying the same 410.
+        await admin.from("user_email_connections").update({ [f.column]: null }).eq("id", conn.id);
       }
     }
   }
