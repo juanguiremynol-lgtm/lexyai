@@ -64,6 +64,13 @@
       "when": 1790127396556,
       "tag": "0008_fix_client_wa_claim_draft_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790280956163,
+      "tag": "0009_fix_alert_lifecycle_expired_status",
+      "breakpoints": true
     }
   ]
 }
