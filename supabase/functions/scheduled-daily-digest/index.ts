@@ -41,26 +41,38 @@ import type { FechaPorPerderRow } from "./types.ts";
 // AUD7 — GCP route listing SAMAI estado dates at risk (no key). Fetched once per run.
 const FECHAS_POR_PERDER_URL =
   "https://samai-read-api-11974381924.us-central1.run.app/samai-estados/fechas-por-perder";
-let fechasPorPerderPromise: Promise<FechaPorPerderRow[]> | null = null;
-function loadFechasPorPerder(): Promise<FechaPorPerderRow[]> {
-  fechasPorPerderPromise ??= (async () => {
+/**
+ * Fetched once per invocation (the promise is reset at the start of every
+ * handler run, so a warm isolate never serves yesterday's list). A failed
+ * request is "unavailable", never a verified empty list. Null counts stay null.
+ */
+let fechasPorPerderPromise: Promise<FechasPorPerderResult> | null = null;
+export type FechasPorPerderResult = { status: "ok" | "unavailable"; rows: FechaPorPerderRow[] };
+function loadFechasPorPerder(): Promise<FechasPorPerderResult> {
+  fechasPorPerderPromise ??= (async (): Promise<FechasPorPerderResult> => {
     try {
       const res = await fetch(FECHAS_POR_PERDER_URL, { signal: AbortSignal.timeout(10_000) });
-      if (!res.ok) { console.warn(`[digest] fechas-por-perder HTTP ${res.status}`); return []; }
+      if (!res.ok) { console.warn(`[digest] fechas-por-perder HTTP ${res.status}`); return { status: "unavailable", rows: [] }; }
       const body = await res.json();
-      if (!body?.ok || !(Number(body.total) > 0) || !Array.isArray(body.fechas)) return [];
-      return body.fechas.map((f: any) => ({
+      if (body?.ok !== true || !Array.isArray(body.fechas)) return { status: "unavailable", rows: [] };
+      return { status: "ok", rows: body.fechas.map((f: any) => ({
         despacho: String(f?.despacho ?? ""),
         fecha: typeof f?.fecha === "string" ? f.fecha : null,
-        fechas_para_salir: Number.isFinite(Number(f?.fechas_para_salir)) ? Number(f.fechas_para_salir) : null,
+        fechas_para_salir: f?.fechas_para_salir == null || f.fechas_para_salir === "" || !Number.isFinite(Number(f.fechas_para_salir))
+          ? null : Number(f.fechas_para_salir),
         motivo: String(f?.motivo ?? "FECHA_SIN_LEER"),
-      }));
+      })) };
     } catch (e) {
       console.warn("[digest] fechas-por-perder unreachable", String(e));
-      return [];
+      return { status: "unavailable", rows: [] };
     }
   })();
   return fechasPorPerderPromise;
+}
+/** Restrict to despachos (first 12 radicado digits) of the recipient's CPACA matters. */
+export function scopeFechasPorPerder(r: FechasPorPerderResult, radicados: (string | null | undefined)[]): FechasPorPerderResult {
+  const codes = new Set(radicados.map((x) => (x ?? "").replace(/\D/g, "").slice(0, 12)).filter((c) => c.length === 12));
+  return { status: r.status, rows: r.rows.filter((f) => codes.has(f.despacho.replace(/\D/g, ""))) };
 }
 import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
 import { isNonJudicial } from "./types.ts";
@@ -1249,9 +1261,12 @@ Deno.serve(async (req) => {
           Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
         ).length;
 
-        const fechasPorPerder = await loadFechasPorPerder();
+        const fpp = scopeFechasPorPerder(await loadFechasPorPerder(),
+          judicialItems.filter((i: any) => i.workflow_type === "CPACA").map((i: any) => i.radicado));
         const html = buildDigestHtml({
-          fechasPorPerder,
+          fechasPorPerder: fpp.rows,
+          fechasPorPerderUnavailable: fpp.status === "unavailable" &&
+            judicialItems.some((i: any) => i.workflow_type === "CPACA"),
           recipientName: profile?.full_name ?? null,
           windowFrom, windowTo,
           windowLabel,
