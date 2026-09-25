@@ -383,18 +383,27 @@ function isoAtNoon(d: string | null): string | null {
  * Map one provider unit to the canonical row. This is the ONLY place a
  * `work_item_publicaciones` payload may be constructed from provider data.
  */
-/** AUD1 — SAMAI "Fecha Estado" from the three keys the provider/adapter use. */
+/**
+ * AUD6(c) — SAMAI estado date, accepted ONLY from GCP's capture off the
+ * portal's section-wide estado list, linked by document hash. Contract:
+ *   raw_data.fecha_estado                       'YYYY-MM-DD'
+ *   raw_data.fecha_estado_provenance.source     'samai_estado_list'
+ *   raw_data.fecha_estado_provenance.document_hash == raw_data.hash_documento
+ * Anything else (the providencia, "Fecha Estado" labels, normalized guesses)
+ * returns null. Disabled until GCP's first capture lands.
+ */
+export const SAMAI_FECHA_ESTADO_CAPTURE_ENABLED = false;
+export const SAMAI_ESTADO_CAPTURE_SOURCE = "samai_estado_list";
+
 export function samaiFechaEstado(unit: { fecha_estado_raw?: string | null; raw_data?: any }): string | null {
+  if (!SAMAI_FECHA_ESTADO_CAPTURE_ENABLED) return null;
   const raw = unit.raw_data ?? {};
-  const candidate = firstNonEmptyString(
-    unit.fecha_estado_raw,
-    raw?.["Fecha Estado"],
-    raw?.fecha_estado_raw,
-    raw?.fecha_estado_normalizada,
-    raw?.raw_data?.["Fecha Estado"],
-    raw?.raw_data?.fecha_estado_normalizada,
-  );
-  return candidate ? (parseDate(candidate) || null) : null;
+  const prov = raw?.fecha_estado_provenance;
+  const hash = typeof raw?.hash_documento === "string" ? raw.hash_documento.trim() : "";
+  if (!prov || prov.source !== SAMAI_ESTADO_CAPTURE_SOURCE) return null;
+  if (!hash || String(prov.document_hash ?? "").trim() !== hash) return null;
+  const v = typeof raw?.fecha_estado === "string" ? raw.fecha_estado.trim() : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
 
 export function toCanonicalPubRow(
