@@ -25959,6 +25959,7 @@ export type Database = {
         Args: { p_workflow: string }
         Returns: boolean
       }
+      is_strict_iso_date: { Args: { _v: string }; Returns: boolean }
       is_term_opening_text: { Args: { p_text: string }; Returns: boolean }
       lifecycle_actor_is_human: { Args: { p_actor: string }; Returns: boolean }
       lifecycle_rejections_report: { Args: never; Returns: Json }
