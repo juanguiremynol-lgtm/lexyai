@@ -66,7 +66,9 @@ export const SOURCE_LABEL: Record<string, string> = {
 export function describeSourceQuality(c: SourceRunCounts, novedades: number): string {
   const state = classifySourceRunQuality(c);
   const unconfirmed = (c.pending_upstream_count ?? 0) + (c.error_count ?? 0);
-  const cobertura = `cobertura ${c.usable_confirmed_count}/${c.expected_count || c.attempted_count}`;
+  // Same figure as the header: answered reads (PROCESO_PRIVADO included).
+  const answered = (c as SourceRunCounts & { answered_count?: number }).answered_count ?? c.usable_confirmed_count;
+  const cobertura = `cobertura ${answered}/${c.expected_count || c.attempted_count}`;
 
   switch (state) {
     case "SOURCE_HEALTHY_COMPLETE":
