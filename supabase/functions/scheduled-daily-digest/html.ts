@@ -402,7 +402,7 @@ function sourceQualityBlock(p: DigestPayload): string {
     if (den > 0 && answered >= den) {
       return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
     }
-    const never = Number((r as Record<string, unknown>).never_delivered_count ?? 0);
+    const never = Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0);
     const faltan = Math.max(den - answered - never, 0);
     const parts = [
       never ? `${never} nunca han entregado desde su alta` : "",
@@ -433,8 +433,8 @@ function sourceQualityBlock(p: DigestPayload): string {
     return [
       `${r.success_count} con datos`,
       `${r.success_empty_count} leídos sin movimiento`,
-      ...(Number((r as Record<string, unknown>).never_delivered_count ?? 0)
-        ? [`${(r as Record<string, unknown>).never_delivered_count} nunca han entregado desde su alta (ver «Fuentes que llevan días sin entregar»)`]
+      ...(Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0)
+        ? [`${(r as unknown as Record<string, unknown>).never_delivered_count} nunca han entregado desde su alta (ver «Fuentes que llevan días sin entregar»)`]
         : []),
       `${r.not_found_count} no encontrados`,
       `${restricted} asunto(s) marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,

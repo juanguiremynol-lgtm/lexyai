@@ -365,7 +365,7 @@ Deno.serve(async (req) => {
       s.success_empty_count -= take;
       s.usable_confirmed_count = Math.max(0, s.usable_confirmed_count - take);
       s.answered_count = Math.max(0, (s.answered_count ?? s.usable_confirmed_count) - take);
-      (s as Record<string, unknown>).never_delivered_count = take;
+      (s as unknown as Record<string, unknown>).never_delivered_count = take;
       if (take > 0) {
         s.state = "SOURCE_DEGRADED_PARTIAL";
         s.authoritative = false;
