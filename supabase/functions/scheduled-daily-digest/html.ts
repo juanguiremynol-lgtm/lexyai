@@ -508,7 +508,9 @@ function persistenceBlock(p: DigestPayload): string {
   const kindText = (k: string | null) =>
     k === "READ_FAILED"
       ? "la lectura falló"
-      : "la fuente responde que la consulta sigue pendiente de su lado";
+      : k === "PENDING_UPSTREAM"
+      ? "la fuente responde que la consulta sigue pendiente de su lado"
+      : "la fuente contesta, pero sin ninguna publicación";
   // LY — dos hechos distintos que la tabla llamaba igual.
   const classCell = (r: typeof rows[number]) => {
     if (r.gap_class === "NEVER_ANSWERED") {
