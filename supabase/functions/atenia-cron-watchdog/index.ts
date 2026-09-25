@@ -688,7 +688,8 @@ Deno.serve(async (req) => {
               AND wi.last_synced_at > NOW() - INTERVAL '48 hours'
               AND wi.created_at < NOW() - INTERVAL '24 hours'
               AND wi.deleted_at IS NULL
-              AND (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id) = 0
+              AND NOT EXISTS (SELECT 1 FROM work_item_acts WHERE work_item_id = wi.id)
+              AND NOT EXISTS (SELECT 1 FROM work_item_publicaciones WHERE work_item_id = wi.id)
             LIMIT 50
           `.trim(),
         });
@@ -719,8 +720,14 @@ Deno.serve(async (req) => {
               .from("work_item_acts")
               .select("id", { count: "exact", head: true })
               .eq("work_item_id", item.id);
-            if ((count ?? 0) === 0) {
-              freshnessViolations.push({ ...item, act_count: 0 });
+            if ((count ?? 0) !== 0) continue;
+            // Channel-aware: rows on ANY channel (estados included) are data.
+            const { count: pubCount } = await admin
+              .from("work_item_publicaciones")
+              .select("id", { count: "exact", head: true })
+              .eq("work_item_id", item.id);
+            if ((pubCount ?? 0) === 0) {
+              freshnessViolations.push({ ...item, act_count: 0, pub_count: 0 });
             }
           }
         }
