@@ -28,15 +28,30 @@ describe("AUD6 — SAMAI fecha_fijacion only from GCP capture (disabled)", () =>
     }
   });
 
-  it("refuses even a provenanced capture while the gate is off", () => {
-    const row = toCanonicalPubRow(
-      {
-        titulo: "A", fecha_publicacion: "2026-07-10", _source_provider: "samai_estados",
-        raw_data: { hash_documento: "h1", fecha_estado: "2026-07-14", fecha_estado_provenance: { source: "samai_estado_list", document_hash: "h1" } },
-      } as any,
-      ctx,
-    );
-    expect(row.fecha_fijacion).toBeNull();
+  const cap = (extra: Record<string, unknown> = {}, prov: Record<string, unknown> = {}) => toCanonicalPubRow(
+    {
+      titulo: "A", fecha_publicacion: "2026-09-23", _source_provider: "samai_estados",
+      raw_data: {
+        hash_documento: "h1", "Fecha Estado": "24/09/2026", fecha_estado_iso: "2026-09-24",
+        fecha_estado_procedencia: { fuente: "SAMAI_WESTADOS", vinculo: "hash_documento", ...prov },
+        ...extra,
+      },
+    } as any,
+    ctx,
+  );
+
+  it("accepts GCP's SAMAI_WESTADOS capture linked by hash_documento", () => {
+    expect(cap().fecha_fijacion?.slice(0, 10)).toBe("2026-09-24");
+  });
+
+  it("refuses wrong fuente, unknown vinculo, empty link value, non-ISO date", () => {
+    expect(cap({}, { fuente: "samai_estado_list" }).fecha_fijacion).toBeNull();
+    expect(cap({}, { vinculo: "otro" }).fecha_fijacion).toBeNull();
+    expect(cap({ hash_documento: "" }).fecha_fijacion).toBeNull();
+    expect(cap({}, { vinculo: "url_descarga" }).fecha_fijacion).toBeNull();
+    expect(cap({ url_descarga: "https://x/y.pdf" }, { vinculo: "url_descarga" }).fecha_fijacion?.slice(0, 10)).toBe("2026-09-24");
+    expect(cap({ fecha_estado_iso: "24/09/2026" }).fecha_fijacion).toBeNull();
+    expect(cap({ fecha_estado_iso: null, fecha_estado_procedencia: null }).fecha_fijacion).toBeNull();
   });
 
   it("never copies fecha_providencia and never infers a date", () => {

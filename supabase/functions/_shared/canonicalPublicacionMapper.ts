@@ -384,26 +384,47 @@ function isoAtNoon(d: string | null): string | null {
  * `work_item_publicaciones` payload may be constructed from provider data.
  */
 /**
- * AUD6(c) — SAMAI estado date, accepted ONLY from GCP's capture off the
- * portal's section-wide estado list, linked by document hash. Contract:
- *   raw_data.fecha_estado                       'YYYY-MM-DD'
- *   raw_data.fecha_estado_provenance.source     'samai_estado_list'
- *   raw_data.fecha_estado_provenance.document_hash == raw_data.hash_documento
- * Anything else (the providencia, "Fecha Estado" labels, normalized guesses)
- * returns null. Disabled until GCP's first capture lands.
+ * AUD7 — SAMAI estado date, accepted ONLY from GCP's capture off the portal's
+ * own estado dropdown (identical on /snapshot and /buscar). Contract:
+ *   fecha_estado_iso                          'YYYY-MM-DD'
+ *   fecha_estado_procedencia.fuente           'SAMAI_WESTADOS'
+ *   fecha_estado_procedencia.vinculo          'hash_documento' | 'url_descarga'
+ *   <row>[vinculo]                            non-empty
+ * "Fecha Estado" (DD/MM label) and the providencia are never read.
  */
-export const SAMAI_FECHA_ESTADO_CAPTURE_ENABLED = false;
-export const SAMAI_ESTADO_CAPTURE_SOURCE = "samai_estado_list";
+export const SAMAI_FECHA_ESTADO_CAPTURE_ENABLED = true;
+export const SAMAI_ESTADO_CAPTURE_SOURCE = "SAMAI_WESTADOS";
+const SAMAI_LINK_KEYS = ["hash_documento", "url_descarga"];
+
+function samaiCaptureLayer(raw: any): any | null {
+  // The provider row may be stored flat or one level nested under raw_data.
+  for (const layer of [raw, raw?.raw_data]) {
+    if (layer && typeof layer === "object" && layer.fecha_estado_procedencia) return layer;
+  }
+  return null;
+}
 
 export function samaiFechaEstado(unit: { fecha_estado_raw?: string | null; raw_data?: any }): string | null {
   if (!SAMAI_FECHA_ESTADO_CAPTURE_ENABLED) return null;
-  const raw = unit.raw_data ?? {};
-  const prov = raw?.fecha_estado_provenance;
-  const hash = typeof raw?.hash_documento === "string" ? raw.hash_documento.trim() : "";
-  if (!prov || prov.source !== SAMAI_ESTADO_CAPTURE_SOURCE) return null;
-  if (!hash || String(prov.document_hash ?? "").trim() !== hash) return null;
-  const v = typeof raw?.fecha_estado === "string" ? raw.fecha_estado.trim() : "";
+  const r = samaiCaptureLayer(unit.raw_data ?? {});
+  if (!r) return null;
+  const prov = r.fecha_estado_procedencia;
+  if (!prov || prov.fuente !== SAMAI_ESTADO_CAPTURE_SOURCE) return null;
+  const vinculo = String(prov.vinculo ?? "");
+  if (!SAMAI_LINK_KEYS.includes(vinculo)) return null;
+  const link = typeof r[vinculo] === "string" ? r[vinculo].trim() : "";
+  if (!link) return null;
+  const v = typeof r.fecha_estado_iso === "string" ? r.fecha_estado_iso.trim() : "";
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+/** Providencia date: fecha_providencia_iso on both routes when present. */
+export function samaiFechaProvidenciaIso(raw: any): string | null {
+  for (const layer of [raw, raw?.raw_data]) {
+    const v = layer && typeof layer.fecha_providencia_iso === "string" ? layer.fecha_providencia_iso.trim() : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  }
+  return null;
 }
 
 export function toCanonicalPubRow(
@@ -427,7 +448,8 @@ export function toCanonicalPubRow(
   // it, from whichever key carries it. Absent → NULL (never inferred).
   const samaiEstadoDate = isSamai ? samaiFechaEstado(unit) : null;
   const effectiveEstadoDate = isSamai ? null : parsedEstadoDate;
-  const samaiProvidenciaDate = parsedAutoDate || parsedFecha;
+  const samaiProvidenciaDate =
+    (isSamai ? samaiFechaProvidenciaIso(unit.raw_data) : null) || parsedAutoDate || parsedFecha;
 
   const title = unit.titulo || unit.key || "Sin título";
   const tipo = unit.tipo || unit.clasificacion?.categoria || null;

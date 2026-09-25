@@ -372,17 +372,16 @@ function normalizeOneEstado(
   e: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion | null {
-  // AUD1 — the provider's "Fecha Estado" is the ONLY source of the estado
-  // (fijación) date. Generic date keys stay a fingerprint fallback and never
-  // populate fecha_estado_normalizada, and Fecha Providencia never does.
-  const fechaEstado = normalizeDate(
-    e['Fecha Estado'] ?? e.fechaEstado ?? e.fecha_estado ?? e.fecha_estado_raw ?? '',
-  );
+  // AUD7 — the estado (fijación) date is decided ONLY by the canonical mapper
+  // from GCP's provenanced fecha_estado_iso. It is not read here, so the
+  // fingerprint stays anchored on the providencia and existing rows dedupe.
+  const fechaEstado = '';
   const fechaGenerica = normalizeDate(
     e.fecha_fijacion ?? e.fecha_publicacion ?? e.fecha ?? '',
   );
+  // AUD7 — fecha_providencia_iso is authoritative on both /snapshot and /buscar.
   const fechaProvidencia = normalizeDate(
-    e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
+    e.fecha_providencia_iso ?? e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
   );
   const fecha = fechaEstado || fechaGenerica || fechaProvidencia;
   const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');

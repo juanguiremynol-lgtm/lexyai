@@ -36,6 +36,32 @@ import {
   recordDispatch,
 } from "../_shared/notificationChannel.ts";
 import { buildDigestHtml } from "./html.ts";
+import type { FechaPorPerderRow } from "./types.ts";
+
+// AUD7 — GCP route listing SAMAI estado dates at risk (no key). Fetched once per run.
+const FECHAS_POR_PERDER_URL =
+  "https://samai-read-api-11974381924.us-central1.run.app/samai-estados/fechas-por-perder";
+let fechasPorPerderPromise: Promise<FechaPorPerderRow[]> | null = null;
+function loadFechasPorPerder(): Promise<FechaPorPerderRow[]> {
+  fechasPorPerderPromise ??= (async () => {
+    try {
+      const res = await fetch(FECHAS_POR_PERDER_URL, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) { console.warn(`[digest] fechas-por-perder HTTP ${res.status}`); return []; }
+      const body = await res.json();
+      if (!body?.ok || !(Number(body.total) > 0) || !Array.isArray(body.fechas)) return [];
+      return body.fechas.map((f: any) => ({
+        despacho: String(f?.despacho ?? ""),
+        fecha: typeof f?.fecha === "string" ? f.fecha : null,
+        fechas_para_salir: Number.isFinite(Number(f?.fechas_para_salir)) ? Number(f.fechas_para_salir) : null,
+        motivo: String(f?.motivo ?? "FECHA_SIN_LEER"),
+      }));
+    } catch (e) {
+      console.warn("[digest] fechas-por-perder unreachable", String(e));
+      return [];
+    }
+  })();
+  return fechasPorPerderPromise;
+}
 import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
 import { isNonJudicial } from "./types.ts";
 import {
@@ -1223,7 +1249,9 @@ Deno.serve(async (req) => {
           Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
         ).length;
 
+        const fechasPorPerder = await loadFechasPorPerder();
         const html = buildDigestHtml({
+          fechasPorPerder,
           recipientName: profile?.full_name ?? null,
           windowFrom, windowTo,
           windowLabel,
