@@ -415,14 +415,21 @@ export function samaiFechaEstado(unit: { fecha_estado_raw?: string | null; raw_d
   const link = typeof r[vinculo] === "string" ? r[vinculo].trim() : "";
   if (!link) return null;
   const v = typeof r.fecha_estado_iso === "string" ? r.fecha_estado_iso.trim() : "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  return isStrictIsoDate(v) ? v : null;
+}
+
+/** Strict calendar date: YYYY-MM-DD that round-trips (rejects 2026-02-30). */
+export function isStrictIsoDate(v: unknown): v is string {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
 /** Providencia date: fecha_providencia_iso on both routes when present. */
 export function samaiFechaProvidenciaIso(raw: any): string | null {
   for (const layer of [raw, raw?.raw_data]) {
     const v = layer && typeof layer.fecha_providencia_iso === "string" ? layer.fecha_providencia_iso.trim() : "";
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    if (isStrictIsoDate(v)) return v;
   }
   return null;
 }
