@@ -15588,6 +15588,45 @@ export type Database = {
           },
         ]
       }
+      pub_deadline_outcomes: {
+        Row: {
+          created_at: string
+          deadline_id: string | null
+          error_message: string | null
+          fecha_fijacion: string | null
+          id: string
+          outcome: string
+          publicacion_id: string
+          sqlstate: string | null
+          trigger_op: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          deadline_id?: string | null
+          error_message?: string | null
+          fecha_fijacion?: string | null
+          id?: string
+          outcome: string
+          publicacion_id: string
+          sqlstate?: string | null
+          trigger_op: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          deadline_id?: string | null
+          error_message?: string | null
+          fecha_fijacion?: string | null
+          id?: string
+          outcome?: string
+          publicacion_id?: string
+          sqlstate?: string | null
+          trigger_op?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       pub_provenance: {
         Row: {
           first_seen_at: string
