@@ -523,7 +523,7 @@ async function writePublicacionesAttemptRow(
               error: result.samai_estados_summary.error,
             }]
           : []),
-      ],
+      ]),
       total_inserted_pubs: result?.inserted_count || 0,
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
@@ -3001,7 +3001,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 error: result.samai_estados_summary.error,
               }]
             : []),
-        ],
+        ]),
         total_inserted_pubs: result.inserted_count,
         total_skipped_pubs: result.skipped_count,
         error_message: result.errors.length > 0
