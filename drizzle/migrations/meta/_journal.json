@@ -78,6 +78,13 @@
       "when": 1790301312110,
       "tag": "0010_samai_estados_allow_provider_fecha_estado",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790348881603,
+      "tag": "0011_restore_samai_estados_no_fijacion",
+      "breakpoints": true
     }
   ]
 }
