@@ -193,7 +193,7 @@ interface SyncRequest {
 
 interface ProviderAttempt {
   provider: string;
-  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped';
+  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped' | 'restricted';
   latencyMs: number;
   message?: string;
   actuacionesCount?: number;

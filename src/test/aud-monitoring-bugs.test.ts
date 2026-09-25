@@ -85,5 +85,6 @@ describe("AUD3 — restricted answers seal the read", () => {
     const src = readFileSync("supabase/functions/sync-by-work-item/index.ts", "utf8");
     const body = src.slice(src.indexOf("async function sealReadOutcome"), src.indexOf("function jsonResponse"));
     expect(body).toContain("'restricted'");
+    expect(src).toContain('attempt.status === "restricted" ? "restricted"');
   });
 });
