@@ -94,3 +94,52 @@ export function isProviderAttributable(providers: string[] | null | undefined): 
   if (list.length === 0) return false;
   return !list.includes("unknown") && !list.includes("none");
 }
+
+/**
+ * AUD3 — provider_attempts[].status is ONE canonical UPPERCASE vocabulary.
+ * Publicaciones used to write `success`/`pending_upstream`/`skipped` while
+ * samai_estados wrote `SUCCESS`/`EMPTY`: a comparison written against one case
+ * silently missed the other provider. Every writer passes through
+ * `canonicalizeAttemptsForPersist`; historical rows are NOT rewritten, so any
+ * reader of history must compare case-insensitively (`sameAttemptStatus`).
+ */
+export const DECLARED_ATTEMPT_STATUSES = [
+  "SUCCESS",
+  "EMPTY",
+  "NOT_FOUND",
+  "RESTRICTED",
+  "PENDING_UPSTREAM",
+  "SKIPPED",
+  "PARTIAL",
+  "ERROR",
+  "TIMEOUT",
+  "UNKNOWN",
+] as const;
+
+export type AttemptStatus = typeof DECLARED_ATTEMPT_STATUSES[number];
+
+export function canonicalAttemptStatus(raw: unknown): AttemptStatus {
+  const key = String(raw ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return (DECLARED_ATTEMPT_STATUSES as readonly string[]).includes(key)
+    ? (key as AttemptStatus)
+    : "UNKNOWN";
+}
+
+/** Case-insensitive comparison for readers of historical attempt rows. */
+export function sameAttemptStatus(stored: unknown, canonical: AttemptStatus): boolean {
+  return canonicalAttemptStatus(stored) === canonical;
+}
+
+/** Canonicalise every attempt's status at write. Undeclared raw kept for audit. */
+export function canonicalizeAttemptsForPersist<T extends { status?: unknown }>(
+  attempts: T[] | null | undefined,
+): Array<T & { status: AttemptStatus; status_raw?: string }> {
+  return (attempts ?? []).map((a) => {
+    const status = canonicalAttemptStatus(a?.status);
+    const out = { ...a, status } as T & { status: AttemptStatus; status_raw?: string };
+    if (status === "UNKNOWN" && a?.status != null && String(a.status).trim() !== "") {
+      out.status_raw = String(a.status);
+    }
+    return out;
+  });
+}
