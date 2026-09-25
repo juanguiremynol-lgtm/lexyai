@@ -498,6 +498,7 @@ export function mapProviderPayloadToCanonicalPubRows(
  */
 export function canonicalPubIdentityFromRow(
   row: {
+    source?: string | null;
     fecha_fijacion?: string | null;
     published_at?: string | null;
     tipo_publicacion?: string | null;
