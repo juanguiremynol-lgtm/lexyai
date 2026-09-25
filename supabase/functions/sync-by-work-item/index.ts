@@ -2760,6 +2760,25 @@ Deno.serve(withSyncTimeline(async (req) => {
         },
       });
       
+      // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read that
+      // sealReadOutcome already stamped. It must not be rewritten here as a
+      // failure: carry the provider's code, not a transport code.
+      if (!fetchResult?.scrapingInitiated && result.provider_attempts.some((a) => a.status === 'restricted')) {
+        result.code = 'PROCESO_PRIVADO';
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'SUCCESS',
+            last_checked_at: new Date().toISOString(),
+            last_error_code: 'PROCESO_PRIVADO',
+            consecutive_failures: 0,
+            provider_reachable: true,
+          })
+          .eq('id', work_item_id);
+        result.trace_id = traceId;
+        return jsonResponse(result);
+      }
+
       // Update scrape status to FAILED + track consecutive failures & 404s
       // CRITICAL: Only increment consecutive_404_count on strict 404-type signals.
       // SCRAPING_TIMEOUT, empty cache, and rate limits must NOT inflate this counter,
