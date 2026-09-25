@@ -43,6 +43,7 @@ import {
   SYNC_COOLDOWN_MS,
 } from "../_shared/onlineSyncEligibility.ts";
 import { resolveProviders } from "../_shared/providerRouting.ts";
+import { canonicalizeAttemptsForPersist } from "../_shared/syncVocabulary.ts";
 import { reconcileSyncRunPersistence } from "../_shared/syncOrchestrator.ts";
 
 const corsHeaders = {
@@ -478,7 +479,7 @@ async function writePublicacionesAttemptRow(
       error_code: status === 'FAILED'
         ? (result?.result_code || 'UNSPECIFIED_ERROR')
         : (outcome === 'pending_upstream' ? 'PENDING_UPSTREAM' : null),
-      provider_attempts: [
+      provider_attempts: canonicalizeAttemptsForPersist([
         {
           provider: 'publicaciones',
           data_kind: 'ESTADOS',
@@ -522,7 +523,7 @@ async function writePublicacionesAttemptRow(
               error: result.samai_estados_summary.error,
             }]
           : []),
-      ],
+      ]),
       total_inserted_pubs: result?.inserted_count || 0,
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
@@ -2963,7 +2964,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         error_code: (!result.ok && result.errors.length > 0)
           ? (result.result_code || 'UNSPECIFIED_ERROR')
           : null,
-        provider_attempts: [
+        provider_attempts: canonicalizeAttemptsForPersist([
           {
             provider: 'publicaciones',
             data_kind: 'ESTADOS',
@@ -3000,7 +3001,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 error: result.samai_estados_summary.error,
               }]
             : []),
-        ],
+        ]),
         total_inserted_pubs: result.inserted_count,
         total_skipped_pubs: result.skipped_count,
         error_message: result.errors.length > 0

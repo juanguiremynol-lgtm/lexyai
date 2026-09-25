@@ -1,3 +1,4 @@
+import { canonicalizeAttemptsForPersist } from "../_shared/syncVocabulary.ts";
 /**
  * sync-by-radicado Edge Function
  * 
@@ -1166,7 +1167,7 @@ Deno.serve(async (req) => {
           // LOOKUP is a read-only preview — it never persists to work_item_acts.
           // Providers may report events_found from the feed but they are NOT written here.
           run_mode: 'LOOKUP',
-          provider_attempts: attempts.map(a => ({
+          provider_attempts: canonicalizeAttemptsForPersist(attempts.map(a => ({
             provider: a.source,
             data_kind: 'ACTUACIONES',
             status: a.success ? 'success' : 'not_found',
@@ -1177,7 +1178,7 @@ Deno.serve(async (req) => {
             inserted_count: 0,
             feed_count: a.events_found || 0,
             note: 'lookup_only_no_persistence',
-          })),
+          }))),
           total_inserted_acts: 0,
           total_inserted_pubs: 0,
           error_code: foundInSource ? null : 'NOT_FOUND',
@@ -1398,13 +1399,13 @@ Deno.serve(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: Date.now() - startTime,
         status: foundInSource ? 'SUCCESS' : 'PARTIAL',
-        provider_attempts: attempts.map(a => ({
+        provider_attempts: canonicalizeAttemptsForPersist(attempts.map(a => ({
           provider: a.source,
           data_kind: 'ACTUACIONES',
           status: a.success ? 'success' : 'not_found',
           latency_ms: a.latency_ms,
           inserted_count: a.events_found || 0,
-        })),
+        }))),
         total_inserted_acts: processData.total_actuaciones || 0,
         total_inserted_pubs: 0,
         error_code: null,

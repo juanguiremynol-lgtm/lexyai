@@ -193,7 +193,7 @@ interface SyncRequest {
 
 interface ProviderAttempt {
   provider: string;
-  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped';
+  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped' | 'restricted';
   latencyMs: number;
   message?: string;
   actuacionesCount?: number;
@@ -861,7 +861,14 @@ async function sealReadOutcome(
   const nowIso = new Date().toISOString();
   const answered =
     (fetchResult?.ok === true) ||
-    providerAttempts.some((a) => a.status === 'success' || a.status === 'empty' || a.status === 'not_found');
+    // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read: the
+    // provider replied that the matter is private. Omitting it here froze
+    // last_successful_sync_at at enrolment for matters whose only answer is
+    // the restriction. Case-insensitive: attempts may arrive canonicalised.
+    providerAttempts.some((a) => {
+      const st = String(a.status ?? '').toLowerCase();
+      return st === 'success' || st === 'empty' || st === 'not_found' || st === 'restricted';
+    });
 
   if (answered) {
     await supabase
@@ -1238,6 +1245,9 @@ async function executeViaOrchestrator(
         : attempt.status === "not_found" ? "not_found"
         : attempt.status === "timeout" ? "timeout"
         : attempt.status === "skipped" ? "skipped"
+        // AUD3 — PROCESO_PRIVADO is an answered read, not a failure. Collapsing
+        // it to "error" here is what froze last_successful_sync_at.
+        : attempt.status === "restricted" ? "restricted"
         : "error",
       latencyMs: attempt.latency_ms,
       message: attempt.error_message || undefined,
@@ -2750,6 +2760,25 @@ Deno.serve(withSyncTimeline(async (req) => {
         },
       });
       
+      // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read that
+      // sealReadOutcome already stamped. It must not be rewritten here as a
+      // failure: carry the provider's code, not a transport code.
+      if (!fetchResult?.scrapingInitiated && result.provider_attempts.some((a) => a.status === 'restricted')) {
+        result.code = 'PROCESO_PRIVADO';
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'SUCCESS',
+            last_checked_at: new Date().toISOString(),
+            last_error_code: 'PROCESO_PRIVADO',
+            consecutive_failures: 0,
+            provider_reachable: true,
+          })
+          .eq('id', work_item_id);
+        result.trace_id = traceId;
+        return jsonResponse(result);
+      }
+
       // Update scrape status to FAILED + track consecutive failures & 404s
       // CRITICAL: Only increment consecutive_404_count on strict 404-type signals.
       // SCRAPING_TIMEOUT, empty cache, and rate limits must NOT inflate this counter,

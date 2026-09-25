@@ -19,6 +19,7 @@
  *   - Exponential backoff for retries
  */
 
+import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
@@ -635,7 +636,8 @@ async function enrichProviderHealthFromSyncRuns(
             p.avg_latency_ms = Math.round(
               (p.avg_latency_ms * oldTotal + (attempt.latency_ms || 0)) / p.total_calls
             );
-            if (attempt.status === "error" || attempt.status === "timeout") {
+            // History carries both cases (pre-AUD3 rows) — compare case-insensitively.
+            if (sameAttemptStatus(attempt.status, "ERROR") || sameAttemptStatus(attempt.status, "TIMEOUT")) {
               p.errors++;
             }
             const errorRate = p.total_calls > 0 ? p.errors / p.total_calls : 0;

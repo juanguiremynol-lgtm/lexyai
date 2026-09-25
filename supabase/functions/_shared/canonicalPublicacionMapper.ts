@@ -383,6 +383,20 @@ function isoAtNoon(d: string | null): string | null {
  * Map one provider unit to the canonical row. This is the ONLY place a
  * `work_item_publicaciones` payload may be constructed from provider data.
  */
+/** AUD1 — SAMAI "Fecha Estado" from the three keys the provider/adapter use. */
+export function samaiFechaEstado(unit: { fecha_estado_raw?: string | null; raw_data?: any }): string | null {
+  const raw = unit.raw_data ?? {};
+  const candidate = firstNonEmptyString(
+    unit.fecha_estado_raw,
+    raw?.["Fecha Estado"],
+    raw?.fecha_estado_raw,
+    raw?.fecha_estado_normalizada,
+    raw?.raw_data?.["Fecha Estado"],
+    raw?.raw_data?.fecha_estado_normalizada,
+  );
+  return candidate ? (parseDate(candidate) || null) : null;
+}
+
 export function toCanonicalPubRow(
   unit: ProviderPubUnit,
   ctx: CanonicalPubContext,
@@ -399,7 +413,10 @@ export function toCanonicalPubRow(
   const parsedEstadoDate = parseDate(unit.fecha_estado_raw ?? undefined);
   const parsedAutoDate = parseDate(unit.fecha_auto_raw ?? undefined);
 
-  // RATIFICADO 6.2 — SAMAI reports providencia dates, never fijación.
+  // RATIFICADO 6.2 — SAMAI's providencia date is never a fijación.
+  // AUD1 — but SAMAI's own "Fecha Estado" IS the estado date: map it, and only
+  // it, from whichever key carries it. Absent → NULL (never inferred).
+  const samaiEstadoDate = isSamai ? samaiFechaEstado(unit) : null;
   const effectiveEstadoDate = isSamai ? null : parsedEstadoDate;
   const samaiProvidenciaDate = parsedAutoDate || parsedFecha;
 
@@ -445,7 +462,7 @@ export function toCanonicalPubRow(
       // 00:00 America/Bogota for SAMAI providencia rows.
       ? (samaiProvidenciaDate ? new Date(`${samaiProvidenciaDate}T05:00:00Z`).toISOString() : null)
       : isoAtNoon(parsedFecha),
-    fecha_fijacion: isSamai ? null : isoAtNoon(effectiveEstadoDate || parsedFecha),
+    fecha_fijacion: isSamai ? isoAtNoon(samaiEstadoDate) : isoAtNoon(effectiveEstadoDate || parsedFecha),
     fecha_desfijacion: null,
     fecha_providencia: isSamai
       ? (isoAtNoon(parsedAutoDate) || (samaiProvidenciaDate ? new Date(`${samaiProvidenciaDate}T05:00:00Z`).toISOString() : null))
@@ -481,6 +498,7 @@ export function mapProviderPayloadToCanonicalPubRows(
  */
 export function canonicalPubIdentityFromRow(
   row: {
+    source?: string | null;
     fecha_fijacion?: string | null;
     published_at?: string | null;
     tipo_publicacion?: string | null;
@@ -492,7 +510,11 @@ export function canonicalPubIdentityFromRow(
 ): string {
   return canonicalPubFingerprint({
     work_item_id: workItemId,
-    pub_date: row.fecha_fijacion ?? row.published_at ?? null,
+    // AUD1 — SAMAI identity is anchored on the providencia (published_at);
+    // a now-populated fecha_fijacion must not shift the recomputed identity.
+    pub_date: isSamaiRow(row)
+      ? (row.published_at ?? null)
+      : (row.fecha_fijacion ?? row.published_at ?? null),
     tipo_publicacion: row.tipo_publicacion ?? null,
     title: row.title ?? null,
     party_hint: (row.raw_data as any)?.parte ?? resolvePartyHint((row.raw_data as any)?.raw_data)
@@ -525,4 +547,9 @@ export function pubArticleIdFromRow(row: { raw_data?: any }): string | null {
     return parts[1].trim() || null;
   }
   return null;
+}
+
+function isSamaiRow(row: { raw_data?: any; source?: string | null }): boolean {
+  const src = String(row.source ?? row.raw_data?._source_provider ?? "").toLowerCase();
+  return src === "samai_estados";
 }

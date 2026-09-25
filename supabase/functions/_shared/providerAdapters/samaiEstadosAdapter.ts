@@ -372,14 +372,19 @@ function normalizeOneEstado(
   e: any,
   options?: Pick<AdapterOptions, 'workItemId' | 'crossProviderDedup' | 'redactPII'>,
 ): NormalizedPublicacion | null {
+  // AUD1 — the provider's "Fecha Estado" is the ONLY source of the estado
+  // (fijación) date. Generic date keys stay a fingerprint fallback and never
+  // populate fecha_estado_normalizada, and Fecha Providencia never does.
   const fechaEstado = normalizeDate(
-    e['Fecha Estado'] ?? e.fechaEstado ?? e.fecha_estado ??
+    e['Fecha Estado'] ?? e.fechaEstado ?? e.fecha_estado ?? e.fecha_estado_raw ?? '',
+  );
+  const fechaGenerica = normalizeDate(
     e.fecha_fijacion ?? e.fecha_publicacion ?? e.fecha ?? '',
   );
   const fechaProvidencia = normalizeDate(
     e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
   );
-  const fecha = fechaEstado || fechaProvidencia;
+  const fecha = fechaEstado || fechaGenerica || fechaProvidencia;
   const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
   const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? '');
 
