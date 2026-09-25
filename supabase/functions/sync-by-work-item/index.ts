@@ -1245,6 +1245,9 @@ async function executeViaOrchestrator(
         : attempt.status === "not_found" ? "not_found"
         : attempt.status === "timeout" ? "timeout"
         : attempt.status === "skipped" ? "skipped"
+        // AUD3 — PROCESO_PRIVADO is an answered read, not a failure. Collapsing
+        // it to "error" here is what froze last_successful_sync_at.
+        : attempt.status === "restricted" ? "restricted"
         : "error",
       latencyMs: attempt.latency_ms,
       message: attempt.error_message || undefined,
