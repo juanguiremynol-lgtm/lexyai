@@ -1065,6 +1065,24 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
   return blocks.join("");
 }
 
+// AUD7 — one line per SAMAI estado date at risk. fechas_para_salir counts
+// estado publications, not days. Silent when the list is empty.
+function fechasPorPerderBlock(rows: import("./types.ts").FechaPorPerderRow[]): string {
+  if (!rows.length) return "";
+  const line = (r: import("./types.ts").FechaPorPerderRow) => {
+    const n = r.fechas_para_salir;
+    const quedan = n == null ? "" : ` Le quedan ${n} publicacion${n === 1 ? "" : "es"} de estado antes de salir del listado.`;
+    const que = r.motivo === "DESPLEGABLE_SIN_LEER"
+      ? `SAMAI Estados, despacho ${esc(r.despacho)}: el listado de fechas de estado no se ha podido leer.`
+      : `SAMAI Estados, despacho ${esc(r.despacho)}: la fecha de estado ${esc(r.fecha ?? "sin fecha")} aparece en el listado y aún no se ha leído.`;
+    return `<li style="margin:4px 0;">${que}${quedan}</li>`;
+  };
+  return `<div style="margin-top:18px;padding:12px 14px;border:1px solid #f59e0b;border-radius:8px;">
+    <div style="font-weight:700;color:#fbbf24;">Fechas de estado por perder</div>
+    <ul style="margin:6px 0 0 18px;padding:0;font-size:13px;">${rows.map(line).join("")}</ul>
+  </div>`;
+}
+
 export function buildDigestHtml(p: DigestPayload): string {
   const total = p.actuaciones.length + p.estados.length;
   const greeting = p.recipientName ? `Buenos días, ${esc(p.recipientName)}.` : "Buenos días.";
@@ -1114,6 +1132,7 @@ export function buildDigestHtml(p: DigestPayload): string {
       ${headline}
     </div>
 
+    ${fechasPorPerderBlock(p.fechasPorPerder ?? [])}
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${statStripBlock(p)}
     ${sourceQualityBlock(p)}

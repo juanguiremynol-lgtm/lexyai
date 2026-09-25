@@ -269,7 +269,16 @@ export interface StatStrip {
   erroresFuente: number;
 }
 
+export interface FechaPorPerderRow {
+  despacho: string;
+  fecha: string | null;
+  fechas_para_salir: number | null;
+  motivo: string;
+}
+
 export interface DigestPayload {
+  /** AUD7 — SAMAI estado dates at risk of leaving the portal dropdown unread. */
+  fechasPorPerder?: FechaPorPerderRow[];
   recipientName: string | null;
   windowFrom: string;
   windowTo: string;
