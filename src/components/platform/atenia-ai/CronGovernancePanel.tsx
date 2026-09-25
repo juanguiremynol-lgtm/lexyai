@@ -3,6 +3,7 @@
  * against live pg_cron jobs and shows health snapshots, wiring map, and provider activity.
  */
 
+import { sameAttemptStatus } from "@/lib/syncVocabulary";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -278,7 +279,7 @@ export function CronGovernancePanel() {
         if (!stats[providerName].lastAt || run.started_at > stats[providerName].lastAt!) {
           stats[providerName].lastAt = run.started_at;
         }
-        if ((attempt as any)?.status === "error" || (attempt as any)?.status === "timeout") {
+        if (sameAttemptStatus((attempt as any)?.status, "ERROR") || sameAttemptStatus((attempt as any)?.status, "TIMEOUT")) {
           stats[providerName].errors++;
         }
         stats[providerName].inserted += (attempt as any)?.recordsUpserted ?? 0;

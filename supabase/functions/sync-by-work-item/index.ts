@@ -861,7 +861,14 @@ async function sealReadOutcome(
   const nowIso = new Date().toISOString();
   const answered =
     (fetchResult?.ok === true) ||
-    providerAttempts.some((a) => a.status === 'success' || a.status === 'empty' || a.status === 'not_found');
+    // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read: the
+    // provider replied that the matter is private. Omitting it here froze
+    // last_successful_sync_at at enrolment for matters whose only answer is
+    // the restriction. Case-insensitive: attempts may arrive canonicalised.
+    providerAttempts.some((a) => {
+      const st = String(a.status ?? '').toLowerCase();
+      return st === 'success' || st === 'empty' || st === 'not_found' || st === 'restricted';
+    });
 
   if (answered) {
     await supabase
