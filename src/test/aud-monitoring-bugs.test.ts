@@ -16,27 +16,27 @@ import * as denoVocab from "../../supabase/functions/_shared/syncVocabulary.ts";
 const WI = "11111111-2222-4333-8444-555555555555";
 const ctx = { work_item_id: WI, organization_id: null, source: "samai_estados" };
 
-describe("AUD1 — SAMAI Fecha Estado → fecha_fijacion", () => {
-  it("maps Fecha Estado from raw and keeps identity on the providencia", () => {
+describe("AUD6 — SAMAI fecha_fijacion only from GCP capture (disabled)", () => {
+  it("refuses 'Fecha Estado' labels and normalized guesses", () => {
+    for (const raw of [{ "Fecha Estado": "14/07/2026" }, { fecha_estado_raw: "2026-07-14" }, { fecha_estado_normalizada: "2026-07-14" }]) {
+      const row = toCanonicalPubRow(
+        { titulo: "A", fecha_publicacion: "2026-07-10", _source_provider: "samai_estados", raw_data: raw } as any,
+        ctx,
+      );
+      expect(row.fecha_fijacion).toBeNull();
+      expect(canonicalPubIdentityFromRow(row, WI)).toBe(row.hash_fingerprint);
+    }
+  });
+
+  it("refuses even a provenanced capture while the gate is off", () => {
     const row = toCanonicalPubRow(
       {
-        titulo: "Auto", tipo: "Auto", fecha_publicacion: "2026-07-10",
-        fecha_auto_raw: "2026-07-10", _source_provider: "samai_estados",
-        raw_data: { "Fecha Estado": "14/07/2026" },
+        titulo: "A", fecha_publicacion: "2026-07-10", _source_provider: "samai_estados",
+        raw_data: { hash_documento: "h1", fecha_estado: "2026-07-14", fecha_estado_provenance: { source: "samai_estado_list", document_hash: "h1" } },
       } as any,
       ctx,
     );
-    expect(row.fecha_fijacion).toBe("2026-07-14T12:00:00.000Z");
-    expect(row.fecha_providencia?.slice(0, 10)).toBe("2026-07-10");
-    expect(canonicalPubIdentityFromRow(row, WI)).toBe(row.hash_fingerprint);
-  });
-
-  it.each(["fecha_estado_raw", "fecha_estado_normalizada"])("reads %s", (k) => {
-    const row = toCanonicalPubRow(
-      { titulo: "A", fecha_publicacion: "2026-07-10", _source_provider: "samai_estados", raw_data: { [k]: "2026-07-14" } } as any,
-      ctx,
-    );
-    expect(row.fecha_fijacion?.slice(0, 10)).toBe("2026-07-14");
+    expect(row.fecha_fijacion).toBeNull();
   });
 
   it("never copies fecha_providencia and never infers a date", () => {

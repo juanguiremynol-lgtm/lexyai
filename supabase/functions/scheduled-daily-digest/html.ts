@@ -513,13 +513,24 @@ function persistenceBlock(p: DigestPayload): string {
       : "la fuente contesta, pero sin ninguna publicación";
   // LY — dos hechos distintos que la tabla llamaba igual.
   const classCell = (r: typeof rows[number]) => {
+    if (r.gap_class === "EN_VERIFICACION") {
+      const dias = r.days_since_enrolment ?? r.consecutive_days;
+      return `<strong style="color:${accent};">EN VERIFICACIÓN</strong><br>` +
+        `<span style="color:#cbd5e1;font-size:11px;">Asunto nuevo` +
+        (r.enrolled_at ? ` (alta ${esc(r.enrolled_at)}, hace ${dias} día(s))` : "") +
+        `; un asunto recién inscrito normalmente aún no tiene registros</span>`;
+    }
     if (r.gap_class === "NEVER_ANSWERED") {
       const dias = r.days_since_enrolment ?? r.consecutive_days;
+      const other = (r as unknown as Record<string, unknown>).other_channel_delivers as string | undefined;
       return `<strong style="color:#f87171;">NUNCA HA RESPONDIDO</strong><br>` +
         `<span style="color:#cbd5e1;font-size:11px;">Ni una publicación desde el alta` +
         (r.enrolled_at ? ` (${esc(r.enrolled_at)}, hace ${dias} día(s))` : "") +
         (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
-        `</span>`;
+        `</span>` +
+        (other
+          ? `<br><span style="color:#86efac;font-size:11px;">El canal de ${other} sí entrega para este asunto: el despacho no alimenta esta fuente.</span>`
+          : "");
     }
     // Sin fila registrada no se puede afirmar que antes sí recibía: se enuncia
     // sólo lo observado (la fuente contestó, pero nunca con contenido).

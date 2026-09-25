@@ -348,6 +348,41 @@ Deno.serve(async (req) => {
         }
       }
     }
+    // AUD5(a) — a newly enrolled matter normally has no rows. Nothing enters
+    // NUNCA HA RESPONDIDO until N=14 days after enrolment; before that it is
+    // EN_VERIFICACION (the existing initial state).
+    const NEVER_ANSWERED_MIN_DAYS = 14;
+    for (const r of coveragePersistence) {
+      if (r.gap_class === "NEVER_ANSWERED" && (r.days_since_enrolment ?? 0) < NEVER_ANSWERED_MIN_DAYS) {
+        r.gap_class = "EN_VERIFICACION";
+      }
+    }
+    // AUD5(b) — where another channel carries the matter, say so on the row:
+    // a never-answered channel whose sibling channel has delivered rows is a
+    // court fact (the despacho does not feed that source), not a failure.
+    {
+      const neverIds = [...new Set(coveragePersistence
+        .filter((r) => r.gap_class === "NEVER_ANSWERED" && r.work_item_id)
+        .map((r) => r.work_item_id))];
+      if (neverIds.length) {
+        const [{ data: pubs }, { data: acts }] = await Promise.all([
+          supabase.from("work_item_publicaciones").select("work_item_id")
+            .in("work_item_id", neverIds).eq("is_archived", false).limit(5000),
+          supabase.from("work_item_acts").select("work_item_id")
+            .in("work_item_id", neverIds).eq("is_archived", false).limit(5000),
+        ]);
+        const withPubs = new Set((pubs ?? []).map((p: { work_item_id: string }) => p.work_item_id));
+        const withActs = new Set((acts ?? []).map((a: { work_item_id: string }) => a.work_item_id));
+        const ESTADO_SOURCES = new Set(["publicaciones", "samai_estados"]);
+        for (const r of coveragePersistence) {
+          if (r.gap_class !== "NEVER_ANSWERED") continue;
+          const isEstado = ESTADO_SOURCES.has(r.source);
+          if (isEstado ? withActs.has(r.work_item_id) : withPubs.has(r.work_item_id)) {
+            (r as unknown as Record<string, unknown>).other_channel_delivers = isEstado ? "actuaciones" : "estados";
+          }
+        }
+      }
+    }
     // AUD4 — never-delivered is a HISTORY fact (zero rows ever from the
     // channel), not a status string. A matter that has never received a row is
     // not a "leído sin movimiento" read even when today's attempt says EMPTY:
