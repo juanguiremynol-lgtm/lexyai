@@ -381,8 +381,9 @@ function normalizeOneEstado(
   const fechaGenerica = normalizeDate(
     e.fecha_fijacion ?? e.fecha_publicacion ?? e.fecha ?? '',
   );
+  // AUD7 — fecha_providencia_iso is authoritative on both /snapshot and /buscar.
   const fechaProvidencia = normalizeDate(
-    e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
+    e.fecha_providencia_iso ?? e['Fecha Providencia'] ?? e.fechaProvidencia ?? e.fecha_providencia ?? '',
   );
   const fecha = fechaEstado || fechaGenerica || fechaProvidencia;
   const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
