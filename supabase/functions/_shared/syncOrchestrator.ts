@@ -54,6 +54,7 @@ import {
   shouldTriggerFallback,
   type FoundStatus,
 } from "./providerStrategy.ts";
+import { canonicalizeAttemptsForPersist } from "./syncVocabulary.ts";
 import { persistedProviderOutcome, type PersistedProviderOutcome } from "./providerOutcome.ts";
 
 
@@ -392,7 +393,7 @@ async function finalizeSyncRun(
         finished_at: new Date().toISOString(),
         duration_ms: result.durationMs,
         status: result.status,
-        provider_attempts: result.providerAttempts,
+        provider_attempts: canonicalizeAttemptsForPersist(result.providerAttempts),
         total_inserted_acts: result.totalInsertedActs,
         total_skipped_acts: result.totalSkippedActs,
         total_inserted_pubs: result.totalInsertedPubs,
