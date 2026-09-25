@@ -571,7 +571,7 @@ function persistenceBlock(p: DigestPayload): string {
     const nota = cls === "OTRAS_SI_ENTREGAN"
       ? `El mismo despacho sí entrega para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más: la diferencia está en este radicado.`
       : cls === "NINGUNA_ENTREGA"
-      ? `Ninguno de los ${r.siblings_monitored} asunto(s) de este despacho recibe publicaciones: la diferencia está en el despacho.`
+      ? `Ninguno de los ${r.siblings_monitored} asuntos de este despacho recibe ${ACTUACION_SOURCE_LABELS[r.source] ? "actuaciones" : "estados"} por ${esc(label(r.source))}: la diferencia está en el despacho.`
       : `Único asunto suyo en este despacho — no hay con qué comparar desde aquí; verificable solo en el portal.`;
     return `${code}${nombre}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
   };
