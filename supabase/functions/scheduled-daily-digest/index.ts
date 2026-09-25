@@ -151,6 +151,7 @@ interface TokenSpec {
 }
 
 Deno.serve(async (req) => {
+  fechasPorPerderPromise = null; // fresh per invocation
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // AUDIT FINDING 2 — the digest reads every firm's matters and enqueues mail.
