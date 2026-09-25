@@ -402,8 +402,13 @@ function sourceQualityBlock(p: DigestPayload): string {
     if (den > 0 && answered >= den) {
       return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
     }
-    const faltan = Math.max(den - answered, 0);
-    return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${faltan} asunto(s) sin respuesta</span>`;
+    const never = Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0);
+    const faltan = Math.max(den - answered - never, 0);
+    const parts = [
+      never ? `${never} nunca han entregado desde su alta` : "",
+      faltan ? `${faltan} asunto(s) sin respuesta` : "",
+    ].filter(Boolean).join(" · ");
+    return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${parts}</span>`;
   };
   // LW3/LW4 — one line per matter, never a bare count.
   const exceptionsOf = (source: string, kind: string) =>
@@ -428,6 +433,9 @@ function sourceQualityBlock(p: DigestPayload): string {
     return [
       `${r.success_count} con datos`,
       `${r.success_empty_count} leídos sin movimiento`,
+      ...(Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0)
+        ? [`${(r as unknown as Record<string, unknown>).never_delivered_count} nunca han entregado desde su alta (ver «Fuentes que llevan días sin entregar»)`]
+        : []),
       `${r.not_found_count} no encontrados`,
       `${restricted} asunto(s) marcados «proceso privado» por el proveedor (afirmación suya, sin comprobar)`,
       `${pending} asunto(s) pendientes en la fuente`,
@@ -464,8 +472,10 @@ function sourceQualityBlock(p: DigestPayload): string {
       <strong style="color:${TEXT};">Cómo leer estas cifras.</strong> La cobertura se mide sobre las lecturas de las
       últimas 24 horas (${fmtDateTime(p.coverageWindowFrom)} → ${fmtDateTime(p.coverageWindowTo)}), mientras que las
       novedades se cuentan sobre el día calendario del resumen (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}).
-      Son ventanas distintas: por eso una fuente puede mostrar «0 con datos» y aun así aparecer una novedad detectada
-      en el resumen, o al revés. Una lectura que guardó registros se cuenta siempre como «con datos».
+      ${fmtDateTime(p.coverageWindowFrom) !== fmtDateTime(p.windowFrom) || fmtDateTime(p.coverageWindowTo) !== fmtDateTime(p.windowTo)
+        ? `Son ventanas distintas: por eso una fuente puede mostrar «0 con datos» y aun así aparecer una novedad detectada
+      en el resumen, o al revés. `
+        : ""}Una lectura que guardó registros se cuenta siempre como «con datos».
     </div>
     ${degraded.length > 0 ? `<div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
       No se pausó el monitoreo de ningún asunto por esta degradación. La lectura se reintenta en la siguiente corrida.
@@ -498,7 +508,9 @@ function persistenceBlock(p: DigestPayload): string {
   const kindText = (k: string | null) =>
     k === "READ_FAILED"
       ? "la lectura falló"
-      : "la fuente responde que la consulta sigue pendiente de su lado";
+      : k === "PENDING_UPSTREAM"
+      ? "la fuente responde que la consulta sigue pendiente de su lado"
+      : "la fuente contesta, pero sin ninguna publicación";
   // LY — dos hechos distintos que la tabla llamaba igual.
   const classCell = (r: typeof rows[number]) => {
     if (r.gap_class === "NEVER_ANSWERED") {

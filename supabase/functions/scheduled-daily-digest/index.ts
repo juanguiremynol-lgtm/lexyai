@@ -348,6 +348,29 @@ Deno.serve(async (req) => {
         }
       }
     }
+    // AUD4 — never-delivered is a HISTORY fact (zero rows ever from the
+    // channel), not a status string. A matter that has never received a row is
+    // not a "leído sin movimiento" read even when today's attempt says EMPTY:
+    // it leaves the answered count and is reported as never delivered.
+    const windowDay = new Date(new Date(sourceWindowFrom).getTime() - 5 * 3600_000).toISOString().slice(0, 10);
+    const EMPTY_OUTCOMES = new Set(["RUN_SUCCESS_EMPTY", "EMPTY", "SUCCESS_EMPTY"]);
+    for (const s of sourceQuality) {
+      if (s.check_failed) continue;
+      const never = coveragePersistence.filter((r) =>
+        r.source === s.source && r.gap_class === "NEVER_ANSWERED" &&
+        (r.last_day ?? "") >= windowDay && EMPTY_OUTCOMES.has(String(r.last_outcome ?? "").toUpperCase())
+      ).length;
+      if (!never) continue;
+      const take = Math.min(never, s.success_empty_count);
+      s.success_empty_count -= take;
+      s.usable_confirmed_count = Math.max(0, s.usable_confirmed_count - take);
+      s.answered_count = Math.max(0, (s.answered_count ?? s.usable_confirmed_count) - take);
+      (s as unknown as Record<string, unknown>).never_delivered_count = take;
+      if (take > 0) {
+        s.state = "SOURCE_DEGRADED_PARTIAL";
+        s.authoritative = false;
+      }
+    }
     // LW2 — a source whose whole chain answered is complete, whatever another
     // source did that day. The two facts are never merged into one verdict.
     const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
