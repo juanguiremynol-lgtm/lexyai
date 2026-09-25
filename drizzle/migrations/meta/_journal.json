@@ -71,6 +71,13 @@
       "when": 1790280956163,
       "tag": "0009_fix_alert_lifecycle_expired_status",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790301312110,
+      "tag": "0010_samai_estados_allow_provider_fecha_estado",
+      "breakpoints": true
     }
   ]
 }
