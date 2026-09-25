@@ -24,3 +24,14 @@
 - [x] LX2 Titular reporta movimiento; "sin cambios" cuando no hay altas ni bajas
 - [x] LX3 Días consecutivos por asunto y fuente (source_coverage_persistence)
 - [x] LX4 La falla única de CPNU se nombra cada día que persista
+
+## Monitoring remediation (work order 2026-09-25)
+- [x] Baseline 18:49 UTC: 59 monitored (36 CGP, 7 EJEC, 15 CPACA, 1 LAB); 60 = +1 ARCHIVED non-monitored CGP without radicado (874dea9a)
+- [x] Daily estados reads: weekly deferral removed from estadosMonitor
+- [x] Duplicate deadline trigger dropped; outcome per fijación in pub_deadline_outcomes; failures no longer silent
+- [x] SAMAI fijación: strict calendar date (DB + mapper), no fijación→providencia repurposing, verified date never erased; conflicts logged
+- [x] Fechas por perder: per-run cache, failure shown as unavailable, null count stays null, scoped to recipient's despachos
+- [ ] Shared per-matter/per-channel coverage classifier for digest + dashboard (Phase 1)
+- [ ] CPNU fijación vs PP reconciliation in digest (Phase 5)
+- [ ] Live replay of SAMAI captures — blocked: needs approval to sign in as gr@lexetlit.com
+- [ ] Cases A, B, D, E — blocked on GCP document evidence

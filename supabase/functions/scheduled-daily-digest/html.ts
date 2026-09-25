@@ -1067,7 +1067,11 @@ function neverReadBlock(rows: NeverReadRow[], appBaseUrl: string): string {
 
 // AUD7 — one line per SAMAI estado date at risk. fechas_para_salir counts
 // estado publications, not days. Silent when the list is empty.
-function fechasPorPerderBlock(rows: import("./types.ts").FechaPorPerderRow[]): string {
+function fechasPorPerderBlock(rows: import("./types.ts").FechaPorPerderRow[], unavailable = false): string {
+  if (!rows.length && unavailable) {
+    return `<div style="margin-top:18px;padding:12px 14px;border:1px solid #f59e0b;border-radius:8px;font-size:13px;">
+      <b>Fechas de estado por perder:</b> hoy no se pudo consultar el listado de SAMAI Estados; no sabemos si hay fechas en riesgo.</div>`;
+  }
   if (!rows.length) return "";
   const line = (r: import("./types.ts").FechaPorPerderRow) => {
     const n = r.fechas_para_salir;
@@ -1132,7 +1136,7 @@ export function buildDigestHtml(p: DigestPayload): string {
       ${headline}
     </div>
 
-    ${fechasPorPerderBlock(p.fechasPorPerder ?? [])}
+    ${fechasPorPerderBlock(p.fechasPorPerder ?? [], p.fechasPorPerderUnavailable === true)}
     ${connectionBlock(p.connectionIssues, p.appBaseUrl)}
     ${statStripBlock(p)}
     ${sourceQualityBlock(p)}

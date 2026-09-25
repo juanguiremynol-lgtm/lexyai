@@ -279,6 +279,8 @@ export interface FechaPorPerderRow {
 export interface DigestPayload {
   /** AUD7 — SAMAI estado dates at risk of leaving the portal dropdown unread. */
   fechasPorPerder?: FechaPorPerderRow[];
+  /** True when the alert route failed: say so, never render it as "nothing at risk". */
+  fechasPorPerderUnavailable?: boolean;
   recipientName: string | null;
   windowFrom: string;
   windowTo: string;
