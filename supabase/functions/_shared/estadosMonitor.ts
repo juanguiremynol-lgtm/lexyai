@@ -59,26 +59,14 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       .in("workflow_type", [...workflows]).not("radicado", "is", null)
       .order(orderColumn, { ascending: true, nullsFirst: true }).limit(500);
     if (error) return response({ error: error.message }, 500);
-    let ids = (rows ?? []).filter((row) => validRadicado(row.radicado)).map((row) => row.id);
     /**
-     * MA2 — CADENCIA, NO PAUSA. A matter that has been asked 100+ times and has
-     * never once received a row is not a slow docket: it is a request the source
-     * cannot satisfy, and asking again today manufactures another meaningless
-     * "pending". After 14 consecutive PENDING days with zero rows ever it is
-     * probed once a week. It stays monitored, enrolled and visible — only the
-     * question is asked less often. Threshold derived from history: of the 33
-     * matters that did receive publicaciones, the longest delay between the
-     * first query and the first row was 12 days.
+     * Daily read for every active eligible matter. The former MA2 weekly
+     * cadence (estados_probe_deferred_ids) is removed from this path: zero-row
+     * history is a reporting classification, never a reason to skip the read.
+     * Duplicate work is prevented by claim_estados_monitor_run (single flight
+     * per channel + Bogotá run date).
      */
-    const { data: deferred, error: deferErr } = await db.rpc("estados_probe_deferred_ids", {
-      _source: channel, _streak_threshold: 14, _probe_every_days: 7,
-    });
-    if (deferErr) {
-      console.warn("[estadosMonitor] no se pudo calcular la cadencia semanal", deferErr.message);
-    } else if (deferred?.length) {
-      const skip = new Set((deferred as { work_item_id: string }[]).map((d) => d.work_item_id));
-      ids = ids.filter((id) => !skip.has(id));
-    }
+    const ids = (rows ?? []).filter((row) => validRadicado(row.radicado)).map((row) => row.id);
     const runDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
     const { data: claim, error: claimError } = await db.rpc("claim_estados_monitor_run", {
       _channel: channel, _run_date: runDate, _work_item_ids: ids, _depth_budget: depthBudget, _lease_seconds: 180,
