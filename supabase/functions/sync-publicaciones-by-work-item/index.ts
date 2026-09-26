@@ -1484,8 +1484,19 @@ Deno.serve(withSyncTimeline(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const token = authHeader.replace('Bearer ', '');
     
-    // Check if this is a service role call (scheduled job)
-    const isServiceRole = token === supabaseServiceKey;
+    // Check if this is a service role call (scheduled job). Exact match covers
+    // the current key; a signature-verified JWT with role=service_role covers
+    // internal callers still holding the legacy service-role JWT (no `sub`),
+    // which otherwise fell into getUser() and failed with "missing sub claim".
+    let tokenRole: string | null = null;
+    if (token !== supabaseServiceKey && token.split('.').length === 3) {
+      try {
+        const { data: claimsData } = await supabase.auth.getClaims(token);
+        const role = (claimsData?.claims as Record<string, unknown> | undefined)?.role;
+        tokenRole = typeof role === 'string' ? role : null;
+      } catch (_e) { tokenRole = null; }
+    }
+    const isServiceRole = token === supabaseServiceKey || tokenRole === 'service_role';
     
     // Parse request first to check for _scheduled flag
     let payload: SyncRequest;
