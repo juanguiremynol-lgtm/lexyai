@@ -1545,6 +1545,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       // el cliente quedaba con apiKey vacía y TODA llamada interactiva moría en
       // 401 (741 errores en 4 días). Se valida el JWT con el cliente de
       // service-role, que no depende de esa variable.
+      if (tokenRole === 'anon') {
+        console.warn(`[sync-pub] Rejected anon-key call (no user session) wi=${work_item_id}`);
+        return errorResponse('NO_USER_SESSION', 'No signed-in session attached to the request', 401, { stage: 'verify_jwt' });
+      }
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
       
       if (authError || !authUser?.id) {
