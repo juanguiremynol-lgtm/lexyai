@@ -1484,8 +1484,19 @@ Deno.serve(withSyncTimeline(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const token = authHeader.replace('Bearer ', '');
     
-    // Check if this is a service role call (scheduled job)
-    const isServiceRole = token === supabaseServiceKey;
+    // Check if this is a service role call (scheduled job). Exact match covers
+    // the current key; a signature-verified JWT with role=service_role covers
+    // internal callers still holding the legacy service-role JWT (no `sub`),
+    // which otherwise fell into getUser() and failed with "missing sub claim".
+    let tokenRole: string | null = null;
+    if (token !== supabaseServiceKey && token.split('.').length === 3) {
+      try {
+        const { data: claimsData } = await supabase.auth.getClaims(token);
+        const role = (claimsData?.claims as Record<string, unknown> | undefined)?.role;
+        tokenRole = typeof role === 'string' ? role : null;
+      } catch (_e) { tokenRole = null; }
+    }
+    const isServiceRole = token === supabaseServiceKey || tokenRole === 'service_role';
     
     // Parse request first to check for _scheduled flag
     let payload: SyncRequest;
@@ -1534,6 +1545,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       // el cliente quedaba con apiKey vacía y TODA llamada interactiva moría en
       // 401 (741 errores en 4 días). Se valida el JWT con el cliente de
       // service-role, que no depende de esa variable.
+      if (tokenRole === 'anon') {
+        console.warn(`[sync-pub] Rejected anon-key call (no user session) wi=${work_item_id}`);
+        return errorResponse('NO_USER_SESSION', 'No signed-in session attached to the request', 401, { stage: 'verify_jwt' });
+      }
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
       
       if (authError || !authUser?.id) {
