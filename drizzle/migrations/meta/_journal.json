@@ -134,6 +134,13 @@
       "when": 1790391449645,
       "tag": "0018_pub_deadline_outcome_distinguish_no_rule_vs_duplicate",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790391575966,
+      "tag": "0019_samai_westados_provenanced_fijacion_starts_deadlines",
+      "breakpoints": true
     }
   ]
 }
