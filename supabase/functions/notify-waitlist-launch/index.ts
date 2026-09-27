@@ -92,11 +92,21 @@ Deno.serve(async (req) => {
       dedupe_key: `WAITLIST_LAUNCH_${s.id}_${launchDate}`,
     }));
 
-    const { error: insertErr } = await admin
+    // dedupe_key has no UNIQUE constraint (only a composite non-unique index),
+    // so Postgres rejects `ON CONFLICT (dedupe_key)` with 42P10. Pre-filter
+    // already-queued rows and insert the rest plainly instead.
+    const dedupeKeys = outboxRows.map((r) => r.dedupe_key);
+    const { data: existingRows, error: existingErr } = await admin
       .from("email_outbox")
-      .upsert(outboxRows, { onConflict: "dedupe_key", ignoreDuplicates: true });
-
-    if (insertErr) throw insertErr;
+      .select("dedupe_key")
+      .in("dedupe_key", dedupeKeys);
+    if (existingErr) throw existingErr;
+    const existingKeys = new Set((existingRows ?? []).map((r) => r.dedupe_key));
+    const pendingRows = outboxRows.filter((r) => !existingKeys.has(r.dedupe_key));
+    if (pendingRows.length > 0) {
+      const { error: insertErr } = await admin.from("email_outbox").insert(pendingRows);
+      if (insertErr) throw insertErr;
+    }
 
     // ── Mark signups as notified ──
     const ids = signups.map((s) => s.id);
