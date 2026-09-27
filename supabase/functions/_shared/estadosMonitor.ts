@@ -5,6 +5,8 @@ import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting
 const BATCH_SIZE = 5;
 const MAX_DEPTH = 12;
 const COOLDOWN_MS = 1_500;
+const ITEM_TIMEOUT_MS = 25_000;
+const HOP_ATTEMPTS = 3;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-key",
@@ -86,9 +88,11 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     let errorCode: string | null = null;
     let result: Record<string, unknown> = {};
     try {
+      // Per-item timeout so one hanging read cannot push the hop past the edge wall-clock.
       const sync = await fetch(`${url}/functions/v1/sync-publicaciones-by-work-item`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
         body: JSON.stringify({ work_item_id: item.work_item_id, _scheduled: true }),
+        signal: AbortSignal.timeout(ITEM_TIMEOUT_MS),
       });
       result = await sync.json().catch(() => ({ http_status: sync.status }));
       success = sync.ok && result.ok === true;
@@ -124,13 +128,23 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   const state = finish?.[0];
   if (state?.remaining_count > 0 && state.depth_remaining > 0) {
     const nextHop = async () => {
-      await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS));
       const endpoint = channel === "publicaciones" ? "scheduled-publicaciones-monitor" : "scheduled-samai-estados-monitor";
-      const next = await fetch(`${url}/functions/v1/${endpoint}`, {
-        method: "POST", headers: { "Content-Type": "application/json", [CRON_HEADER]: cronKey },
-        body: JSON.stringify({ run_id: runId, depth_remaining: state.depth_remaining }),
-      });
-      if (!next.ok) console.error(`[${endpoint}] chained hop failed: ${next.status}`);
+      // Retry transient hop failures (e.g. gateway 504). Batch claims are leased,
+      // so a retry never double-processes an item the previous hop already took.
+      for (let attempt = 1; attempt <= HOP_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS * attempt));
+        try {
+          const next = await fetch(`${url}/functions/v1/${endpoint}`, {
+            method: "POST", headers: { "Content-Type": "application/json", [CRON_HEADER]: cronKey },
+            body: JSON.stringify({ run_id: runId, depth_remaining: state.depth_remaining }),
+          });
+          if (next.ok) return;
+          console.error(`[${endpoint}] chained hop failed: ${next.status} (attempt ${attempt}/${HOP_ATTEMPTS})`);
+          if (next.status < 500) return;
+        } catch (error) {
+          console.error(`[${endpoint}] chained hop error (attempt ${attempt}/${HOP_ATTEMPTS})`, error instanceof Error ? error.message : error);
+        }
+      }
     };
     const runtime = (globalThis as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
     if (runtime) runtime.waitUntil(nextHop()); else await nextHop();
