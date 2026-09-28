@@ -2,10 +2,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { isCronCaller, CRON_HEADER } from "./cronAuth.ts";
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
 
-const BATCH_SIZE = 5;
-const MAX_DEPTH = 12;
+const BATCH_SIZE = 2;
+const MAX_DEPTH = 30;
 const COOLDOWN_MS = 1_500;
-const ITEM_TIMEOUT_MS = 25_000;
+// Must exceed the callee's own PUB_SAFETY_TIMEOUT_MS (110s) so real reads finish.
+const ITEM_TIMEOUT_MS = 125_000;
+const LEASE_SECONDS = 300; // covers BATCH_SIZE * ITEM_TIMEOUT_MS plus cooldowns
 const HOP_ATTEMPTS = 3;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,7 +73,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     const ids = (rows ?? []).filter((row) => validRadicado(row.radicado)).map((row) => row.id);
     const runDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
     const { data: claim, error: claimError } = await db.rpc("claim_estados_monitor_run", {
-      _channel: channel, _run_date: runDate, _work_item_ids: ids, _depth_budget: depthBudget, _lease_seconds: 180,
+      _channel: channel, _run_date: runDate, _work_item_ids: ids, _depth_budget: depthBudget, _lease_seconds: LEASE_SECONDS,
     });
     if (claimError) return response({ error: claimError.message }, 500);
     const claimedRun = claim?.[0];
@@ -80,7 +82,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   }
   if (!runId) return response({ error: "No se pudo identificar la corrida" }, 500);
   const { data: claimed, error: batchError } = await db.rpc("claim_estados_monitor_batch", {
-    _run_id: runId, _limit: BATCH_SIZE, _lease_seconds: 180,
+    _run_id: runId, _limit: BATCH_SIZE, _lease_seconds: LEASE_SECONDS,
   });
   if (batchError) return response({ error: batchError.message }, 500);
   for (const item of (claimed ?? []) as ClaimedItem[]) {
