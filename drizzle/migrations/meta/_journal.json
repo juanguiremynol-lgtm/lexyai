@@ -148,6 +148,13 @@
       "when": 1790778726836,
       "tag": "0020_incident_20260930_classification_and_estado_anchor",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790778768533,
+      "tag": "0021_incident_20260930_classification_refine",
+      "breakpoints": true
     }
   ]
 }
