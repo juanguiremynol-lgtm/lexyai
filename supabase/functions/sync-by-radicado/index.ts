@@ -72,6 +72,37 @@ interface PpLookupResult {
   http_status?: number;
   latency_ms: number;
   error?: string;
+  /** Number of estados PP reports for this radicado; null when not read yet. */
+  estados_count?: number | null;
+  /** When PP last read the portal for this radicado; null when never read. */
+  last_checked_at?: string | null;
+  /** True when PP has never actually read this radicado (a 0 here means "not read"). */
+  never_checked?: boolean;
+  detail?: string;
+  estados?: Array<{ fecha: string | null; titulo: string | null }>;
+}
+
+function pickArray(body: any): any[] | null {
+  for (const k of ['estados', 'publicaciones', 'results', 'items', 'data']) {
+    if (Array.isArray(body?.[k])) return body[k];
+  }
+  return null;
+}
+
+function pickNumber(body: any, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = body?.[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+function pickString(body: any, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = body?.[k];
+    if (typeof v === 'string' && v.trim()) return v;
+  }
+  return null;
 }
 
 interface ProcessData {
@@ -574,7 +605,30 @@ async function fetchPpLookup(radicado: string): Promise<PpLookupResult> {
       raw === 'processing' ? 'processing' :
       raw === 'not_in_portal' ? 'not_in_portal' :
       'unknown';
-    return { status, http_status: resp.status, latency_ms: latency };
+
+    const arr = pickArray(body);
+    const reportedCount = pickNumber(body, ['total_estados', 'estados_count', 'total', 'count']);
+    const analyzed = pickNumber(body, ['estados_analizados', 'analyzed', 'scanned_count']);
+    const lastChecked = pickString(body, ['last_scraped_at', 'ultima_revision', 'last_checked_at', 'updated_at', 'scraped_at']);
+    const count = arr ? arr.length : reportedCount;
+    // A zero with no read timestamp (or zero analyzed) means PP never read the portal.
+    const neverChecked = status !== 'found'
+      || (!lastChecked && (count === null || count === 0))
+      || (analyzed === 0 && (count === null || count === 0));
+    const estados = (arr || []).slice(0, 30).map((e: any) => ({
+      fecha: pickString(e, ['fecha_estado', 'fecha', 'fecha_publicacion', 'date']),
+      titulo: pickString(e, ['titulo', 'descripcion', 'tipo_publicacion', 'actuacion', 'title']),
+    }));
+    return {
+      status,
+      http_status: resp.status,
+      latency_ms: latency,
+      estados_count: neverChecked ? null : count,
+      last_checked_at: lastChecked,
+      never_checked: neverChecked,
+      detail: pickString(body, ['detail', 'message']) ?? undefined,
+      estados,
+    };
   } catch (err: any) {
     clearTimeout(timeoutId);
     return {
