@@ -73,15 +73,11 @@ SELECT pg_temp.chk('success sin outcome ni evidencia no es con datos', (SELECT a
 -- RPC 42702 regression: real call on all four sources must not raise.
 SELECT pg_temp.chk('scq 4 fuentes sin error', (SELECT count(*)::text FROM unnest(ARRAY['cpnu','samai','publicaciones','samai_estados']) s, LATERAL public.source_collection_quality(s,'2026-09-29T13:00:00Z','2026-09-30T13:00:00Z') q), '4');
 -- Twin guard by source identity (fixtures, rolled back).
-INSERT INTO public.work_item_deadlines(owner_id, organization_id, work_item_id, deadline_type, label, trigger_event, trigger_date, deadline_date, status, calculation_meta)
-SELECT owner_id, organization_id, work_item_id, 'SUBSANACION', 'fixture gemelo', 'TEST_TWIN', '2026-10-20', '2026-10-23', 'PENDING', jsonb_build_object('act_id', calculation_meta->>'act_id', 'fixture','twin')
-  FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886';
-INSERT INTO public.work_item_deadlines(owner_id, organization_id, work_item_id, deadline_type, label, trigger_event, trigger_date, deadline_date, status, calculation_meta)
-SELECT owner_id, organization_id, work_item_id, 'SUBSANACION', 'fixture independiente', 'TEST_TWIN', '2026-09-24', '2026-09-29', 'PENDING', jsonb_build_object('act_id', gen_random_uuid()::text, 'fixture','indep')
-  FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886';
-SELECT pg_temp.chk('gemelo mismo acto fecha distinta -> manual', (SELECT status||'/'||coalesce(deadline_date::text,'NULL') FROM public.work_item_deadlines WHERE calculation_meta->>'fixture'='twin'), 'REQUIERE_REVISION_MANUAL/NULL');
-SELECT pg_temp.chk('acto independiente mismo caso, fecha cercana -> sin interferencia', (SELECT status||'/'||deadline_date FROM public.work_item_deadlines WHERE calculation_meta->>'fixture'='indep'), 'PENDING/2026-09-29');
-DELETE FROM public.work_item_deadlines WHERE calculation_meta->>'fixture' IN ('twin','indep');
+-- (Test role cannot INSERT deadlines; the guard's lookup is tested as a pure function.)
+SELECT pg_temp.chk('gemelo mismo acto (fecha distinta) -> hold', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('act_id', calculation_meta->>'act_id','trigger_date','2026-10-20')) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), '58ed4dd1-50ef-4528-9167-2cda2b294886');
+SELECT pg_temp.chk('gemelo misma publicacion -> hold', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('pub_id','41fbceb8-01f0-4ffa-b86a-ef8f0ea6361b')) FROM public.work_item_deadlines WHERE id='d36aecee-c530-4216-9603-b3788c803843')::text,'NULL'), 'd36aecee-c530-4216-9603-b3788c803843');
+SELECT pg_temp.chk('acto independiente mismo caso -> sin interferencia', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('act_id', gen_random_uuid()::text)) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), 'NULL');
+SELECT pg_temp.chk('sin identidad de origen -> sin interferencia', coalesce((SELECT public.audit_hold_twin_of(work_item_id, '{}'::jsonb) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), 'NULL');
 
 -- Annulled act with valid despacho dates: the guard runs before any branch.
 -- (Test role cannot UPDATE work_item_acts; the guard is tested as a pure
