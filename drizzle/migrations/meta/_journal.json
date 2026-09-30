@@ -162,6 +162,13 @@
       "when": 1790779105211,
       "tag": "0022_incident_20260930_future_traslado_rule",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790779443783,
+      "tag": "0023_incident_20260930_gaps_mixed_mandates_anchor_withdata",
+      "breakpoints": true
     }
   ]
 }
