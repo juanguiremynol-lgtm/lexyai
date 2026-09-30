@@ -25199,6 +25199,10 @@ export type Database = {
           run_id: string
         }[]
       }
+      audit_hold_twin_of: {
+        Args: { p_meta: Json; p_work_item: string }
+        Returns: string
+      }
       backfill_deadline_audit_meta: {
         Args: { p_status?: string }
         Returns: {
