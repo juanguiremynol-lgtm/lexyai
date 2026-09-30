@@ -769,6 +769,34 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
 }
 
 /**
+ * Incident 30/09 — terms held for manual review are shown, never hidden, and
+ * never with a date: any stored date is unvalidated and is not a live term.
+ */
+export function manualReviewBlock(p: DigestPayload): string {
+  const rows = p.manualReviewTerms ?? [];
+  if (!rows.length) return "";
+  const accent = "#fbbf24";
+  return `
+    <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
+      TÉRMINOS EN REVISIÓN MANUAL (${rows.length}) — requieren su lectura del auto
+    </div>
+    <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:8px;">
+      <thead><tr>${th("Asunto", accent)}${th("Revisión", accent)}${th("Fecha", accent)}</tr></thead>
+      <tbody>${rows.map((d) => {
+        const wi = p.workItems.get(d.work_item_id);
+        return `<tr>
+          ${td(esc(wi?.radicado || wi?.title || "—"))}
+          ${td(esc(d.label || d.deadline_type || "—"))}
+          ${td(`<span style="color:${accent};">Sin fecha validada</span>`)}
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:14px;">
+      Estos términos no se presentan como corriendo ni vencidos: la fecha no está validada hasta que usted revise el auto.
+    </div>`;
+}
+
+/**
  * LV2/LV4 — the terms that are not running. Each says what actually closed it,
  * and a correspondence closure says plainly that an email is not compliance.
  * None of these is counted among his live terms.
