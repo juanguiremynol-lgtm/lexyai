@@ -35,3 +35,10 @@
 - [ ] CPNU fijación vs PP reconciliation in digest (Phase 5)
 - [ ] Live replay of SAMAI captures — blocked: needs approval to sign in as gr@lexetlit.com
 - [ ] Cases A, B, D, E — blocked on GCP document evidence
+
+## Incidente digest 30/09 (A–F)
+- [ ] A. Clasificación: anulada/secretarial/reconocimiento notificación/auto que dispone sentencia/traslado desistimiento → revisión manual; quitar DESISTIMIENTO aislado
+- [ ] B. 4 deadlines → REQUIERE_REVISION_MANUAL con respaldo + reversión
+- [ ] C. Quitar doble desplazamiento de desfijación en anclas de estado
+- [ ] D. Digest: sin respuesta vs sin lectura confirmada; con datos por asunto; quitar causalidad del despacho
+- [ ] E. Leer PDFs cacheados (3 publicaciones + auto 00638)
