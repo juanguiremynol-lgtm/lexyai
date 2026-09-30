@@ -302,6 +302,7 @@ export interface DigestPayload {
   /** LV2/LV4 — closed without verification, or never computed. Apart, uncounted. */
   unverifiedTerms: UnverifiedTermRow[];
   /** Incident 30/09 — held for manual review; rendered without any date. */
+  manualReviewTotal?: number;
   manualReviewTerms?: { id: string; work_item_id: string; label: string | null; deadline_type: string | null }[];
   /** D3 — rows detected in the window that are initial import, not novedad. */
   importedHistory: ImportedHistoryRow[];

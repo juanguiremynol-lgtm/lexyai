@@ -775,11 +775,15 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
 export function manualReviewBlock(p: DigestPayload): string {
   const rows = p.manualReviewTerms ?? [];
   if (!rows.length) return "";
+  const total = Math.max(p.manualReviewTotal ?? rows.length, rows.length);
   const accent = "#fbbf24";
   return `
     <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
-      TÉRMINOS EN REVISIÓN MANUAL (${rows.length}) — requieren su lectura del auto
-    </div>
+      TÉRMINOS EN REVISIÓN MANUAL (${total}) — requieren su lectura del auto
+    </div>${total > rows.length ? `
+    <div style="font-size:11px;color:${accent};margin-bottom:6px;">
+      Se muestran ${rows.length} de ${total}; ${total - rows.length} más en revisión manual no aparecen en este correo. Consulte la lista completa en Andromeda.
+    </div>` : ""}
     <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:8px;">
       <thead><tr>${th("Asunto", accent)}${th("Revisión", accent)}${th("Fecha", accent)}</tr></thead>
       <tbody>${rows.map((d) => {
