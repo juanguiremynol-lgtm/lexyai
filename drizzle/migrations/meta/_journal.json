@@ -169,6 +169,13 @@
       "when": 1790779443783,
       "tag": "0023_incident_20260930_gaps_mixed_mandates_anchor_withdata",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790779558679,
+      "tag": "0024_incident_20260930_pub_record_init_fix",
+      "breakpoints": true
     }
   ]
 }
