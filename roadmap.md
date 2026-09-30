@@ -52,3 +52,6 @@
 - [x] Resumen: bloque visible de revisiones manuales sin fecha; render local con fixtures (2/2, exit 0); desplegado
 - [ ] PDFs 00139, 01424, auto 00638 — almacenamiento privado, sin acceso autorizado
 - [ ] Origen del texto breve — no localizado
+- [x] 0026: source_collection_quality sin 42702 (SELECT real 4 fuentes OK; regresión en suite).
+- [x] 0027–0029: art.110 ancla = día de lista (23/09+3=28/09, 29/09+3=02/10); grade_source_matters filtra intentos al universo, evidencia sin intento inventado, success sin outcome ≠ con datos; guard de gemelos por identidad de origen (act/auto/pub + corroboraciones + vínculos resueltos), no por ±5 días. Suite SQL 41/41 exit 0.
+- [x] Digest: revisiones manuales cuentan como contenido; total/exceso si >40. Render 4/4 exit 0. Desplegado.

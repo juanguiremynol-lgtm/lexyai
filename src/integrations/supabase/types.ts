@@ -25199,6 +25199,10 @@ export type Database = {
           run_id: string
         }[]
       }
+      audit_hold_twin_of: {
+        Args: { p_meta: Json; p_work_item: string }
+        Returns: string
+      }
       backfill_deadline_audit_meta: {
         Args: { p_status?: string }
         Returns: {
@@ -25535,6 +25539,7 @@ export type Database = {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
       }
+      deadline_source_ids: { Args: { m: Json }; Returns: string[] }
       decide_correspondence_closure: {
         Args: { p_deadline_id: string; p_decision: string }
         Returns: Json

@@ -2,6 +2,7 @@
 // HTML builder: no server, no database, no email send.
 import { assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildDigestHtml } from "./html.ts";
+import { digestHasContent } from "./content.ts";
 import { sourceGaps, describeSourceQuality } from "../_shared/sourceRunQuality.ts";
 
 const cpnu = {
@@ -55,4 +56,20 @@ Deno.test("final HTML: four reviews visible, dateless, no forbidden phrases", as
     assert(!lower.includes(bad), `forbidden phrase present: ${bad}`);
   }
   assert(!/vencido hace/i.test(html), "no false overdue");
+});
+
+Deno.test("solo 4 revisiones + sin novedades + fuentes sanas → contenido y HTML visible", () => {
+  const healthy = { ...cpnu, answered_count: 44, usable_confirmed_count: 44, restricted_count: 0, restricted_matter_count: 0, error_count: 0, state: "SOURCE_HEALTHY_COMPLETE", authoritative: true };
+  const p = { ...payload, sourceQuality: [healthy], coverageIncomplete: false, stats: { procesosConNovedad: 0, publicaciones: 0, cpnu: 0, samai: 0, erroresFuente: 0 } };
+  assert(digestHasContent({ rowCount: 0, manualReviewCount: p.manualReviewTerms.length, coverageIncomplete: false }));
+  assert(!digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: false }));
+  const html = buildDigestHtml(p);
+  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (4)");
+  for (const [, , rad] of holds) assertStringIncludes(html, rad);
+});
+
+Deno.test("revisiones truncadas declaran total y exceso", () => {
+  const html = buildDigestHtml({ ...payload, manualReviewTotal: 57 });
+  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (57)");
+  assertStringIncludes(html, "Se muestran 4 de 57; 53 más");
 });

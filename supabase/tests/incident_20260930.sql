@@ -35,7 +35,11 @@ SELECT pg_temp.chk('estado desfij mismo dia no desplaza', (SELECT anchor||'/'||v
 SELECT pg_temp.chk('estado desfij dia siguiente no desplaza', (SELECT anchor||'/'||vehicle FROM public.resolve_publicacion_anchor('2026-09-23','2026-09-24','SUBSANACION','inadmite')), '2026-09-23/ESTADO_ART118');
 SELECT pg_temp.chk('estado desfij lejana -> revision', (SELECT coalesce(anchor::text,'NULL')||'/'||manual_reason FROM public.resolve_publicacion_anchor('2026-09-23','2026-09-30','SUBSANACION','inadmite')), 'NULL/DESFIJACION_INCOMPATIBLE_CON_ESTADO');
 SELECT pg_temp.chk('desfij anterior -> revision', (SELECT coalesce(anchor::text,'NULL')||'/'||manual_reason FROM public.resolve_publicacion_anchor('2026-09-23','2026-09-22','SUBSANACION','x')), 'NULL/DESFIJACION_ANTERIOR_A_FIJACION');
-SELECT pg_temp.chk('lista art110 explicita', (SELECT anchor||'/'||vehicle FROM public.resolve_publicacion_anchor('2026-09-23',NULL,'TRASLADO_DEMANDA','traslado en lista art. 110')), '2026-09-24/LISTA_ART110');
+SELECT pg_temp.chk('lista art110 explicita', (SELECT anchor||'/'||vehicle FROM public.resolve_publicacion_anchor('2026-09-23',NULL,'TRASLADO_DEMANDA','traslado en lista art. 110')), '2026-09-23/LISTA_ART110');
+SELECT pg_temp.chk('lista 23/09 +3 => 28/09', (SELECT public.add_business_days_sql(anchor,3)::text FROM public.resolve_publicacion_anchor('2026-09-23',NULL,'TRASLADO_DEMANDA','fijación en lista art. 110')), '2026-09-28');
+SELECT pg_temp.chk('lista 29/09 +3 => 02/10', (SELECT public.add_business_days_sql(anchor,3)::text FROM public.resolve_publicacion_anchor('2026-09-29',NULL,'TRASLADO_DEMANDA','traslado por lista artículo 110')), '2026-10-02');
+SELECT pg_temp.chk('lista y estado vehiculos distintos', (SELECT string_agg(vehicle,'|') FROM (SELECT vehicle FROM public.resolve_publicacion_anchor('2026-09-23',NULL,'TRASLADO_DEMANDA','art. 110') UNION ALL SELECT vehicle FROM public.resolve_publicacion_anchor('2026-09-23',NULL,'TRASLADO_DEMANDA','corre traslado')) v), 'LISTA_ART110|ESTADO_ART118');
+SELECT pg_temp.chk('lista desfij lejana -> revision', (SELECT coalesce(anchor::text,'NULL')||'/'||manual_reason FROM public.resolve_publicacion_anchor('2026-09-23','2026-09-30','TRASLADO_DEMANDA','art. 110')), 'NULL/DESFIJACION_INCOMPATIBLE_CON_LISTA');
 
 -- "Con datos": 3 novedades in 2 SAMAI cases, last run empty after an inserting run,
 -- several runs per case, separate sources, out-of-window evidence.
@@ -53,6 +57,27 @@ SELECT pg_temp.chk('con datos por asunto', (SELECT ok||'/'||empty||'/'||attempte
     {"work_item_id":"00000000-0000-0000-0000-00000000000c","source":"cpnu","created_at":"2031-01-01T13:00Z"},
     {"work_item_id":"00000000-0000-0000-0000-00000000000c","source":"samai","created_at":"2030-12-30T08:00Z"}]'::jsonb)),
   '2/1/3');
+
+-- Coherence: attempts outside the expected universe never count; evidence-only
+-- is usable-with-data without an invented attempt; success w/o outcome is not data.
+SELECT pg_temp.chk('uuid fuera de universo no cuenta', (SELECT attempted||'/'||ok FROM public.grade_source_matters('samai','2031-01-01','2031-01-02',
+  ARRAY['00000000-0000-0000-0000-00000000000a']::uuid[],
+  '[{"work_item_id":"00000000-0000-0000-0000-0000000000ff","started_at":"2031-01-01T08:00Z","provider":"samai","status":"success","outcome":"RUN_SUCCESS_WITH_DATA"}]'::jsonb,
+  '[{"work_item_id":"00000000-0000-0000-0000-0000000000ff","source":"samai","created_at":"2031-01-01T08:00Z"}]'::jsonb)), '0/0');
+SELECT pg_temp.chk('evidencia sin corrida: con datos, sin intento', (SELECT attempted||'/'||ok FROM public.grade_source_matters('samai','2031-01-01','2031-01-02',
+  ARRAY['00000000-0000-0000-0000-00000000000a']::uuid[], '[]'::jsonb,
+  '[{"work_item_id":"00000000-0000-0000-0000-00000000000a","source":"samai","created_at":"2031-01-01T08:00Z"}]'::jsonb)), '0/1');
+SELECT pg_temp.chk('success sin outcome ni evidencia no es con datos', (SELECT attempted||'/'||ok||'/'||empty FROM public.grade_source_matters('samai','2031-01-01','2031-01-02',
+  ARRAY['00000000-0000-0000-0000-00000000000a']::uuid[],
+  '[{"work_item_id":"00000000-0000-0000-0000-00000000000a","started_at":"2031-01-01T08:00Z","provider":"samai","status":"success"}]'::jsonb, '[]'::jsonb)), '1/0/1');
+-- RPC 42702 regression: real call on all four sources must not raise.
+SELECT pg_temp.chk('scq 4 fuentes sin error', (SELECT count(*)::text FROM unnest(ARRAY['cpnu','samai','publicaciones','samai_estados']) s, LATERAL public.source_collection_quality(s,'2026-09-29T13:00:00Z','2026-09-30T13:00:00Z') q), '4');
+-- Twin guard by source identity (fixtures, rolled back).
+-- (Test role cannot INSERT deadlines; the guard's lookup is tested as a pure function.)
+SELECT pg_temp.chk('gemelo mismo acto (fecha distinta) -> hold', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('act_id', calculation_meta->>'act_id','trigger_date','2026-10-20')) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), '58ed4dd1-50ef-4528-9167-2cda2b294886');
+SELECT pg_temp.chk('gemelo misma publicacion -> hold', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('pub_id','41fbceb8-01f0-4ffa-b86a-ef8f0ea6361b')) FROM public.work_item_deadlines WHERE id='d36aecee-c530-4216-9603-b3788c803843')::text,'NULL'), 'd36aecee-c530-4216-9603-b3788c803843');
+SELECT pg_temp.chk('acto independiente mismo caso -> sin interferencia', coalesce((SELECT public.audit_hold_twin_of(work_item_id, jsonb_build_object('act_id', gen_random_uuid()::text)) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), 'NULL');
+SELECT pg_temp.chk('sin identidad de origen -> sin interferencia', coalesce((SELECT public.audit_hold_twin_of(work_item_id, '{}'::jsonb) FROM public.work_item_deadlines WHERE id='58ed4dd1-50ef-4528-9167-2cda2b294886')::text,'NULL'), 'NULL');
 
 -- Annulled act with valid despacho dates: the guard runs before any branch.
 -- (Test role cannot UPDATE work_item_acts; the guard is tested as a pure

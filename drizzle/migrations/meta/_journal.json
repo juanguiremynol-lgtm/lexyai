@@ -190,6 +190,27 @@
       "when": 1790779923395,
       "tag": "0026_incident_20260930_scq_qualify_source",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790780240879,
+      "tag": "0027_incident_20260930_final_regressions",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790780292630,
+      "tag": "0028_incident_20260930_twin_guard_pure",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790780342445,
+      "tag": "0029_incident_20260930_twin_linked_ids",
+      "breakpoints": true
     }
   ]
 }

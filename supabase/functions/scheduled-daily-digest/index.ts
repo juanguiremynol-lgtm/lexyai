@@ -75,6 +75,7 @@ export function scopeFechasPorPerder(r: FechasPorPerderResult, radicados: (strin
   return { status: r.status, rows: r.rows.filter((f) => codes.has(f.despacho.replace(/\D/g, ""))) };
 }
 import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
+import { digestHasContent } from "./content.ts";
 import { isNonJudicial } from "./types.ts";
 import {
   classifySourceRunQuality,
@@ -737,9 +738,9 @@ Deno.serve(async (req) => {
         // read here only to be shown apart; none of them enters a count of
         // running terms, and nothing is recomputed.
         // Incident 30/09 — manual-review terms are shown, dateless.
-        const { data: rawManual } = await supabase
+        const { data: rawManual, count: manualTotal } = await supabase
           .from("work_item_deadlines")
-          .select("id, work_item_id, label, deadline_type")
+          .select("id, work_item_id, label, deadline_type", { count: "exact" })
           .in("work_item_id", ids)
           .eq("status", "REQUIERE_REVISION_MANUAL")
           .order("trigger_date", { ascending: false })
@@ -1195,11 +1196,13 @@ Deno.serve(async (req) => {
         // source that never delivered authoritative detail is NOT an empty day:
         // staying silent would let the lawyer read our silence as judicial
         // silence. That is precisely the misrepresentation of 2026-07-27.
-        const hasContent =
-          actuaciones.length + estados.length + hearings.length + allDeadlines.length +
+        const hasContent = digestHasContent({
+          rowCount: actuaciones.length + estados.length + hearings.length + allDeadlines.length +
             connectionIssues.length + importedHistory.length + reconciliations.length +
-            neverRead.length > 0 ||
-          coverageIncomplete;
+            neverRead.length,
+          manualReviewCount: (rawManual ?? []).length,
+          coverageIncomplete,
+        });
 
 
         if (!hasContent) {
@@ -1298,6 +1301,7 @@ Deno.serve(async (req) => {
 
           nonJudicialDeadlines,
           unverifiedTerms,
+          manualReviewTotal: manualTotal ?? (rawManual ?? []).length,
           manualReviewTerms: (rawManual ?? []).map((d: Record<string, unknown>) => ({
             id: String(d.id), work_item_id: String(d.work_item_id),
             label: (d.label as string) ?? null, deadline_type: (d.deadline_type as string) ?? null,
