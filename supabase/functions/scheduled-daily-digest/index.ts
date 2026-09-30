@@ -75,6 +75,7 @@ export function scopeFechasPorPerder(r: FechasPorPerderResult, radicados: (strin
   return { status: r.status, rows: r.rows.filter((f) => codes.has(f.despacho.replace(/\D/g, ""))) };
 }
 import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
+import { digestHasContent } from "./content.ts";
 import { isNonJudicial } from "./types.ts";
 import {
   classifySourceRunQuality,
