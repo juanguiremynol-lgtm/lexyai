@@ -183,6 +183,13 @@
       "when": 1790779592420,
       "tag": "0025_incident_20260930_audit_hold_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790779923395,
+      "tag": "0026_incident_20260930_scq_qualify_source",
+      "breakpoints": true
     }
   ]
 }
