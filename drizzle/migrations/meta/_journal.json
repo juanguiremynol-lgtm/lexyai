@@ -176,6 +176,13 @@
       "when": 1790779558679,
       "tag": "0024_incident_20260930_pub_record_init_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790779592420,
+      "tag": "0025_incident_20260930_audit_hold_guard",
+      "breakpoints": true
     }
   ]
 }
