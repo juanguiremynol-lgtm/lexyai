@@ -736,6 +736,14 @@ Deno.serve(async (req) => {
         // back-detection, or never computed for want of an anchor. They are
         // read here only to be shown apart; none of them enters a count of
         // running terms, and nothing is recomputed.
+        // Incident 30/09 — manual-review terms are shown, dateless.
+        const { data: rawManual } = await supabase
+          .from("work_item_deadlines")
+          .select("id, work_item_id, label, deadline_type")
+          .in("work_item_id", ids)
+          .eq("status", "REQUIERE_REVISION_MANUAL")
+          .order("trigger_date", { ascending: false })
+          .limit(40);
         const { data: rawUnverified } = await supabase
           .from("work_item_deadlines")
           .select("id, work_item_id, label, deadline_type, deadline_date, status, calculation_meta")
@@ -1290,6 +1298,10 @@ Deno.serve(async (req) => {
 
           nonJudicialDeadlines,
           unverifiedTerms,
+          manualReviewTerms: (rawManual ?? []).map((d: Record<string, unknown>) => ({
+            id: String(d.id), work_item_id: String(d.work_item_id),
+            label: (d.label as string) ?? null, deadline_type: (d.deadline_type as string) ?? null,
+          })),
           connectionIssues,
           autoPaused,
           sourceQuality,

@@ -42,3 +42,13 @@
 - [ ] C. Quitar doble desplazamiento de desfijación en anclas de estado
 - [ ] D. Digest: sin respuesta vs sin lectura confirmada; con datos por asunto; quitar causalidad del despacho
 - [ ] E. Leer PDFs cacheados (3 publicaciones + auto 00638)
+
+## Incidente resumen 30/09/2026 — verificado 30/09 14:48 UTC
+- [x] Clasificación: mandatos mixtos → revisión manual; notificación sola sin plazo automático; traslado futuro condicionado sin término (suite SQL 29/29, exit 0)
+- [x] Anulada excluida antes de fechas del despacho (guard puro + acto real; UPDATE de fixture denegado al rol de pruebas)
+- [x] Ancla estado vs lista art.110; desfijación solo metadato; contradicción → revisión (suite SQL)
+- [x] "Con datos" por asunto con evidencia en cualquier corrida de la ventana (función pura probada)
+- [x] Guard: re-lectura no crea PENDING gemelo de un término en auditoría (suite SQL)
+- [x] Resumen: bloque visible de revisiones manuales sin fecha; render local con fixtures (2/2, exit 0); desplegado
+- [ ] PDFs 00139, 01424, auto 00638 — almacenamiento privado, sin acceso autorizado
+- [ ] Origen del texto breve — no localizado

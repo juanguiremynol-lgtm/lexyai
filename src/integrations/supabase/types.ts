@@ -25031,6 +25031,10 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      act_is_annulled: {
+        Args: { p_description: string; p_raw: Json }
+        Returns: boolean
+      }
       act_is_apelacion_concedida: {
         Args: { p_act_type: string; p_description: string }
         Returns: boolean
@@ -25883,6 +25887,26 @@ export type Database = {
         }
         Returns: string
       }
+      grade_source_matters: {
+        Args: {
+          p_attempts: Json
+          p_evidence: Json
+          p_expected: string[]
+          p_from: string
+          p_src: string
+          p_to: string
+        }
+        Returns: {
+          attempted: number
+          empty: number
+          errs: number
+          last_at: string
+          nf: number
+          ok: number
+          pending: number
+          restricted: number
+        }[]
+      }
       grant_client_contract_extra: {
         Args: {
           p_client_id: string
@@ -26146,6 +26170,19 @@ export type Database = {
       reopen_drained_deadline: {
         Args: { p_deadline_id: string; p_reason?: string }
         Returns: Json
+      }
+      resolve_publicacion_anchor: {
+        Args: {
+          p_deadline_type: string
+          p_desfijacion: string
+          p_fijacion: string
+          p_text: string
+        }
+        Returns: {
+          anchor: string
+          manual_reason: string
+          vehicle: string
+        }[]
       }
       resolve_published_auto: {
         Args: { p_pub_id: string }
