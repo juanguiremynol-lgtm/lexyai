@@ -2,12 +2,14 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { isCronCaller, CRON_HEADER } from "./cronAuth.ts";
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
 
-const BATCH_SIZE = 2;
-const MAX_DEPTH = 30;
+// One case per hop: a hop must fit the ~150s edge wall clock, and one read
+// may take up to ITEM_TIMEOUT_MS. 60 hops cover the largest channel (44).
+const BATCH_SIZE = 1;
+const MAX_DEPTH = 60;
 const COOLDOWN_MS = 1_500;
 // Must exceed the callee's own PUB_SAFETY_TIMEOUT_MS (110s) so real reads finish.
 const ITEM_TIMEOUT_MS = 125_000;
-const LEASE_SECONDS = 300; // covers BATCH_SIZE * ITEM_TIMEOUT_MS plus cooldowns
+const LEASE_SECONDS = 180; // one read (<=125s) plus finish RPCs; orphans re-claimable quickly
 const HOP_ATTEMPTS = 3;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

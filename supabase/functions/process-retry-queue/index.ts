@@ -171,6 +171,9 @@ Deno.serve(async (req) => {
 
       try {
         let syncOk = false;
+        // Infrastructure-level failure (5xx gateway/boot, network): the sync never ran,
+        // so it must not consume an attempt.
+        let transient = false;
 
         if (task.kind === 'ACT_SCRAPE_RETRY') {
           const { data: syncResult, error: syncError } = await supabase.functions.invoke(
@@ -180,6 +183,8 @@ Deno.serve(async (req) => {
 
           if (syncError) {
             console.error(`[process-retry-queue] sync-by-work-item invoke error:`, syncError);
+            const st = Number((syncError as any)?.context?.status ?? 0);
+            transient = st === 0 || st === 502 || st === 503 || st === 504 || (syncError as any)?.name === 'FunctionsFetchError';
           } else {
             // ── Policy-driven success check ──
             syncOk = shouldCountAsSuccess(syncResult);
@@ -215,9 +220,13 @@ Deno.serve(async (req) => {
               }
             );
             pubResult = await resp.json().catch(() => null);
-            if (!resp.ok) pubError = new Error(`HTTP ${resp.status}: ${pubResult?.error || 'unknown'}`);
+            if (!resp.ok) {
+              pubError = new Error(`HTTP ${resp.status}: ${pubResult?.error || 'unknown'}`);
+              transient = resp.status === 502 || resp.status === 503 || resp.status === 504;
+            }
           } catch (e) {
             pubError = e;
+            transient = true;
           }
 
           if (pubError) {
@@ -273,6 +282,19 @@ Deno.serve(async (req) => {
             .eq('id', task.work_item_id);
 
           succeeded++;
+        } else if (transient) {
+          // Retry soon with backoff, same attempt number, release the claim.
+          const backoffMs = 15 * 60 * 1000;
+          await (supabase.from('sync_retry_queue') as any)
+            .update({
+              next_run_at: new Date(Date.now() + backoffMs).toISOString(),
+              claimed_at: null,
+              last_error_code: 'PROVIDER_UNAVAILABLE_TRANSIENT',
+              last_error_message: 'Sync function unavailable (5xx/network); attempt not consumed',
+            })
+            .eq('id', task.id);
+          console.warn(`[process-retry-queue] Transient failure for ${task.radicado}; rescheduled without consuming attempt`);
+          rescheduled++;
         } else if (task.attempt >= task.max_attempts) {
           // Exhausted — delete retry row, escalate alert
           console.warn(`[process-retry-queue] Max attempts (${task.max_attempts}) reached for ${task.radicado}`);
