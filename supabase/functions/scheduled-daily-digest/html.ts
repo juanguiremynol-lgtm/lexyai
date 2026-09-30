@@ -399,14 +399,19 @@ function sourceQualityBlock(p: DigestPayload): string {
     const den = r.expected_count || 0;
     const answered = r.answered_count ?? r.usable_confirmed_count;
 
+    const usable = r.usable_confirmed_count ?? 0;
+    const sinLectura = Math.max(den - usable, 0);
     if (den > 0 && answered >= den) {
-      return `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
+      return sinLectura > 0
+        ? `<span style="color:#fbbf24;font-weight:700;">Todas respondieron · ${sinLectura} sin lectura confirmada (incluye procesos privados no comprobados)</span>`
+        : `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
     }
     const never = Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0);
     const faltan = Math.max(den - answered - never, 0);
     const parts = [
       never ? `${never} nunca han entregado desde su alta` : "",
       faltan ? `${faltan} asunto(s) sin respuesta` : "",
+      sinLectura ? `${sinLectura} sin lectura confirmada` : "",
     ].filter(Boolean).join(" · ");
     return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${parts}</span>`;
   };
@@ -529,7 +534,7 @@ function persistenceBlock(p: DigestPayload): string {
         (r.attempts_total ? ` · ${r.attempts_total} consulta(s) sin una sola respuesta` : "") +
         `</span>` +
         (other
-          ? `<br><span style="color:#86efac;font-size:11px;">El canal de ${other} sí entrega para este asunto: el despacho no alimenta esta fuente.</span>`
+          ? `<br><span style="color:#cbd5e1;font-size:11px;">El canal de ${other} sí tiene registros para este asunto. No afirmamos por qué esta fuente no entrega.</span>`
           : "");
     }
     // Sin fila registrada no se puede afirmar que antes sí recibía: se enuncia
@@ -569,9 +574,9 @@ function persistenceBlock(p: DigestPayload): string {
     // MB1 — sin otro asunto en el mismo despacho no hay evidencia interna que
     // pueda cerrar el caso: es una verificación de portal, no un reporte de falla.
     const nota = cls === "OTRAS_SI_ENTREGAN"
-      ? `El mismo despacho sí entrega para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más: la diferencia está en este radicado.`
+      ? `El mismo despacho sí tiene registros para ${r.siblings_delivering} de ${r.siblings_monitored} asunto(s) más. No afirmamos la causa.`
       : cls === "NINGUNA_ENTREGA"
-      ? `Ninguno de los ${r.siblings_monitored} asuntos de este despacho recibe ${ACTUACION_SOURCE_LABELS[r.source] ? "actuaciones" : "estados"} por ${esc(label(r.source))}: la diferencia está en el despacho.`
+      ? `Ninguno de los ${r.siblings_monitored} asuntos de este despacho recibe ${ACTUACION_SOURCE_LABELS[r.source] ? "actuaciones" : "estados"} por ${esc(label(r.source))}. No afirmamos la causa.`
       : `Único asunto suyo en este despacho — no hay con qué comparar desde aquí; verificable solo en el portal.`;
     return `${code}${nombre}<br><span style="color:#94a3b8;font-size:11px;">${nota}</span>`;
   };

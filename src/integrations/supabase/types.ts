@@ -6230,6 +6230,30 @@ export type Database = {
           },
         ]
       }
+      deadline_incident_backup_20260930: {
+        Row: {
+          applied_at: string
+          applied_updated_at: string | null
+          deadline_id: string
+          reason: string
+          snapshot: Json
+        }
+        Insert: {
+          applied_at?: string
+          applied_updated_at?: string | null
+          deadline_id: string
+          reason: string
+          snapshot: Json
+        }
+        Update: {
+          applied_at?: string
+          applied_updated_at?: string | null
+          deadline_id?: string
+          reason?: string
+          snapshot?: Json
+        }
+        Relationships: []
+      }
       deadline_rules: {
         Row: {
           anchor_kind: string
