@@ -25535,6 +25535,7 @@ export type Database = {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
       }
+      deadline_source_ids: { Args: { m: Json }; Returns: string[] }
       decide_correspondence_closure: {
         Args: { p_deadline_id: string; p_decision: string }
         Returns: Json
