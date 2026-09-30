@@ -141,6 +141,13 @@
       "when": 1790391575966,
       "tag": "0019_samai_westados_provenanced_fijacion_starts_deadlines",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790778726836,
+      "tag": "0020_incident_20260930_classification_and_estado_anchor",
+      "breakpoints": true
     }
   ]
 }
