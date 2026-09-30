@@ -1012,6 +1012,14 @@ export function CreateWorkItemWizard({
                         {(lookupResult?.pp_lookup?.status === 'unknown' || !lookupResult?.pp_lookup) && (
                           <>El radicado es estructuralmente válido pero las fuentes externas aún no lo indexan. Se programará el escaneo automáticamente al crearlo — podés continuar y completar los datos manualmente.</>
                         )}
+                        {lookupResult?.pp_lookup && (
+                          <span className="block text-xs mt-1">
+                            Estados en Publicaciones Procesales:{' '}
+                            {lookupResult.pp_lookup.never_checked !== false || lookupResult.pp_lookup.estados_count == null
+                              ? 'pendiente de lectura'
+                              : lookupResult.pp_lookup.estados_count}
+                          </span>
+                        )}
                         {lookupResult?.sources_checked && lookupResult.sources_checked.length > 0 && (
                           <span className="block text-xs mt-1">
                             (Consultados: {lookupResult.sources_checked.join(', ')})

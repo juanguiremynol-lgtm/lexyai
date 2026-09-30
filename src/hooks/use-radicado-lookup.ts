@@ -66,6 +66,11 @@ export interface LookupResult {
     http_status?: number;
     latency_ms: number;
     error?: string;
+    estados_count?: number | null;
+    last_checked_at?: string | null;
+    never_checked?: boolean;
+    detail?: string;
+    estados?: Array<{ fecha: string | null; titulo: string | null }>;
   };
   error?: string;
   code?: string;

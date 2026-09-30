@@ -46,6 +46,14 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
   const plaintiffLabel = isTutela ? 'Accionante' : 'Demandante';
   const defendantLabel = isTutela ? 'Accionado' : 'Demandado';
 
+  const pp = lookupResult.pp_lookup;
+  const ppPending = !pp || pp.never_checked !== false || pp.estados_count == null;
+  const ppEstados = pp?.estados || [];
+  const estadosLabel = ppPending ? 'pendiente de lectura' : String(pp!.estados_count);
+  const ppChecked = !!pp && pp.status !== 'unknown';
+  const sourcesTotal = (lookupResult.sources_checked?.length || 0) + 1;
+  const sourcesOk = sourcesFound.length + (pp?.status === 'found' && !ppPending ? 1 : 0);
+
   const displayedActuaciones = showAllActuaciones ? actuaciones : actuaciones.slice(0, 5);
 
   return (
@@ -186,14 +194,18 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 
       {/* Tabs: Actuaciones + Providers */}
       <Tabs defaultValue="actuaciones" className="px-4 pb-4">
-        <TabsList className="w-full grid grid-cols-2 h-8">
+        <TabsList className="w-full grid grid-cols-3 h-8">
           <TabsTrigger value="actuaciones" className="text-xs gap-1">
             <Activity className="h-3 w-3" />
             Actuaciones ({actuaciones.length})
           </TabsTrigger>
+          <TabsTrigger value="estados" className="text-xs gap-1">
+            <FileText className="h-3 w-3" />
+            Estados ({estadosLabel})
+          </TabsTrigger>
           <TabsTrigger value="providers" className="text-xs gap-1">
             <Database className="h-3 w-3" />
-            Fuentes ({sourcesFound.length}/{lookupResult.sources_checked?.length || 0})
+            Fuentes ({sourcesOk}/{sourcesTotal})
           </TabsTrigger>
         </TabsList>
 
@@ -246,9 +258,21 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
           )}
         </TabsContent>
 
+        {/* Estados Tab (Publicaciones Procesales) */}
+        <TabsContent value="estados" className="mt-2">
+          <PpEstadosPanel pp={pp} />
+        </TabsContent>
+
         {/* Provider Status Tab */}
         <TabsContent value="providers" className="mt-2">
           <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
+              <ProviderStatusIcon success={pp?.status === 'found' && !ppPending} />
+              <span className="font-medium flex-1">Publicaciones Procesales</span>
+              <span className="text-muted-foreground text-[10px]">
+                {!ppChecked ? 'No se pudo consultar' : ppPending ? 'Pendiente de lectura' : `${pp!.estados_count} estados`}
+              </span>
+            </div>
             {/* From attempts (always available) */}
             {lookupResult.attempts && lookupResult.attempts.length > 0 ? (
               lookupResult.attempts.map((attempt, idx) => (
@@ -306,6 +330,51 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 }
 
 // --- Helper components ---
+
+type PpLookup = LookupResult['pp_lookup'];
+
+export function PpEstadosPanel({ pp }: { pp: PpLookup }) {
+  const pending = !pp || pp.never_checked !== false || pp.estados_count == null;
+  if (!pp || pp.status === 'unknown') {
+    return (
+      <div className="text-center py-4 text-muted-foreground text-xs">
+        <AlertCircle className="h-4 w-4 mx-auto mb-1 opacity-50" />
+        No se pudo consultar Publicaciones Procesales en este momento. Los estados se leerán después de crear el asunto.
+      </div>
+    );
+  }
+  if (pending) {
+    return (
+      <div className="text-center py-4 text-muted-foreground text-xs">
+        <AlertCircle className="h-4 w-4 mx-auto mb-1 opacity-50" />
+        Pendiente de lectura: Publicaciones Procesales todavía no ha revisado este radicado
+        {pp.status === 'processing' ? ' (la lectura del portal está en curso)' : ''}.
+        Esto no significa que no haya estados; se completarán después de crear el asunto.
+      </div>
+    );
+  }
+  const estados = pp.estados || [];
+  if (estados.length === 0) {
+    return (
+      <div className="text-center py-4 text-muted-foreground text-xs">
+        {pp.estados_count} estados en Publicaciones Procesales
+        {pp.last_checked_at ? ` (última revisión: ${new Date(pp.last_checked_at).toLocaleDateString('es-CO')})` : ''}.
+      </div>
+    );
+  }
+  return (
+    <ScrollArea className={estados.length > 5 ? "max-h-[200px]" : ""}>
+      <div className="space-y-1.5">
+        {estados.map((e, idx) => (
+          <div key={idx} className="flex gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
+            <div className="text-muted-foreground shrink-0 w-[70px] font-mono">{e.fecha || '—'}</div>
+            <p className="flex-1 min-w-0 truncate">{e.titulo || 'Estado'}</p>
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  );
+}
 
 function MetaRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
