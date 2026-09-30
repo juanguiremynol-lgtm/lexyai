@@ -50,8 +50,14 @@
 - [x] "Con datos" por asunto con evidencia en cualquier corrida de la ventana (función pura probada)
 - [x] Guard: re-lectura no crea PENDING gemelo de un término en auditoría (suite SQL)
 - [x] Resumen: bloque visible de revisiones manuales sin fecha; render local con fixtures (2/2, exit 0); desplegado
-- [ ] PDFs 00139, 01424, auto 00638 — almacenamiento privado, sin acceso autorizado
-- [ ] Origen del texto breve — no localizado
 - [x] 0026: source_collection_quality sin 42702 (SELECT real 4 fuentes OK; regresión en suite).
 - [x] 0027–0029: art.110 ancla = día de lista (23/09+3=28/09, 29/09+3=02/10); grade_source_matters filtra intentos al universo, evidencia sin intento inventado, success sin outcome ≠ con datos; guard de gemelos por identidad de origen (act/auto/pub + corroboraciones + vínculos resueltos), no por ±5 días. Suite SQL 41/41 exit 0.
 - [x] Digest: revisiones manuales cuentan como contenido; total/exceso si >40. Render 4/4 exit 0. Desplegado.
+
+### Cierre técnico incidente 30/09 — commit 661d2d0d9e065f1cb4092b468ff9590214e1c9f3
+Contenido y probado: 4 términos en REQUIERE_REVISION_MANUAL sin fecha ni met_at; guard de gemelos por identidad; ancla estado/lista sin doble desplazamiento; digest con respuesta/lectura/privado/pendiente/error/con datos; revisiones manuales cuentan como contenido. Sin cambios en horarios, monitores, proveedores, permisos ni canales.
+Pendientes de plataforma (no trabajo jurídico):
+- [ ] Relación canónica acto–publicación: reconciliar automáticamente el mismo acto llegado por fuentes distintas; hoy 58ed4dd1 depende de audit_hold.linked_source_ids anotado a mano.
+- [ ] Adquisición de evidencia: decidir si Andromeda debe recuperar los PDFs 00139, 01424 y 00638 y, si sí, por qué el acceso no los sirve aunque existan referencias de almacenamiento.
+- [ ] Ingesta CPNU: esta reparación no certifica ese subsistema.
+- [ ] Origen del texto breve del resumen original: no localizado.
