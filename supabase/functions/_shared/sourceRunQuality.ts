@@ -63,15 +63,38 @@ export const SOURCE_LABEL: Record<string, string> = {
   samai_estados: "SAMAI Estados",
 };
 
+/**
+ * Two distinct gaps, never mixed:
+ *  - sin respuesta          = expected − answered  (answered includes PROCESO_PRIVADO)
+ *  - sin lectura confirmada = expected − usable    (includes private reads)
+ */
+export function sourceGaps(c: SourceRunCounts): { expected: number; answered: number; usable: number; sinRespuesta: number; sinLecturaConfirmada: number } {
+  const expected = c.expected_count || c.attempted_count || 0;
+  const answered = (c as SourceRunCounts & { answered_count?: number }).answered_count ?? c.usable_confirmed_count;
+  const usable = c.usable_confirmed_count ?? 0;
+  return {
+    expected, answered, usable,
+    sinRespuesta: Math.max(expected - answered, 0),
+    sinLecturaConfirmada: Math.max(expected - usable, 0),
+  };
+}
+
 export function describeSourceQuality(c: SourceRunCounts, novedades: number): string {
   const state = classifySourceRunQuality(c);
-  const unconfirmed = (c.pending_upstream_count ?? 0) + (c.error_count ?? 0);
-  // Same figure as the header: answered reads (PROCESO_PRIVADO included).
-  const answered = (c as SourceRunCounts & { answered_count?: number }).answered_count ?? c.usable_confirmed_count;
-  const cobertura = `cobertura ${answered}/${c.expected_count || c.attempted_count}`;
+  const g = sourceGaps(c);
+  const answered = g.answered;
+  const cobertura = `cobertura ${answered}/${g.expected}`;
+  const brechas = [
+    g.sinRespuesta ? `${g.sinRespuesta} sin respuesta` : "",
+    g.sinLecturaConfirmada ? `${g.sinLecturaConfirmada} sin lectura confirmada` : "",
+  ].filter(Boolean).join(", ");
 
   switch (state) {
     case "SOURCE_HEALTHY_COMPLETE":
+      if (g.sinLecturaConfirmada > 0) {
+        return `${novedades} novedad(es) sobre ${c.usable_confirmed_count} lecturas confirmadas (${cobertura}); ` +
+          `${brechas}. Este conteo no prueba que no haya movimiento.`;
+      }
       return novedades > 0
         ? `${novedades} novedad(es) sobre ${c.usable_confirmed_count} lecturas confirmadas (${cobertura}).`
         : `Sin novedades: ${cobertura}, todas las lecturas confirmadas.`;
@@ -80,7 +103,7 @@ export function describeSourceQuality(c: SourceRunCounts, novedades: number): st
         `${c.not_found_count} radicado(s) no conocidos por la fuente.`;
     case "SOURCE_DEGRADED_PARTIAL":
       return `${novedades} novedad(es) detectadas sobre ${c.usable_confirmed_count} lecturas confirmadas; ` +
-        `${cobertura}; ${unconfirmed} sin confirmar. Cobertura incompleta: este conteo no prueba que no haya movimiento.`;
+        `${cobertura}; ${brechas}. Cobertura incompleta: este conteo no prueba que no haya movimiento.`;
     case "SOURCE_DEGRADED_SYSTEMIC":
       return `Sin lecturas utilizables: ${c.attempted_count} intento(s), ${c.pending_upstream_count} sin detalle del proveedor. ` +
         `No se obtuvo información autorizada; el conteo de novedades no es concluyente.`;
