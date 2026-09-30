@@ -1180,6 +1180,7 @@ export function buildDigestHtml(p: DigestPayload): string {
     ${hearingsBlock(p.hearings, p)}
     ${hearingsBeyondBlock(p.hearingsBeyond ?? [], p)}
     ${deadlinesBlock(p.deadlines, p)}
+    ${manualReviewBlock(p)}
     ${unverifiedTermsBlock(p)}
     ${nonJudicialBlock(p.nonJudicialDeadlines, p)}
     ${neverReadBlock(p.neverRead ?? [], p.appBaseUrl)}
