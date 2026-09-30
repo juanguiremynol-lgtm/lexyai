@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
           succeeded++;
         } else if (transient) {
           // Retry soon with backoff, same attempt number, release the claim.
-          const backoffMs = Math.min(60, 5 * 2 ** Math.min(Number(task.transient_count ?? 0), 3)) * 60 * 1000;
+          const backoffMs = 15 * 60 * 1000;
           await (supabase.from('sync_retry_queue') as any)
             .update({
               next_run_at: new Date(Date.now() + backoffMs).toISOString(),
