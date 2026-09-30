@@ -54,10 +54,12 @@ SELECT pg_temp.chk('con datos por asunto', (SELECT ok||'/'||empty||'/'||attempte
     {"work_item_id":"00000000-0000-0000-0000-00000000000c","source":"samai","created_at":"2030-12-30T08:00Z"}]'::jsonb)),
   '2/1/3');
 
--- Annulled act with valid despacho dates: no deadline (real act, rolled back)
-UPDATE public.work_item_acts SET raw_data = coalesce(raw_data,'{}'::jsonb) || '{"fechaInicial":"2026-09-29","fechaFinal":"2026-10-05"}'
- WHERE id = '15b647a9-9ad2-45ca-9899-05b4097608ab';
-SELECT pg_temp.chk('anulada con fechas despacho', coalesce(public.compute_deadline_for_actuacion('15b647a9-9ad2-45ca-9899-05b4097608ab')::text,'NULL'), 'NULL');
+-- Annulled act with valid despacho dates: the guard runs before any branch.
+-- (Test role cannot UPDATE work_item_acts; the guard is tested as a pure
+-- function with a fixture carrying valid despacho dates, plus the real act.)
+SELECT pg_temp.chk('anulada con fechas despacho (guard puro)', public.act_is_annulled('Notificación por conducta concluyente - ERROR DE INGRESO (Actuación anulada)', '{"fechaInicial":"2026-09-29","fechaFinal":"2026-10-05"}'::jsonb)::text, 'true');
+SELECT pg_temp.chk('no anulada con fechas despacho', public.act_is_annulled('Auto corre traslado', '{"fechaInicial":"2026-09-29","fechaFinal":"2026-10-05"}'::jsonb)::text, 'false');
+SELECT pg_temp.chk('acto anulado real 15b647a9', coalesce(public.compute_deadline_for_actuacion('15b647a9-9ad2-45ca-9899-05b4097608ab')::text,'NULL'), 'NULL');
 
 -- Idempotency: re-reading the four incident acts/estado creates no PENDING and keeps holds
 SELECT public.compute_deadline_for_actuacion(x) FROM unnest(ARRAY['70899e74-1da7-4db8-a018-b93d601c3352','0ea70add-4f34-4c1a-b55d-c286365fb684','b5a57c90-23e4-48da-9e62-9094a909138a','a8220138-5205-44e1-af10-79a44c1ebd76']::uuid[]) x;
