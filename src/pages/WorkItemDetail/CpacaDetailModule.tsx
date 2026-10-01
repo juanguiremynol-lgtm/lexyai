@@ -7,9 +7,9 @@ interface Props { workItem: WorkItem; }
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="break-words font-medium">{value || "—"}</p>
     </div>
   );
 }
@@ -30,7 +30,7 @@ export default function CpacaDetailModule({ workItem }: Props) {
             Información CPACA
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Ponente" value={w.ponente} />
           <Field label="Clase de Proceso" value={w.clase_proceso} />
           <Field label="Etapa" value={w.etapa} />
@@ -43,7 +43,7 @@ export default function CpacaDetailModule({ workItem }: Props) {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Información Adicional</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-4 text-sm">
+        <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-3">
           <Field label="Tipo de Proceso" value={w.tipo_proceso} />
           <Field label="Formato del Expediente" value={w.formato_expediente} />
           <Field label="Subclase" value={w.subclase_proceso} />
@@ -57,7 +57,7 @@ export default function CpacaDetailModule({ workItem }: Props) {
       {(demandantesList.length > 0 || demandadosList.length > 0) && (
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-primary" />
                 Sujetos Procesales
@@ -70,9 +70,9 @@ export default function CpacaDetailModule({ workItem }: Props) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {demandantesList.length > 0 && (
-                <div>
+                <div className="min-w-0 break-words">
                   <p className="text-sm font-medium text-muted-foreground mb-2">Demandantes</p>
                   <ul className="space-y-1">
                     {demandantesList.map((name: string, i: number) => (
@@ -82,7 +82,7 @@ export default function CpacaDetailModule({ workItem }: Props) {
                 </div>
               )}
               {demandadosList.length > 0 && (
-                <div>
+                <div className="min-w-0 break-words">
                   <p className="text-sm font-medium text-muted-foreground mb-2">Demandados</p>
                   <ul className="space-y-1">
                     {demandadosList.map((name: string, i: number) => (
