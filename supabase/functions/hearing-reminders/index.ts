@@ -15,7 +15,7 @@ import {
 } from "./reminderCore.ts";
 
 const APP_BASE_URL = "https://andromeda.legal";
-const FUNCTIONS_BASE = `${SUPABASE_URL}/functions/v1`;
+const FUNCTIONS_BASE = `${Deno.env.get("SUPABASE_URL")}/functions/v1`;
 const CAL_LINK_DAYS = 30;
 function newToken(): string {
   const bytes = new Uint8Array(24);
