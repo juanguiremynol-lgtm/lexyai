@@ -202,15 +202,15 @@ export default function WorkItemDetail() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+      <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="min-w-0 max-w-full break-words text-2xl font-semibold">
               {workItem.title || workItem.radicado || "Sin radicado"}
             </h1>
             {getStatusBadge(workItem.status)}
@@ -222,17 +222,17 @@ export default function WorkItemDetail() {
             )}
             <WorkItemMonitoringBadge workItem={extendedWorkItem} onUpdate={refetch} />
           </div>
-          <div className="ml-10 space-y-1">
-            <p className="text-muted-foreground">
+          <div className="min-w-0 space-y-1 sm:ml-10">
+            <p className="break-words text-muted-foreground">
               {workItem.workflow_type} • {workItem.stage}
               {workItem.last_synced_at && (
-                <span className="text-xs ml-3">
+                <span className="ml-0 block text-xs sm:ml-3 sm:inline">
                   Última sync: {formatDistanceToNow(new Date(workItem.last_synced_at), { addSuffix: true, locale: es })}
                 </span>
               )}
             </p>
             {workItem.radicado && workItem.title && (
-              <p className="text-sm text-muted-foreground font-mono">
+              <p className="break-all text-sm text-muted-foreground font-mono">
                 Rad: {workItem.radicado}
               </p>
             )}
@@ -278,11 +278,11 @@ export default function WorkItemDetail() {
             )}
           </div>
           {/* At-a-glance chips */}
-          <div className="ml-10 mt-2">
+          <div className="mt-2 min-w-0 sm:ml-10">
             <WorkItemAtAGlance workItem={extendedWorkItem} />
           </div>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
           {/* Export Pack */}
           <WorkItemExportPack workItem={extendedWorkItem} />
 
@@ -333,14 +333,14 @@ export default function WorkItemDetail() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Tabs */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {/* Info Card */}
           <Card>
             <CardHeader>
               <CardTitle>Información General</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div>
+            <CardContent className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Radicado</p>
                 <AddRadicadoInline
                   workItemId={workItem.id}
@@ -349,36 +349,36 @@ export default function WorkItemDetail() {
                   onUpdate={refetch}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Autoridad</p>
-                <p className="font-medium">{workItem.authority_name || "—"}</p>
+                <p className="break-words font-medium">{workItem.authority_name || "—"}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Ciudad</p>
-                <p className="font-medium">{workItem.authority_city || "—"}</p>
+                <p className="break-words font-medium">{workItem.authority_city || "—"}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Departamento</p>
-                <p className="font-medium">{workItem.authority_department || "—"}</p>
+                <p className="break-words font-medium">{workItem.authority_department || "—"}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Demandantes</p>
-                <p className="font-medium">{workItem.demandantes || "—"}</p>
+                <p className="break-words font-medium">{workItem.demandantes || "—"}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">Demandados</p>
-                <p className="font-medium">{workItem.demandados || "—"}</p>
+                <p className="break-words font-medium">{workItem.demandados || "—"}</p>
               </div>
               {workItem.clients && (
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Cliente</p>
-                  <p className="font-medium">{workItem.clients.name}</p>
+                  <p className="break-words font-medium">{workItem.clients.name}</p>
                 </div>
               )}
               {workItem.matters && (
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Asunto</p>
-                  <p className="font-medium">{workItem.matters.matter_name}</p>
+                  <p className="break-words font-medium">{workItem.matters.matter_name}</p>
                 </div>
               )}
             </CardContent>
@@ -413,10 +413,10 @@ export default function WorkItemDetail() {
             cgpPhase={(workItem.cgp_phase ?? null) as CGPPhase | null}
           />
           {/* eslint-disable-next-line react-hooks/rules-of-hooks */}
-          <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
+          <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="min-w-0 w-full">
             {(() => null)()}
             <TabsList
-              className={`w-full flex md:grid overflow-x-auto flex-nowrap justify-start md:justify-stretch scrollbar-hide snap-x snap-mandatory h-auto p-1 ${externalDisplayModeFor(workItem.workflow_type) === 'none' ? 'md:grid-cols-7' : 'md:grid-cols-8'}`}
+              className={`w-full max-w-full flex lg:grid overflow-x-auto flex-nowrap justify-start lg:justify-stretch scrollbar-hide snap-x snap-mandatory h-auto p-1 ${externalDisplayModeFor(workItem.workflow_type) === 'none' ? 'lg:grid-cols-7' : 'lg:grid-cols-8'}`}
             >
               <TabsTrigger value="actuaciones" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <Scale className="h-4 w-4" />
@@ -512,7 +512,7 @@ export default function WorkItemDetail() {
         </div>
 
         {/* Right Column - Key Dates & Quick Info */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

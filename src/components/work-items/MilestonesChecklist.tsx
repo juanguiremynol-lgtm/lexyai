@@ -292,17 +292,17 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
     return (
       <Card className="border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/10">
         <CardContent className="py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Badge variant={statusVariant} className={cn(
-                "gap-1",
+                "max-w-full gap-1 break-words",
                 clearedStatus !== "PARTIAL" && "bg-emerald-600 hover:bg-emerald-700"
               )}>
                 {statusIcon}
                 {statusLabel}
               </Badge>
               {hasExpedienteUrl && (
-                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
+                <Button variant="ghost" size="sm" className="h-auto min-h-7 text-xs gap-1" asChild>
                   <a href={expedienteUrl!} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-3 w-3" />
                     Abrir expediente
@@ -313,7 +313,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
             <Button 
               variant="ghost" 
               size="sm" 
-              className="h-7 text-xs gap-1"
+              className="h-auto min-h-7 self-start text-xs gap-1 sm:self-auto"
               onClick={() => reopenMutation.mutate()}
               disabled={reopenMutation.isPending}
             >
@@ -437,7 +437,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                   {/* Only the expediente milestone gets URL input */}
                   {milestone.id === "expediente" && !accessNotAvailable && (
                     <div className="space-y-2">
-                      <div className="flex gap-2">
+                      <div className="flex min-w-0 flex-wrap gap-2">
                         <Input
                           value={accessUrl}
                           onChange={(e) => {
@@ -445,7 +445,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                             setAccessUrlError(null);
                           }}
                           placeholder="https://onedrive.live.com/... o https://sharepoint.com/..."
-                          className={cn("text-sm h-8", accessUrlError && "border-destructive")}
+                          className={cn("min-w-0 flex-1 text-sm h-8", accessUrlError && "border-destructive")}
                         />
                         <Button
                           size="sm"
