@@ -76,6 +76,21 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   // provider gating applies to WHICH providers we sync, NOT to WHICH rows
   // we display: any pub already stored for this work item is legally
   // relevant and must be surfaced.
+  // "Never read" signal: no PP sync has ever completed for this work item.
+  const { data: ppReadInfo } = useQuery({
+    queryKey: ["work-item-pp-read-info", workItem.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("work_items")
+        .select("pp_ultima_sync, pubs_initial_sync_completed_at")
+        .eq("id", workItem.id)
+        .maybeSingle();
+      return data as { pp_ultima_sync: string | null; pubs_initial_sync_completed_at: string | null } | null;
+    },
+    staleTime: 60 * 1000,
+  });
+  const ppNeverRead = !!ppReadInfo && !ppReadInfo.pp_ultima_sync && !ppReadInfo.pubs_initial_sync_completed_at;
+
   const { data: localPubs } = useQuery({
     queryKey: ["work-item-publicaciones-local", workItem.id],
     queryFn: async () => {
@@ -331,12 +346,24 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
           <Card>
             <CardContent className="py-12 text-center">
               <Newspaper className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+              {ppNeverRead ? (
+                <>
+                  <h3 className="font-semibold mb-1">Estados: pendiente de lectura</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Publicaciones Procesales todavía no ha revisado este radicado. Esto no
+                    significa que no haya estados; aparecerán aquí cuando se complete la lectura.
+                  </p>
+                </>
+              ) : (
+              <>
               <h3 className="font-semibold mb-1">Sin estados (publicaciones procesales) registrados aún</h3>
               <p className="text-sm text-muted-foreground">
                 Los estados electrónicos del despacho (equivalente jurídico de las
                 “publicaciones procesales” en CGP) aparecerán aquí en cuanto la
                 jurisdicción los registre.
               </p>
+              </>
+              )}
             </CardContent>
           </Card>
         )
