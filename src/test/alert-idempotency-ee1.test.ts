@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
-const SRC = readFileSync("supabase/functions/evaluate-deadline-alerts/index.ts", "utf8");
+const SRC = ["index.ts", "termAlert.ts"].map((f) => readFileSync(`supabase/functions/evaluate-deadline-alerts/${f}`, "utf8")).join("\n");
 
 describe("EE1 alert idempotency", () => {
   it("uses a day-independent, bucket-independent dedupe key", () => {
