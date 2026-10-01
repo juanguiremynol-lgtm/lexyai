@@ -401,3 +401,6 @@ verify_jwt = false
 
 [functions.whatsapp-send-client-notice]
 verify_jwt = true
+
+[functions.calendar-ics]
+verify_jwt = false

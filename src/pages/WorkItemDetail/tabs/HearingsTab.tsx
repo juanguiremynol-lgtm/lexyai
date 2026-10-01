@@ -4,6 +4,8 @@
  * Lists, creates, edits, and deletes hearings linked to this work item
  */
 
+import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
+import { hearingEvent } from "@/lib/calendar-export";
 import { useState, useMemo } from "react";
 import { format, isPast, isToday, isTomorrow, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
@@ -455,14 +457,23 @@ function HearingCard({ hearing, onEdit, onDelete, isPast }: HearingCardProps) {
             </div>
             
             <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
-                {format(date, "EEEE d 'de' MMMM, yyyy", { locale: es })}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4" />
-                {format(date, "h:mm a")}
-              </span>
+              {hearing.real_scheduled_at === null ? (
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4" />
+                  Fecha no fijada
+                </span>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4" />
+                    {format(date, "EEEE d 'de' MMMM, yyyy", { locale: es })}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="h-4 w-4" />
+                    {format(date, "h:mm a")}
+                  </span>
+                </>
+              )}
             </div>
             
             {(hearing.location || hearing.is_virtual) && (
@@ -499,6 +510,16 @@ function HearingCard({ hearing, onEdit, onDelete, isPast }: HearingCardProps) {
           </div>
           
           <div className="flex items-center gap-1 shrink-0">
+            {!isPast && (
+              <AddToCalendarMenu
+                size="xs"
+                event={hearingEvent({
+                  id: hearing.id, work_item_id: hearing.work_item_id,
+                  scheduled_at: hearing.real_scheduled_at ?? null,
+                  status: hearing.status ?? "scheduled", title: hearing.title, location: hearing.location,
+                }, window.location.origin)}
+              />
+            )}
             <Button variant="ghost" size="icon" onClick={onEdit}>
               <Pencil className="h-4 w-4" />
             </Button>

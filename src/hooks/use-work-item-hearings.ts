@@ -36,6 +36,9 @@ export interface Hearing {
   organization_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Real scheduled_at from the canonical row; null = dateless marker (not agenda). */
+  real_scheduled_at?: string | null;
+  status?: string | null;
 }
 
 export interface CreateHearingInput {
@@ -84,6 +87,8 @@ function mapCanonicalToLegacy(row: any): Hearing {
     organization_id: row.organization_id ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    real_scheduled_at: row.scheduled_at ?? null,
+    status: row.status ?? null,
   };
 }
 

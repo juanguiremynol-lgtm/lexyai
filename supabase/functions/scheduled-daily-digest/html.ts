@@ -717,11 +717,20 @@ function novedadesBlock(p: DigestPayload): string {
   return out;
 }
 
+/** .ics is the universal primary action; Google / Outlook are secondary. */
+export function calendarCell(p: DigestPayload, key: string): string {
+  const l = p.calendarLinks?.get(key);
+  if (!l) return "—";
+  return `<a href="${esc(l.ics)}" style="display:inline-block;font-weight:700;color:${ACT_ACCENT};">Añadir al calendario (.ics)</a><br>` +
+    `<a href="${esc(l.google)}" style="font-size:11px;color:#94a3b8;">Google</a> · ` +
+    `<a href="${esc(l.outlook)}" style="font-size:11px;color:#94a3b8;">Outlook</a>`;
+}
+
 function hearingsBlock(rows: HearingRow[], p: DigestPayload): string {
   if (!rows.length) return "";
   return sectionTitle("Próximas audiencias (7 días)", "#fbbf24", "Agenda de la firma.") +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fecha y hora", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Audiencia", "#fbbf24")}${th("Lugar / enlace", "#fbbf24")}</tr></thead>
+      <thead><tr>${th("Fecha y hora", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Audiencia", "#fbbf24")}${th("Lugar / enlace", "#fbbf24")}${th("Calendario", "#fbbf24")}</tr></thead>
       <tbody>${rows.map((h) => {
         const wi = p.workItems.get(h.work_item_id);
         return `<tr>
@@ -729,6 +738,7 @@ function hearingsBlock(rows: HearingRow[], p: DigestPayload): string {
           ${td(`${esc(wi?.radicado || wi?.title || "—")}`)}
           ${td(esc(h.title || "Audiencia"))}
           ${td(h.is_virtual && h.virtual_link ? `<a href="${esc(h.virtual_link)}" style="color:${ACT_ACCENT};">Enlace virtual</a>` : esc(h.location || "—"))}
+          ${td(calendarCell(p, `H:${h.id}`))}
         </tr>`;
       }).join("")}</tbody>
     </table>`;
@@ -756,13 +766,14 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
     "Fijadas más allá de los próximos 7 días. Aparecerán en la agenda inmediata cuando entren en la ventana.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fecha y hora", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Audiencia", "#fbbf24")}</tr></thead>
+      <thead><tr>${th("Fecha y hora", "#fbbf24")}${th("Asunto", "#fbbf24")}${th("Audiencia", "#fbbf24")}${th("Calendario", "#fbbf24")}</tr></thead>
       <tbody>${rows.map((h) => {
         const wi = p.workItems.get(h.work_item_id);
         return `<tr>
           ${td(fmtDateTime(h.scheduled_at))}
           ${td(esc(wi?.radicado || wi?.title || "—"))}
           ${td(esc(h.title || "Audiencia"))}
+          ${td(calendarCell(p, `H:${h.id}`))}
         </tr>`;
       }).join("")}</tbody>
     </table>`;
@@ -779,7 +790,7 @@ export function manualReviewBlock(p: DigestPayload): string {
   const accent = "#fbbf24";
   return `
     <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
-      TÉRMINOS EN REVISIÓN MANUAL (${total}) — requieren su lectura del auto
+      TÉRMINOS EN REVISIÓN MANUAL (${total}) — clasificación o cómputo pendientes de validación
     </div>${total > rows.length ? `
     <div style="font-size:11px;color:${accent};margin-bottom:6px;">
       Se muestran ${rows.length} de ${total}; ${total - rows.length} más en revisión manual no aparecen en este correo. Consulte la lista completa en Andromeda.
@@ -796,7 +807,7 @@ export function manualReviewBlock(p: DigestPayload): string {
       }).join("")}</tbody>
     </table>
     <div style="font-size:11px;color:#94a3b8;margin-bottom:14px;">
-      Estos términos no se presentan como corriendo ni vencidos: la fecha no está validada hasta que usted revise el auto.
+      Estos registros no se presentan como términos activos ni vencidos mientras Andromeda no cuente con evidencia suficiente para validar su clasificación, ancla y fecha de vencimiento.
     </div>`;
 }
 
@@ -855,7 +866,7 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
 
   const table = (list: DeadlineRow[], accent: string, withParty = false) =>
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:14px;">
-      <thead><tr>${th("Vence", accent)}${th("Asunto", accent)}${th("Término", accent)}${withParty ? th("A cargo de", accent) : ""}${th("Estado", accent)}</tr></thead>
+      <thead><tr>${th("Vence", accent)}${th("Asunto", accent)}${th("Término", accent)}${withParty ? th("A cargo de", accent) : ""}${th("Estado", accent)}${th("Calendario", accent)}</tr></thead>
       <tbody>${list.map((d) => {
         const wi = p.workItems.get(d.work_item_id);
         const party = BOUND_PARTY_SHORT[String(d.bound_party_role ?? "DESCONOCIDO")] ?? "parte no determinada";
@@ -875,6 +886,7 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
           ${td(d.overdue
             ? `<span style="color:#f87171;font-weight:700;">Vencido hace ${Math.abs(d.days_left)} día(s)</span>`
             : `<span style="color:${accent};">Faltan ${d.days_left} día(s)</span>`)}
+          ${td(calendarCell(p, `T:${d.id}`))}
         </tr>`;
       }).join("")}</tbody>
     </table>`;
@@ -897,7 +909,7 @@ function deadlinesBlock(rows: DeadlineRow[], p: DigestPayload): string {
     : "";
 
   const sinBlock = sinDeterminar.length
-    ? `<div style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px;">PARTE NO DETERMINADA (${sinDeterminar.length}) — confirme la calidad de su cliente en el expediente</div>${table(sinDeterminar, "#94a3b8", true)}`
+    ? `<div style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px;">PARTE NO DETERMINADA (${sinDeterminar.length}) — atribución pendiente de validación por Andromeda</div>${table(sinDeterminar, "#94a3b8", true)}`
     : "";
 
   return sectionTitle("Términos", "#f87171", "Cálculo de Andromeda sobre días hábiles colombianos.") +

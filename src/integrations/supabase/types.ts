@@ -3695,6 +3695,39 @@ export type Database = {
           },
         ]
       }
+      calendar_event_tokens: {
+        Row: {
+          created_at: string
+          entity_id: string
+          expires_at: string
+          kind: string
+          owner_id: string
+          token: string
+          use_count: number
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          expires_at: string
+          kind: string
+          owner_id: string
+          token: string
+          use_count?: number
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          expires_at?: string
+          kind?: string
+          owner_id?: string
+          token?: string
+          use_count?: number
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       cgp_deadline_rules: {
         Row: {
           cgp_variant: string

@@ -2,17 +2,14 @@
 /**
  * evaluate-deadline-alerts
  *
- * Scheduled function that emits ladder of alerts for PENDING deadlines in
- * `work_item_deadlines`:
- *   - D-3 (business days): severity WARNING
- *   - D-1: severity CRITICAL
- *   - D-day: severity CRITICAL
- *   - Overdue: severity CRITICAL (daily escalation)
- *
- * Idempotent per (deadline_id, bucket=yyyy-mm-dd) via alert_instances.fingerprint.
+ * SOLE producer of TERMINO_POR_VENCER / TERMINO_CRITICO / TERMINO_VENCIDO.
+ * Milestones (business days, weekends only): D-8 (WARNING), D-3 / D-1 / D-DAY
+ * (CRITICAL), OVERDUE (CRITICAL). One live alert per deadline_id: later runs
+ * update that row and append to payload.escalation_history; never a new row.
  * Intended to be invoked daily 06:00 COT by pg_cron.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { normalizeAlertPrefs } from "../_shared/alertPreferences.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,6 +73,7 @@ Deno.serve(async (req) => {
     not_own_party_skipped: 0,
     judge_side_skipped: 0,
     alerts_retired: 0,
+    muted_by_preference: 0,
     buckets: { TERMINO_CRITICO: 0, TERMINO_POR_VENCER: 0, TERMINO_VENCIDO: 0 } as Record<string, number>,
   };
 
@@ -135,7 +133,8 @@ Deno.serve(async (req) => {
     title: string;
     message: string | null;
     payload: Record<string, unknown>;
-  }): Promise<"inserted" | "updated" | "error" | "closed_by_lawyer"> {
+    allowInsert?: boolean;
+  }): Promise<"inserted" | "updated" | "error" | "closed_by_lawyer" | "muted_by_preference"> {
     const fingerprint = `deadline_TERM_${args.deadlineId}`;
 
     const { data: prior } = await supabase
@@ -151,6 +150,9 @@ Deno.serve(async (req) => {
     // row. Only a still-live alert is updated.
     if (rows.length === 0 && all.some((r) => ["RESOLVED", "DISMISSED", "CANCELLED"].includes(r.status))) {
       return "closed_by_lawyer";
+    }
+    if (rows.length === 0 && args.allowInsert === false) {
+      return "muted_by_preference";
     }
     if (rows.length === 0) {
 
@@ -180,18 +182,23 @@ Deno.serve(async (req) => {
     const history = Array.isArray(keep.payload?.escalation_history)
       ? keep.payload.escalation_history
       : [];
-    const changed = keep.alert_type !== args.alertType || keep.severity !== args.severity;
+    const prevBucket = keep.payload?.bucket ?? null;
+    const nextBucket = (args.payload as any)?.bucket ?? null;
+    const changed = keep.alert_type !== args.alertType || keep.severity !== args.severity
+      || prevBucket !== nextBucket;
     const nextHistory = changed
       ? [
           ...history,
           {
             at: new Date().toISOString(),
+            from_bucket: prevBucket,
+            to_bucket: nextBucket,
             from_alert_type: keep.alert_type,
             from_severity: keep.severity,
             to_alert_type: args.alertType,
             to_severity: args.severity,
           },
-        ]
+        ].slice(-10)
       : history;
 
     const { error: upErr } = await supabase
@@ -225,6 +232,17 @@ Deno.serve(async (req) => {
     // court's, or undetermined. The evaluator never re-derives it.
     const VIEW_COLS =
       "deadline_id, work_item_id, owner_id, organization_id, deadline_type, label, trigger_date, deadline_date, calculation_meta, bound_party_role, is_judge_side, attribution";
+
+    // User notification preferences (alert_preferences.preferences). Missing row
+    // => current defaults: every supported milestone, overdue on, manual-review INFO on.
+    const prefCache = new Map<string, ReturnType<typeof normalizeAlertPrefs>>();
+    async function prefsFor(ownerId: string) {
+      if (prefCache.has(ownerId)) return prefCache.get(ownerId)!;
+      const { data } = await supabase.from("alert_preferences").select("preferences").eq("user_id", ownerId).maybeSingle();
+      const p = normalizeAlertPrefs((data as any)?.preferences);
+      prefCache.set(ownerId, p);
+      return p;
+    }
 
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
@@ -277,15 +295,20 @@ Deno.serve(async (req) => {
       const provisionalDate =
         days && d.trigger_date ? addBusinessDays(String(d.trigger_date), days) : null;
       const bd = provisionalDate ? bdRemaining(provisionalDate) : null;
-      const { alert_type, severity } = classifyTerm(bd);
+      // A manual-review record is never presented as an active or overdue term:
+      // fixed INFO severity, no provisional urgency escalation.
+      const alert_type = "TERMINO_POR_VENCER" as const;
+      const severity = "INFO";
+      const mrPrefs = await prefsFor(String(d.owner_id));
       const outcome = await upsertTermAlert({
+        allowInsert: mrPrefs.manual_review_info,
         deadlineId: d.id,
         ownerId: d.owner_id,
         organizationId: d.organization_id,
         workItemId: d.work_item_id,
         alertType: alert_type,
         severity,
-        title: "Término requiere verificación manual — sin fecha de fijación confirmada",
+        title: "Término en revisión manual — clasificación o cómputo pendientes de validación (sin fecha validada)",
         message: d.label,
         payload: {
           deadline_id: d.id,
@@ -304,6 +327,8 @@ Deno.serve(async (req) => {
         stats.errors++;
       } else if (outcome === "closed_by_lawyer") {
         stats.skipped_closed_by_lawyer++;
+      } else if (outcome === "muted_by_preference") {
+        stats.muted_by_preference++;
       } else {
         stats.buckets[alert_type]++;
         stats.manual_review_alerts++;
@@ -361,8 +386,11 @@ Deno.serve(async (req) => {
         continue;
       }
       const { alert_type, severity } = classifyTerm(bd);
+      const termPrefs = await prefsFor(String(d.owner_id));
+      const allowInsert = bucket === "OVERDUE" ? termPrefs.overdue : termPrefs.term_milestones.includes(bucket);
 
       const outcome = await upsertTermAlert({
+        allowInsert,
         deadlineId: d.id,
         ownerId: d.owner_id,
         organizationId: d.organization_id,
@@ -386,6 +414,8 @@ Deno.serve(async (req) => {
         stats.errors++;
       } else if (outcome === "closed_by_lawyer") {
         stats.skipped_closed_by_lawyer++;
+      } else if (outcome === "muted_by_preference") {
+        stats.muted_by_preference++;
       } else {
         stats.buckets[alert_type]++;
         if (outcome === "inserted") stats.alerts_created++;
