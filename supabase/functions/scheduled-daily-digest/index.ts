@@ -741,12 +741,21 @@ Deno.serve(async (req) => {
         // read here only to be shown apart; none of them enters a count of
         // running terms, and nothing is recomputed.
         // Incident 30/09 — manual-review terms are shown, dateless.
-        const { data: rawManual, count: manualTotal } = await supabase
+        // Backlog is summarised as a count; only reviews created or modified in
+        // this digest window are listed, so the same rows never repeat daily.
+        const { count: manualTotal } = await supabase
+          .from("work_item_deadlines")
+          .select("id", { count: "exact", head: true })
+          .in("work_item_id", ids)
+          .eq("status", "REQUIERE_REVISION_MANUAL");
+        const { data: rawManual, count: manualChangedTotal } = await supabase
           .from("work_item_deadlines")
           .select("id, work_item_id, label, deadline_type", { count: "exact" })
           .in("work_item_id", ids)
           .eq("status", "REQUIERE_REVISION_MANUAL")
-          .order("trigger_date", { ascending: false })
+          .or(`created_at.gt.${windowFrom},updated_at.gt.${windowFrom}`)
+          .lte("updated_at", windowTo)
+          .order("updated_at", { ascending: false })
           .limit(40);
         const { data: rawUnverified } = await supabase
           .from("work_item_deadlines")
@@ -1328,6 +1337,7 @@ Deno.serve(async (req) => {
           nonJudicialDeadlines,
           unverifiedTerms,
           manualReviewTotal: manualTotal ?? (rawManual ?? []).length,
+          manualReviewChangedTotal: manualChangedTotal ?? (rawManual ?? []).length,
           manualReviewTerms: (rawManual ?? []).map((d: Record<string, unknown>) => ({
             id: String(d.id), work_item_id: String(d.work_item_id),
             label: (d.label as string) ?? null, deadline_type: (d.deadline_type as string) ?? null,
