@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Bell, Mail, Save } from "lucide-react";
 import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { normalizeAlertPrefs, SUPPORTED_TERM_MILESTONES, type AlertPrefs, type TermMilestone } from "@/lib/alert-preferences";
 import { ALERT_TYPE_LABELS, type UserAlertType } from "@/lib/alerts/create-user-alert";
 
 const DEFAULT_PREFERENCES: Record<string, { enabled: boolean; email: boolean; push: boolean; days_before?: number }> = {
@@ -31,11 +33,19 @@ const DEFAULT_PREFERENCES: Record<string, { enabled: boolean; email: boolean; pu
   HITO_ALCANZADO: { enabled: true, email: false, push: true },
 };
 
+const MILESTONE_LABELS: Record<TermMilestone, string> = {
+  "D-8": "8 días",
+  "D-3": "3 días",
+  "D-1": "1 día",
+  "D-DAY": "Día del vencimiento",
+};
+
 export function AlertPreferencesSettings() {
   const queryClient = useQueryClient();
   const [prefs, setPrefs] = useState(DEFAULT_PREFERENCES);
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  const [termPrefs, setTermPrefs] = useState<AlertPrefs>(normalizeAlertPrefs(null));
 
   const { data: savedPrefs, isLoading } = useQuery({
     queryKey: ["alert-preferences"],
@@ -53,6 +63,7 @@ export function AlertPreferencesSettings() {
   useEffect(() => {
     if (savedPrefs) {
       setPrefs({ ...DEFAULT_PREFERENCES, ...savedPrefs });
+      setTermPrefs(normalizeAlertPrefs(savedPrefs));
       if (typeof savedPrefs.email_enabled === 'boolean') {
         setEmailEnabled(savedPrefs.email_enabled);
       }
@@ -67,7 +78,7 @@ export function AlertPreferencesSettings() {
       const { error } = await (supabase.from("alert_preferences") as any)
         .upsert({
           user_id: user.id,
-          preferences: { ...prefs, email_enabled: emailEnabled },
+          preferences: { ...prefs, email_enabled: emailEnabled, ...termPrefs },
           updated_at: new Date().toISOString(),
         }, { onConflict: "user_id" });
       if (error) throw error;
@@ -118,6 +129,45 @@ export function AlertPreferencesSettings() {
             checked={emailEnabled}
             onCheckedChange={(v) => { setEmailEnabled(v); setHasChanges(true); }}
           />
+        </div>
+
+        <Separator />
+
+        {/* Term milestones — read by the daily term evaluator */}
+        <div className="space-y-3 p-3 rounded-lg border">
+          <div>
+            <Label className="text-sm font-medium">Avisos de términos</Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              Cada término tiene una sola alerta que se actualiza al cruzar cada hito (días hábiles). El resumen diario por correo no cambia.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            {SUPPORTED_TERM_MILESTONES.map((m) => (
+              <label key={m} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={termPrefs.term_milestones.includes(m)}
+                  onCheckedChange={(v) => {
+                    setTermPrefs((p) => ({
+                      ...p,
+                      term_milestones: v
+                        ? (SUPPORTED_TERM_MILESTONES.filter((x) => x === m || p.term_milestones.includes(x)) as TermMilestone[])
+                        : p.term_milestones.filter((x) => x !== m),
+                    }));
+                    setHasChanges(true);
+                  }}
+                />
+                {MILESTONE_LABELS[m]}
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center justify-between">
+            <Label className="text-sm">Aviso de término vencido</Label>
+            <Switch checked={termPrefs.overdue} onCheckedChange={(v) => { setTermPrefs((p) => ({ ...p, overdue: v })); setHasChanges(true); }} />
+          </div>
+          <div className="flex items-center justify-between">
+            <Label className="text-sm">Avisos informativos de términos en revisión manual</Label>
+            <Switch checked={termPrefs.manual_review_info} onCheckedChange={(v) => { setTermPrefs((p) => ({ ...p, manual_review_info: v })); setHasChanges(true); }} />
+          </div>
         </div>
 
         <Separator />

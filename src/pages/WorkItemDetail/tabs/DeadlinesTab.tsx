@@ -3,6 +3,8 @@
  * Supports CPACA with first-class deadline management
  */
 
+import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
+import { termEvent } from "@/lib/calendar-export";
 import { useQuery } from "@tanstack/react-query";
 import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +41,8 @@ interface DeadlinesTabProps {
 }
 
 interface Deadline {
+  /** Raw validated date, only for PENDING rows from work_item_deadlines (calendar export). */
+  calendarDate?: string;
   id: string;
   label: string;
   date: Date | null;
@@ -201,6 +205,7 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
           deadlineType: d.deadline_type,
           triggerEvent: d.trigger_event,
           businessDaysCount: d.business_days_count || undefined,
+          calendarDate: d.deadline_date as string,
         };
       });
   };
@@ -410,6 +415,17 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
                             </>
                           )}
                           
+                          {deadline.calendarDate && (
+                            <AddToCalendarMenu
+                              size="xs"
+                              event={termEvent({
+                                id: deadline.id, work_item_id: workItem.id, status: "PENDING",
+                                deadline_date: deadline.calendarDate, label: deadline.label,
+                                radicado: (workItem as any).radicado ?? null,
+                                despacho: (workItem as any).authority_name ?? null,
+                              }, window.location.origin)}
+                            />
+                          )}
                           {deadline.isCpaca && (
                             <Button
                               variant="ghost"

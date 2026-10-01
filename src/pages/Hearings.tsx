@@ -17,7 +17,11 @@ import { Calendar, Clock, MapPin, Video, Eye, Plus, CalendarDays, List, Trash2 }
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { HearingsCalendar, type CalendarHearing } from "@/components/hearings/HearingsCalendar";
+import { HearingsCalendar, type CalendarHearing, type CalendarTerm } from "@/components/hearings/HearingsCalendar";
+import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
+import { hearingEvent } from "@/lib/calendar-export";
+
+const LIVE_HEARING_STATUSES = ["scheduled", "planned", "rescheduled", "confirmed"];
 import { NewHearingDialog } from "@/components/hearings/NewHearingDialog";
 import { cancelHearingAlerts } from "@/lib/hearing-alerts";
 
@@ -40,10 +44,11 @@ export default function Hearings() {
         .from("work_item_hearings")
         .select(
           `id, custom_name, scheduled_at, occurred_at, location, modality,
-           meeting_link, notes_plain_text, work_item_id, status,
-           hearing_types(name), work_items ( title )`
+           meeting_link, notes_plain_text, work_item_id, status, duration_minutes,
+           hearing_types(name), work_items ( title, radicado, authority_name )`
         )
         .not("scheduled_at", "is", null)
+        .in("status", [...LIVE_HEARING_STATUSES, "held"])
         .order("scheduled_at", { ascending: true })
         .limit(500);
 
@@ -61,10 +66,36 @@ export default function Hearings() {
           notes: h.notes_plain_text,
           work_item_id: h.work_item_id,
           work_item_title: h.work_items?.title || null,
+          status: h.status,
+          radicado: h.work_items?.radicado || null,
+          despacho: h.work_items?.authority_name || null,
+          duration_minutes: h.duration_minutes ?? null,
         };
       }) as CalendarHearing[];
     },
   });
+
+  // Terms: only PENDING with a validated date are drawn on a day. Manual-review
+  // records are listed apart, without a date.
+  const { data: termData } = useQuery({
+    queryKey: ["calendar-terms"],
+    queryFn: async () => {
+      const cols = "id, work_item_id, status, deadline_date, label, deadline_type, work_items ( title, radicado, authority_name )";
+      const [pending, manual] = await Promise.all([
+        supabase.from("work_item_deadlines").select(cols).eq("status", "PENDING").not("deadline_date", "is", null).limit(500),
+        supabase.from("work_item_deadlines").select(cols).eq("status", "REQUIERE_REVISION_MANUAL").limit(200),
+      ]);
+      if (pending.error) throw pending.error;
+      if (manual.error) throw manual.error;
+      const map = (r: any): CalendarTerm => ({
+        id: r.id, work_item_id: r.work_item_id, status: r.status, deadline_date: r.deadline_date,
+        label: r.label, deadline_type: r.deadline_type, radicado: r.work_items?.radicado ?? null,
+        despacho: r.work_items?.authority_name ?? null, work_item_title: r.work_items?.title ?? null,
+      });
+      return { pending: (pending.data ?? []).map(map), manual: (manual.data ?? []).map(map) };
+    },
+  });
+  const appBase = window.location.origin;
 
   const upcomingHearings = hearings?.filter((h) => h.scheduled_at >= now) || [];
   const pastHearings = hearings?.filter((h) => h.scheduled_at < now).reverse() || [];
@@ -145,10 +176,35 @@ export default function Hearings() {
         <>
           {/* Calendar View */}
           {viewMode === "calendar" && (
-            <HearingsCalendar
-              hearings={hearings || []}
-              onDelete={(id) => setDeleteTarget(id)}
-            />
+            <div className="space-y-6">
+              <HearingsCalendar
+                hearings={(hearings || []).filter((h) => LIVE_HEARING_STATUSES.includes(String(h.status)))}
+                terms={termData?.pending ?? []}
+                onDelete={(id) => setDeleteTarget(id)}
+              />
+              {(termData?.manual.length ?? 0) > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Pendientes de validación ({termData!.manual.length})</CardTitle>
+                    <CardDescription>
+                      TÉRMINOS EN REVISIÓN MANUAL — clasificación o cómputo pendientes de validación. Estos registros no se presentan como términos activos ni vencidos mientras Andromeda no cuente con evidencia suficiente para validar su clasificación, ancla y fecha de vencimiento.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-2">
+                    {termData!.manual.map((t) => (
+                      <Link key={t.id} to={`/app/work-items/${t.work_item_id}`}
+                        className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm hover:bg-accent/50">
+                        <span className="min-w-0 truncate">
+                          <span className="font-medium">{t.label || t.deadline_type}</span>
+                          {t.radicado && <span className="text-muted-foreground"> · {t.radicado}</span>}
+                        </span>
+                        <Badge variant="outline" className="shrink-0">Sin fecha validada</Badge>
+                      </Link>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
 
           {/* List View */}
@@ -186,6 +242,7 @@ export default function Hearings() {
                               {hearing.notes && <CardDescription className="mt-1">{hearing.notes}</CardDescription>}
                             </div>
                             <div className="flex items-center gap-2">
+                              <AddToCalendarMenu event={hearingEvent(hearing, appBase)} />
                               <Badge variant={hearing.is_virtual ? "default" : "secondary"}>
                                 {hearing.is_virtual ? "Virtual" : "Presencial"}
                               </Badge>

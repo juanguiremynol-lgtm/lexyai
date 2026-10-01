@@ -234,7 +234,7 @@ export function resolveTermAttribution(
   else if (attribution === "CONTRAPARTE")
     statement = `Término de la contraparte (${BOUND_PARTY_SHORT[bound]}) — informativo, no requiere acción suya.`;
   else if (bound !== "DESCONOCIDO" && !unestablished)
-    statement = `Término a cargo de ${BOUND_PARTY_ROLE_LABELS[bound]} — confirme la calidad de su cliente para saber si le corresponde.`;
+    statement = `Término a cargo de ${BOUND_PARTY_ROLE_LABELS[bound]} — la calidad de su cliente en el proceso aún no está registrada en Andromeda.`;
   else
     statement =
       "Parte no determinada — verifique a quién corresponde este término antes de actuar sobre él.";

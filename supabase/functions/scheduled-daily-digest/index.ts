@@ -36,6 +36,8 @@ import {
   recordDispatch,
 } from "../_shared/notificationChannel.ts";
 import { buildDigestHtml } from "./html.ts";
+import { googleCalendarUrl, hearingEvent, outlookCalendarUrl, termEvent } from "../_shared/calendarExport.ts";
+import type { CalendarLinks } from "./types.ts";
 import type { FechaPorPerderRow } from "./types.ts";
 
 // AUD7 — GCP route listing SAMAI estado dates at risk (no key). Fetched once per run.
@@ -715,6 +717,7 @@ Deno.serve(async (req) => {
           location: (h.location as string | null) ?? null,
           is_virtual: String(h.modality ?? "").toUpperCase() === "VIRTUAL",
           virtual_link: (h.meeting_link as string | null) ?? null,
+          status: (h.status as string | null) ?? null,
         });
 
         // ── Términos: vencidos (dentro de la gracia) + por vencer (7 días) ──
@@ -1275,7 +1278,30 @@ Deno.serve(async (req) => {
 
         const fpp = scopeFechasPorPerder(await loadFechasPorPerder(),
           judicialItems.filter((i: any) => i.workflow_type === "CPACA").map((i: any) => i.radicado));
+        // Calendar export: one opaque link per dated PENDING term / dated live hearing.
+        const calendarLinks = new Map<string, CalendarLinks>();
+        const calTokens: Record<string, unknown>[] = [];
+        const calExpires = new Date(Date.now() + LINK_EXPIRY_DAYS * 86_400_000).toISOString();
+        for (const d of deadlines) {
+          const wi = wiMap.get(d.work_item_id);
+          const ev = termEvent({ ...d, radicado: wi?.radicado ?? null, despacho: wi?.authority_name ?? null }, APP_BASE_URL);
+          if (!ev) continue;
+          const t = newToken();
+          calTokens.push({ token: t, kind: "TERM", entity_id: d.id, work_item_id: d.work_item_id, owner_id: ownerId, expires_at: calExpires });
+          calendarLinks.set(`T:${d.id}`, { ics: `${FUNCTIONS_BASE}/calendar-ics?t=${t}`, google: googleCalendarUrl(ev), outlook: outlookCalendarUrl(ev) });
+        }
+        for (const h of [...hearings, ...hearingsBeyond]) {
+          const wi = wiMap.get(h.work_item_id);
+          const ev = hearingEvent({ id: h.id, work_item_id: h.work_item_id, scheduled_at: h.scheduled_at, status: h.status ?? "scheduled",
+            title: h.title, location: h.location, radicado: wi?.radicado ?? null, despacho: wi?.authority_name ?? null }, APP_BASE_URL);
+          if (!ev) continue;
+          const t = newToken();
+          calTokens.push({ token: t, kind: "HEARING", entity_id: h.id, work_item_id: h.work_item_id, owner_id: ownerId, expires_at: calExpires });
+          calendarLinks.set(`H:${h.id}`, { ics: `${FUNCTIONS_BASE}/calendar-ics?t=${t}`, google: googleCalendarUrl(ev), outlook: outlookCalendarUrl(ev) });
+        }
+
         const html = buildDigestHtml({
+          calendarLinks,
           fechasPorPerder: fpp.rows,
           fechasPorPerderUnavailable: fpp.status === "unavailable" &&
             judicialItems.some((i: any) => i.workflow_type === "CPACA"),
@@ -1350,6 +1376,10 @@ Deno.serve(async (req) => {
         if (tokens.length > 0) {
           const { error: tokErr } = await supabase.from("digest_document_tokens").insert(tokens);
           if (tokErr) { await fail(`tokens: ${tokErr.message}`); continue; }
+        }
+        if (calTokens.length > 0) {
+          const { error: calErr } = await supabase.from("calendar_event_tokens").insert(calTokens);
+          if (calErr) { await fail(`calendar tokens: ${calErr.message}`); continue; }
         }
 
         // AH1(b) — a catch-up is a SECOND mail for the same day on purpose, so

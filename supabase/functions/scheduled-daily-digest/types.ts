@@ -112,7 +112,11 @@ export interface HearingRow {
   location: string | null;
   is_virtual: boolean | null;
   virtual_link: string | null;
+  status?: string | null;
 }
+
+/** "Añadir al calendario" links for one dated term / hearing. */
+export interface CalendarLinks { ics: string; google: string; outlook: string }
 
 export interface DeadlineRow {
   id: string;
@@ -336,6 +340,8 @@ export interface DigestPayload {
   workItems: Map<string, WorkItemInfo>;
   appBaseUrl: string;
   linkExpiryDays: number;
+  /** Keyed `T:<deadline_id>` / `H:<hearing_id>`; only PENDING dated terms and dated live hearings. */
+  calendarLinks?: Map<string, CalendarLinks>;
 
 }
 

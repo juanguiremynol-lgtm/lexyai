@@ -10,6 +10,26 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Video, Eye, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
+import { hearingEvent, termEvent } from "@/lib/calendar-export";
+
+/** Bogotá wall-clock date (UTC-5, no DST) for a timestamp. */
+export function bogotaDateKey(iso: string): string {
+  return new Date(new Date(iso).getTime() - 5 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** Only PENDING terms with a validated deadline_date are drawn on a day. */
+export interface CalendarTerm {
+  id: string;
+  work_item_id: string;
+  status: string;
+  deadline_date: string;
+  label: string | null;
+  deadline_type: string | null;
+  radicado?: string | null;
+  despacho?: string | null;
+  work_item_title?: string | null;
+}
 
 export interface CalendarHearing {
   id: string;
@@ -22,10 +42,15 @@ export interface CalendarHearing {
   notes: string | null;
   work_item_id: string | null;
   work_item_title?: string | null;
+  status?: string | null;
+  radicado?: string | null;
+  despacho?: string | null;
+  duration_minutes?: number | null;
 }
 
 interface HearingsCalendarProps {
   hearings: CalendarHearing[];
+  terms?: CalendarTerm[];
   onDelete?: (id: string) => void;
 }
 
@@ -44,7 +69,8 @@ function getFirstDayOfWeek(year: number, month: number) {
   return day === 0 ? 6 : day - 1; // Monday = 0
 }
 
-export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) {
+export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCalendarProps) {
+  const appBase = typeof window !== "undefined" ? window.location.origin : "https://andromeda.legal";
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -53,12 +79,21 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
   const hearingsByDate = useMemo(() => {
     const map: Record<string, CalendarHearing[]> = {};
     for (const h of hearings) {
-      const dateKey = h.scheduled_at.slice(0, 10);
+      const dateKey = bogotaDateKey(h.scheduled_at);
       if (!map[dateKey]) map[dateKey] = [];
       map[dateKey].push(h);
     }
     return map;
   }, [hearings]);
+
+  const termsByDate = useMemo(() => {
+    const map: Record<string, CalendarTerm[]> = {};
+    for (const t of terms) {
+      if (t.status !== "PENDING" || !t.deadline_date) continue;
+      (map[t.deadline_date] ??= []).push(t);
+    }
+    return map;
+  }, [terms]);
 
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfWeek(currentYear, currentMonth);
@@ -92,6 +127,7 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const selectedHearings = selectedDate ? (hearingsByDate[selectedDate] || []) : [];
+  const selectedTerms = selectedDate ? (termsByDate[selectedDate] || []) : [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -136,6 +172,7 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
               const day = i + 1;
               const dateKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const dayHearings = hearingsByDate[dateKey] || [];
+              const dayTerms = termsByDate[dateKey] || [];
               const isToday = dateKey === todayKey;
               const isSelected = dateKey === selectedDate;
               const hasFuture = dayHearings.some(h => new Date(h.scheduled_at) >= today);
@@ -158,6 +195,11 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
                   )}>
                     {day}
                   </span>
+                  {dayTerms.length > 0 && (
+                    <span className="mt-0.5 rounded px-1 text-[10px] font-medium bg-destructive/15 text-destructive">
+                      {dayTerms.length} término{dayTerms.length > 1 ? "s" : ""}
+                    </span>
+                  )}
                   {dayHearings.length > 0 && (
                     <div className="flex gap-0.5 mt-1 flex-wrap justify-center">
                       {dayHearings.slice(0, 3).map((h) => (
@@ -198,22 +240,44 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
         <CardContent className="space-y-3">
           {!selectedDate ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              Haga clic en un día del calendario para ver las audiencias programadas.
+              Haga clic en un día del calendario para ver términos y audiencias.
             </p>
-          ) : selectedHearings.length === 0 ? (
+          ) : selectedHearings.length === 0 && selectedTerms.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No hay audiencias para este día.
+              No hay términos ni audiencias para este día.
             </p>
           ) : (
-            selectedHearings
+            <>
+            {selectedTerms.map((t) => (
+              <div key={t.id} className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="font-medium text-sm leading-tight">{t.label || t.deadline_type || "Término"}</h4>
+                  <Badge variant="destructive" className="text-[10px] shrink-0">Término</Badge>
+                </div>
+                {t.radicado && <p className="text-xs text-muted-foreground">{t.radicado}</p>}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t">
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                    <Link to={`/app/work-items/${t.work_item_id}`}>
+                      <Eye className="h-3 w-3 mr-1" />
+                      {t.work_item_title || "Abrir asunto"}
+                    </Link>
+                  </Button>
+                  <AddToCalendarMenu size="xs" event={termEvent(t, appBase)} />
+                </div>
+              </div>
+            ))}
+            {selectedHearings
               .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
               .map((h) => (
                 <div key={h.id} className="p-3 rounded-lg border bg-card space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="font-medium text-sm leading-tight">{h.title}</h4>
-                    <Badge variant={h.is_virtual ? "default" : "secondary"} className="text-[10px] shrink-0">
-                      {h.is_virtual ? "Virtual" : "Presencial"}
-                    </Badge>
+                    <div className="flex gap-1 shrink-0">
+                      <Badge className="text-[10px]">Audiencia</Badge>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {h.is_virtual ? "Virtual" : "Presencial"}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -258,15 +322,19 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
                     ) : (
                       <span />
                     )}
-                    {onDelete && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-                        onClick={() => onDelete(h.id)}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <AddToCalendarMenu size="xs" event={hearingEvent({ ...h, status: h.status ?? "scheduled" }, appBase)} />
+                      {onDelete && (
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => onDelete(h.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ))
+              ))}
+            </>
           )}
         </CardContent>
       </Card>

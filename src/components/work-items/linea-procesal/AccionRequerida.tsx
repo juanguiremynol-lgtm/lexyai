@@ -294,8 +294,9 @@ export function AccionRequerida({ workItemId, workflowType, cgpPhase }: AccionRe
           <div key={d.id} className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
             <p className="flex items-center gap-1.5 text-sm font-medium">
               <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden />
-              Término requiere revisión manual
+              Término en revisión manual — clasificación o cómputo pendientes de validación
             </p>
+            <p className="text-xs text-muted-foreground">Sin fecha validada</p>
             <p className="text-xs text-muted-foreground" title={d.deadline_type}>
               {formatDeadlineLabel(d.deadline_type, d.label)}
             </p>

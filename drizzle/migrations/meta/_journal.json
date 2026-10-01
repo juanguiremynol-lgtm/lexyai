@@ -218,6 +218,20 @@
       "when": 1790821227921,
       "tag": "0030_alert_saturation_single_term_producer",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790821380194,
+      "tag": "0031_regenerate_doctrine_alerts_drop_legacy_hearings",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790821462157,
+      "tag": "0032_calendar_event_tokens",
+      "breakpoints": true
     }
   ]
 }
