@@ -253,6 +253,13 @@
       "when": 1790861163162,
       "tag": "0035_estados_monitor_depth_budget_64",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790861639867,
+      "tag": "0036_estados_fijacion_coverage_signals",
+      "breakpoints": true
     }
   ]
 }
