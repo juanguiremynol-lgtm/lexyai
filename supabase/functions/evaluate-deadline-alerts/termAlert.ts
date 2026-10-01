@@ -94,3 +94,31 @@ export async function upsertTermAlertCore(db: TermAlertStore, args: {
   }
   return { outcome: "updated", superseded };
 }
+
+/**
+ * Colombian business days (weekends + holidays) between today and the
+ * deadline, delegated to the engine's authoritative SQL calendar
+ * (public.business_days_between_sql). Negative when overdue. No JS calendar.
+ */
+export type BdRpc = (a: string, b: string) => Promise<number | null>;
+export async function businessDaysRemaining(rpc: BdRpc, todayIso: string, deadlineIso: string): Promise<number | null> {
+  if (deadlineIso === todayIso) return 0;
+  if (deadlineIso > todayIso) return await rpc(todayIso, deadlineIso);
+  const n = await rpc(deadlineIso, todayIso);
+  return n === null ? null : -n;
+}
+
+export type TermBucket = "D-8" | "D-3" | "D-1" | "D-DAY" | "OVERDUE";
+/** Real milestones supported by the evaluator: 8/3/1/0 business days + overdue. */
+export function bucketFor(bd: number): TermBucket | null {
+  if (bd < 0) return "OVERDUE";
+  if (bd === 0) return "D-DAY";
+  if (bd === 1) return "D-1";
+  if (bd <= 3) return "D-3";
+  if (bd <= 8) return "D-8";
+  return null;
+}
+
+/** Manual-review notice: INFO, own type, no provisional date, no urgency. */
+export const MANUAL_REVIEW_ALERT_TYPE = "TERMINO_REVISION_MANUAL";
+export const TERM_ALERT_TYPES = ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO", MANUAL_REVIEW_ALERT_TYPE];

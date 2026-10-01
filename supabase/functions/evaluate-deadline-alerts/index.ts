@@ -23,24 +23,6 @@ function todayIsoBogota(): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** Simple business-day distance ignoring holidays (approximation for bucketing) */
-function bdRemaining(deadlineIso: string): number {
-  const target = new Date(deadlineIso + "T00:00:00");
-  const today = new Date(todayIsoBogota() + "T00:00:00");
-  if (isNaN(target.getTime())) return 0;
-  if (+target === +today) return 0;
-  const sign = target < today ? -1 : 1;
-  const [start, end] = sign > 0 ? [today, target] : [target, today];
-  let count = 0;
-  const cursor = new Date(start);
-  while (cursor < end) {
-    cursor.setDate(cursor.getDate() + 1);
-    const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) count++;
-  }
-  return count * sign;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -92,19 +74,6 @@ Deno.serve(async (req) => {
     return { alert_type: "TERMINO_POR_VENCER", severity: "WARNING" };
   }
 
-  /** Weekend-only forward walk, mirroring bdRemaining's approximation. */
-  function addBusinessDays(startIso: string, days: number): string | null {
-    const d = new Date(startIso + "T00:00:00");
-    if (isNaN(d.getTime())) return null;
-    let added = 0;
-    while (added < days) {
-      d.setDate(d.getDate() + 1);
-      const dow = d.getDay();
-      if (dow !== 0 && dow !== 6) added++;
-    }
-    return d.toISOString().slice(0, 10);
-  }
-
   /**
    * EE1 — ONE live alert per deadline, kept current.
    *
@@ -129,7 +98,7 @@ Deno.serve(async (req) => {
       const { data } = await supabase
         .from("alert_instances")
         .select("id, alert_type, severity, title, status, payload, created_at")
-        .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+        .in("alert_type", TERM_ALERT_TYPES)
         .contains("payload", { deadline_id: deadlineId })
         .order("created_at", { ascending: true });
       return (data ?? []) as any[];
@@ -168,6 +137,13 @@ Deno.serve(async (req) => {
       return p;
     }
 
+    // Holiday-aware distance from the engine's own SQL calendar.
+    const bdRpc = async (a: string, b: string): Promise<number | null> => {
+      const { data, error } = await supabase.rpc("business_days_between_sql", { p_a: a, p_b: b });
+      if (error) { console.error("[evaluate-deadline-alerts:bd]", error); return null; }
+      return typeof data === "number" ? data : Number(data);
+    };
+
     // Pass 0: deadlines the engine could not compute (no confirmed anchor).
     // One-shot alert per deadline (stable fingerprint) — visible, never silent, never noisy.
     let manualQuery: any = supabase
@@ -181,30 +157,6 @@ Deno.serve(async (req) => {
     if (mrErr) throw mrErr;
     const manualReview = ((manualReviewRaw ?? []) as any[]).map((r) => ({ ...r, id: r.deadline_id }));
 
-    // Workflow type per matter — needed only to size a provisional term.
-    const wfIds = Array.from(new Set(manualReview.map((d: any) => d.work_item_id)));
-    const wfById = new Map<string, string>();
-    if (wfIds.length) {
-      const { data: wfRows } = await supabase
-        .from("work_items")
-        .select("id, workflow_type")
-        .in("id", wfIds);
-      for (const w of (wfRows ?? []) as any[]) wfById.set(String(w.id), String(w.workflow_type ?? ""));
-    }
-
-    // Rule catalogue: gives the provisional length of a term whose anchor could
-    // not be confirmed, so urgency is estimated rather than flattened.
-    const { data: ruleRows } = await supabase
-      .from("deadline_rules")
-      .select("workflow_type, deadline_type, days_amount, day_type, is_active")
-      .eq("is_active", true);
-    const ruleDays = new Map<string, number>();
-    for (const r of (ruleRows ?? []) as any[]) {
-      if (r.day_type === "BUSINESS" && Number(r.days_amount) > 0) {
-        ruleDays.set(`${r.workflow_type}|${r.deadline_type}`, Number(r.days_amount));
-      }
-    }
-
     for (const d of (manualReview ?? []) as any[]) {
       // Only a term attributed to our client may alert. JUEZ / CONTRAPARTE /
       // DESCONOCIDO are informative and live in their own lists (NN2 c/d).
@@ -213,15 +165,9 @@ Deno.serve(async (req) => {
         else stats.not_own_party_skipped++;
         continue;
       }
-      const wf = wfById.get(String(d.work_item_id)) ?? "";
-      const days =
-        ruleDays.get(`${wf}|${d.deadline_type}`) ?? ruleDays.get(`GENERIC|${d.deadline_type}`) ?? null;
-      const provisionalDate =
-        days && d.trigger_date ? addBusinessDays(String(d.trigger_date), days) : null;
-      const bd = provisionalDate ? bdRemaining(provisionalDate) : null;
       // A manual-review record is never presented as an active or overdue term:
       // fixed INFO severity, no provisional urgency escalation.
-      const alert_type = "TERMINO_POR_VENCER" as const;
+      const alert_type = MANUAL_REVIEW_ALERT_TYPE;
       const severity = "INFO";
       const mrPrefs = await prefsFor(String(d.owner_id));
       const outcome = await upsertTermAlert({
@@ -238,9 +184,6 @@ Deno.serve(async (req) => {
           deadline_id: d.id,
           deadline_type: d.deadline_type,
           deadline_date: null,
-          provisional_deadline_date: provisionalDate,
-          provisional: true,
-          business_days_remaining: bd,
           bucket: "MANUAL_REVIEW",
           trigger_date: d.trigger_date,
           engine: "LOCAL",
@@ -254,7 +197,6 @@ Deno.serve(async (req) => {
       } else if (outcome === "muted_by_preference") {
         stats.muted_by_preference++;
       } else {
-        stats.buckets[alert_type]++;
         stats.manual_review_alerts++;
         if (outcome === "inserted") stats.alerts_created++;
         else stats.alerts_updated++;
@@ -287,28 +229,14 @@ Deno.serve(async (req) => {
         continue;
       }
       stats.evaluated++;
-      const bd = bdRemaining(d.deadline_date);
-      let bucket: "D-3" | "D-1" | "D-DAY" | "D-8" | "OVERDUE" | null = null;
-      let title = "";
-
-      if (bd < 0) {
-        bucket = "OVERDUE";
-        title = `Término VENCIDO hace ${Math.abs(bd)} día(s) hábiles`;
-      } else if (bd === 0) {
-        bucket = "D-DAY";
-        title = "Término vence HOY";
-      } else if (bd === 1) {
-        bucket = "D-1";
-        title = "Término vence MAÑANA";
-      } else if (bd <= 3) {
-        bucket = "D-3";
-        title = `Término vence en ${bd} día(s) hábiles`;
-      } else if (bd <= 8) {
-        bucket = "D-8";
-        title = `Término vence en ${bd} día(s) hábiles`;
-      } else {
-        continue;
-      }
+      const bd = await businessDaysRemaining(bdRpc, today, String(d.deadline_date));
+      if (bd === null) { stats.errors++; continue; }
+      const bucket = bucketFor(bd);
+      if (!bucket) continue;
+      const title = bucket === "OVERDUE" ? `Término VENCIDO hace ${Math.abs(bd)} día(s) hábiles`
+        : bucket === "D-DAY" ? "Término vence HOY"
+        : bucket === "D-1" ? "Término vence MAÑANA"
+        : `Término vence en ${bd} día(s) hábiles`;
       const { alert_type, severity } = classifyTerm(bd);
       const termPrefs = await prefsFor(String(d.owner_id));
       const allowInsert = bucket === "OVERDUE" ? termPrefs.overdue : termPrefs.term_milestones.includes(bucket);
@@ -356,7 +284,7 @@ Deno.serve(async (req) => {
         .from("alert_instances")
         .select("id")
         .eq("status", "PENDING")
-        .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+        .in("alert_type", TERM_ALERT_TYPES)
         .contains("payload", { deadline_id: did });
       for (const a of (stale ?? []) as any[]) {
         const { error: upErr } = await supabase
