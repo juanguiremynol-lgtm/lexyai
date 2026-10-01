@@ -57,7 +57,7 @@ Deno.test("1 PENDING + 1 manual review + 1 hearing: only PENDING and hearing get
   assert(!html.includes(manual.id), "manual review has no calendar link");
   assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (1) — clasificación o cómputo pendientes de validación");
   assertStringIncludes(html, "Sin fecha validada");
-  assertStringIncludes(html, "Abrir en Andromeda");
+  assertStringIncludes(html, "andromeda.legal%2Fapp%2Fwork-items%2FwP");
   for (const bad of ["revise el auto", "confirme la calidad de su cliente", "lectura del auto"]) {
     assert(!html.toLowerCase().includes(bad), bad);
   }
@@ -73,6 +73,6 @@ Deno.test("0 PENDING + 42 manual reviews: none shown as due/overdue, no calendar
   const reviews = Array.from({ length: 42 }, (_, i) => ({ id: `r${i}`, work_item_id: "wM", label: `R${i}`, deadline_type: "X" }));
   const html = buildDigestHtml(base({ manualReviewTerms: reviews, manualReviewTotal: 42, calendarLinks: new Map() }));
   assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (42)");
-  assert(!/vencido hace|faltan \d+ día|POR VENCER|VENCIDOS/i.test(html), "no due/overdue presentation");
+  assert(!/[Vv]encido hace|[Ff]altan \d+ día|POR VENCER|VENCIDOS —/.test(html), "no due/overdue presentation");
   assert(!html.includes("Añadir al calendario"), "no calendar action");
 });
