@@ -87,7 +87,16 @@ export default function Hearings() {
       ]);
       if (pending.error) throw pending.error;
       if (manual.error) throw manual.error;
+      // Attribution comes only from v_deadline_attribution (never re-derived).
+      const ids = (pending.data ?? []).map((r: any) => r.id);
+      const attr = new Map<string, string>();
+      if (ids.length) {
+        const { data: av } = await (supabase as any).from("v_deadline_attribution")
+          .select("deadline_id, attribution").in("deadline_id", ids);
+        for (const a of (av ?? []) as any[]) attr.set(a.deadline_id, a.attribution);
+      }
       const map = (r: any): CalendarTerm => ({
+        attribution: attr.get(r.id) ?? null,
         id: r.id, work_item_id: r.work_item_id, status: r.status, deadline_date: r.deadline_date,
         label: r.label, deadline_type: r.deadline_type, radicado: r.work_items?.radicado ?? null,
         despacho: r.work_items?.authority_name ?? null, work_item_title: r.work_items?.title ?? null,

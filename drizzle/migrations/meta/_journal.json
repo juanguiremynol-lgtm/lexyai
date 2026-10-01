@@ -239,6 +239,13 @@
       "when": 1790822420805,
       "tag": "0033_alert_type_termino_revision_manual",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790823459108,
+      "tag": "0034_alert_type_termino_atribucion_pendiente",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,7 @@ export interface CalendarTerm {
   radicado?: string | null;
   despacho?: string | null;
   work_item_title?: string | null;
+  attribution?: string | null;
 }
 
 export interface CalendarHearing {
@@ -252,6 +253,9 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
               <div key={t.id} className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <h4 className="font-medium text-sm leading-tight">{t.label || t.deadline_type || "Término"}</h4>
+                  {t.attribution && !["PROPIO", "CONTRAPARTE", "JUEZ"].includes(String(t.attribution).toUpperCase()) && (
+                    <span className="text-xs text-muted-foreground">Atribución pendiente de validación</span>
+                  )}
                   <Badge variant="destructive" className="text-[10px] shrink-0">Término</Badge>
                 </div>
                 {t.radicado && <p className="text-xs text-muted-foreground">{t.radicado}</p>}

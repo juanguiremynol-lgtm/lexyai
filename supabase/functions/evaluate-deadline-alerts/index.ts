@@ -10,7 +10,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { normalizeAlertPrefs } from "../_shared/alertPreferences.ts";
-import { businessDaysRemaining, bucketFor, MANUAL_REVIEW_ALERT_TYPE, TERM_ALERT_TYPES, type TermAlertStore, upsertTermAlertCore } from "./termAlert.ts";
+import { attributionPendingNotice, attributionRoute, businessDaysRemaining, bucketFor, MANUAL_REVIEW_ALERT_TYPE, TERM_ALERT_TYPES, type TermAlertStore, upsertTermAlertCore } from "./termAlert.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     skipped_dedup: 0,
     errors: 0,
     manual_review_alerts: 0,
+    attribution_pending_alerts: 0,
     not_own_party_skipped: 0,
     judge_side_skipped: 0,
     alerts_retired: 0,
@@ -224,9 +225,28 @@ Deno.serve(async (req) => {
       // NN2 — one attribution, computed by the database. A term of the
       // counterparty, of the court, or with an undetermined party never alerts:
       // it is tracked and listed apart, never presented as his obligation.
-      if (d.attribution !== "PROPIO") {
-        stats.not_own_party_skipped = (stats.not_own_party_skipped ?? 0) + 1;
+      const route = attributionRoute(d.attribution);
+      if (route === "NOT_OWN") {
+        if (d.attribution === "JUEZ") stats.judge_side_skipped++;
+        else stats.not_own_party_skipped++;
         notOwnDeadlineIds.push(String(d.id));
+        continue;
+      }
+      if (route === "ATTRIBUTION_PENDING") {
+        // Dated PENDING record without confirmed own attribution: one stable INFO
+        // notice, no urgency bucket, no escalation, never phrased as his duty.
+        const n = attributionPendingNotice({ ...d, deadline_date: String(d.deadline_date) });
+        const apPrefs = await prefsFor(String(d.owner_id));
+        const outcome = await upsertTermAlert({
+          allowInsert: apPrefs.manual_review_info,
+          retireWhenMuted: true,
+          deadlineId: d.id, ownerId: d.owner_id, organizationId: d.organization_id, workItemId: d.work_item_id,
+          ...n,
+        });
+        if (outcome === "error") stats.errors++;
+        else if (outcome === "closed_by_lawyer") stats.skipped_closed_by_lawyer++;
+        else if (outcome === "muted_by_preference") stats.muted_by_preference++;
+        else { stats.attribution_pending_alerts++; if (outcome === "inserted") stats.alerts_created++; else stats.alerts_updated++; }
         continue;
       }
       stats.evaluated++;

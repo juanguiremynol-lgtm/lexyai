@@ -32,6 +32,8 @@ export interface TermInput {
   id: string; work_item_id: string; status: string; deadline_date: string | null;
   label?: string | null; deadline_type?: string | null;
   radicado?: string | null; despacho?: string | null;
+  /** v_deadline_attribution; anything but PROPIO/CONTRAPARTE/JUEZ is labelled "atribución pendiente". */
+  attribution?: string | null;
 }
 export interface HearingInput {
   id: string; work_item_id: string | null; scheduled_at: string | null; status?: string | null;
@@ -50,12 +52,15 @@ export function termEvent(t: TermInput, appBaseUrl: string): CalendarEvent | nul
   if (!t.deadline_date || !/^\d{4}-\d{2}-\d{2}$/.test(t.deadline_date)) return null;
   const what = t.label || t.deadline_type || "Término";
   const url = `${appBaseUrl}/app/work-items/${t.work_item_id}`;
+  const a = t.attribution == null ? null : String(t.attribution).toUpperCase();
+  const pendingAttr = a !== null && !["PROPIO", "CONTRAPARTE", "JUEZ"].includes(a);
   return {
     uid: `andromeda-deadline-${t.id}@andromeda.legal`,
     kind: "TERM",
-    title: `Vence: ${what}${t.radicado ? ` — ${t.radicado}` : ""}`,
+    title: `${pendingAttr ? "Fecha calculada (atribución pendiente)" : "Vence"}: ${what}${t.radicado ? ` — ${t.radicado}` : ""}`,
     description: [
       `Término: ${what}`,
+      pendingAttr ? "Atribución pendiente: la parte a la que corresponde este registro está pendiente de validación por Andromeda." : null,
       t.radicado ? `Radicado: ${t.radicado}` : null,
       t.despacho ? `Despacho: ${t.despacho}` : null,
       `Abrir en Andromeda: ${url}`,
