@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { markAlertsAsRead, dismissAlerts, resolveAlerts, invalidateAlertSurfaces, markAlertsReadInCaches, removeAlertsFromCaches, snapshotAlertLists, restoreAlertLists } from "@/lib/alerts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -90,8 +91,7 @@ export function NotificationsAlertTab() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["alert-instances-notifications"] });
-    queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
+    invalidateAlertSurfaces(queryClient);
     queryClient.invalidateQueries({ queryKey: ["unified-notifications"] });
     queryClient.invalidateQueries({ queryKey: ["unified-notifications-unread"] });
   };
@@ -122,57 +122,43 @@ export function NotificationsAlertTab() {
     },
   });
 
+  const run = async (p: Promise<{ success: boolean; error?: string }>) => {
+    const r = await p;
+    if (!r.success) throw new Error(r.error);
+  };
+
   const markRead = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ read_at: new Date().toISOString() })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: invalidateAll,
+    mutationFn: (id: string) => run(markAlertsAsRead([id])),
+    onMutate: (id: string) => markAlertsReadInCaches(queryClient, [id]),
+    onSettled: invalidateAll,
   });
 
   const acknowledge = useMutation({
-    mutationFn: async (id: string) => {
-      const now = new Date().toISOString();
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ status: "ACKNOWLEDGED", acknowledged_at: now, read_at: now })
-        .eq("id", id);
-      if (error) throw error;
+    mutationFn: (id: string) => run(resolveAlerts([id])),
+    onMutate: async (id: string) => {
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, [id]);
+      return { snap };
     },
-    onSuccess: invalidateAll,
+    onError: (_e, _id, ctx) => restoreAlertLists(queryClient, ctx?.snap),
+    onSuccess: () => toast.success("Alerta resuelta"),
+    onSettled: invalidateAll,
   });
 
   const dismiss = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ status: "DISMISSED", dismissed_at: new Date().toISOString() })
-        .eq("id", id);
-      if (error) throw error;
+    mutationFn: (id: string) => run(dismissAlerts([id])),
+    onMutate: async (id: string) => {
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, [id]);
+      return { snap };
     },
-    onSuccess: () => {
-      invalidateAll();
-      toast.success("Notificación descartada");
-    },
+    onError: (_e, _id, ctx) => restoreAlertLists(queryClient, ctx?.snap),
+    onSuccess: () => toast.success("Notificación descartada"),
+    onSettled: invalidateAll,
   });
 
   const markAllRead = useMutation({
-    mutationFn: async () => {
-      let query = supabase
-        .from("alert_instances")
-        .update({ read_at: new Date().toISOString() })
-        .is("read_at", null)
-        .neq("status", "DISMISSED");
-
-      if (typeFilter !== "all") {
-        query = query.eq("alert_type", typeFilter);
-      }
-      const { error } = await query;
-      if (error) throw error;
-    },
+    mutationFn: () => run(markAlertsAsRead(alerts.filter((a) => !a.read_at).map((a) => a.id))),
     onSuccess: () => {
       invalidateAll();
       toast.success("Todas marcadas como leídas");
@@ -180,33 +166,28 @@ export function NotificationsAlertTab() {
   });
 
   const bulkDismiss = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ status: "DISMISSED", dismissed_at: new Date().toISOString() })
-        .in("id", ids);
-      if (error) throw error;
+    mutationFn: (ids: string[]) => run(dismissAlerts(ids)),
+    onMutate: async (ids: string[]) => {
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, ids);
+      return { snap };
     },
+    onError: (_e, _ids, ctx) => restoreAlertLists(queryClient, ctx?.snap),
     onSuccess: () => {
       setSelectedIds(new Set());
-      invalidateAll();
       toast.success("Notificaciones descartadas");
     },
+    onSettled: invalidateAll,
   });
 
   const bulkMarkRead = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ read_at: new Date().toISOString() })
-        .in("id", ids);
-      if (error) throw error;
-    },
+    mutationFn: (ids: string[]) => run(markAlertsAsRead(ids)),
+    onMutate: (ids: string[]) => markAlertsReadInCaches(queryClient, ids),
     onSuccess: () => {
       setSelectedIds(new Set());
-      invalidateAll();
       toast.success("Marcadas como leídas");
     },
+    onSettled: invalidateAll,
   });
 
   const toggleSelection = (id: string) => {

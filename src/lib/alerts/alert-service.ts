@@ -37,6 +37,12 @@ export interface CreateAlertParams {
     params?: Record<string, unknown>;
   }>;
   // Deduplication keys (optional - will be computed if not provided)
+  /**
+   * Explicit opt-in to reopen an alert the lawyer already closed
+   * (DISMISSED/RESOLVED). Default false: re-reading the same evidence must
+   * never resurrect a user decision.
+   */
+  reopen?: boolean;
   fingerprintKeys?: {
     radicado?: string;
     eventType?: string;
@@ -76,6 +82,30 @@ function computeFingerprint(params: CreateAlertParams): string {
   return crypto.createHash('md5').update(raw).digest('hex');
 }
 
+/** Statuses a lawyer sets by hand. Durable: never auto-reopened. */
+export const USER_CLOSED_STATUSES = ['DISMISSED', 'RESOLVED'] as const;
+/** Active statuses shown in every alert list. */
+export const ACTIVE_ALERT_STATUSES = ['PENDING', 'SENT', 'ACKNOWLEDGED'] as const;
+
+/**
+ * Reopen policy for an existing fingerprint.
+ * - DISMISSED/RESOLVED (user decision): keep closed unless `explicitReopen`.
+ * - CANCELLED (retired by the system because the condition disappeared):
+ *   reopen, since the same condition being detected again is new information
+ *   and no user decision is overridden.
+ * - Active: no-op.
+ */
+export function decideReopen(
+  status: string,
+  explicitReopen: boolean,
+): 'noop' | 'keep_closed' | 'reopen' {
+  if ((USER_CLOSED_STATUSES as readonly string[]).includes(status)) {
+    return explicitReopen ? 'reopen' : 'keep_closed';
+  }
+  if (status === 'CANCELLED') return 'reopen';
+  return 'noop';
+}
+
 /**
  * Create an alert idempotently - will not create duplicates
  * Uses fingerprint to detect existing alerts for the same event
@@ -84,6 +114,8 @@ export async function createAlertIdempotent(params: CreateAlertParams): Promise<
   success: boolean;
   alertId?: string;
   isDuplicate?: boolean;
+  reopened?: boolean;
+  closedByUser?: boolean;
   error?: string;
 }> {
   const fingerprint = computeFingerprint(params);
@@ -97,9 +129,8 @@ export async function createAlertIdempotent(params: CreateAlertParams): Promise<
       .maybeSingle();
     
     if (existing) {
-      // Alert already exists
-      if (['DISMISSED', 'RESOLVED', 'CANCELLED'].includes(existing.status)) {
-        // Previous alert was dismissed/resolved - update it back to active if needed
+      const decision = decideReopen(existing.status, params.reopen === true);
+      if (decision === 'reopen') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updatePayload: any = {
           status: 'PENDING',
@@ -107,25 +138,29 @@ export async function createAlertIdempotent(params: CreateAlertParams): Promise<
           acknowledged_at: null,
           resolved_at: null,
           dismissed_at: null,
+          read_at: null,
+          seen_at: null,
           message: params.message,
           payload: params.payload || null,
         };
-        
         const { error: updateError } = await supabase
           .from('alert_instances')
           .update(updatePayload)
           .eq('id', existing.id);
-        
         if (updateError) {
           return { success: false, error: updateError.message };
         }
-        return { success: true, alertId: existing.id, isDuplicate: true };
+        return { success: true, alertId: existing.id, isDuplicate: true, reopened: true };
       }
-      
-      // Alert is still active - don't create duplicate
-      return { success: true, alertId: existing.id, isDuplicate: true };
+      // Active, or closed by the lawyer: never duplicate, never resurrect.
+      return {
+        success: true,
+        alertId: existing.id,
+        isDuplicate: true,
+        closedByUser: decision === 'keep_closed',
+      };
     }
-    
+
     // Create new alert with fingerprint
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const insertData: any = {
@@ -167,66 +202,68 @@ export async function createAlertIdempotent(params: CreateAlertParams): Promise<
   }
 }
 
-/**
- * Dismiss an alert - marks it as DISMISSED and removes from active view
- */
-export async function dismissAlert(alertId: string): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('alert_instances')
-    .update({
-      status: 'DISMISSED',
-      dismissed_at: new Date().toISOString(),
-    })
-    .eq('id', alertId);
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
-  return { success: true };
-}
+type BulkResult = { success: boolean; count?: number; error?: string };
 
 /**
- * Dismiss multiple alerts
+ * Close alerts (DISMISSED or RESOLVED) and mark them read in the same action.
+ * read_at/seen_at are only filled when null so the first-read time is kept.
+ * Only active rows are touched, which makes repeated calls idempotent.
  */
-export async function dismissAlerts(alertIds: string[]): Promise<{ success: boolean; count?: number; error?: string }> {
-  if (alertIds.length === 0) {
-    return { success: true, count: 0 };
-  }
-  
+async function closeAlerts(ids: string[], status: 'DISMISSED' | 'RESOLVED'): Promise<BulkResult> {
+  if (ids.length === 0) return { success: true, count: 0 };
+  const now = new Date().toISOString();
+  const closePayload =
+    status === 'DISMISSED' ? { status, dismissed_at: now } : { status, resolved_at: now };
   const { data, error } = await supabase
     .from('alert_instances')
-    .update({
-      status: 'DISMISSED',
-      dismissed_at: new Date().toISOString(),
-    })
-    .in('id', alertIds)
+    .update(closePayload)
+    .in('id', ids)
+    .in('status', [...ACTIVE_ALERT_STATUSES])
     .select('id');
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
+  if (error) return { success: false, error: error.message };
+  const r1 = await supabase.from('alert_instances').update({ read_at: now }).in('id', ids).is('read_at', null);
+  if (r1.error) return { success: false, error: r1.error.message };
+  const r2 = await supabase.from('alert_instances').update({ seen_at: now }).in('id', ids).is('seen_at', null);
+  if (r2.error) return { success: false, error: r2.error.message };
   return { success: true, count: data?.length || 0 };
 }
 
+/** Dismiss = not relevant / no attention needed. */
+export async function dismissAlert(alertId: string): Promise<{ success: boolean; error?: string }> {
+  const r = await closeAlerts([alertId], 'DISMISSED');
+  return { success: r.success, error: r.error };
+}
+
+export async function dismissAlerts(alertIds: string[]): Promise<BulkResult> {
+  return closeAlerts(alertIds, 'DISMISSED');
+}
+
+/** Resolve = handled / attended by the lawyer. */
+export async function resolveAlert(alertId: string): Promise<{ success: boolean; error?: string }> {
+  const r = await closeAlerts([alertId], 'RESOLVED');
+  return { success: r.success, error: r.error };
+}
+
+export async function resolveAlerts(alertIds: string[]): Promise<BulkResult> {
+  return closeAlerts(alertIds, 'RESOLVED');
+}
+
 /**
- * Mark multiple alerts as read
+ * Mark alerts read. Single read semantic: read_at and seen_at together, so the
+ * page counter ("Sin leer") and the global badge never disagree.
  */
-export async function markAlertsAsRead(alertIds: string[]): Promise<{ success: boolean; count?: number; error?: string }> {
-  if (alertIds.length === 0) {
-    return { success: true, count: 0 };
-  }
-  
+export async function markAlertsAsRead(alertIds: string[]): Promise<BulkResult> {
+  if (alertIds.length === 0) return { success: true, count: 0 };
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from('alert_instances')
-    .update({
-      read_at: new Date().toISOString(),
-    })
+    .update({ read_at: now, seen_at: now })
     .in('id', alertIds)
+    .is('read_at', null)
     .select('id');
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
+  if (error) return { success: false, error: error.message };
+  // Rows already read but never "seen" (legacy) get seen_at aligned too.
+  await supabase.from('alert_instances').update({ seen_at: now }).in('id', alertIds).is('seen_at', null);
   return { success: true, count: data?.length || 0 };
 }
 
@@ -255,55 +292,26 @@ export async function snoozeAlerts(alertIds: string[], snoozeUntil: Date): Promi
 /**
  * Dismiss all active alerts for the current user
  */
-export async function dismissAllAlerts(ownerId: string): Promise<{ success: boolean; count?: number; error?: string }> {
+export async function dismissAllAlerts(ownerId: string): Promise<BulkResult> {
   const { data, error } = await supabase
     .from('alert_instances')
-    .update({
-      status: 'DISMISSED',
-      dismissed_at: new Date().toISOString(),
-    })
+    .select('id')
     .eq('owner_id', ownerId)
-    .in('status', ['PENDING', 'SENT', 'ACKNOWLEDGED'])
-    .select('id');
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
-  return { success: true, count: data?.length || 0 };
+    .in('status', [...ACTIVE_ALERT_STATUSES]);
+  if (error) return { success: false, error: error.message };
+  return closeAlerts((data ?? []).map((d) => d.id), 'DISMISSED');
 }
 
 /**
- * Acknowledge an alert (mark as seen but not dismissed)
+ * Legacy acknowledge (kept for old data/callers). Also marks read.
  */
 export async function acknowledgeAlert(alertId: string): Promise<{ success: boolean; error?: string }> {
+  const now = new Date().toISOString();
   const { error } = await supabase
     .from('alert_instances')
-    .update({
-      status: 'ACKNOWLEDGED',
-      acknowledged_at: new Date().toISOString(),
-    })
+    .update({ status: 'ACKNOWLEDGED', acknowledged_at: now })
     .eq('id', alertId);
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
-  return { success: true };
-}
-
-/**
- * Resolve an alert (action completed)
- */
-export async function resolveAlert(alertId: string): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('alert_instances')
-    .update({
-      status: 'RESOLVED',
-      resolved_at: new Date().toISOString(),
-    })
-    .eq('id', alertId);
-  
-  if (error) {
-    return { success: false, error: error.message };
-  }
+  if (error) return { success: false, error: error.message };
+  await markAlertsAsRead([alertId]);
   return { success: true };
 }

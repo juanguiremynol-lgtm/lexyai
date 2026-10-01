@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { CheckSquare, X, Trash2, Eye, Clock, Loader2 } from "lucide-react";
+import { CheckSquare, X, Trash2, Eye, Clock, Loader2, CheckCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AlertsBulkActionsBarProps {
@@ -8,7 +8,9 @@ interface AlertsBulkActionsBarProps {
   onClearSelection: () => void;
   onBulkDismiss: () => void;
   onBulkMarkRead: () => void;
-  onBulkSnooze: () => void;
+  onBulkSnooze?: () => void;
+  onBulkResolve?: () => void;
+  isResolving?: boolean;
   isDismissing: boolean;
   isMarkingRead: boolean;
 }
@@ -20,12 +22,14 @@ export function AlertsBulkActionsBar({
   onBulkDismiss,
   onBulkMarkRead,
   onBulkSnooze,
+  onBulkResolve,
+  isResolving = false,
   isDismissing,
   isMarkingRead,
 }: AlertsBulkActionsBarProps) {
   if (selectedCount === 0) return null;
 
-  const isProcessing = isDismissing || isMarkingRead;
+  const isProcessing = isDismissing || isMarkingRead || isResolving;
 
   return (
     <div
@@ -71,15 +75,22 @@ export function AlertsBulkActionsBar({
           )}
           Marcar leídas
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onBulkSnooze}
-          disabled={isProcessing}
-        >
-          <Clock className="h-4 w-4 mr-1" />
-          Posponer
-        </Button>
+        {onBulkResolve && (
+          <Button variant="outline" size="sm" onClick={onBulkResolve} disabled={isProcessing}>
+            {isResolving ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <CheckCheck className="h-4 w-4 mr-1" />
+            )}
+            Resolver seleccionadas
+          </Button>
+        )}
+        {onBulkSnooze && (
+          <Button variant="outline" size="sm" onClick={onBulkSnooze} disabled={isProcessing}>
+            <Clock className="h-4 w-4 mr-1" />
+            Posponer
+          </Button>
+        )}
         <Button
           variant="destructive"
           size="sm"
