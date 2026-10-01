@@ -80,3 +80,21 @@ Deno.test("manual review alert type is INFO-only and not an urgency type", async
   const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
   for (const bad of ["provisional_deadline_date", "addBusinessDays", "bdRemaining"]) if (src.includes(bad)) throw new Error(bad);
 });
+
+Deno.test("manual review: legacy POR_VENCER row is rewritten without provisional fields; muted pref retires it", async () => {
+  const { upsertTermAlertCore, MANUAL_REVIEW_ALERT_TYPE } = await import("./termAlert.ts");
+  const rows: any[] = [{ id: "a1", status: "PENDING", alert_type: "TERMINO_POR_VENCER", severity: "INFO",
+    payload: { deadline_id: "m1", provisional_deadline_date: "2026-10-05", business_days_remaining: 2, bucket: "MANUAL_REVIEW" } }];
+  const db = {
+    findByDeadline: async () => rows,
+    insert: async (r: any) => { rows.push({ id: "n", ...r }); return null; },
+    update: async (id: string, patch: any) => { Object.assign(rows.find((r) => r.id === id), patch); return null; },
+  };
+  const base = { deadlineId: "m1", ownerId: "o", organizationId: null, workItemId: "w", alertType: MANUAL_REVIEW_ALERT_TYPE,
+    severity: "INFO", title: "t", message: null, payload: { deadline_id: "m1", deadline_date: null, bucket: "MANUAL_REVIEW" } };
+  await upsertTermAlertCore(db, { ...base, allowInsert: true, retireWhenMuted: true });
+  if (rows.length !== 1 || rows[0].alert_type !== "TERMINO_REVISION_MANUAL" || rows[0].severity !== "INFO") throw new Error("type");
+  for (const k of ["provisional_deadline_date", "business_days_remaining"]) if (k in rows[0].payload) throw new Error(k);
+  const r = await upsertTermAlertCore(db, { ...base, allowInsert: false, retireWhenMuted: true });
+  if (r.outcome !== "muted_by_preference" || rows[0].status !== "CANCELLED") throw new Error("retire");
+});

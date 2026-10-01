@@ -172,6 +172,7 @@ Deno.serve(async (req) => {
       const mrPrefs = await prefsFor(String(d.owner_id));
       const outcome = await upsertTermAlert({
         allowInsert: mrPrefs.manual_review_info,
+        retireWhenMuted: true,
         deadlineId: d.id,
         ownerId: d.owner_id,
         organizationId: d.organization_id,
