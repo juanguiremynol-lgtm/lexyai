@@ -1,6 +1,7 @@
 // Pure local render with fixtures: no server, no database, no email, no external events.
 import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildDigestHtml } from "./html.ts";
+import { digestHasContent } from "./content.ts";
 import { googleCalendarUrl, hearingEvent, outlookCalendarUrl, termEvent } from "../_shared/calendarExport.ts";
 
 const APP = "https://andromeda.legal";
