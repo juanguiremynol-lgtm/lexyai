@@ -8,6 +8,20 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isCronCaller } from "../_shared/cronAuth.ts";
 import { resolveCaller, isPrivileged } from "../_shared/callerIdentity.ts";
+import { googleCalendarUrl, hearingEvent, outlookCalendarUrl } from "../_shared/calendarExport.ts";
+import {
+  bogotaDayStartIso, calendarActionsHtml, type CalendarLinkSet, daysUntilBogota, type HearingAlertStore,
+  normalizeReminderDays, reminderLabel, upsertHearingAlert,
+} from "./reminderCore.ts";
+
+const APP_BASE_URL = "https://andromeda.legal";
+const FUNCTIONS_BASE = `${SUPABASE_URL}/functions/v1`;
+const CAL_LINK_DAYS = 30;
+function newToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -29,10 +43,12 @@ interface Hearing {
   work_item_id: string | null;
   owner_id: string | null;
   organization_id: string | null;
+  duration_minutes?: number | null;
 }
 
 interface Profile {
   id: string;
+  hearing_reminder_days?: unknown;
   full_name: string | null;
   reminder_email: string | null;
   email_reminders_enabled: boolean | null;
@@ -54,7 +70,8 @@ const generateHearingReminderHtml = (
   hearing: Hearing,
   workItem: WorkItem | null,
   profile: Profile,
-  daysUntil: number
+  daysUntil: number,
+  calendarLinks: CalendarLinkSet | null = null,
 ): string => {
   const baseStyles = `
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -85,12 +102,14 @@ const generateHearingReminderHtml = (
 
   const scheduledDate = new Date(hearing.scheduled_at);
   const formattedDate = scheduledDate.toLocaleDateString("es-CO", {
+    timeZone: "America/Bogota",
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
   });
   const formattedTime = scheduledDate.toLocaleTimeString("es-CO", {
+    timeZone: "America/Bogota",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -146,6 +165,8 @@ const generateHearingReminderHtml = (
             ${clientName ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Cliente:</strong> ${clientName}</p>` : ""}
           </div>
           
+          ${calendarActionsHtml(calendarLinks)}
+          ${hearing.work_item_id ? `<p style="margin: 8px 0; font-size: 14px;"><a href="${APP_BASE_URL}/app/work-items/${hearing.work_item_id}" style="color: #2563eb;">Abrir en Andromeda →</a></p>` : ""}
           ${hearing.notes ? `<p style="margin: 16px 0; font-size: 14px; line-height: 1.6;"><strong>Notas:</strong> ${hearing.notes}</p>` : ""}
           
           <p style="margin: 16px 0 0; font-size: 14px; color: #6b7280;">
@@ -185,10 +206,12 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Parse dry_run flag from body (defaults to false)
     let dryRun = false;
+    let wantPreview = false;
     try {
       if (req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         dryRun = body?.dry_run === true;
+        wantPreview = body?.preview === true;
       } else {
         dryRun = new URL(req.url).searchParams.get("dry_run") === "true";
       }
@@ -196,20 +219,19 @@ const handler = async (req: Request): Promise<Response> => {
     if (dryRun) console.log("[hearing-reminders] DRY RUN mode — nothing will be enqueued");
 
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    const reminderDays = [0, 1, 3, 7]; // Same day, 1 day, 3 days, 7 days before
+    // Milestones come from profiles.hearing_reminder_days (default [1,3,7]);
+    // day distance is computed on Bogotá calendar dates, not server midnight.
 
     // Fetch hearings that need reminders (CANONICAL work_item_hearings)
     const { data: raw, error: hearingsError } = await supabase
       .from("work_item_hearings")
       .select(`
-        id, custom_name, scheduled_at, location, modality, meeting_link,
+        id, custom_name, scheduled_at, location, modality, meeting_link, duration_minutes,
         notes_plain_text, work_item_id, organization_id, created_by,
         hearing_types(name)
       `)
       .in("status", ["scheduled", "planned"])
-      .gte("scheduled_at", today.toISOString())
+      .gte("scheduled_at", bogotaDayStartIso(now))
       .order("scheduled_at", { ascending: true });
 
     if (hearingsError) {
@@ -227,6 +249,7 @@ const handler = async (req: Request): Promise<Response> => {
         virtual_link: isVirtual ? h.meeting_link : null,
         notes: h.notes_plain_text,
         reminder_sent: false,
+        duration_minutes: h.duration_minutes ?? null,
         work_item_id: h.work_item_id,
         owner_id: h.created_by,
         organization_id: h.organization_id,
@@ -238,17 +261,34 @@ const handler = async (req: Request): Promise<Response> => {
     const emailsQueued: string[] = [];
     const alertsCreated: string[] = [];
     const errors: string[] = [];
+    const previews: string[] = [];
+    const profileCache = new Map<string, Profile | null>();
+    const alertStore: HearingAlertStore = {
+      findByHearing: async (hid) => {
+        const { data } = await supabase.from("alert_instances")
+          .select("id, status, payload").eq("alert_type", "HEARING_REMINDER").eq("entity_id", hid);
+        return data ?? [];
+      },
+      insert: async (row) => (await supabase.from("alert_instances").insert(row)).error,
+      update: async (id, patch) => (await supabase.from("alert_instances").update(patch).eq("id", id)).error,
+    };
 
     for (const hearing of hearings) {
-      const hearingDate = new Date(hearing.scheduled_at);
-      const daysUntil = Math.ceil((hearingDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-      // Check if we should send a reminder for this hearing
-      const shouldSendReminder = reminderDays.includes(daysUntil);
-      
-      if (!shouldSendReminder) {
+      const daysUntil = daysUntilBogota(hearing.scheduled_at, now);
+      if (!hearing.owner_id) continue;
+      if (!profileCache.has(hearing.owner_id)) {
+        const { data: pr } = await supabase.from("profiles")
+          .select("id, full_name, reminder_email, email_reminders_enabled, hearing_reminder_days")
+          .eq("id", hearing.owner_id).maybeSingle();
+        profileCache.set(hearing.owner_id, (pr as Profile) ?? null);
+      }
+      const profile = profileCache.get(hearing.owner_id);
+      if (!profile) {
+        console.error(`[hearing-reminders] Could not find profile for owner ${hearing.owner_id}`);
         continue;
       }
+      const reminderDays = normalizeReminderDays(profile.hearing_reminder_days);
+      if (!reminderDays.includes(daysUntil)) continue;
 
       console.log(`[hearing-reminders] Processing hearing ${hearing.id} - ${hearing.title}, ${daysUntil} days until`);
 
@@ -282,16 +322,16 @@ const handler = async (req: Request): Promise<Response> => {
         continue;
       }
 
-      // Get the owner's profile
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, full_name, reminder_email, email_reminders_enabled")
-        .eq("id", hearing.owner_id)
-        .single();
-
-      if (profileError || !profile) {
-        console.error(`[hearing-reminders] Could not find profile for owner ${hearing.owner_id}`);
-        continue;
+      // In-app: one live alert per hearing, updated at each selected milestone.
+      if (!dryRun) {
+        const outcome = await upsertHearingAlert(alertStore, {
+          hearingId: hearing.id, ownerId: hearing.owner_id, organizationId, daysUntil,
+          scheduledAt: hearing.scheduled_at,
+          title: `Audiencia ${reminderLabel(daysUntil)}`,
+          message: `${hearing.title} — ${new Date(hearing.scheduled_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`,
+        }, now);
+        if (outcome === "inserted" || outcome === "updated") alertsCreated.push(hearing.id);
+        else if (outcome === "error") errors.push(`${hearing.id}: alert upsert failed`);
       }
 
       // Check if email reminders are enabled
@@ -310,24 +350,6 @@ const handler = async (req: Request): Promise<Response> => {
 
       const recipientEmail = profile.reminder_email || authUser.user.email;
 
-      // Always create the in-app alert (works regardless of email config)
-      const { error: instErr } = await supabase.from("alert_instances").insert({
-        owner_id: hearing.owner_id,
-        organization_id: organizationId,
-        entity_type: "HEARING",
-        entity_id: hearing.id,
-        severity: daysUntil === 0 ? "CRITICAL" : daysUntil <= 1 ? "WARNING" : "INFO",
-        status: "PENDING",
-        alert_type: "HEARING_REMINDER",
-        alert_source: "hearing-reminders",
-        title: `⏰ Audiencia ${daysUntil === 0 ? "HOY" : daysUntil === 1 ? "MAÑANA" : `en ${daysUntil} días`}`,
-        message: `${hearing.title} — ${new Date(hearing.scheduled_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`,
-        fingerprint: `hearing_rem_${hearing.id}_${daysUntil}`,
-        fired_at: new Date().toISOString(),
-        payload: { hearing_id: hearing.id, days_until: daysUntil, scheduled_at: hearing.scheduled_at },
-      });
-      if (!instErr) alertsCreated.push(hearing.id);
-
       // Email path is best-effort. Resend key may not be configured — no-op gracefully.
       const resendConfigured = !!Deno.env.get("RESEND_API_KEY");
       if (!resendConfigured) {
@@ -336,7 +358,14 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Generate email HTML
-      const html = generateHearingReminderHtml(hearing, workItem, profile, daysUntil);
+      const ev = hearingEvent({ id: hearing.id, work_item_id: hearing.work_item_id, scheduled_at: hearing.scheduled_at,
+        status: "scheduled", title: hearing.title, location: hearing.location, radicado: workItem?.radicado ?? null,
+        duration_minutes: hearing.duration_minutes ?? null }, APP_BASE_URL);
+      const calToken = ev && hearing.work_item_id ? newToken() : null;
+      const calLinks: CalendarLinkSet | null = ev && calToken
+        ? { ics: `${FUNCTIONS_BASE}/calendar-ics?t=${calToken}`, google: googleCalendarUrl(ev), outlook: outlookCalendarUrl(ev) }
+        : null;
+      const html = generateHearingReminderHtml(hearing, workItem, profile, daysUntil, calLinks);
       const subject = `[ATENIA] Recordatorio: ${hearing.title} - ${daysUntil === 0 ? "HOY" : daysUntil === 1 ? "MAÑANA" : `En ${daysUntil} días`}`;
 
       // Generate dedupe key for this specific reminder
@@ -359,7 +388,16 @@ const handler = async (req: Request): Promise<Response> => {
         if (dryRun) {
           console.log(`[hearing-reminders] [DRY RUN] Would enqueue: hearing=${hearing.id}, days=${daysUntil}, to=${recipientEmail}, subject="${subject}"`);
           emailsQueued.push(hearing.id);
-          continue;
+          if (wantPreview) previews.push(html);
+          continue; // dry run: no token row, no outbox row, no alert
+        }
+
+        if (calToken) {
+          const { error: tErr } = await supabase.from("calendar_event_tokens").insert({
+            token: calToken, kind: "HEARING", entity_id: hearing.id, work_item_id: hearing.work_item_id,
+            owner_id: hearing.owner_id, expires_at: new Date(Date.now() + CAL_LINK_DAYS * 86_400_000).toISOString(),
+          });
+          if (tErr) throw tErr;
         }
 
         // Enqueue email into email_outbox (do NOT send directly)
@@ -401,18 +439,8 @@ const handler = async (req: Request): Promise<Response> => {
         // Note: canonical work_item_hearings has no reminder_sent flag.
         // Idempotency is guaranteed by the email_outbox dedupe_key above.
 
-        // Create an in-app alert for the hearing reminder
-        const { error: alertError } = await supabase.from("alerts").insert({
-          owner_id: hearing.owner_id,
-          organization_id: organizationId,
-          severity: daysUntil === 0 ? "CRITICAL" : daysUntil <= 1 ? "WARN" : "INFO",
-          message: `Recordatorio: ${hearing.title} ${daysUntil === 0 ? "es HOY" : daysUntil === 1 ? "es MAÑANA" : `en ${daysUntil} días`}${workItem?.radicado ? ` - Radicado: ${workItem.radicado}` : ""}`,
-          is_read: false,
-        });
-
-        if (!alertError) {
-          alertsCreated.push(hearing.id);
-        }
+        // Legacy `alerts` insert removed: alert_instances is the canonical
+        // user-facing channel (the upsert above); the legacy row duplicated it.
 
       } catch (emailError) {
         const errorMsg = emailError instanceof Error ? emailError.message : "Unknown error";
@@ -428,6 +456,7 @@ const handler = async (req: Request): Promise<Response> => {
         emailsQueued: emailsQueued.length,
         alertsCreated: alertsCreated.length,
         hearingIds: emailsQueued,
+        previews: wantPreview && dryRun ? previews : undefined,
         errors: errors.length > 0 ? errors : undefined,
         message: dryRun
           ? "DRY RUN: no emails enqueued, see logs for candidates"
