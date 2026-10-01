@@ -131,16 +131,16 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
   const selectedTerms = selectedDate ? (termsByDate[selectedDate] || []) : [];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Calendar Grid */}
-      <Card className="lg:col-span-2">
+      <Card className="min-w-0 lg:col-span-2">
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <Button variant="outline" size="icon" onClick={prevMonth}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <CardTitle className="text-lg min-w-[200px] text-center">
+              <CardTitle className="min-w-0 text-center text-base sm:text-lg">
                 {MONTHS[currentMonth]} {currentYear}
               </CardTitle>
               <Button variant="outline" size="icon" onClick={nextMonth}>
@@ -154,7 +154,7 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
         </CardHeader>
         <CardContent>
           {/* Weekday headers */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="mb-2 grid min-w-0 grid-cols-7 gap-1">
             {WEEKDAYS.map((d) => (
               <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">
                 {d}
@@ -163,7 +163,7 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
           </div>
 
           {/* Day cells */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid min-w-0 grid-cols-7 gap-1">
             {/* Empty leading cells */}
             {Array.from({ length: firstDay }).map((_, i) => (
               <div key={`empty-${i}`} className="h-16" />
@@ -183,7 +183,7 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
                   key={day}
                   onClick={() => setSelectedDate(isSelected ? null : dateKey)}
                   className={cn(
-                    "h-16 rounded-lg border text-sm relative flex flex-col items-center justify-start pt-1 transition-colors",
+                    "relative flex h-16 min-w-0 flex-col items-center justify-start rounded-lg border pt-1 text-sm transition-colors",
                     "hover:bg-accent/50",
                     isToday && "border-primary bg-primary/5",
                     isSelected && "ring-2 ring-primary bg-primary/10",
@@ -197,8 +197,8 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
                     {day}
                   </span>
                   {dayTerms.length > 0 && (
-                    <span className="mt-0.5 rounded px-1 text-[10px] font-medium bg-destructive/15 text-destructive">
-                      {dayTerms.length} término{dayTerms.length > 1 ? "s" : ""}
+                     <span className="mt-0.5 max-w-full rounded bg-destructive/15 px-1 text-[10px] font-medium text-destructive" title={`${dayTerms.length} término${dayTerms.length > 1 ? "s" : ""}`}>
+                       {dayTerms.length}<span className="hidden sm:inline"> término{dayTerms.length > 1 ? "s" : ""}</span>
                     </span>
                   )}
                   {dayHearings.length > 0 && (
@@ -251,16 +251,16 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
             <>
             {selectedTerms.map((t) => (
               <div key={t.id} className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <h4 className="font-medium text-sm leading-tight">{t.label || t.deadline_type || "Término"}</h4>
+                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                   <h4 className="min-w-0 break-words font-medium text-sm leading-tight">{t.label || t.deadline_type || "Término"}</h4>
                   {t.attribution && !["PROPIO", "CONTRAPARTE", "JUEZ"].includes(String(t.attribution).toUpperCase()) && (
                     <span className="text-xs text-muted-foreground">Atribución pendiente de validación</span>
                   )}
                   <Badge variant="destructive" className="text-[10px] shrink-0">Término</Badge>
                 </div>
-                {t.radicado && <p className="text-xs text-muted-foreground">{t.radicado}</p>}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t">
-                  <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                 {t.radicado && <p className="break-all text-xs text-muted-foreground">{t.radicado}</p>}
+                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 pt-1 border-t">
+                   <Button variant="ghost" size="sm" className="h-auto min-h-7 max-w-full min-w-0 break-words text-xs" asChild>
                     <Link to={`/app/work-items/${t.work_item_id}`}>
                       <Eye className="h-3 w-3 mr-1" />
                       {t.work_item_title || "Abrir asunto"}
@@ -274,9 +274,9 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
               .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
               .map((h) => (
                 <div key={h.id} className="p-3 rounded-lg border bg-card space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-medium text-sm leading-tight">{h.title}</h4>
-                    <div className="flex gap-1 shrink-0">
+                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                     <h4 className="min-w-0 break-words font-medium text-sm leading-tight">{h.title}</h4>
+                     <div className="flex flex-wrap gap-1">
                       <Badge className="text-[10px]">Audiencia</Badge>
                       <Badge variant="secondary" className="text-[10px]">
                         {h.is_virtual ? "Virtual" : "Presencial"}
@@ -315,9 +315,9 @@ export function HearingsCalendar({ hearings, terms = [], onDelete }: HearingsCal
                     <p className="text-xs text-muted-foreground italic">{h.notes}</p>
                   )}
 
-                  <div className="flex items-center justify-between pt-1 border-t">
+                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 pt-1 border-t">
                     {h.work_item_id ? (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                       <Button variant="ghost" size="sm" className="h-auto min-h-7 max-w-full min-w-0 break-words text-xs" asChild>
                         <Link to={`/app/work-items/${h.work_item_id}`}>
                           <Eye className="h-3 w-3 mr-1" />
                           {h.work_item_title || 'Ver proceso'}
