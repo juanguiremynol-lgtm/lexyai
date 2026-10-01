@@ -48,7 +48,7 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
   const defendantLabel = isTutela ? 'Accionado' : 'Demandado';
 
   const pp = lookupResult.pp_lookup;
-  const { data: storedEstados } = usePpEstados(radicado, !!radicado);
+  const { data: storedEstados } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
   const storedCount = storedEstados?.length ?? 0;
   const ppPending = storedCount === 0 && (!pp || pp.never_checked !== false || pp.estados_count == null);
   const ppEstados = pp?.estados || [];
@@ -337,7 +337,7 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 type PpLookup = LookupResult['pp_lookup'];
 
 export function PpEstadosPanel({ pp, radicado }: { pp: PpLookup; radicado?: string }) {
-  const { data: stored, isLoading } = usePpEstados(radicado, !!radicado);
+  const { data: stored, isLoading } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
   if (isLoading) {
     return <div className="text-center py-4 text-muted-foreground text-xs">Leyendo estados en Publicaciones Procesales…</div>;
   }
