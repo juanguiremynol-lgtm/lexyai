@@ -112,7 +112,7 @@ export function HearingDetailEditor({ hearing }: Props) {
           <CardTitle className="text-sm">Información General</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label>Estado</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as any)}>
@@ -141,7 +141,7 @@ export function HearingDetailEditor({ hearing }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" /> Fecha programada
@@ -164,7 +164,7 @@ export function HearingDetailEditor({ hearing }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <Label>Duración (min)</Label>
               <Input

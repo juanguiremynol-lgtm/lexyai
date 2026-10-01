@@ -141,9 +141,9 @@ export default function Processes() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6">
+    <div className="container mx-auto min-w-0 space-y-6 px-4 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <Scale className="h-8 w-8 text-primary" />
@@ -164,8 +164,8 @@ export default function Processes() {
       {/* Search and Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
+          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:flex-wrap">
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar por radicado, cliente, despacho, partes..."
@@ -247,11 +247,11 @@ export default function Processes() {
       {selectedItems.size > 0 && (
         <Card className="border-primary/50 bg-primary/5">
           <CardContent className="py-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium">
                 {selectedItems.size} proceso{selectedItems.size !== 1 ? "s" : ""} seleccionado{selectedItems.size !== 1 ? "s" : ""}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="destructive"
                   size="sm"
@@ -277,7 +277,7 @@ export default function Processes() {
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Lista de Procesos</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -293,7 +293,7 @@ export default function Processes() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

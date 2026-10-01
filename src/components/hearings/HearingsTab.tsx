@@ -52,9 +52,9 @@ export function HearingsTab({ workItem }: Props) {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Skeleton className="h-[400px]" />
-        <Skeleton className="h-[400px] col-span-2" />
+        <Skeleton className="h-[400px] lg:col-span-2" />
       </div>
     );
   }
@@ -62,15 +62,15 @@ export function HearingsTab({ workItem }: Props) {
   return (
     <div className="space-y-3">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="relative">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Filtrar audiencias..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-9 w-64"
+              className="h-9 w-full pl-9 sm:w-64"
             />
           </div>
           <Button
@@ -83,7 +83,7 @@ export function HearingsTab({ workItem }: Props) {
             Buscar en contenido
           </Button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -111,7 +111,7 @@ export function HearingsTab({ workItem }: Props) {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left: Timeline */}
-          <div className="lg:col-span-1 border rounded-lg p-3 max-h-[700px] overflow-y-auto">
+          <div className="min-w-0 max-h-[700px] overflow-y-auto rounded-lg border p-3 lg:col-span-1">
             <HearingTimeline
               hearings={filteredHearings}
               selectedId={effectiveSelectedId}
@@ -121,7 +121,7 @@ export function HearingsTab({ workItem }: Props) {
           </div>
 
           {/* Right: Detail */}
-          <div className="lg:col-span-2 max-h-[700px] overflow-y-auto">
+          <div className="min-w-0 max-h-[700px] overflow-y-auto lg:col-span-2">
             {selectedHearing ? (
               <HearingDetailEditor hearing={selectedHearing} />
             ) : (

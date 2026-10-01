@@ -278,7 +278,7 @@ export function NotificationsAlertTab() {
         <div className="flex items-center gap-3 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="min-w-0 w-full sm:w-56">
               <SelectValue placeholder="Tipo" />
             </SelectTrigger>
             <SelectContent>
@@ -291,7 +291,7 @@ export function NotificationsAlertTab() {
             </SelectContent>
           </Select>
           <Select value={severityFilter} onValueChange={setSeverityFilter}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="min-w-0 w-full sm:w-36">
               <SelectValue placeholder="Severidad" />
             </SelectTrigger>
             <SelectContent>
@@ -305,7 +305,7 @@ export function NotificationsAlertTab() {
 
         {/* Bulk actions */}
         {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2">
             <span className="text-sm text-muted-foreground">{selectedIds.size} seleccionadas</span>
             <Button size="sm" variant="outline" onClick={selectAll}>Seleccionar todas</Button>
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>Limpiar</Button>

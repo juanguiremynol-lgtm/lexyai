@@ -137,7 +137,7 @@ export default function Hearings() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-serif font-bold">Audiencias</h1>
           <p className="text-muted-foreground">
@@ -145,7 +145,7 @@ export default function Hearings() {
             {pastHearings.length} pasada{pastHearings.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View Toggle */}
           <div className="flex rounded-lg border bg-muted/30 p-0.5">
             <Button
@@ -202,8 +202,8 @@ export default function Hearings() {
                   <CardContent className="grid gap-2">
                     {termData!.manual.map((t) => (
                       <Link key={t.id} to={`/app/work-items/${t.work_item_id}`}
-                        className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm hover:bg-accent/50">
-                        <span className="min-w-0 truncate">
+                         className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-md border p-2 text-sm hover:bg-accent/50">
+                         <span className="min-w-0 break-all">
                           <span className="font-medium">{t.label || t.deadline_type}</span>
                           {t.radicado && <span className="text-muted-foreground"> · {t.radicado}</span>}
                         </span>
@@ -245,12 +245,12 @@ export default function Hearings() {
                     {listItems.map((hearing) => (
                       <Card key={hearing.id}>
                         <CardHeader className="pb-2">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <CardTitle className="text-base">{hearing.title}</CardTitle>
-                              {hearing.notes && <CardDescription className="mt-1">{hearing.notes}</CardDescription>}
+                           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                             <div className="min-w-0">
+                               <CardTitle className="break-words text-base">{hearing.title}</CardTitle>
+                               {hearing.notes && <CardDescription className="mt-1 break-words">{hearing.notes}</CardDescription>}
                             </div>
-                            <div className="flex items-center gap-2">
+                             <div className="flex flex-wrap items-center gap-2">
                               <AddToCalendarMenu event={hearingEvent(hearing, appBase)} />
                               <Badge variant={hearing.is_virtual ? "default" : "secondary"}>
                                 {hearing.is_virtual ? "Virtual" : "Presencial"}
