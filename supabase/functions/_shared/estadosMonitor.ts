@@ -77,7 +77,17 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     const { data: claim, error: claimError } = await db.rpc("claim_estados_monitor_run", {
       _channel: channel, _run_date: runDate, _work_item_ids: ids, _depth_budget: depthBudget, _lease_seconds: LEASE_SECONDS,
     });
-    if (claimError) return response({ error: claimError.message }, 500);
+    if (claimError) {
+      // A rejected claim means NO matter was read today. Never silent: the
+      // cron row says "succeeded" because the HTTP request was sent.
+      console.error(`[estadosMonitor] claim rejected for ${channel} ${runDate}:`, claimError.message);
+      await db.from("system_health_events").insert({
+        service: "ESTADOS_SYNC", status: "ERROR",
+        message: `Corrida diaria de ${channel} no iniciada: ${claimError.message}`,
+        metadata: { channel, run_date: runDate, expected: ids.length, attempted: 0, kind: "RUN_NOT_STARTED" },
+      });
+      return response({ error: claimError.message, expected: ids.length, attempted: 0 }, 500);
+    }
     const claimedRun = claim?.[0];
     if (!claimedRun?.acquired) return response({ ok: true, skipped: "single_flight" });
     runId = claimedRun.run_id;
