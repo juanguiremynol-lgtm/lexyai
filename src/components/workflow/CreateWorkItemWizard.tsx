@@ -70,7 +70,7 @@ import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
-import { WizardProcessPreview } from "./WizardProcessPreview";
+import { WizardProcessPreview, PpEstadosPanel } from "./WizardProcessPreview";
 import { deriveFromRadicado } from "@/lib/radicado-derivation";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -992,6 +992,13 @@ export function CreateWorkItemWizard({
                     />
                   )}
                   
+                  {lookupStatus === 'not_found' && radicado && (
+                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+                      <p className="text-xs font-medium mb-2">Estados en Publicaciones Procesales</p>
+                      <PpEstadosPanel pp={lookupResult?.pp_lookup} radicado={radicado} />
+                    </div>
+                  )}
+
                   {lookupStatus === 'not_found' && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
