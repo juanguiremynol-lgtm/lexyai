@@ -29,6 +29,7 @@ export interface CalendarTerm {
   radicado?: string | null;
   despacho?: string | null;
   work_item_title?: string | null;
+  attribution?: string | null;
 }
 
 export interface CalendarHearing {

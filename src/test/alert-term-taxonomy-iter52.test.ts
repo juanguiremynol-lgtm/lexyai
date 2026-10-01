@@ -55,7 +55,7 @@ describe("iteration 52 — term alert taxonomy", () => {
       const src = readFileSync(f, "utf8");
       for (const m of src.matchAll(/["'`](TERMINO_[A-Z_]+)["'`]/g)) {
         // TERMINO_REVISION_MANUAL is an INFO notice, not an urgency type (01/10/2026).
-        if (!isTermAlertType(m[1]) && m[1] !== "TERMINO_REVISION_MANUAL") offenders.push(`${f}: ${m[1]}`);
+        if (!isTermAlertType(m[1]) && m[1] !== "TERMINO_REVISION_MANUAL" && m[1] !== "TERMINO_ATRIBUCION_PENDIENTE") offenders.push(`${f}: ${m[1]}`);
       }
     }
     expect(offenders).toEqual([]);

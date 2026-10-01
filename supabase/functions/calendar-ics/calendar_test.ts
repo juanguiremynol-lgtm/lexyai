@@ -80,3 +80,10 @@ Deno.test("calendar-ics contract: 200 / 403 other tenant / 410 expired / 404", a
   assertEquals(h.status, 200);
   assert(h.body.includes("TZID=America/Bogota"));
 });
+
+Deno.test("term with pending attribution keeps the dated event, labelled", () => {
+  const ev = termEvent({ ...term, attribution: "DESCONOCIDO" }, APP)!;
+  assertEquals(ev.start, term.deadline_date);
+  if (!ev.title.includes("atribución pendiente") || !ev.description.includes("pendiente de validación por Andromeda")) throw new Error("label");
+  if (termEvent({ ...term, attribution: "PROPIO" }, APP)!.title.includes("pendiente")) throw new Error("propio");
+});

@@ -98,3 +98,46 @@ Deno.test("manual review: legacy POR_VENCER row is rewritten without provisional
   const r = await upsertTermAlertCore(db, { ...base, allowInsert: false, retireWhenMuted: true });
   if (r.outcome !== "muted_by_preference" || rows[0].status !== "CANCELLED") throw new Error("retire");
 });
+
+Deno.test("attribution routing: PROPIO escalates, JUEZ/CONTRAPARTE none, DESCONOCIDO/AMBAS pending", async () => {
+  const { attributionRoute } = await import("./termAlert.ts");
+  const eq = (a: unknown, b: unknown) => { if (a !== b) throw new Error(`${a} !== ${b}`); };
+  eq(attributionRoute("PROPIO"), "OWN");
+  eq(attributionRoute("JUEZ"), "NOT_OWN");
+  eq(attributionRoute("CONTRAPARTE"), "NOT_OWN");
+  eq(attributionRoute("DESCONOCIDO"), "ATTRIBUTION_PENDING");
+  eq(attributionRoute("AMBAS"), "ATTRIBUTION_PENDING");
+  eq(attributionRoute(null), "ATTRIBUTION_PENDING");
+});
+
+Deno.test("DESCONOCIDO: one stable INFO notice across repeated runs, no burden wording, no escalation", async () => {
+  const { upsertTermAlertCore, attributionPendingNotice, TERM_ALERT_TYPES } = await import("./termAlert.ts");
+  const rows: any[] = [];
+  const db = {
+    findByDeadline: async (id: string) => rows.filter((r) => r.payload.deadline_id === id),
+    insert: async (r: any) => { rows.push({ id: `r${rows.length}`, ...r }); return null; },
+    update: async (id: string, p: any) => { Object.assign(rows.find((r) => r.id === id), p); return null; },
+  };
+  const d = { id: "7b1b6202", deadline_type: "TRASLADO", deadline_date: "2026-10-15", label: "Traslado", attribution: "DESCONOCIDO" };
+  for (let i = 0; i < 3; i++) {
+    const n = attributionPendingNotice(d);
+    await upsertTermAlertCore(db, { deadlineId: d.id, ownerId: "o", organizationId: null, workItemId: "w", allowInsert: true, retireWhenMuted: true, ...n });
+  }
+  if (rows.length !== 1) throw new Error(`rows ${rows.length}`);
+  const r = rows[0];
+  if (r.alert_type !== "TERMINO_ATRIBUCION_PENDIENTE" || r.severity !== "INFO") throw new Error("type/sev");
+  if (r.payload.escalation_history.length !== 1) throw new Error("escalated");
+  if ("business_days_remaining" in r.payload) throw new Error("urgency field");
+  if (!TERM_ALERT_TYPES.includes(r.alert_type)) throw new Error("not tracked");
+  const text = `${r.title} ${r.message}`.toLowerCase();
+  for (const bad of ["a su cargo", "su término", "debe ", "vence", "vencido", "sus términos"]) if (text.includes(bad)) throw new Error(bad);
+  if (!text.includes("pending") || !text.includes("pendiente de validación por andromeda")) throw new Error("wording");
+  // Muted preference retires it.
+  await upsertTermAlertCore(db, { deadlineId: d.id, ownerId: "o", organizationId: null, workItemId: "w", allowInsert: false, retireWhenMuted: true, ...attributionPendingNotice(d) });
+  if (rows[0].status !== "CANCELLED") throw new Error("not retired");
+});
+
+Deno.test("evaluator wires JUEZ/CONTRAPARTE to retire and never inserts for them", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  if (!src.includes('route === "NOT_OWN"') || !src.includes("notOwnDeadlineIds.push")) throw new Error("wiring");
+});
