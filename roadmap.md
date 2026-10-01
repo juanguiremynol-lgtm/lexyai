@@ -66,7 +66,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] P0.1 Un solo productor de alertas de términos (evaluate-deadline-alerts); regenerate_doctrine_alerts ya no crea TERMINO_* — migración 0030. Pendiente: confirmar en la corrida de 11:35 UTC (≤1 alerta por término).
 - [x] P0.2 REQUIERE_REVISION_MANUAL ⇒ requires_manual_review=true (38 filas respaldadas en deadline_manual_review_backup_20261001; trigger de sincronía).
 - [x] P0.3 Contadores "sin leer" del asunto y pestaña de notificaciones cuentan solo alertas vivas.
-- [ ] P1 Hitos 8/3/1/0/vencido + preferencias en alert_preferences.
-- [ ] P1 Calendario externo: función .ics firmada + enlaces Google/Outlook en resumen, término, audiencia y calendario interno.
-- [ ] Hallazgo: alertas de audiencias y hearings-extract-backfill usan la tabla `hearings` (vacía/legada) en vez de work_item_hearings; 101 de 109 audiencias con scheduled_at nulo.
+- [x] P1 Hitos reales D-8/D-3/D-1/D-DAY/vencido: una fila por término con historial; vencido no repite; preferencias (hitos, vencido, avisos INFO de revisión manual) leídas por el evaluador. Tests termAlert 4/4.
+- [x] P1 Calendario: utilidad común .ics/Google/Outlook; función calendar-ics con enlaces opacos (tabla calendar_event_tokens, solo servicio, 30 días); botones en resumen, pestaña Términos, ficha de audiencia y calendario interno. Tests 5/5 + render 3/3.
+- [x] Calendario interno: términos PENDING fechados + audiencias vigentes de work_item_hearings; revisiones manuales en "Pendientes de validación" sin fecha.
+- [x] regenerate_doctrine_alerts ya no lee `hearings` (duplicaba hearing-reminders) — 0031.
+- [ ] Pendiente confirmar en la corrida real de 11:15/11:35 UTC (≤1 alerta por término).
+- [ ] hearings-extract-backfill todavía escribe en la tabla legada `hearings` (no modificado).
+- [ ] Correo inmediato opt-in al entrar crítico/vencido: no implementado (opcional).
 - [ ] P2 Resumen semanal de cierres sin verificar; atribución de parte.
