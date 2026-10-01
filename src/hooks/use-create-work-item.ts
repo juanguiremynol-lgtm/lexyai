@@ -314,6 +314,8 @@ export function useCreateWorkItem() {
             if (pubData && pubData.ok === false) {
               console.log("[use-create-work-item] publicaciones sync degraded:", pubData.status ?? pubData.reason);
             }
+            queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones-local", workItem.id] });
+            queryClient.invalidateQueries({ queryKey: ["work-item-pp-read-info", workItem.id] });
           } catch (err) {
             console.warn("[use-create-work-item] Background publicaciones sync failed:", err);
           }

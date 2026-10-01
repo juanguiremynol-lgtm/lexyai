@@ -24,6 +24,7 @@ import {
 import type { ProcessData, LookupResult } from "@/hooks/use-radicado-lookup";
 import { formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { getProviderChainLabel } from "@/lib/provider-chain-labels";
+import { usePpEstados } from "@/hooks/use-pp-estados";
 
 interface WizardProcessPreviewProps {
   lookupResult: LookupResult;
@@ -47,12 +48,14 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
   const defendantLabel = isTutela ? 'Accionado' : 'Demandado';
 
   const pp = lookupResult.pp_lookup;
-  const ppPending = !pp || pp.never_checked !== false || pp.estados_count == null;
+  const { data: storedEstados } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
+  const storedCount = storedEstados?.length ?? 0;
+  const ppPending = storedCount === 0 && (!pp || pp.never_checked !== false || pp.estados_count == null);
   const ppEstados = pp?.estados || [];
-  const estadosLabel = ppPending ? 'pendiente de lectura' : String(pp!.estados_count);
+  const estadosLabel = ppPending ? 'pendiente de lectura' : String(storedCount || pp?.estados_count || 0);
   const ppChecked = !!pp && pp.status !== 'unknown';
   const sourcesTotal = (lookupResult.sources_checked?.length || 0) + 1;
-  const sourcesOk = sourcesFound.length + (pp?.status === 'found' && !ppPending ? 1 : 0);
+  const sourcesOk = sourcesFound.length + (!ppPending ? 1 : 0);
 
   const displayedActuaciones = showAllActuaciones ? actuaciones : actuaciones.slice(0, 5);
 
@@ -260,17 +263,17 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 
         {/* Estados Tab (Publicaciones Procesales) */}
         <TabsContent value="estados" className="mt-2">
-          <PpEstadosPanel pp={pp} />
+          <PpEstadosPanel pp={pp} radicado={radicado} />
         </TabsContent>
 
         {/* Provider Status Tab */}
         <TabsContent value="providers" className="mt-2">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
-              <ProviderStatusIcon success={pp?.status === 'found' && !ppPending} />
+              <ProviderStatusIcon success={!ppPending} />
               <span className="font-medium flex-1">Publicaciones Procesales</span>
               <span className="text-muted-foreground text-[10px]">
-                {!ppChecked ? 'No se pudo consultar' : ppPending ? 'Pendiente de lectura' : `${pp!.estados_count} estados`}
+                {!ppPending ? `${estadosLabel} estados` : !ppChecked ? 'No se pudo consultar' : 'Pendiente de lectura'}
               </span>
             </div>
             {/* From attempts (always available) */}
@@ -333,7 +336,33 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 
 type PpLookup = LookupResult['pp_lookup'];
 
-export function PpEstadosPanel({ pp }: { pp: PpLookup }) {
+export function PpEstadosPanel({ pp, radicado }: { pp: PpLookup; radicado?: string }) {
+  const { data: stored, isLoading } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
+  if (isLoading) {
+    return <div className="text-center py-4 text-muted-foreground text-xs">Leyendo estados en Publicaciones Procesales…</div>;
+  }
+  if (stored && stored.length > 0) {
+    return (
+      <div className="space-y-1.5">
+        <p className="text-[10px] text-muted-foreground">
+          {stored.length} estados leídos. Si agregas el asunto, se guardarán en su pestaña Estados.
+        </p>
+        <ScrollArea className={stored.length > 5 ? "max-h-[220px]" : ""}>
+          <div className="space-y-1.5">
+            {[...stored].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((e) => (
+              <div key={`${e.fuente}-${e.id}`} className="flex gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
+                <div className="text-muted-foreground shrink-0 w-[78px] font-mono">{e.fecha || '—'}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{e.titulo_original?.trim() || e.descripcion?.trim() || 'Estado'}</p>
+                  {e.estado_numero && <p className="text-muted-foreground text-[10px]">Estado N° {e.estado_numero}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  }
   const pending = !pp || pp.never_checked !== false || pp.estados_count == null;
   if (!pp || pp.status === 'unknown') {
     return (
