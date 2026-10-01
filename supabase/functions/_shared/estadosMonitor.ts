@@ -5,7 +5,7 @@ import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting
 // One case per hop: a hop must fit the ~150s edge wall clock, and one read
 // may take up to ITEM_TIMEOUT_MS. 60 hops cover the largest channel (44).
 const BATCH_SIZE = 1;
-const MAX_DEPTH = 60;
+const MAX_DEPTH = 60; // must stay <= claim_estados_monitor_run ceiling (64)
 const COOLDOWN_MS = 1_500;
 // Must exceed the callee's own PUB_SAFETY_TIMEOUT_MS (110s) so real reads finish.
 const ITEM_TIMEOUT_MS = 125_000;
