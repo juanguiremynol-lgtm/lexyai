@@ -1,5 +1,10 @@
 # Roadmap
 
+## Responsive móvil (solicitud actual)
+- [ ] Corregir ficha de radicado, hitos, encabezado, chips y pestañas a 390 px.
+- [ ] Auditar y corregir patrones compartidos en tablero, procesos, alertas, audiencias/calendario y configuración.
+- [ ] Validar 390/430/768/escritorio, pruebas y límites de verificación.
+
 ## LV — términos, correspondencia, clasificador (en curso)
 - [x] LV1 Desactivar apply_email_evidence_to_deadlines
 - [x] LV2 Separar el estado en tres (41 / 11 / 1)
