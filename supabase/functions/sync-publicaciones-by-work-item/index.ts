@@ -1475,28 +1475,30 @@ Deno.serve(withSyncTimeline(async (req) => {
       return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500, { stage: 'env' });
     }
 
-    // Auth check - support both user tokens and service role (for scheduled jobs)
+    // Auth check - user tokens, service role, or the dedicated cron secret
+    // (same x-cron-key the scheduled monitors use) for scheduled reads.
+    const cronCaller = isCronCaller(req);
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
+    if (!authHeader && !cronCaller) {
       return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, { stage: 'auth_header' });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const token = authHeader.replace('Bearer ', '');
+    const token = (authHeader ?? '').replace('Bearer ', '');
     
     // Check if this is a service role call (scheduled job). Exact match covers
     // the current key; a signature-verified JWT with role=service_role covers
     // internal callers still holding the legacy service-role JWT (no `sub`),
     // which otherwise fell into getUser() and failed with "missing sub claim".
     let tokenRole: string | null = null;
-    if (token !== supabaseServiceKey && token.split('.').length === 3) {
+    if (token && token !== supabaseServiceKey && token.split('.').length === 3) {
       try {
         const { data: claimsData } = await supabase.auth.getClaims(token);
         const role = (claimsData?.claims as Record<string, unknown> | undefined)?.role;
         tokenRole = typeof role === 'string' ? role : null;
       } catch (_e) { tokenRole = null; }
     }
-    const isServiceRole = token === supabaseServiceKey || tokenRole === 'service_role';
+    const isServiceRole = cronCaller || (!!token && (token === supabaseServiceKey || tokenRole === 'service_role'));
     
     // Parse request first to check for _scheduled flag
     let payload: SyncRequest;
