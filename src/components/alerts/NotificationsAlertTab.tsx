@@ -102,7 +102,7 @@ export function NotificationsAlertTab() {
       let query = supabase
         .from("alert_instances")
         .select("*")
-        .neq("status", "DISMISSED")
+        .in("status", ["PENDING", "SENT", "ACKNOWLEDGED"])
         .order("fired_at", { ascending: false })
         .limit(PAGE_SIZE);
 
