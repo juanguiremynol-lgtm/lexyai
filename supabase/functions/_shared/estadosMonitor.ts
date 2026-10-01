@@ -163,5 +163,11 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     const runtime = (globalThis as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
     if (runtime) runtime.waitUntil(nextHop()); else await nextHop();
   }
+  // Run finished: refresh informative Fijacion-Estado coverage signals (open on
+  // absence, resolve when the publication arrives). Never pauses monitoring.
+  if (channel === "publicaciones" && !(state?.remaining_count > 0)) {
+    const { error: covErr } = await db.rpc("refresh_estados_fijacion_coverage_signals" as never);
+    if (covErr) console.error("[estadosMonitor] coverage signals", covErr.message);
+  }
   return response({ ok: true, run_id: runId, channel, ...state });
 }

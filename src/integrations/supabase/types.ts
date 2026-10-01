@@ -8708,6 +8708,78 @@ export type Database = {
           },
         ]
       }
+      estados_fijacion_coverage_signals: {
+        Row: {
+          act_id: string
+          detected_at: string
+          fijacion_date: string
+          id: string
+          owner_id: string | null
+          resolved_at: string | null
+          resolved_by_publicacion_id: string | null
+          status: string
+          work_item_id: string
+        }
+        Insert: {
+          act_id: string
+          detected_at?: string
+          fijacion_date: string
+          id?: string
+          owner_id?: string | null
+          resolved_at?: string | null
+          resolved_by_publicacion_id?: string | null
+          status?: string
+          work_item_id: string
+        }
+        Update: {
+          act_id?: string
+          detected_at?: string
+          fijacion_date?: string
+          id?: string
+          owner_id?: string | null
+          resolved_at?: string | null
+          resolved_by_publicacion_id?: string | null
+          status?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estados_fijacion_coverage_signals_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estados_fijacion_coverage_signals_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "estados_fijacion_coverage_signals_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estados_fijacion_coverage_signals_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estados_fijacion_coverage_signals_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       estados_import_runs: {
         Row: {
           created_at: string
@@ -26226,6 +26298,10 @@ export type Database = {
       refresh_despacho_profiles: { Args: never; Returns: number }
       refresh_estados_coverage_signals: {
         Args: { p_alert?: boolean }
+        Returns: Json
+      }
+      refresh_estados_fijacion_coverage_signals: {
+        Args: { _today?: string }
         Returns: Json
       }
       regenerate_doctrine_alerts: { Args: never; Returns: Json }

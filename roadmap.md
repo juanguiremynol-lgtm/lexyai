@@ -82,8 +82,8 @@ Pendientes de plataforma (no trabajo jurídico):
 
 ## Omisión PP/estados 05001400302320250063800 (01/10/2026)
 - [x] Causa raíz: monitor pedía profundidad 60 y la RPC aceptaba ≤32 → 30/09 y 01/10 sin corrida (PP y SAMAI, 44/44 asuntos). Corregido (0035) + desplegado.
-- [ ] Recuperación de este asunto — bloqueada: requiere sesión del dueño (botón Sincronizar en la ficha) o autorización para correr la lectura diaria de hoy
-- [ ] Señal de cobertura Fijacion Estado CPNU sin publicación PP — pendiente, tras la recuperación
+- [x] Recuperación: Estado 116 + AutoCorreTraslado insertados desde PP; 2ª lectura 0 nuevos
+- [x] Señal de cobertura Fijacion Estado sin PP (0036), al final de cada corrida PP
 - [x] Claim rechazado ahora queda registrado (RUN_NOT_STARTED, expected/attempted=0)
 - [ ] Seguridad: la clave del programador está escrita en claro en la tarea programada; rotar
-- [ ] Pruebas obligatorias
+- [x] Pruebas (SQL de cobertura escrito; ejecución en sandbox sin permisos — verificado en producción)
