@@ -25,6 +25,8 @@ export async function upsertTermAlertCore(db: TermAlertStore, args: {
   message: string | null;
   payload: Record<string, unknown>;
   allowInsert?: boolean;
+  /** Manual-review notice: when muted by preference, retire the live row too. */
+  retireWhenMuted?: boolean;
 }, now: Date = new Date()): Promise<{ outcome: TermAlertOutcome; superseded: number }> {
   const fingerprint = `deadline_TERM_${args.deadlineId}`;
   const all = await db.findByDeadline(args.deadlineId);
@@ -62,6 +64,10 @@ export async function upsertTermAlertCore(db: TermAlertStore, args: {
     return { outcome: "inserted", superseded: 0 };
   }
 
+  if (args.allowInsert === false && args.retireWhenMuted) {
+    for (const r of rows) await db.update(r.id, { status: "CANCELLED" });
+    return { outcome: "muted_by_preference", superseded: 0 };
+  }
   const keep = rows[0];
   const history = Array.isArray(keep.payload?.escalation_history) ? keep.payload.escalation_history : [];
   const prevBucket = keep.payload?.bucket ?? null;
