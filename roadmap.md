@@ -75,7 +75,13 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] P1 Calendario: utilidad común .ics/Google/Outlook; función calendar-ics con enlaces opacos (tabla calendar_event_tokens, solo servicio, 30 días); botones en resumen, pestaña Términos, ficha de audiencia y calendario interno. Tests 5/5 + render 3/3.
 - [x] Calendario interno: términos PENDING fechados + audiencias vigentes de work_item_hearings; revisiones manuales en "Pendientes de validación" sin fecha.
 - [x] regenerate_doctrine_alerts ya no lee `hearings` (duplicaba hearing-reminders) — 0031.
-- [ ] Pendiente confirmar en la corrida real de 11:15/11:35 UTC (≤1 alerta por término).
+- [x] Corrida real 01/10 11:15 UTC confirmada: OK, 0 errores, 1 alerta de atribución pendiente.
 - [ ] hearings-extract-backfill todavía escribe en la tabla legada `hearings` (no modificado).
 - [ ] Correo inmediato opt-in al entrar crítico/vencido: no implementado (opcional).
 - [ ] P2 Resumen semanal de cierres sin verificar; atribución de parte.
+
+## Omisión PP/estados 05001400302320250063800 (01/10/2026)
+- [ ] Causa raíz de Estado 116 + AutoCorreTraslado no insertados (corridas 29/09–01/10)
+- [ ] Corrección acotada + recuperación idempotente solo de este asunto desde la fuente
+- [ ] Señal de cobertura: Fijacion Estado CPNU sin publicación PP correlacionable
+- [ ] Pruebas obligatorias
