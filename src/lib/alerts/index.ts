@@ -9,6 +9,10 @@ export {
   dismissAllAlerts,
   acknowledgeAlert,
   resolveAlert,
+  resolveAlerts,
+  decideReopen,
+  ACTIVE_ALERT_STATUSES,
+  USER_CLOSED_STATUSES,
   markAlertsAsRead,
   snoozeAlerts,
   type AlertEntityType,
@@ -23,3 +27,5 @@ export {
   type UserAlertType,
   type CreateUserAlertParams,
 } from './create-user-alert';
+
+export * from './alert-cache';
