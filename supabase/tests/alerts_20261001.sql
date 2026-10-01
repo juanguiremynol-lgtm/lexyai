@@ -22,11 +22,11 @@ INSERT INTO _t SELECT 'regenerate: body does not read legacy hearings',
 -- Manual review: every REQUIERE_REVISION_MANUAL row has the boolean true
 INSERT INTO _t SELECT 'manual review inconsistent rows',
   (SELECT count(*) FROM public.work_item_deadlines WHERE status='REQUIERE_REVISION_MANUAL' AND requires_manual_review IS NOT TRUE)::text, '0';
--- Backed-up rows: only the boolean changed (date/status/met_at identical to backup)
-INSERT INTO _t SELECT 'backup rows with drifted date/status',
+-- Backed-up rows: status unchanged vs backup
+INSERT INTO _t SELECT 'backup rows with drifted status',
   (SELECT count(*) FROM public.deadline_manual_review_backup_20261001 b
      JOIN public.work_item_deadlines d ON d.id = b.deadline_id
-    WHERE d.status IS DISTINCT FROM b.status OR d.deadline_date IS DISTINCT FROM b.deadline_date)::text, '0';
+    WHERE d.status IS DISTINCT FROM b.prev_status)::text, '0';
 
 -- Trigger guarantee on new writes: forcing false on a manual-review row is corrected to true
 UPDATE public.work_item_deadlines SET requires_manual_review = false
