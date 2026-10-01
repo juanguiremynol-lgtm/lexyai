@@ -61,3 +61,12 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Adquisición de evidencia: decidir si Andromeda debe recuperar los PDFs 00139, 01424 y 00638 y, si sí, por qué el acceso no los sirve aunque existan referencias de almacenamiento.
 - [ ] Ingesta CPNU: esta reparación no certifica ese subsistema.
 - [ ] Origen del texto breve del resumen original: no localizado.
+
+## Auditoría términos/alertas/calendario (01/10/2026)
+- [x] P0.1 Un solo productor de alertas de términos (evaluate-deadline-alerts); regenerate_doctrine_alerts ya no crea TERMINO_* — migración 0030. Pendiente: confirmar en la corrida de 11:35 UTC (≤1 alerta por término).
+- [x] P0.2 REQUIERE_REVISION_MANUAL ⇒ requires_manual_review=true (38 filas respaldadas en deadline_manual_review_backup_20261001; trigger de sincronía).
+- [x] P0.3 Contadores "sin leer" del asunto y pestaña de notificaciones cuentan solo alertas vivas.
+- [ ] P1 Hitos 8/3/1/0/vencido + preferencias en alert_preferences.
+- [ ] P1 Calendario externo: función .ics firmada + enlaces Google/Outlook en resumen, término, audiencia y calendario interno.
+- [ ] Hallazgo: alertas de audiencias y hearings-extract-backfill usan la tabla `hearings` (vacía/legada) en vez de work_item_hearings; 101 de 109 audiencias con scheduled_at nulo.
+- [ ] P2 Resumen semanal de cierres sin verificar; atribución de parte.
