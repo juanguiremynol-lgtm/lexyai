@@ -6254,6 +6254,30 @@ export type Database = {
         }
         Relationships: []
       }
+      deadline_manual_review_backup_20261001: {
+        Row: {
+          applied_updated_at: string | null
+          backed_up_at: string
+          deadline_id: string
+          prev_requires_manual_review: boolean
+          prev_status: string
+        }
+        Insert: {
+          applied_updated_at?: string | null
+          backed_up_at?: string
+          deadline_id: string
+          prev_requires_manual_review: boolean
+          prev_status: string
+        }
+        Update: {
+          applied_updated_at?: string | null
+          backed_up_at?: string
+          deadline_id?: string
+          prev_requires_manual_review?: boolean
+          prev_status?: string
+        }
+        Relationships: []
+      }
       deadline_rules: {
         Row: {
           anchor_kind: string
