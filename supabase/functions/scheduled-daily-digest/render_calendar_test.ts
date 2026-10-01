@@ -76,3 +76,24 @@ Deno.test("0 PENDING + 42 manual reviews: none shown as due/overdue, no calendar
   assert(!/[Vv]encido hace|[Ff]altan \d+ día|POR VENCER|VENCIDOS —/.test(html), "no due/overdue presentation");
   assert(!html.includes("Añadir al calendario"), "no calendar action");
 });
+
+Deno.test("42 antiguas sin cambio => solo contador compacto, sin filas, sin contenido propio", () => {
+  const html = buildDigestHtml(base({ manualReviewTerms: [], manualReviewTotal: 42, manualReviewChangedTotal: 0, calendarLinks: new Map() }));
+  assertStringIncludes(html, "42 pendientes de validación");
+  assertStringIncludes(html, "/app/hearings");
+  assertStringIncludes(html, "Estos registros no se presentan como términos activos ni vencidos mientras Andromeda no cuente con evidencia suficiente para validar su clasificación, ancla y fecha de vencimiento.");
+  assert(!html.includes("Nuevas o modificadas"), "no table");
+  assert(!/<td[^>]*>R\d/.test(html));
+  assert(!digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: false }), "backlog alone is not new content");
+  assert(!/[Vv]encido hace|CRÍTICO|POR VENCER|VENCIDOS —/.test(html));
+});
+
+Deno.test("2 nuevas => 2 filas + total 42, sin fechas ni urgencia", () => {
+  const two = [{ id: "n1", work_item_id: "wM", label: "Nueva1", deadline_type: "X" }, { id: "n2", work_item_id: "wM", label: "Nueva2", deadline_type: "X" }];
+  const html = buildDigestHtml(base({ manualReviewTerms: two, manualReviewTotal: 42, manualReviewChangedTotal: 2, calendarLinks: new Map() }));
+  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (42)");
+  assertStringIncludes(html, "Nuevas o modificadas en este periodo: 2");
+  assertEquals((html.match(/Sin fecha validada<\/span>/g) ?? []).length, 2);
+  assert(digestHasContent({ rowCount: 0, manualReviewCount: 2, coverageIncomplete: false }));
+  assert(!/[Vv]encido hace|CRÍTICO|POR VENCER|VENCIDOS —|Añadir al calendario/.test(html));
+});

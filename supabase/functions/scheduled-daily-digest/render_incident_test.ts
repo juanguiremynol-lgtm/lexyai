@@ -69,7 +69,7 @@ Deno.test("solo 4 revisiones + sin novedades + fuentes sanas → contenido y HTM
 });
 
 Deno.test("revisiones truncadas declaran total y exceso", () => {
-  const html = buildDigestHtml({ ...payload, manualReviewTotal: 57 });
+  const html = buildDigestHtml({ ...payload, manualReviewTotal: 57, manualReviewChangedTotal: 9 });
   assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (57)");
-  assertStringIncludes(html, "Se muestran 4 de 57; 53 más");
+  assertStringIncludes(html, "Nuevas o modificadas en este periodo: 9 (se muestran 4; 5 más");
 });

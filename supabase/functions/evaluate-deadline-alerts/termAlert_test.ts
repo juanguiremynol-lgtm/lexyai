@@ -55,3 +55,28 @@ Deno.test("preferences: no row → defaults; unknown milestones dropped", () => 
   assertEquals(normalizeAlertPrefs(null), { term_milestones: ["D-8", "D-3", "D-1", "D-DAY"], overdue: true, manual_review_info: true });
   assertEquals(normalizeAlertPrefs({ term_milestones: ["D-3", "D-10"], overdue: false }).term_milestones, ["D-3"]);
 });
+
+Deno.test("milestones use the injected SQL calendar (holiday 12/10/2026), never weekend-only", async () => {
+  const { businessDaysRemaining, bucketFor } = await import("./termAlert.ts");
+  const hol = new Set(["2026-10-12"]);
+  const rpc = async (a: string, b: string) => { // stand-in for business_days_between_sql
+    let n = 0; const d = new Date(a + "T00:00:00Z"); const e = new Date(b + "T00:00:00Z");
+    while (d < e) { d.setUTCDate(d.getUTCDate() + 1); const w = d.getUTCDay(); const iso = d.toISOString().slice(0, 10);
+      if (w !== 0 && w !== 6 && !hol.has(iso)) n++; }
+    return n;
+  };
+  const eq = (a: unknown, b: unknown) => { if (a !== b) throw new Error(`${a} !== ${b}`); };
+  eq(await businessDaysRemaining(rpc, "2026-10-01", "2026-10-14"), 8); eq(bucketFor(8), "D-8");
+  eq(await businessDaysRemaining(rpc, "2026-10-09", "2026-10-13"), 1); eq(bucketFor(1), "D-1");
+  eq(await businessDaysRemaining(rpc, "2026-10-09", "2026-10-14"), 2); eq(bucketFor(2), "D-3");
+  eq(await businessDaysRemaining(rpc, "2026-10-14", "2026-10-09"), -2); eq(bucketFor(-2), "OVERDUE");
+  eq(await businessDaysRemaining(rpc, "2026-10-13", "2026-10-13"), 0); eq(bucketFor(0), "D-DAY");
+  eq(await businessDaysRemaining(async () => null, "2026-10-01", "2026-10-05"), null);
+});
+
+Deno.test("manual review alert type is INFO-only and not an urgency type", async () => {
+  const { MANUAL_REVIEW_ALERT_TYPE } = await import("./termAlert.ts");
+  if (MANUAL_REVIEW_ALERT_TYPE !== "TERMINO_REVISION_MANUAL") throw new Error("type");
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  for (const bad of ["provisional_deadline_date", "addBusinessDays", "bdRemaining"]) if (src.includes(bad)) throw new Error(bad);
+});
