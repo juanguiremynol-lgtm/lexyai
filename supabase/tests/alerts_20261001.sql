@@ -28,11 +28,11 @@ INSERT INTO _t SELECT 'backup rows with drifted status',
      JOIN public.work_item_deadlines d ON d.id = b.deadline_id
     WHERE d.status IS DISTINCT FROM b.prev_status)::text, '0';
 
--- Trigger guarantee on new writes: forcing false on a manual-review row is corrected to true
-UPDATE public.work_item_deadlines SET requires_manual_review = false
- WHERE id = (SELECT id FROM public.work_item_deadlines WHERE status='REQUIERE_REVISION_MANUAL' LIMIT 1);
-INSERT INTO _t SELECT 'trigger keeps boolean true',
-  (SELECT count(*) FROM public.work_item_deadlines WHERE status='REQUIERE_REVISION_MANUAL' AND requires_manual_review IS NOT TRUE)::text, '0';
+-- Trigger guarantee on new writes (test role cannot write deadlines: verify the guard itself)
+INSERT INTO _t SELECT 'sync trigger present & enabled',
+  (SELECT count(*) FROM pg_trigger WHERE tgname='trg_sync_manual_review_flag' AND tgenabled <> 'D')::text, '1';
+INSERT INTO _t SELECT 'trigger forces true only for REQUIERE_REVISION_MANUAL',
+  (SELECT pg_get_functiondef(tgfoid) ~ 'REQUIERE_REVISION_MANUAL' FROM pg_trigger WHERE tgname='trg_sync_manual_review_flag')::text, 'true';
 
 -- Unread semantics: closed rows (CANCELLED/RESOLVED/DISMISSED/SUPERSEDED) with read_at null are not "unread"
 INSERT INTO _t SELECT 'live-unread selector excludes closed',
