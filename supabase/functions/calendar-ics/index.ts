@@ -15,7 +15,12 @@ Deno.serve(async (req) => {
   const store: CalendarStore = {
     token: (t) => one(sb.from("calendar_event_tokens").select("*").eq("token", t)),
     workItem: (id) => one(sb.from("work_items").select("id, owner_id, radicado, authority_name").eq("id", id)),
-    term: (id) => one(sb.from("work_item_deadlines").select("id, work_item_id, status, deadline_date, label, deadline_type").eq("id", id)),
+    term: async (id) => {
+      const d: any = await one(sb.from("work_item_deadlines").select("id, work_item_id, status, deadline_date, label, deadline_type").eq("id", id));
+      if (!d) return null;
+      const a: any = await one(sb.from("v_deadline_attribution").select("attribution").eq("deadline_id", id));
+      return { ...d, attribution: a?.attribution ?? null };
+    },
     hearing: (id) => one(sb.from("work_item_hearings").select("id, work_item_id, scheduled_at, status, custom_name, location, duration_minutes").eq("id", id)),
     bump: async (t) => {
       const cur = await one(sb.from("calendar_event_tokens").select("use_count").eq("token", t));
