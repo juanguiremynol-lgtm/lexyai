@@ -307,6 +307,8 @@ export interface DigestPayload {
   unverifiedTerms: UnverifiedTermRow[];
   /** Incident 30/09 — held for manual review; rendered without any date. */
   manualReviewTotal?: number;
+  /** Reviews created/modified inside this digest window (rows listed = manualReviewTerms). */
+  manualReviewChangedTotal?: number;
   manualReviewTerms?: { id: string; work_item_id: string; label: string | null; deadline_type: string | null }[];
   /** D3 — rows detected in the window that are initial import, not novedad. */
   importedHistory: ImportedHistoryRow[];

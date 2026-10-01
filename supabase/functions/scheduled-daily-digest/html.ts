@@ -785,16 +785,22 @@ function hearingsBeyondBlock(rows: HearingRow[], p: DigestPayload): string {
  */
 export function manualReviewBlock(p: DigestPayload): string {
   const rows = p.manualReviewTerms ?? [];
-  if (!rows.length) return "";
   const total = Math.max(p.manualReviewTotal ?? rows.length, rows.length);
+  if (!total) return "";
+  const changed = Math.max(p.manualReviewChangedTotal ?? rows.length, rows.length);
   const accent = "#fbbf24";
+  const link = `${p.appBaseUrl}/app/hearings`;
   return `
     <div style="font-size:12px;font-weight:700;color:${accent};margin:16px 0 6px;">
       TÉRMINOS EN REVISIÓN MANUAL (${total}) — clasificación o cómputo pendientes de validación
-    </div>${total > rows.length ? `
+    </div>
+    <div style="font-size:12px;color:#cbd5e1;margin-bottom:6px;">
+      ${total} pendientes de validación · Sin fecha validada ·
+      <a href="${link}" style="color:${accent};">Ver la lista completa en Andromeda →</a>
+    </div>${rows.length ? `
     <div style="font-size:11px;color:${accent};margin-bottom:6px;">
-      Se muestran ${rows.length} de ${total}; ${total - rows.length} más en revisión manual no aparecen en este correo. Consulte la lista completa en Andromeda.
-    </div>` : ""}
+      Nuevas o modificadas en este periodo: ${changed}${changed > rows.length ? ` (se muestran ${rows.length}; ${changed - rows.length} más en la lista completa)` : ""}
+    </div>
     <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};margin-bottom:8px;">
       <thead><tr>${th("Asunto", accent)}${th("Revisión", accent)}${th("Fecha", accent)}</tr></thead>
       <tbody>${rows.map((d) => {
@@ -805,7 +811,7 @@ export function manualReviewBlock(p: DigestPayload): string {
           ${td(`<span style="color:${accent};">Sin fecha validada</span>`)}
         </tr>`;
       }).join("")}</tbody>
-    </table>
+    </table>` : ""}
     <div style="font-size:11px;color:#94a3b8;margin-bottom:14px;">
       Estos registros no se presentan como términos activos ni vencidos mientras Andromeda no cuente con evidencia suficiente para validar su clasificación, ancla y fecha de vencimiento.
     </div>`;

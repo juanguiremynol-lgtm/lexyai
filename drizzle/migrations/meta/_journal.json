@@ -232,6 +232,13 @@
       "when": 1790821462157,
       "tag": "0032_calendar_event_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790822420805,
+      "tag": "0033_alert_type_termino_revision_manual",
+      "breakpoints": true
     }
   ]
 }

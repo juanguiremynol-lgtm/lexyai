@@ -46,7 +46,7 @@ describe("iteration 52 — term alert taxonomy", () => {
     expect(isTermAlertType("TERMINO_DEADLINE")).toBe(false);
   });
 
-  it("no alert path emits a term type outside the three", () => {
+  it("no alert path emits a term urgency type outside the three (plus the INFO manual-review notice)", () => {
     const files = [...walk("src"), ...walk("supabase/functions")].filter(
       (f) => !f.endsWith("alert-term-taxonomy-iter52.test.ts"),
     );
@@ -54,7 +54,8 @@ describe("iteration 52 — term alert taxonomy", () => {
     for (const f of files) {
       const src = readFileSync(f, "utf8");
       for (const m of src.matchAll(/["'`](TERMINO_[A-Z_]+)["'`]/g)) {
-        if (!isTermAlertType(m[1])) offenders.push(`${f}: ${m[1]}`);
+        // TERMINO_REVISION_MANUAL is an INFO notice, not an urgency type (01/10/2026).
+        if (!isTermAlertType(m[1]) && m[1] !== "TERMINO_REVISION_MANUAL") offenders.push(`${f}: ${m[1]}`);
       }
     }
     expect(offenders).toEqual([]);
