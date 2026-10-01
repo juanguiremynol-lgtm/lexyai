@@ -1,63 +1,109 @@
-# Auditoría del resumen del 30/09/2026: diagnóstico y reparación mínima
+# Auditoría de términos, alertas, notificaciones y calendario: diagnóstico y propuesta
 
-Hoy no se ha cambiado nada. Todo lo de abajo sale de leer el código y los datos actuales.
+Solo diagnóstico. No se modificó nada: datos, migraciones, jobs ni despliegues.
 
-## Diagnóstico: los cuatro términos
+## 1. Hallazgos verificados en producción (30/09–01/10)
 
-Causa raíz común: la tabla `providencia_classification_rules` asigna el tipo de providencia con expresiones regulares amplias sobre la descripción de la actuación. La regla que coincide decide el término sin leer el auto, y no hay ninguna lista de exclusión. `bound_party_role` queda en DESCONOCIDO porque el motor no extrae el destinatario del término, y por eso los cuatro salen en "PARTE NO DETERMINADA".
+**Estados de los términos (`work_item_deadlines`, 332 filas)**
+- PENDING: 1 (con fecha).
+- REQUIERE_REVISION_MANUAL: 42. De ellos, 38 tienen `requires_manual_review=false` y solo 1 de esos 38 tiene fecha. Los 4 del incidente tienen `true` y no tienen fecha.
+- Otros estados: HISTORICAL_BACKFILL 106, INVALID_NO_TERM 84, CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR 35 (solo 12 con fecha), DISMISSED 28, VENCIDO_ANTES_DEL_MOTOR 10, FULFILLED 7, VENCIDO_SIN_ACTUACION 6, PRESUNCION_DESCARTADA_POR_AVANCE 5, FULFILLED_BY_EMAIL_EVIDENCE 4, CANCELLED 2, SUGGESTED_BY_PROVIDER 1, VENCIDO_RETRODETECTADO 1.
+- Hay 15 estados distintos. No existe un catálogo único que diga cuáles se muestran al usuario.
 
-| Término | Regla que coincidió | Texto que la disparó | Error |
-|---|---|---|---|
-| 58ed4dd1 (…0142400) | 7c00959c `NOTIFICACI[OÓ]N\|NOTIFICA` (prioridad 85), en CPACA → RESPUESTA_NOTIFICACION, 3 días | acto SAMAI 0ea70add "Comunicacion al correo… EL AUTO QUE NOTIFICA POR ESTADOS" | Una comunicación secretarial del estado se tomó como notificación que abre un término propio. El término real (corregir la demanda inadmitida, 3 días) viene del auto del 22/09 y no se clasificó como tal. Otros dos actos del mismo día (6d73577a y 3d7bae22) quedaron como corroboraciones, sin crear términos gemelos. |
-| 0834a576 (…0063800) | 134925aa `…\|REQUERIMIENTO\|REQUIERE\|DESISTIMIENTO` (editada el 12/09) → RESPUESTA_REQUERIMIENTO | CPNU 70899e74 "Auto Ordena - Corre traslado escrito desistimiento de pretensiones" | La palabra suelta `DESISTIMIENTO` convierte un traslado en requerimiento. Destinatario, días y fecha de inicio salen de la regla, no del auto. |
-| d36aecee (…0013900) | 7c00959c `NOTIFICA` sobre el texto de la publicación ("Auto tiene notificado por conducta concluyente"), anclaje AUTO_VIA_FIJACION | publicación 41fbceb8. El acto b5a57c90 quedó como corroboración | Una constancia de notificación a un tercero (la aseguradora) abre un término de 3 días para "parte desconocida". El acto anulado 15b647a9 no creó término en este registro, pero ninguna regla excluye "ERROR DE INGRESO / Actuación anulada". |
-| 658ba77a (…0013300) | 8c2af269 `SENTENCIA\|FALLO` (prioridad 40) → RECURSO_APELACION_SENTENCIA, 10 días | SAMAI a8220138 "Auto que resuelve… Resolver el asunto mediante sentencia anticipada" | Un auto que anuncia una sentencia anticipada se clasificó como sentencia proferida. El 13/10 es el vencimiento calculado de una supuesta apelación, no una fecha programada. Probablemente sea un traslado para alegatos (hay alegatos recibidos el 29/09), pero debe confirmarse con el PDF. |
+**Causa de la saturación (confirmada)**
+Dos procesos crean alertas de términos:
+1. La función `evaluate-deadline-alerts` (diaria, 11:15 UTC) ya usa una huella estable `deadline_TERM_<id>`. Mantiene una sola alerta viva por término y la escala en la misma fila.
+2. La función SQL `regenerate_doctrine_alerts()`, del job `alert-doctrine-regenerate` (diario, 11:35 UTC), inserta TERMINO_POR_VENCER / CRITICO / VENCIDO para todo término PENDING que vence en 8 días hábiles o menos. Lo hace con `ON CONFLICT (fingerprint) DO NOTHING`. Pero la huella sale de `alert_source_event_key(...)`, que termina en la fecha de Bogotá. Resultado: una fila nueva por término y por día.
+   - Ejemplo: el término 58ed4dd1 (asunto 8fac310f) generó 7 filas entre el 24 y el 30/09, todas con `source_event_key` que termina en la fecha del día.
+   - Ejemplo: el traslado del asunto 62de973f generó 1 alerta crítica y 5 vencidas consecutivas entre el 01 y el 06/09.
+- Desde el 01/09 hubo 22 alertas DEADLINE_ENGINE. Todas siguen sin leer (`read_at` null), aunque luego quedaron en CANCELLED, DISMISSED o RESOLVED.
+- Además hay 30 LEXY_DAILY; 29 ya están cerradas.
+- El mismo `regenerate_doctrine_alerts` también crea alertas de audiencias desde la tabla `hearings`, no desde `work_item_hearings`.
 
-Hay dos defectos más de fondo:
-- **Sin exclusiones:** la clasificación no tiene lista negativa (comunicación, constancia, anulada, error de ingreso, "mediante sentencia anticipada", traslado).
-- **Notificación genérica:** la regla genérica de notificación tiene prioridad 85, más alta que otras más específicas, y en CPACA se asigna a RESPUESTA_NOTIFICACION aunque ninguna norma fije un término de respuesta a la notificación en sí.
+**Audiencias:** `work_item_hearings` tiene 109 filas. 101 tienen `scheduled_at` nulo (son marcadores) y solo 3 están en el futuro.
 
-## Diagnóstico: el texto breve
+**Preferencias:** `alert_preferences` existe (`user_id`, `preferences` jsonb) pero tiene 0 filas. Hoy el usuario no puede configurar umbrales de días ni canales.
 
-Las frases "CRÍTICO venció notificación ayer", "dos vencimientos urgentes 05/10" y "sentencia programada 13/10" no aparecen en ninguna plantilla del resumen (`scheduled-daily-digest/html.ts`), en las alertas de términos ni en WhatsApp. El origen no está localizado. Lo más probable es un cliente externo (por ejemplo, un asistente conectado por el MCP) que resumió la tabla del correo, pero eso no está confirmado. Como paso de verificación se propone buscar en `client_wa_sends`, `email_outbox` y `atenia_assistant_messages` del 29–30/09, solo en modo lectura.
+**Calendario externo:** en `src/` y `supabase/functions/` no hay ninguna referencia a VCALENDAR, webcal, calendar.google.com ni enlaces de calendario de Outlook. La funcionalidad no existe.
 
-## Diagnóstico: el correo HTML
+**Jobs relevantes (sin cambios):**
 
-1. **"0 sin confirmar" con 43/44 respondidas:** `_shared/sourceRunQuality.ts` calcula lo no confirmado solo como `pending_upstream + error`. El asunto que no tuvo ningún intento no entra en esa suma, así que el encabezado y la frase no suman igual.
-2. **SAMAI 15/15, "0 con datos", pero 3 novedades:** `success_count` sale de la RPC `source_collection_quality` (por el estado del intento), mientras que las novedades cuentan filas detectadas en la ventana. Son dos definiciones distintas y el correo no las concilia. Hay que revisarlo en la RPC.
-3. **PP 0/44 con 10 PENDING_UPSTREAM y SAMAI Estados 0/15:** siguen la regla de historia por canal. Hay que verificar si hubo corrida ese día (monitor por lotes, cambiado el 29/09) antes de atribuir la causa a la fuente.
-4. **Tabla de 17 asuntos que "nunca entregaron":** en `scheduled-daily-digest/index.ts` (alrededor de la línea 400), `other_channel_delivers` se marca solo porque el otro canal tiene filas. Después, `html.ts:532` afirma "el despacho no alimenta esta fuente", aunque la fuente esté respondiendo PENDING_UPSTREAM o con fallos. Es afirmar una causa a partir de un silencio. Además, NEVER_ANSWERED no distingue entre "contesta sin datos", "pendiente de su lado" y "falla".
-5. **Proceso privado:** el texto ya dice "afirmación suya, sin comprobar". Se mantiene así, contado como lectura respondida.
+| Hora UTC | Job | Qué hace |
+|---|---|---|
+| 10:40 | drain-expired-deadlines | |
+| 11:15 | evaluate-deadline-alerts | Alertas de términos |
+| 11:15 | age-out-pending-review-deadlines | |
+| 11:15 | hearing-reminders | |
+| 11:20 | alert-lifecycle-maintenance | |
+| 11:35 | alert-doctrine-regenerate | Alertas de términos y audiencias (la que duplica) |
+| 11:50 | match-deadline-discharges | |
+| 13:00 | andromeda-daily-digest | Resumen diario |
+| cada 2 h | scheduled-alert-evaluator | |
 
-## Plan mínimo de reparación (siguiente turno, con aprobación)
+## 2. Recorrido del término (resumen)
 
-1. **Reglas de clasificación (migración):**
-   - Quitar `DESISTIMIENTO` suelto de 134925aa.
-   - Añadir una lista negativa: comunicación, constancia, "tiene notificado", "anulada", "error de ingreso", "sentencia anticipada", "corre traslado".
-   - Lo que coincida con la lista negativa queda como REQUIERE_REVISION_MANUAL y no crea un término PENDING.
-   - La regla genérica NOTIFICA deja de crear términos por sí sola (`triggers_deadline=false`, o revisión manual).
-   - Los términos existentes no se recalculan.
-2. **Los cuatro registros:** una migración auditada y reversible solo sobre los 4 IDs. Pasan a `REQUIERE_REVISION_MANUAL` con una nota que cite la evidencia, guardando el estado anterior en una tabla de respaldo y un script de reversión en `docs/rollback/`. No se marcan como cumplidos ni se crean términos nuevos hasta leer los PDF.
-3. **Correo:**
-   - Frase de "sin confirmar": `expected - answered`.
-   - Quitar "el despacho no alimenta esta fuente". Se sustituye por "el canal de X sí entrega; la causa del silencio no está verificada", y solo cuando la fuente contesta vacía. Si la fuente está en PENDING_UPSTREAM o fallando, se dice eso.
-   - Conciliar "con datos" con las novedades de la ventana.
-4. **Etiquetas:** no presentar el vencimiento de un término como "programada".
+```text
+CPNU / SAMAI / PP / SAMAI Estados
+  -> work_item_acts / work_item_publicaciones
+  -> classify_providencia + providencia_classification_rules
+  -> compute_deadline_for_actuacion / compute_deadline_for_publicacion
+     -> resolve_publicacion_anchor -> compute_deadline_from_rule (add_business_days_sql + colombian_holidays)
+  -> work_item_deadlines (guard_audit_hold_twin, corroborate_duplicate_deadline)
+  -> age_out_pending_review_deadlines / drain_expired_deadlines / match_deadline_discharges
+  -> alert_instances  [evaluate-deadline-alerts (estable) + regenerate_doctrine_alerts (diario, duplica)]
+  -> alert-lifecycle-maintenance (cancela o resuelve)
+  -> NotificationCenter / tablero / pestaña del asunto
+  -> scheduled-daily-digest (tabla de términos + bloque de revisión manual)
+```
 
-## Pruebas de regresión propuestas
+Dos búsquedas en paralelo están cerrando el mapa exacto de archivos y líneas: hooks y componentes del tablero, centro de alertas, calendario interno y audiencias. Se agregará como anexo antes de implementar. No cambia las prioridades de abajo.
 
-- **Clasificación**, en `src/test/` o `src/__tests__/`, con los cuatro textos reales como casos fijos:
-  - comunicación → sin término;
-  - "corre traslado… desistimiento" → sin RESPUESTA_REQUERIMIENTO;
-  - "tiene notificado por conducta concluyente" → revisión manual;
-  - "mediante sentencia anticipada" → no es SENTENCIA;
-  - "ERROR DE INGRESO / Actuación anulada" → sin término.
-- **Correo**, ampliando `src/test/source-run-quality-tt.test.ts`: "sin confirmar" igual a `expected - answered`; NEVER_ANSWERED con PENDING_UPSTREAM no afirma la causa del despacho.
-- **Base de datos:** prueba de `classify_providencia` en Deno (`_shared/*_test.ts`) que refleje las reglas.
+## 3. Qué ve el usuario (matriz propuesta como regla única)
 
-## Capacidad real de despliegue
+| Estado | Tablero | Asunto | Calendario | Centro de alertas | Correo |
+|---|---|---|---|---|---|
+| PENDING con fecha | Sí | Sí | Sí, fecha confirmada | Una alerta viva, escalada por hitos | Sí |
+| REQUIERE_REVISION_MANUAL | Sí, bloque "Revisión" | Sí | No como fecha; aparece en la lista "sin fecha" | Una sola alerta informativa | Bloque de revisión |
+| SUGGESTED_BY_PROVIDER | No | Sí, como sugerencia | No | No | No |
+| HISTORICAL_BACKFILL / PENDING_REVIEW | No | Sí, como historial | No | No | No |
+| VENCIDO_* | Solo si no hay cierre | Sí | No | Una alerta de vencido, sin repetirse cada día | Sí, una vez |
+| CERRADO_POR_CORRESPONDENCIA_SIN_VERIFICAR | Bloque "Verificar cierre" | Sí | No | No | Resumen semanal o nunca |
+| FULFILLED*, DISMISSED, CANCELLED, INVALID_NO_TERM, PRESUNCION_DESCARTADA | No | Sí, en historial | No | No | No |
 
-- Las migraciones pasan por la herramienta de migraciones. Las funciones del backend (`scheduled-daily-digest`) se despliegan directamente.
-- La verificación se hace generando una vista previa del correo con fecha futura, sin enviar nada. Los datos se revisan con consultas de solo lectura.
-- No hay horarios nuevos, monitores nuevos, llamadas a proveedores ni envíos. No se inicia sesión como ningún usuario.
-- La lectura de los PDF de los autos queda a cargo del abogado.
+**Regla de coherencia:** `status = REQUIERE_REVISION_MANUAL` implica `requires_manual_review = true`. Hoy 38 filas lo contradicen.
+
+## 4. Propuesta mínima por prioridad
+
+**P0 — corrección**
+1. Que `regenerate_doctrine_alerts` deje de insertar alertas de términos. El único productor será `evaluate-deadline-alerts`, que ya usa la huella estable. Se mantiene la parte de audiencias, revisando que use la tabla correcta.
+2. Unificar la semántica de revisión manual. Respaldar las 38 filas inconsistentes y poner `requires_manual_review=true`, sin tocar ni fechas ni estados. Agregar una regla en la base que mantenga ambos campos sincronizados desde ahora.
+3. Revisar en `drain_expired_deadlines` y `alert-lifecycle-maintenance` que una alerta cancelada no quede contada como "sin leer". Al cerrar una alerta se marca `read_at`, o el contador cuenta solo las alertas vivas.
+
+**P1 — menos fatiga**
+4. Avisos por hitos: 8 (aviso), 3 (crítico), 1, 0 y vencido. Una sola fila por término, que se actualiza en cada hito, con su historial. Después de vencido no se repite cada día.
+5. Preferencias mínimas en `alert_preferences.preferences`: qué hitos avisar, si mostrar solo críticos y si el correo es diario o solo cuando hay críticos. El valor por defecto es igual al comportamiento actual.
+
+**P1 — calendario externo (sin conectar cuentas)**
+6. Una función nueva `calendar-ics`. Entrega un archivo .ics de un término PENDING o de una audiencia con fecha, usando un enlace firmado de un solo uso (la infraestructura de `digest_document_tokens` ya existe).
+   - Contenido: zona horaria America/Bogota, título "Vence: <tipo> — <radicado>", descripción con el despacho y el enlace al asunto en Andromeda.
+   - Seguridad: sin datos de otros clientes. El enlace se valida por dueño y organización, y vence en 30 días.
+7. Enlaces "Añadir a Google" y "Añadir a Outlook", generados con la misma información. No se ofrecen para términos sin fecha ni para revisiones manuales.
+8. Dónde ponerlos: la tabla de términos y las audiencias del resumen diario, la tarjeta de término del asunto, la ficha de audiencia y el calendario interno.
+
+**P2 — opcional**
+9. Resumen semanal de cierres "por correspondencia, sin verificar".
+10. Atribuir la parte (hoy `bound_party_role` está en DESCONOCIDO) a partir de los sujetos procesales, con revisión visible.
+
+## 5. Pruebas de regresión
+- Un término que pasa por 8, 3, 1, 0 días y vencido produce una sola fila de alerta con el historial de escalamiento. Correr el job dos veces el mismo día no crea filas nuevas.
+- `regenerate_doctrine_alerts` ejecutado en una transacción que se deshace inserta 0 alertas de términos y sigue insertando alertas de audiencias.
+- Sincronización de revisión manual: un intento de update inconsistente queda corregido o se rechaza.
+- El .ics se valida con una prueba de formato (DTSTART con TZID America/Bogota y el enlace profundo). Un token de otro dueño recibe 403. Un término sin fecha recibe 404.
+- Las pruebas actuales siguen pasando: `incident_20260930.sql` y `render_incident_test.ts`.
+
+## 6. Despliegue seguro
+1. Antes de cada cambio, respaldar las definiciones de las funciones en `docs/rollback/`.
+2. Primer paso, P0.1: un cambio solo en `regenerate_doctrine_alerts`. Observar una corrida de las 11:35 y contar las alertas DEADLINE_ENGINE nuevas por término (deben ser ≤1).
+3. Después, P0.2 y P0.3, con respaldo de las filas afectadas.
+4. Después, P1: preferencias, .ics y enlaces en el resumen, mostrado con un render local antes de desplegar `scheduled-daily-digest`.
+5. Sin jobs nuevos, sin correos de prueba reales y sin cambios a RLS.
