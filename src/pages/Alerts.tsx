@@ -32,7 +32,7 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
 import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
-import { dismissAlert, dismissAlerts, markAlertsAsRead, snoozeAlerts } from "@/lib/alerts";
+import { dismissAlert, dismissAlerts, markAlertsAsRead, resolveAlerts, snoozeAlerts, invalidateAlertSurfaces, markAlertsReadInCaches, removeAlertsFromCaches, snapshotAlertLists, restoreAlertLists } from "@/lib/alerts";
 import { useAlertSelection } from "@/hooks/use-alert-selection";
 import { 
   AlertsBulkActionsBar, 
@@ -106,6 +106,7 @@ export default function Alerts() {
   const [showSnoozeDialog, setShowSnoozeDialog] = useState(false);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
   const [showMarkReadConfirm, setShowMarkReadConfirm] = useState(false);
+  const [showResolveConfirm, setShowResolveConfirm] = useState(false);
 
   // Alert instances from 'alert_instances' table (authoritative source)
   // Excludes dismissed and snoozed alerts
@@ -174,23 +175,20 @@ export default function Alerts() {
 
   const acknowledgeInstance = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ 
-          status: "ACKNOWLEDGED",
-          acknowledged_at: new Date().toISOString()
-        })
-        .eq("id", id);
-      if (error) throw error;
+      const r = await resolveAlerts([id]);
+      if (!r.success) throw new Error(r.error);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
-      toast.success("Alerta reconocida");
+    onMutate: async (id: string) => {
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, [id]);
+      return { snap };
     },
-    onError: (error) => {
+    onError: (error, _id, ctx) => {
+      restoreAlertLists(queryClient, ctx?.snap);
       toast.error("Error: " + error.message);
     },
+    onSuccess: () => toast.success("Alerta resuelta"),
+    onSettled: () => invalidateAlertSurfaces(queryClient),
   });
 
   /**
@@ -208,25 +206,18 @@ export default function Alerts() {
     },
     onMutate: async (id: string) => {
       // Cancel in-flight refetches so they don't overwrite our optimistic update
-      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
-      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
-      // Optimistically remove dismissed item from cache
-      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
-        old ? old.filter((a) => a.id !== id) : []
-      );
-      return { previous };
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, [id]);
+      return { snap };
     },
     onError: (_error, _id, context) => {
       // Rollback on failure
-      if (context?.previous) {
-        queryClient.setQueryData(["alert_instances"], context.previous);
-      }
+      restoreAlertLists(queryClient, context?.snap);
       toast.error("Error al descartar alerta");
     },
     onSettled: () => {
       // Reconcile with server truth
-      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
+      invalidateAlertSurfaces(queryClient);
     },
     onSuccess: () => {
       toast.success("Alerta descartada");
@@ -241,23 +232,16 @@ export default function Alerts() {
       return result.count;
     },
     onMutate: async (ids: string[]) => {
-      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
-      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
-      const idSet = new Set(ids);
-      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
-        old ? old.filter((a) => !idSet.has(a.id)) : []
-      );
-      return { previous };
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, ids);
+      return { snap };
     },
     onError: (_error, _ids, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["alert_instances"], context.previous);
-      }
+      restoreAlertLists(queryClient, context?.snap);
       toast.error("Error al descartar alertas");
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
+      invalidateAlertSurfaces(queryClient);
     },
     onSuccess: (count) => {
       clearSelection();
@@ -274,27 +258,45 @@ export default function Alerts() {
       return result.count;
     },
     onMutate: async (ids: string[]) => {
-      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
-      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
-      const idSet = new Set(ids);
-      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
-        old ? old.map((a) => idSet.has(a.id) ? { ...a, read_at: new Date().toISOString() } : a) : []
-      );
-      return { previous };
+      const snap = await snapshotAlertLists(queryClient);
+      markAlertsReadInCaches(queryClient, ids);
+      return { snap };
     },
     onError: (_error, _ids, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["alert_instances"], context.previous);
-      }
+      restoreAlertLists(queryClient, context?.snap);
       toast.error("Error al marcar como leídas");
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      invalidateAlertSurfaces(queryClient);
     },
     onSuccess: (count) => {
       clearSelection();
       setShowMarkReadConfirm(false);
       toast.success(`${count} alerta(s) marcada(s) como leída(s)`);
+    },
+  });
+
+  // Bulk resolve mutation with optimistic removal
+  const bulkResolveMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const result = await resolveAlerts(ids);
+      if (!result.success) throw new Error(result.error);
+      return result.count;
+    },
+    onMutate: async (ids: string[]) => {
+      const snap = await snapshotAlertLists(queryClient);
+      removeAlertsFromCaches(queryClient, ids);
+      return { snap };
+    },
+    onError: (_error, _ids, context) => {
+      restoreAlertLists(queryClient, context?.snap);
+      toast.error("Error al resolver alertas");
+    },
+    onSettled: () => invalidateAlertSurfaces(queryClient),
+    onSuccess: (count) => {
+      clearSelection();
+      setShowResolveConfirm(false);
+      toast.success(`${count} alerta(s) resuelta(s)`);
     },
   });
 
@@ -316,13 +318,11 @@ export default function Alerts() {
       return { previous };
     },
     onError: (_error, _ids, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["alert_instances"], context.previous);
-      }
+      restoreAlertLists(queryClient, context?.snap);
       toast.error("Error al posponer alertas");
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      invalidateAlertSurfaces(queryClient);
     },
     onSuccess: (count) => {
       clearSelection();
@@ -1037,6 +1037,8 @@ export default function Alerts() {
         onBulkDismiss={handleBulkDismiss}
         onBulkMarkRead={handleBulkMarkRead}
         onBulkSnooze={handleBulkSnooze}
+        onBulkResolve={selectedAlertIds.length > 0 ? () => setShowResolveConfirm(true) : undefined}
+        isResolving={bulkResolveMutation.isPending}
         isDismissing={bulkDismissMutation.isPending}
         isMarkingRead={bulkMarkReadMutation.isPending}
       />
@@ -1058,6 +1060,16 @@ export default function Alerts() {
         action="dismiss"
         onConfirm={() => executeBulkDismiss()}
         isProcessing={bulkDismissMutation.isPending || dismissMutation.isPending}
+      />
+
+      {/* Bulk Resolve Confirmation */}
+      <AlertBulkConfirmDialog
+        open={showResolveConfirm}
+        onOpenChange={setShowResolveConfirm}
+        count={selectedAlertIds.length}
+        action="resolve"
+        onConfirm={() => bulkResolveMutation.mutate(selectedAlertIds)}
+        isProcessing={bulkResolveMutation.isPending}
       />
 
       {/* Bulk Mark Read Confirmation */}

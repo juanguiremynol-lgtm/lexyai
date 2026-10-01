@@ -40,7 +40,7 @@ export function useUnreadAlerts() {
         .eq('owner_id', user.id)
         .eq('status', 'PENDING')
         .in('severity', ['WARNING', 'CRITICAL'])
-        .is('seen_at', null);
+        .is('read_at', null); // single read semantic (read_at+seen_at set together)
 
       if (error) {
         console.error('[useUnreadAlerts] count error:', error);
@@ -120,7 +120,7 @@ export function useUnreadAlerts() {
       .update({ seen_at: new Date().toISOString() })
       .eq('owner_id', user.id)
       .in('status', ['PENDING', 'SENT', 'ACKNOWLEDGED'])
-      .is('seen_at', null);
+      .is('read_at', null); // single read semantic (read_at+seen_at set together)
 
     refetchCount();
   }, [refetchCount]);

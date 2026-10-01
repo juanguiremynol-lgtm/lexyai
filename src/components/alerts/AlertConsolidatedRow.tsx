@@ -230,7 +230,8 @@ export function AlertConsolidatedRow({
             variant="ghost"
             size="sm"
             onClick={() => onAcknowledge(alert.id)}
-            title="Reconocer"
+            title="Resolver"
+            aria-label="Resolver alerta"
           >
             <Check className="h-4 w-4" />
           </Button>

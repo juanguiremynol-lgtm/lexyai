@@ -14,7 +14,7 @@ interface AlertBulkConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   count: number;
-  action: "dismiss" | "markRead";
+  action: "dismiss" | "markRead" | "resolve";
   onConfirm: () => void;
   isProcessing: boolean;
 }
@@ -22,8 +22,13 @@ interface AlertBulkConfirmDialogProps {
 const ACTION_LABELS = {
   dismiss: {
     title: "Descartar alertas",
-    description: "Esta acción descartará las alertas seleccionadas. Las alertas descartadas no aparecerán en la lista activa.",
+    description: "Las alertas quedarán registradas como no relevantes y saldrán de la lista activa. Se conserva su historial.",
     confirm: "Descartar",
+  },
+  resolve: {
+    title: "Resolver alertas",
+    description: "Las alertas quedarán registradas como gestionadas y saldrán de la lista activa. Se conserva su historial.",
+    confirm: "Resolver",
   },
   markRead: {
     title: "Marcar como leídas",
