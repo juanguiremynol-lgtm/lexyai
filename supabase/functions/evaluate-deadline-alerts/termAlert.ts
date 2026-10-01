@@ -127,4 +127,39 @@ export function bucketFor(bd: number): TermBucket | null {
 
 /** Manual-review notice: INFO, own type, no provisional date, no urgency. */
 export const MANUAL_REVIEW_ALERT_TYPE = "TERMINO_REVISION_MANUAL";
-export const TERM_ALERT_TYPES = ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO", MANUAL_REVIEW_ALERT_TYPE];
+/**
+ * PENDING dated record whose party attribution is not confirmed (DESCONOCIDO /
+ * AMBAS). INFO, own type, no bucket, no escalation, no "a su cargo" wording.
+ * Gated by the manual_review_info preference (default true): both are
+ * "pending validation by Andromeda" notices, so no extra toggle / extra noise.
+ */
+export const ATTRIBUTION_PENDING_ALERT_TYPE = "TERMINO_ATRIBUCION_PENDIENTE";
+export const TERM_ALERT_TYPES = ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO", MANUAL_REVIEW_ALERT_TYPE, ATTRIBUTION_PENDING_ALERT_TYPE];
+
+export type AttributionRoute = "OWN" | "ATTRIBUTION_PENDING" | "NOT_OWN";
+/** PROPIO escalates; JUEZ / CONTRAPARTE never alert; anything else is pending attribution. */
+export function attributionRoute(attribution: string | null | undefined): AttributionRoute {
+  const a = String(attribution ?? "").toUpperCase();
+  if (a === "PROPIO") return "OWN";
+  if (a === "JUEZ" || a === "CONTRAPARTE") return "NOT_OWN";
+  return "ATTRIBUTION_PENDING";
+}
+
+export function attributionPendingNotice(d: { id: string; deadline_type?: string | null; deadline_date: string; label?: string | null; calculation_meta?: unknown; attribution?: string | null }) {
+  const [y, m, dd] = d.deadline_date.split("-");
+  return {
+    alertType: ATTRIBUTION_PENDING_ALERT_TYPE,
+    severity: "INFO",
+    title: "Registro de término con atribución pendiente de validación",
+    message: `${d.label || d.deadline_type || "Término"} — registro PENDING con fecha calculada ${dd}/${m}/${y}; la parte a la que corresponde está pendiente de validación por Andromeda.`,
+    payload: {
+      deadline_id: d.id,
+      deadline_type: d.deadline_type ?? null,
+      deadline_date: d.deadline_date,
+      bucket: "ATTRIBUTION_PENDING",
+      attribution: d.attribution ?? null,
+      engine: "LOCAL",
+      rule: d.calculation_meta ?? null,
+    },
+  };
+}
