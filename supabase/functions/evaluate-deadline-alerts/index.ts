@@ -10,6 +10,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { normalizeAlertPrefs } from "../_shared/alertPreferences.ts";
+import { type TermAlertStore, upsertTermAlertCore } from "./termAlert.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -123,107 +124,30 @@ Deno.serve(async (req) => {
    */
   const LIVE_STATUSES = ["PENDING", "SENT", "ACKNOWLEDGED"];
 
-  async function upsertTermAlert(args: {
-    deadlineId: string;
-    ownerId: string;
-    organizationId: string | null;
-    workItemId: string;
-    alertType: string;
-    severity: string;
-    title: string;
-    message: string | null;
-    payload: Record<string, unknown>;
-    allowInsert?: boolean;
-  }): Promise<"inserted" | "updated" | "error" | "closed_by_lawyer" | "muted_by_preference"> {
-    const fingerprint = `deadline_TERM_${args.deadlineId}`;
-
-    const { data: prior } = await supabase
-      .from("alert_instances")
-      .select("id, alert_type, severity, title, status, payload, created_at")
-      .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
-      .contains("payload", { deadline_id: args.deadlineId })
-      .order("created_at", { ascending: true });
-
-    const all = (prior ?? []) as any[];
-    const rows = all.filter((r) => LIVE_STATUSES.includes(r.status));
-    // The lawyer already closed this term's alert: never resurrect it as a new
-    // row. Only a still-live alert is updated.
-    if (rows.length === 0 && all.some((r) => ["RESOLVED", "DISMISSED", "CANCELLED"].includes(r.status))) {
-      return "closed_by_lawyer";
-    }
-    if (rows.length === 0 && args.allowInsert === false) {
-      return "muted_by_preference";
-    }
-    if (rows.length === 0) {
-
-      const { error: insErr } = await supabase.from("alert_instances").insert({
-        owner_id: args.ownerId,
-        organization_id: args.organizationId,
-        entity_id: args.workItemId,
-        entity_type: "WORK_ITEM",
-        severity: args.severity,
-        alert_type: args.alertType,
-        title: args.title,
-        message: args.message,
-        status: "PENDING",
-        fingerprint,
-        payload: { ...args.payload, escalation_history: [] },
-      });
-      if (insErr) {
-        if ((insErr.message || "").includes("duplicate")) return "updated";
-        console.error("[evaluate-deadline-alerts:insert]", insErr);
-        return "error";
-      }
-      return "inserted";
-    }
-
-    // The earliest live alert is the one the lawyer has been looking at.
-    const keep = rows[0];
-    const history = Array.isArray(keep.payload?.escalation_history)
-      ? keep.payload.escalation_history
-      : [];
-    const prevBucket = keep.payload?.bucket ?? null;
-    const nextBucket = (args.payload as any)?.bucket ?? null;
-    const changed = keep.alert_type !== args.alertType || keep.severity !== args.severity
-      || prevBucket !== nextBucket;
-    const nextHistory = changed
-      ? [
-          ...history,
-          {
-            at: new Date().toISOString(),
-            from_bucket: prevBucket,
-            to_bucket: nextBucket,
-            from_alert_type: keep.alert_type,
-            from_severity: keep.severity,
-            to_alert_type: args.alertType,
-            to_severity: args.severity,
-          },
-        ].slice(-10)
-      : history;
-
-    const { error: upErr } = await supabase
-      .from("alert_instances")
-      .update({
-        alert_type: args.alertType,
-        severity: args.severity,
-        title: args.title,
-        message: args.message,
-        fingerprint,
-        payload: { ...args.payload, escalation_history: nextHistory },
-      })
-      .eq("id", keep.id);
-    if (upErr) {
-      console.error("[evaluate-deadline-alerts:update]", upErr);
-      return "error";
-    }
-
-    // Collapse any older duplicates for the same deadline.
-    for (const extra of rows.slice(1)) {
-      await supabase.from("alert_instances").update({ status: "SUPERSEDED" }).eq("id", extra.id);
-      stats.alerts_superseded++;
-    }
-    return "updated";
-  }
+  const termStore: TermAlertStore = {
+    findByDeadline: async (deadlineId) => {
+      const { data } = await supabase
+        .from("alert_instances")
+        .select("id, alert_type, severity, title, status, payload, created_at")
+        .in("alert_type", ["TERMINO_CRITICO", "TERMINO_POR_VENCER", "TERMINO_VENCIDO"])
+        .contains("payload", { deadline_id: deadlineId })
+        .order("created_at", { ascending: true });
+      return (data ?? []) as any[];
+    },
+    insert: async (row) => {
+      const { error } = await supabase.from("alert_instances").insert(row);
+      return error ? { message: error.message } : null;
+    },
+    update: async (id, patch) => {
+      const { error } = await supabase.from("alert_instances").update(patch).eq("id", id);
+      return error ? { message: error.message } : null;
+    },
+  };
+  const upsertTermAlert = async (args: Parameters<typeof upsertTermAlertCore>[1]) => {
+    const r = await upsertTermAlertCore(termStore, args);
+    stats.alerts_superseded += r.superseded;
+    return r.outcome;
+  };
 
   try {
 
