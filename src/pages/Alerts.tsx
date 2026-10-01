@@ -308,14 +308,10 @@ export default function Alerts() {
       return result.count;
     },
     onMutate: async ({ ids }: { ids: string[]; snoozeUntil: Date }) => {
-      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
-      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
-      const idSet = new Set(ids);
+      const snap = await snapshotAlertLists(queryClient);
       // Snoozed items are excluded by the query filter, so remove them optimistically
-      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
-        old ? old.filter((a) => !idSet.has(a.id)) : []
-      );
-      return { previous };
+      removeAlertsFromCaches(queryClient, ids);
+      return { snap };
     },
     onError: (_error, _ids, context) => {
       restoreAlertLists(queryClient, context?.snap);
@@ -591,9 +587,10 @@ export default function Alerts() {
             variant="ghost"
             size="sm"
             onClick={() => acknowledgeInstance.mutate(instance.id)}
-            title="Reconocer"
+            title="Resolver"
           >
-            <Check className="h-4 w-4" />
+            <Check className="h-4 w-4 mr-1" />
+            Resolver
           </Button>
         )}
         {instance.actions?.map((action, idx) => (
