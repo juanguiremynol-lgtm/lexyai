@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { markAlertsAsRead, dismissAlerts, resolveAlerts, invalidateAlertSurfaces, markAlertsReadInCaches, removeAlertsFromCaches, snapshotAlertLists, restoreAlertLists } from "@/lib/alerts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
