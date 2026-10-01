@@ -63,8 +63,8 @@ export function LexyPendingReviewDialog() {
     <Dialog open={open} onOpenChange={(v) => (v ? setOpen(true) : dismiss())}>
       <DialogContent className="max-w-lg border-amber-500/40">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-amber-600">
-            <AlertTriangle className="h-5 w-5" aria-hidden />
+          <DialogTitle className="flex min-w-0 items-start gap-2 break-words pr-5 text-amber-600">
+            <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden />
             Lexy: tienes pendientes que requieren tu revisión
           </DialogTitle>
           <DialogDescription>
@@ -75,14 +75,14 @@ export function LexyPendingReviewDialog() {
         <div className="space-y-3">
           {data.manualDeadlines > 0 && (
             <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-              <p className="flex items-center gap-2 font-medium">
-                <Timer className="h-4 w-4 text-amber-600" aria-hidden />
+              <p className="flex min-w-0 flex-wrap items-center gap-2 break-words font-medium">
+                <Timer className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 {data.manualDeadlines} término(s) requieren verificación manual
-                <Badge variant="outline">Sin fecha de fijación confirmada</Badge>
+                <Badge variant="outline" className="max-w-full break-words whitespace-normal">Sin fecha de fijación confirmada</Badge>
               </p>
               <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {data.deadlines.slice(0, 5).map((d) => (
-                  <li key={d.id} className="truncate">
+                  <li key={d.id} className="break-all">
                     {d.work_items?.radicado ?? d.work_items?.title ?? "Expediente"} —{" "}
                     {d.label ?? d.deadline_type ?? "Término"}
                   </li>

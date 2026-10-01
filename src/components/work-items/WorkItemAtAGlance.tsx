@@ -127,7 +127,7 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         {chips.map((chip) => {
           const Icon = chip.icon;
           return (
@@ -136,12 +136,12 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
                 <Badge
                   variant={chip.variant}
                   className={cn(
-                    "cursor-default gap-1.5 py-1 px-2.5 text-xs font-normal",
+                    "max-w-full min-w-0 cursor-default gap-1.5 break-words py-1 px-2.5 text-xs font-normal",
                     chip.color
                   )}
                   onClick={() => handleChipClick(chip.id)}
                 >
-                  <Icon className="h-3 w-3" />
+                  <Icon className="h-3 w-3 shrink-0" />
                   {chip.label}
                 </Badge>
               </TooltipTrigger>

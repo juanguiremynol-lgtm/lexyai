@@ -104,12 +104,12 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
   // If we have a radicado, show it with edit option
   if (currentRadicado && !isEditing) {
     return (
-      <div className="flex items-center gap-2">
-        <span className="font-medium font-mono">{currentRadicado}</span>
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="min-w-0 break-all font-medium font-mono">{currentRadicado}</span>
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6"
+          className="h-6 w-6 shrink-0"
           onClick={() => { setIsEditing(true); setInputValue(currentRadicado); }}
           title="Editar radicado"
         >
@@ -139,12 +139,12 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
 
   // Editing mode
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
       <Input
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
         placeholder="23 dígitos del radicado"
-        className="h-8 text-sm font-mono max-w-[280px]"
+        className="h-8 min-w-0 max-w-[280px] flex-1 text-sm font-mono"
         autoFocus
         onKeyDown={(e) => {
           if (e.key === "Enter") handleSave();
@@ -176,7 +176,7 @@ export function AddRadicadoInline({ workItemId, currentRadicado, workflowType, o
         const result = normalizeRadicado(inputValue);
         if (result.ok && result.radicado23 !== inputValue) {
           return (
-            <Badge variant="secondary" className="text-xs font-mono">
+            <Badge variant="secondary" className="max-w-full break-all text-xs font-mono">
               → {result.radicado23}
             </Badge>
           );

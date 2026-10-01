@@ -57,7 +57,7 @@ export function TenantLayout() {
           <TopBar />
           {/* Main content area - transparent for aqua theme */}
           <main className={cn(
-            "flex-1 overflow-y-auto p-4 lg:p-6",
+            "min-w-0 flex-1 overflow-y-auto p-4 lg:p-6",
             isAquaTheme ? "bg-transparent" : "bg-background"
           )}>
             <Outlet />

@@ -30,9 +30,9 @@ export function AlertsBulkActionsBar({
   return (
     <div
       className={cn(
-        "fixed bottom-4 left-1/2 -translate-x-1/2 z-50",
+        "fixed bottom-4 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-max -translate-x-1/2",
         "bg-background border rounded-lg shadow-lg",
-        "px-4 py-3 flex items-center gap-4",
+        "px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-4",
         "animate-in slide-in-from-bottom-4"
       )}
     >
@@ -43,9 +43,9 @@ export function AlertsBulkActionsBar({
         </span>
       </div>
 
-      <div className="h-6 w-px bg-border" />
+      <div className="hidden h-6 w-px bg-border sm:block" />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={onSelectAll}>
           Todas
         </Button>
@@ -55,9 +55,9 @@ export function AlertsBulkActionsBar({
         </Button>
       </div>
 
-      <div className="h-6 w-px bg-border" />
+      <div className="hidden h-6 w-px bg-border sm:block" />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"
           size="sm"

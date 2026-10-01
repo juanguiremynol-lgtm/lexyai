@@ -67,11 +67,11 @@ export function RadicadoAnalyzer({ radicado, className, compact = false }: Radic
       <CardContent className="space-y-3">
         {/* Block grid */}
         {blocks.length > 0 && (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {blocks.map((b) => (
-              <div key={b.code} className="text-center">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{b.label}</p>
-                <p className="font-mono text-sm font-semibold">{b.value}</p>
+              <div key={b.code} className="min-w-0 text-center">
+                <p className="break-words text-[10px] text-muted-foreground uppercase tracking-wider">{b.label}</p>
+                <p className="break-all font-mono text-sm font-semibold">{b.value}</p>
               </div>
             ))}
           </div>

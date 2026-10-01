@@ -155,7 +155,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue={tabFromUrl || (isAdmin ? "admin" : "subscription")} className="space-y-6">
-        <TabsList className="flex-wrap h-auto gap-1">
+        <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto whitespace-nowrap lg:flex-wrap">
           {isAdmin && (
             <>
               <TabsTrigger value="admin" className="bg-primary/5 hover:bg-primary/10">
@@ -310,8 +310,8 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-1">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4 border rounded-lg">
+                <div className="min-w-0 space-y-1">
                   <p className="font-medium">Recordatorios por correo</p>
                   <p className="text-sm text-muted-foreground">
                     Reciba alertas automáticas sobre vencimientos de SLA, plazos judiciales y peticiones
@@ -355,7 +355,7 @@ export default function Settings() {
               <div className="space-y-4">
                 <h4 className="font-medium">Tipos de recordatorios</h4>
                 <div className="grid gap-3">
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-full bg-red-100 text-red-600">
                         <Clock className="h-4 w-4" />
@@ -367,7 +367,7 @@ export default function Settings() {
                     </div>
                     <Badge variant="default">Activo</Badge>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-full bg-purple-100 text-purple-600">
                         <Clock className="h-4 w-4" />
@@ -379,7 +379,7 @@ export default function Settings() {
                     </div>
                     <Badge variant="default">Activo</Badge>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-full bg-blue-100 text-blue-600">
                         <FileText className="h-4 w-4" />
@@ -572,8 +572,8 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-1">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4 border rounded-lg">
+                <div className="min-w-0 space-y-1">
                   <p className="font-medium">Mostrar asistente</p>
                   <p className="text-sm text-muted-foreground">
                     Muestra el robot de Andro IA en la esquina de la pantalla.
@@ -585,8 +585,8 @@ export default function Settings() {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-1">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4 border rounded-lg">
+                <div className="min-w-0 space-y-1">
                   <p className="font-medium">Mostrar consejos</p>
                   <p className="text-sm text-muted-foreground">
                     Atenia muestra sugerencias contextuales periódicamente.
@@ -599,8 +599,8 @@ export default function Settings() {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-1">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4 border rounded-lg">
+                <div className="min-w-0 space-y-1">
                   <p className="font-medium">Posición</p>
                   <p className="text-sm text-muted-foreground">
                     Elige dónde aparece el asistente en la pantalla.
