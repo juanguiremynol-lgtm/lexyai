@@ -11,6 +11,8 @@
 export const CAL_TZ = "America/Bogota";
 export const PRESENTATION_HEARING_MINUTES = 60; // display length only, not judicial data
 
+/** CalendarEventSpec — typed event shared by .ics, Google and Outlook builders. */
+export type CalendarEventSpec = CalendarEvent;
 export interface CalendarEvent {
   uid: string;
   kind: "TERM" | "HEARING";
@@ -49,7 +51,7 @@ export function termEvent(t: TermInput, appBaseUrl: string): CalendarEvent | nul
   const what = t.label || t.deadline_type || "Término";
   const url = `${appBaseUrl}/app/work-items/${t.work_item_id}`;
   return {
-    uid: `andromeda-term-${t.id}@andromeda.legal`,
+    uid: `andromeda-deadline-${t.id}@andromeda.legal`,
     kind: "TERM",
     title: `Vence: ${what}${t.radicado ? ` — ${t.radicado}` : ""}`,
     description: [
@@ -83,6 +85,8 @@ export function hearingEvent(h: HearingInput, appBaseUrl: string): CalendarEvent
       `Audiencia: ${what}`,
       h.radicado ? `Radicado: ${h.radicado}` : null,
       h.despacho ? `Despacho: ${h.despacho}` : null,
+      h.duration_minutes && h.duration_minutes > 0 ? null
+        : `Duración no registrada: se usan ${PRESENTATION_HEARING_MINUTES} min solo para mostrar el evento; no es un dato judicial.`,
       `Abrir en Andromeda: ${url}`,
     ].filter(Boolean).join("\n"),
     url,

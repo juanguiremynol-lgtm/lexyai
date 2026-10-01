@@ -15,7 +15,7 @@ Deno.test("term → all-day event in Google / Outlook / .ics", () => {
   const ics = buildIcs(ev, NOW);
   assertStringIncludes(ics, "DTSTART;VALUE=DATE:20261015");
   assertStringIncludes(ics, "DTEND;VALUE=DATE:20261016");
-  assertStringIncludes(ics, "UID:andromeda-term-d1@andromeda.legal");
+  assertStringIncludes(ics, "UID:andromeda-deadline-d1@andromeda.legal");
   assertStringIncludes(ics, `URL:${APP}/app/work-items/w1`);
   assertStringIncludes(googleCalendarUrl(ev), "dates=20261015%2F20261016");
   const o = outlookCalendarUrl(ev);
@@ -31,6 +31,12 @@ Deno.test("hearing → timed event in America/Bogota, 60 min presentation length
   assertStringIncludes(ics, "DTEND;TZID=America/Bogota:20261006T100000");
   assertStringIncludes(googleCalendarUrl(ev), "ctz=America%2FBogota");
   assertStringIncludes(googleCalendarUrl(ev), "20261006T090000%2F20261006T100000");
+  assertStringIncludes(ics, "UID:andromeda-hearing-h1@andromeda.legal");
+  assertStringIncludes(ev.description, "no es un dato judicial");
+  assertEquals(hearingEvent({ ...hearing, duration_minutes: 90 }, APP)!.description.includes("no es un dato judicial"), false);
+  const o = outlookCalendarUrl(ev);
+  assertStringIncludes(o, "startdt=2026-10-06T14%3A00%3A00.000Z");
+  assertStringIncludes(o, "outlook.office.com/calendar/0/deeplink/compose");
 });
 
 Deno.test("manual review, no date, dateless hearing marker, cancelled hearing → no event", () => {
