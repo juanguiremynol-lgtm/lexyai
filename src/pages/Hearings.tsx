@@ -48,7 +48,6 @@ export default function Hearings() {
            hearing_types(name), work_items ( title, radicado, authority_name )`
         )
         .not("scheduled_at", "is", null)
-        .in("status", [...LIVE_HEARING_STATUSES, "held"])
         .order("scheduled_at", { ascending: true })
         .limit(500);
 
