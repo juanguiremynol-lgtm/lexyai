@@ -22,6 +22,17 @@ import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
 import { hearingEvent } from "@/lib/calendar-export";
 
 const LIVE_HEARING_STATUSES = ["scheduled", "planned", "rescheduled", "confirmed"];
+
+const HEARING_LIST_STATUS_LABELS: Record<string, string> = {
+  scheduled: "Programada",
+  planned: "Planificada",
+  rescheduled: "Reprogramada",
+  confirmed: "Confirmada",
+  held: "Celebrada",
+  postponed: "Aplazada",
+  cancelled: "Cancelada",
+  suspended: "Suspendida",
+};
 import { NewHearingDialog } from "@/components/hearings/NewHearingDialog";
 import { cancelHearingAlerts } from "@/lib/hearing-alerts";
 
