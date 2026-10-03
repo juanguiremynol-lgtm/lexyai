@@ -22,8 +22,20 @@ import { AddToCalendarMenu } from "@/components/calendar/AddToCalendarMenu";
 import { hearingEvent } from "@/lib/calendar-export";
 
 const LIVE_HEARING_STATUSES = ["scheduled", "planned", "rescheduled", "confirmed"];
+
 import { NewHearingDialog } from "@/components/hearings/NewHearingDialog";
 import { cancelHearingAlerts } from "@/lib/hearing-alerts";
+
+const HEARING_LIST_STATUS_LABELS: Record<string, string> = {
+  scheduled: "Programada",
+  planned: "Planificada",
+  rescheduled: "Reprogramada",
+  confirmed: "Confirmada",
+  held: "Celebrada",
+  postponed: "Aplazada",
+  cancelled: "Cancelada",
+  suspended: "Suspendida",
+};
 
 type ViewMode = "calendar" | "list";
 
@@ -105,8 +117,15 @@ export default function Hearings() {
   });
   const appBase = window.location.origin;
 
-  const upcomingHearings = hearings?.filter((h) => h.scheduled_at >= now) || [];
-  const pastHearings = hearings?.filter((h) => h.scheduled_at < now).reverse() || [];
+  // Upcoming = future-dated hearings that are still on. Postponed, cancelled and
+  // suspended hearings are never "upcoming", no matter their scheduled_at.
+  const isLiveStatus = (s: string | null | undefined) => LIVE_HEARING_STATUSES.includes(String(s ?? ""));
+  const upcomingHearings = (hearings || []).filter((h) => h.scheduled_at >= now && isLiveStatus(h.status));
+  // Everything else (past-dated hearings, or non-live ones at any date) is listed
+  // as history with an explicit status badge so nothing looks silently active.
+  const pastHearings = (hearings || [])
+    .filter((h) => !(h.scheduled_at >= now && isLiveStatus(h.status)))
+    .sort((a, b) => (b.scheduled_at || "").localeCompare(a.scheduled_at || ""));
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -250,7 +269,20 @@ export default function Hearings() {
                                {hearing.notes && <CardDescription className="mt-1 break-words">{hearing.notes}</CardDescription>}
                             </div>
                              <div className="flex flex-wrap items-center gap-2">
-                              <AddToCalendarMenu event={hearingEvent(hearing, appBase)} />
+                              {isLiveStatus(hearing.status) && (
+                                <AddToCalendarMenu event={hearingEvent(hearing, appBase)} />
+                              )}
+                              <Badge
+                                variant={
+                                  hearing.status === "cancelled" || hearing.status === "suspended"
+                                    ? "destructive"
+                                    : hearing.status === "postponed"
+                                      ? "outline"
+                                      : "secondary"
+                                }
+                              >
+                                {HEARING_LIST_STATUS_LABELS[hearing.status || ""] || "Audiencia"}
+                              </Badge>
                               <Badge variant={hearing.is_virtual ? "default" : "secondary"}>
                                 {hearing.is_virtual ? "Virtual" : "Presencial"}
                               </Badge>
