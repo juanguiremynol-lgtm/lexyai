@@ -36,17 +36,29 @@ function abs(value: unknown): string | null {
     : null;
 }
 
-/** gcs_url is authoritative; url is our alias; url_origen is the fallback. */
+/**
+ * The provider's own download route (consultaprocesos .../Descarga/Documento)
+ * frequently answers 404 "no pudo ser descargado" — it is not a reliable link
+ * and must never be offered as "Disponible".
+ */
+export function isUnreliableProviderRoute(url: string | null): boolean {
+  return !!url && /consultaprocesos\.ramajudicial\.gov\.co.*\/Descarga\/Documento/i.test(url);
+}
+
+/** Only our own copy (gcs_url, or a non-provider-route alias) is openable. */
 export function resolveActDocumentoUrl(doc: ActDocumentoLike | null | undefined): string | null {
   if (!doc) return null;
-  return abs(doc.gcs_url) ?? abs(doc.url) ?? abs(doc.url_origen) ?? null;
+  for (const c of [abs(doc.gcs_url), abs(doc.url)]) {
+    if (c && !isUnreliableProviderRoute(c)) return c;
+  }
+  return null;
 }
 
 export function actDocumentoState(doc: ActDocumentoLike | null | undefined): ActDocumentoState {
   if (!doc) return "SIN_ENLACE";
   const estado = String(doc.estado ?? "").toUpperCase();
   if (resolveActDocumentoUrl(doc)) return "DESCARGADO";
-  if (estado.includes("PENDIENTE")) return "PENDIENTE";
+  if (estado.includes("PENDIENTE") || abs(doc.url_origen) || abs(doc.url)) return "PENDIENTE";
   if (estado.includes("FALLIDO")) return "FALLIDO";
   if (estado.includes("INVALIDO")) return "INVALIDO";
   if (estado.includes("NO_DISPONIBLE")) return "NO_DISPONIBLE";
@@ -59,7 +71,7 @@ export function actDocumentoStateLabel(state: ActDocumentoState): string {
     case "DESCARGADO":
       return "Disponible";
     case "PENDIENTE":
-      return "En descarga";
+      return "Aún no copiado por Andromeda";
     case "FALLIDO":
       return "Descarga fallida";
     case "INVALIDO":
