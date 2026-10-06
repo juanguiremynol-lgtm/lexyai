@@ -23,8 +23,8 @@ describe("act documento URL binding", () => {
     ).toBe(GCS);
   });
 
-  it("falls back to url_origen when nothing else resolves", () => {
-    expect(resolveActDocumentoUrl({ url_origen: ORIGEN })).toBe(ORIGEN);
+  it("never offers the provider route (it 404s) as a download", () => {
+    expect(resolveActDocumentoUrl({ url_origen: ORIGEN })).toBeNull();
   });
 
   it("classifies a DESCARGADO document as downloadable", () => {
