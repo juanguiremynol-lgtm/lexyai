@@ -71,6 +71,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
   const [accessUrl, setAccessUrl] = useState("");
   const [accessUrlError, setAccessUrlError] = useState<string | null>(null);
   const [accessNotAvailable, setAccessNotAvailable] = useState(false);
+  const [editingUrl, setEditingUrl] = useState(false);
 
   // Determine milestone states from work_items fields
   const actaCompleted = !!(workItem as any).acta_reparto_received_at || !!workItem.filing_date;
@@ -192,6 +193,44 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
     },
   });
 
+  // Dedicated mutation for the electronic-file link: only touches the link
+  // columns of this work item, never the other milestones. The input keeps the
+  // user's value on error so they can retry.
+  const urlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      const { data, error } = await supabase
+        .from("work_items")
+        .update({ sharepoint_url: url, expediente_url: url, updated_at: new Date().toISOString() })
+        .eq("id", workItem.id)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error("No tienes permiso para editar este asunto o no se encontró.");
+    },
+    onSuccess: () => {
+      toast.success("El enlace de acceso al expediente electrónico se actualizó correctamente");
+      setAccessUrl("");
+      setAccessUrlError(null);
+      setEditingUrl(false);
+      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+    },
+    onError: (err: Error) => {
+      toast.error("No se pudo guardar el enlace: " + err.message);
+    },
+  });
+
+  const startEditUrl = () => {
+    setAccessUrl(expedienteUrl || "");
+    setAccessUrlError(null);
+    setEditingUrl(true);
+  };
+
+  const cancelEditUrl = () => {
+    setAccessUrl("");
+    setAccessUrlError(null);
+    setEditingUrl(false);
+  };
+
   // Save access URL
   const saveAccessUrl = () => {
     const trimmed = accessUrl.trim();
@@ -203,12 +242,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
       setAccessUrlError("URL inválida. Debe comenzar con https://");
       return;
     }
-    toggleMutation.mutate({
-      sharepoint_url: trimmed,
-      expediente_url: trimmed,
-    });
-    setAccessUrl("");
-    setAccessUrlError(null);
+    urlMutation.mutate(trimmed);
   };
 
   // Mark access as not available
@@ -327,7 +361,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
   }
 
   // ─── EDITABLE CHECKLIST ───
-  const isPending = toggleMutation.isPending || clearMutation.isPending;
+  const isPending = toggleMutation.isPending || clearMutation.isPending || urlMutation.isPending;
 
   return (
     <Card>
@@ -409,16 +443,71 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
 
               {milestone.completed ? (
                 <div className="mt-1">
-                  {milestone.id === "expediente" && hasExpedienteUrl ? (
-                    <a
-                      href={expedienteUrl!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Abrir expediente
-                    </a>
+                  {milestone.id === "expediente" && hasExpedienteUrl && editingUrl ? (
+                    <div className="space-y-2">
+                      <Label htmlFor={`expediente-url-${workItem.id}`} className="sr-only">
+                        Enlace del expediente electrónico
+                      </Label>
+                      <Input
+                        id={`expediente-url-${workItem.id}`}
+                        value={accessUrl}
+                        onChange={(e) => {
+                          setAccessUrl(e.target.value);
+                          setAccessUrlError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveAccessUrl();
+                          if (e.key === "Escape") cancelEditUrl();
+                        }}
+                        autoFocus
+                        className={cn("min-w-0 w-full text-sm h-8", accessUrlError && "border-destructive")}
+                      />
+                      {accessUrlError && (
+                        <p className="text-xs text-destructive flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {accessUrlError}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" className="h-8 text-xs" onClick={saveAccessUrl} disabled={urlMutation.isPending || !accessUrl.trim()}>
+                          {urlMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                          Guardar cambios
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={cancelEditUrl} disabled={urlMutation.isPending}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : milestone.id === "expediente" && hasExpedienteUrl ? (
+                    <div className="space-y-1">
+                      <a
+                        href={expedienteUrl!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-xs text-primary hover:underline break-all"
+                        title={expedienteUrl!}
+                      >
+                        {expedienteUrl}
+                      </a>
+                      <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
+                          <a href={expedienteUrl!} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                            Abrir enlace
+                          </a>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={startEditUrl}
+                          aria-label="Editar enlace del expediente electrónico"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Editar enlace
+                        </Button>
+                      </div>
+                    </div>
                   ) : milestone.id === "expediente" && accessMarkedNotAvailable ? (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Ban className="h-3 w-3" />
@@ -453,7 +542,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                           onClick={saveAccessUrl}
                           disabled={isPending || !accessUrl.trim()}
                         >
-                          {toggleMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                          {urlMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                           Guardar
                         </Button>
                       </div>
