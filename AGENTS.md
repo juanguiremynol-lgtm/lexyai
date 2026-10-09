@@ -9,3 +9,4 @@
 - hearing-reminders milestones come from profiles.hearing_reminder_days (default [1,3,7]), Bogotá dates, one live HEARING_REMINDER per hearing (fingerprint hearing_REM_<id>); legacy alerts table not written.
 
 - PENDING dated terms with attribution DESCONOCIDO/AMBAS get one INFO TERMINO_ATRIBUCION_PENDIENTE (gated by manual_review_info, default on); JUEZ/CONTRAPARTE never alert — never imply an unconfirmed burden.
+- Generic deadline rules that must not yield a dated judicial deadline are vetoed centrally in public.deadline_rule_override (used by both compute_deadline_for_* functions) — one place, auditable reason in calculation_meta.
