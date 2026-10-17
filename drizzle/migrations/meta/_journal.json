@@ -274,6 +274,13 @@
       "when": 1791550575124,
       "tag": "0038_deadline_rule_override",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792256875489,
+      "tag": "0039_atenia_ai_daily_ai_usage_reservation",
+      "breakpoints": true
     }
   ]
 }
