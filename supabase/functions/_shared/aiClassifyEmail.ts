@@ -137,8 +137,7 @@ export async function aiClassifyEmail(
   state: AiGatewayState,
   apiKey: string | undefined,
 ): Promise<AiClassification | null> {
-  if (!apiKey || state.disabled || state.calls >= AI_CALLS_PER_RUN) return null;
-  state.calls++;
+  if (!apiKey || state.disabled) return null;
 
   const payload = {
     model: AI_MODEL,
@@ -156,6 +155,13 @@ export async function aiClassifyEmail(
   };
 
   for (let attempt = 0; attempt < 3; attempt++) {
+    // El presupuesto cuenta CADA intento real al proveedor, incluidos los
+    // reintentos: sin este chequeo una sola clasificación podía gastar 3
+    // llamadas contando como 1. Al agotarse, se degrada a solo-regex
+    // (fallback conservador documentado); el correo sigue ingresando por la
+    // vía regex y nunca se descarta ni se reclasifica como "no corresponde".
+    if (state.calls >= AI_CALLS_PER_RUN) return null;
+    state.calls++;
     try {
       const res = await fetch(AI_ENDPOINT, {
         method: "POST",
