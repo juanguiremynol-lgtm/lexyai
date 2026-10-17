@@ -288,6 +288,13 @@
       "when": 1792257445627,
       "tag": "0040_atenia_ai_report_upsert_preserves_diagnosis",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792257690267,
+      "tag": "0041_atenia_ai_reserve_uses_server_bogota_date",
+      "breakpoints": true
     }
   ]
 }
