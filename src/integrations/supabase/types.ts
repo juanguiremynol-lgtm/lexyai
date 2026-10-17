@@ -25329,6 +25329,7 @@ export type Database = {
         Args: { _task_key: string; _ttl_seconds?: number }
         Returns: boolean
       }
+      atenia_ai_upsert_report: { Args: { p_report: Json }; Returns: undefined }
       atenia_assurance_gates: { Args: never; Returns: Json }
       atenia_finish_cron: {
         Args: { p_details?: Json; p_run_id: string; p_status: string }

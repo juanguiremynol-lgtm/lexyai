@@ -1899,11 +1899,12 @@ async function auditOrganization(
     lexy_data_ready: true,
   };
 
-  const { error: reportError } = await supabase
-    .from("atenia_ai_reports")
-    .upsert(reportData, {
-      onConflict: "organization_id,report_date,report_type",
-    });
+  // Atomic upsert via RPC: a run that produced no AI diagnosis (lost the
+  // daily reservation, gemini disabled, or deterministic-only mode) must NOT
+  // overwrite a diagnosis already stored by a concurrent/earlier run.
+  const { error: reportError } = await supabase.rpc("atenia_ai_upsert_report", {
+    p_report: reportData,
+  });
 
   if (reportError) {
     console.error(
