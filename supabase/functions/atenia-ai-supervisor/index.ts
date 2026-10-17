@@ -812,6 +812,14 @@ async function quickHealthCheck(provider: string): Promise<boolean> {
 
 // ─── Gemini AI Diagnosis ─────────────────────────────────────────────
 
+interface GeminiDiagnosisResult {
+  text: string | null;
+  /** HTTP status del gateway cuando hubo respuesta; null en error de red. */
+  httpStatus: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
 async function geminiDiagnosis(context: {
   diagnostics: DiagnosticEntry[];
   providerStatus: Record<string, ProviderHealth>;
@@ -819,11 +827,17 @@ async function geminiDiagnosis(context: {
   successTraces: number;
   failedTraces: number;
   avgLatency: number;
-}): Promise<string | null> {
+}): Promise<GeminiDiagnosisResult> {
+  const noCall: GeminiDiagnosisResult = {
+    text: null,
+    httpStatus: null,
+    inputTokens: null,
+    outputTokens: null,
+  };
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) {
     console.warn("[atenia-ai] No LOVABLE_API_KEY, skipping Gemini diagnosis");
-    return null;
+    return noCall;
   }
 
   const problems = context.diagnostics.filter((d) => d.severity !== "OK");
