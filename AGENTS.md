@@ -10,3 +10,7 @@
 
 - PENDING dated terms with attribution DESCONOCIDO/AMBAS get one INFO TERMINO_ATRIBUCION_PENDIENTE (gated by manual_review_info, default on); JUEZ/CONTRAPARTE never alert — never imply an unconfirmed burden.
 - Generic deadline rules that must not yield a dated judicial deadline are vetoed centrally in public.deadline_rule_override (used by both compute_deadline_for_* functions) — one place, auditable reason in calculation_meta.
+
+- Automatic AI enrichment (supervisor diagnosis) is capped at one provider call per org per Bogotá day via atomic reservation in public.atenia_ai_daily_ai_usage (RPC atenia_ai_reserve_daily_ai) made BEFORE the provider call; respects atenia_ai_config.gemini_enabled and reuses the same-day report diagnosis.
+- aiClassifyEmail counts every real provider attempt (including retries) against AI_CALLS_PER_RUN; exhaustion degrades to regex-only, never drops or misclassifies mail.
+- pg_cron job 80 (email-semantics-backfill) is gated by an EXISTS predicate identical to the function eligibility filter (CONFIRMED+received+ai_classified_at null+opaque subtype).
