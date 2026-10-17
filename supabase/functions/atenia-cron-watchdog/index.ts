@@ -46,7 +46,10 @@ function minutesSince(d: Date | string): number {
 }
 
 // ---- Config ----
-const HEARTBEAT_MAX_GAP_MINUTES = 35;
+// Heartbeat cron cadence is every 6h (atenia-server-heartbeat: "0 */6 * * *").
+// Tolerance = 6h + 60min slack, matching platformJobHeartbeat's 420min expectation.
+// A 35min threshold would force a heartbeat every hour and defeat the 6h savings.
+const HEARTBEAT_MAX_GAP_MINUTES = 420;
 const STALE_RUNNING_LEASE_SECONDS = 900; // 15 min
 const MAX_QUEUE_DRAIN_PER_RUN = 5;
 const COVERAGE_ALERT_THRESHOLD = 80; // percent

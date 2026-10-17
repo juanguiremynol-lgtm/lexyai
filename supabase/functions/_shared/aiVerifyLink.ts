@@ -214,12 +214,12 @@ export async function aiVerifyLink(
 }
 
 /**
- * Sonda viva (smoke) de la capa de verificación por IA.
+ * Sonda manual (smoke) de la capa de verificación por IA.
  *
- * Ejecuta una verificación sintética real contra el gateway y SIEMPRE escribe
- * a través del sink de salud, de modo que `system_health_heartbeat` tenga
- * datos desde el primer día aunque ningún correo multi-señal haya llegado.
- * No persiste nada más que el latido.
+ * Ejecuta una verificación sintética REAL y PAGADA contra el gateway. NO debe
+ * llamarse desde trabajos programados: solo desde una prueba manual explícita
+ * y autorizada. La salud automática de esta capa es pasiva (lee el latido que
+ * dejan las verificaciones reales en `system_health_heartbeat`).
  */
 export async function aiVerifyLinkProbe(
   apiKey: string | undefined,

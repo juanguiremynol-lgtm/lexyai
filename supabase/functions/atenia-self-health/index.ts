@@ -8,11 +8,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { heartbeatNoOp, startHeartbeat, finishHeartbeat } from "../_shared/platformJobHeartbeat.ts";
-import {
-  aiVerifyLinkProbe,
-  makeAiVerifyHealthSink,
-  AI_VERIFY_HEALTH_SERVICE,
-} from "../_shared/aiVerifyLink.ts";
+import { AI_VERIFY_HEALTH_SERVICE } from "../_shared/aiVerifyLink.ts";
 import { classifySchemaAccess, type SchemaAccessProbe } from "../_shared/schemaAccessGuard.ts";
 
 const corsHeaders = {
@@ -305,40 +301,42 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check: sonda viva de la verificación por IA (máx. 1 vez por hora).
+    // Check: salud PASIVA de la verificación por IA. Nunca dispara una llamada
+    // paga al gateway: solo lee el latido que dejan las verificaciones reales.
+    // Sin uso reciente ≠ caída: se reporta honestamente como "sin comprobar".
     try {
       const { data: hb } = await supabase
         .from("system_health_heartbeat")
         .select("last_status, last_ok_at, updated_at")
         .eq("service", AI_VERIFY_HEALTH_SERVICE)
         .maybeSingle();
-      const lastAge = hb?.updated_at
-        ? Date.now() - new Date(hb.updated_at).getTime()
-        : Infinity;
-      if (lastAge > 55 * 60 * 1000) {
-        const verdict = await aiVerifyLinkProbe(
-          Deno.env.get("LOVABLE_API_KEY"),
-          makeAiVerifyHealthSink(supabase),
-        );
+      if (!hb?.updated_at) {
         checks.push({
           name: "AI_VERIFY_LINK",
-          ok: !!verdict,
-          detail: verdict
-            ? `Verificación IA activa (veredicto de sonda: ${verdict.verdict})`
-            : "⚠️ Verificación IA degradada: el gateway no devolvió veredicto",
+          ok: true,
+          detail: "Verificación IA sin uso reciente: no comprobada (sin llamadas reales registradas)",
         });
       } else {
-        checks.push({
-          name: "AI_VERIFY_LINK",
-          ok: hb?.last_status !== "ERROR",
-          detail: `Último latido de verificación IA: hace ${Math.round(lastAge / 60000)} min (${hb?.last_status ?? "SIN DATO"})`,
-        });
+        const lastAge = Date.now() - new Date(hb.updated_at).getTime();
+        if (hb.last_status === "ERROR") {
+          checks.push({
+            name: "AI_VERIFY_LINK",
+            ok: false,
+            detail: `⚠️ Verificación IA degradada en su última llamada real (hace ${Math.round(lastAge / 60000)} min)`,
+          });
+        } else {
+          checks.push({
+            name: "AI_VERIFY_LINK",
+            ok: true,
+            detail: `Última verificación IA real: hace ${Math.round(lastAge / 60000)} min (${hb.last_status ?? "OK"})`,
+          });
+        }
       }
     } catch (aiErr) {
       checks.push({
         name: "AI_VERIFY_LINK",
-        ok: false,
-        detail: `Error en sonda de verificación IA: ${(aiErr as Error).message}`,
+        ok: true,
+        detail: `No se pudo leer el latido de verificación IA: ${(aiErr as Error).message}`,
       });
     }
 
