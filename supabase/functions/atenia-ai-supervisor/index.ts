@@ -812,6 +812,14 @@ async function quickHealthCheck(provider: string): Promise<boolean> {
 
 // ─── Gemini AI Diagnosis ─────────────────────────────────────────────
 
+interface GeminiDiagnosisResult {
+  text: string | null;
+  /** HTTP status del gateway cuando hubo respuesta; null en error de red. */
+  httpStatus: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
 async function geminiDiagnosis(context: {
   diagnostics: DiagnosticEntry[];
   providerStatus: Record<string, ProviderHealth>;
@@ -819,15 +827,21 @@ async function geminiDiagnosis(context: {
   successTraces: number;
   failedTraces: number;
   avgLatency: number;
-}): Promise<string | null> {
+}): Promise<GeminiDiagnosisResult> {
+  const noCall: GeminiDiagnosisResult = {
+    text: null,
+    httpStatus: null,
+    inputTokens: null,
+    outputTokens: null,
+  };
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) {
     console.warn("[atenia-ai] No LOVABLE_API_KEY, skipping Gemini diagnosis");
-    return null;
+    return noCall;
   }
 
   const problems = context.diagnostics.filter((d) => d.severity !== "OK");
-  if (problems.length === 0) return null;
+  if (problems.length === 0) return noCall;
 
    const prompt = `Eres Atenia AI, el sistema supervisor de sincronización de ATENIA, una plataforma de gestión judicial colombiana.
 
@@ -887,14 +901,19 @@ Responde con:
 
     if (!resp.ok) {
       console.warn(`[atenia-ai] Gemini call failed: HTTP ${resp.status}`);
-      return null;
+      return { ...noCall, httpStatus: resp.status };
     }
 
     const data = await resp.json();
-    return data.choices?.[0]?.message?.content || null;
+    return {
+      text: data.choices?.[0]?.message?.content || null,
+      httpStatus: resp.status,
+      inputTokens: data.usage?.prompt_tokens ?? null,
+      outputTokens: data.usage?.completion_tokens ?? null,
+    };
   } catch (err) {
     console.warn("[atenia-ai] Gemini error:", err);
-    return null;
+    return noCall;
   }
 }
 
@@ -1774,22 +1793,88 @@ async function auditOrganization(
     mode === "MANUAL_AUDIT";
 
   if (shouldUseGemini) {
-    const avgLatency =
-      traceData.length > 0
-        ? Math.round(
-            traceData.reduce((s, t) => s + (t.latency_ms || 0), 0) /
-              traceData.length,
-          )
-        : 0;
+    // Cost guard: respect the org's gemini_enabled switch and cap automatic
+    // AI enrichment at one provider call per org per Bogotá day, reserved
+    // atomically BEFORE calling the provider (safe under concurrency and
+    // retries). The deterministic audit above always runs regardless.
+    const { data: aiCfg } = await supabase
+      .from("atenia_ai_config")
+      .select("gemini_enabled")
+      .eq("organization_id", orgId)
+      .maybeSingle();
 
-    aiDiagnosis = await geminiDiagnosis({
-      diagnostics,
-      providerStatus,
-      totalTraces: traceData.length,
-      successTraces: traceData.filter((t) => t.success).length,
-      failedTraces: traceData.filter((t) => !t.success).length,
-      avgLatency,
-    });
+    if (aiCfg?.gemini_enabled === false) {
+      console.log(`[atenia-ai] gemini_enabled=false for org ${orgId} — skipping AI diagnosis`);
+    } else {
+      const reportType =
+        mode === "MANUAL_AUDIT"
+          ? "MANUAL_AUDIT"
+          : mode === "HEALTH_CHECK"
+            ? "HEALTH_CHECK"
+            : "DAILY_AUDIT";
+
+      // Reuse today's diagnosis if a report already has one (no new call).
+      const { data: existingReport } = await supabase
+        .from("atenia_ai_reports")
+        .select("ai_diagnosis")
+        .eq("organization_id", orgId)
+        .eq("report_date", runDate)
+        .eq("report_type", reportType)
+        .maybeSingle();
+
+      if (existingReport?.ai_diagnosis) {
+        aiDiagnosis = existingReport.ai_diagnosis as string;
+        console.log(`[atenia-ai] Reusing existing AI diagnosis for org ${orgId} (${runDate})`);
+      } else {
+        const { data: reservationId, error: reserveErr } = await supabase.rpc(
+          "atenia_ai_reserve_daily_ai",
+          {
+            _org_id: orgId,
+            _usage_date: runDate,
+            _caller: "supervisor_diagnosis",
+          },
+        );
+
+        if (reserveErr) {
+          console.warn(`[atenia-ai] AI reservation error for org ${orgId}:`, reserveErr.message);
+        } else if (!reservationId) {
+          console.log(`[atenia-ai] Daily AI diagnosis already reserved for org ${orgId} — skipping provider call`);
+        } else {
+          const avgLatency =
+            traceData.length > 0
+              ? Math.round(
+                  traceData.reduce((s, t) => s + (t.latency_ms || 0), 0) /
+                    traceData.length,
+                )
+              : 0;
+
+          const result = await geminiDiagnosis({
+            diagnostics,
+            providerStatus,
+            totalTraces: traceData.length,
+            successTraces: traceData.filter((t) => t.success).length,
+            failedTraces: traceData.filter((t) => !t.success).length,
+            avgLatency,
+          });
+          aiDiagnosis = result.text;
+
+          // Record outcome/tokens (never the content). A failed call is
+          // recorded as failed — never as success.
+          await supabase
+            .from("atenia_ai_daily_ai_usage")
+            .update({
+              outcome: result.text
+                ? "ok"
+                : result.httpStatus
+                  ? `failed_http_${result.httpStatus}`
+                  : "failed_no_call",
+              input_tokens: result.inputTokens,
+              output_tokens: result.outputTokens,
+            })
+            .eq("id", reservationId);
+        }
+      }
+    }
   }
 
   const reportData = {

@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -1279,6 +1279,39 @@ export type Database = {
           summary?: string | null
           title?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      atenia_ai_daily_ai_usage: {
+        Row: {
+          caller: string
+          id: string
+          input_tokens: number | null
+          organization_id: string
+          outcome: string | null
+          output_tokens: number | null
+          reserved_at: string
+          usage_date: string
+        }
+        Insert: {
+          caller: string
+          id?: string
+          input_tokens?: number | null
+          organization_id: string
+          outcome?: string | null
+          output_tokens?: number | null
+          reserved_at?: string
+          usage_date: string
+        }
+        Update: {
+          caller?: string
+          id?: string
+          input_tokens?: number | null
+          organization_id?: string
+          outcome?: string | null
+          output_tokens?: number | null
+          reserved_at?: string
+          usage_date?: string
         }
         Relationships: []
       }
@@ -25287,6 +25320,10 @@ export type Database = {
       atenia_ai_finish_task: {
         Args: { _error?: Json; _status: string; _task_key: string }
         Returns: undefined
+      }
+      atenia_ai_reserve_daily_ai: {
+        Args: { _caller: string; _org_id: string; _usage_date: string }
+        Returns: string
       }
       atenia_ai_try_start_task: {
         Args: { _task_key: string; _ttl_seconds?: number }
