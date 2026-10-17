@@ -841,7 +841,7 @@ async function geminiDiagnosis(context: {
   }
 
   const problems = context.diagnostics.filter((d) => d.severity !== "OK");
-  if (problems.length === 0) return null;
+  if (problems.length === 0) return noCall;
 
    const prompt = `Eres Atenia AI, el sistema supervisor de sincronización de ATENIA, una plataforma de gestión judicial colombiana.
 
@@ -901,14 +901,19 @@ Responde con:
 
     if (!resp.ok) {
       console.warn(`[atenia-ai] Gemini call failed: HTTP ${resp.status}`);
-      return null;
+      return { ...noCall, httpStatus: resp.status };
     }
 
     const data = await resp.json();
-    return data.choices?.[0]?.message?.content || null;
+    return {
+      text: data.choices?.[0]?.message?.content || null,
+      httpStatus: resp.status,
+      inputTokens: data.usage?.prompt_tokens ?? null,
+      outputTokens: data.usage?.completion_tokens ?? null,
+    };
   } catch (err) {
     console.warn("[atenia-ai] Gemini error:", err);
-    return null;
+    return noCall;
   }
 }
 
