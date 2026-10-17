@@ -14,3 +14,6 @@
 - Automatic AI enrichment (supervisor diagnosis) is capped at one provider call per org per Bogotá day via atomic reservation in public.atenia_ai_daily_ai_usage (RPC atenia_ai_reserve_daily_ai) made BEFORE the provider call; respects atenia_ai_config.gemini_enabled and reuses the same-day report diagnosis.
 - aiClassifyEmail counts every real provider attempt (including retries) against AI_CALLS_PER_RUN; exhaustion degrades to regex-only, never drops or misclassifies mail.
 - pg_cron job 80 (email-semantics-backfill) is gated by an EXISTS predicate identical to the function eligibility filter (CONFIRMED+received+ai_classified_at null+opaque subtype).
+
+- atenia-self-health AI check is PASSIVE only: it reads the AI_VERIFY_LINK heartbeat left by real verifications and never fires a paid gateway probe; no recent usage is reported as "not verified", never as an outage. aiVerifyLinkProbe exists only for explicit authorized manual smoke tests.
+- atenia-cron-watchdog HEARTBEAT_MAX_GAP_MINUTES=420 matches the 6h heartbeat cron cadence plus 60min slack (aligned with platformJobHeartbeat 420min); a tighter threshold would force hourly heartbeats.
