@@ -8,11 +8,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { heartbeatNoOp, startHeartbeat, finishHeartbeat } from "../_shared/platformJobHeartbeat.ts";
-import {
-  aiVerifyLinkProbe,
-  makeAiVerifyHealthSink,
-  AI_VERIFY_HEALTH_SERVICE,
-} from "../_shared/aiVerifyLink.ts";
+import { AI_VERIFY_HEALTH_SERVICE } from "../_shared/aiVerifyLink.ts";
 import { classifySchemaAccess, type SchemaAccessProbe } from "../_shared/schemaAccessGuard.ts";
 
 const corsHeaders = {
