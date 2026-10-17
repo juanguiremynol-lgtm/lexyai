@@ -38,7 +38,7 @@ describe("paid AI probe eliminated from scheduled self-health", () => {
 
   it("the probe remains available only as an explicit manual smoke test", () => {
     expect(aiVerify).toContain("export async function aiVerifyLinkProbe");
-    expect(aiVerify).toMatch(/NO debe\s+llamarse desde trabajos programados/);
+    expect(aiVerify.replace(/\s+/g, " ")).toContain("NO debe llamarse desde trabajos programados");
   });
 });
 
