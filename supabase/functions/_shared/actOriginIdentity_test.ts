@@ -78,3 +78,16 @@ Deno.test("inventory: reserved and error states are explicit", () => {
   assertEquals(buildAnexosInventario({ anotacion: A, reserved: true }).estado, "restringido");
   assertEquals(buildAnexosInventario({ anotacion: A, providerError: "HTTP 500" }).estado, "error");
 });
+
+import { normalizeSamaiActuaciones } from "./providerAdapters/samaiAdapter.ts";
+
+Deno.test("samai normalizer: null URL fields stay not-observed (no documentos key)", () => {
+  const [n] = normalizeSamaiActuaciones([{ "Fecha Providencia": "2026-10-16T00:00:00.000Z", "Actuación": "RECIBE MEMORIALES ONLINE", "Docum. a notif.": A, url_descarga: null, pdf_url: null, gcs_url: null, anexos: null }]);
+  assertEquals((n as any).documentos, undefined);
+  assertEquals(n.anotacion, A);
+});
+
+Deno.test("samai normalizer: a real provider URL becomes a descriptor", () => {
+  const [n] = normalizeSamaiActuaciones([{ "Fecha Providencia": "2026-10-16", "Actuación": "AUTO", gcs_url: "https://storage.googleapis.com/b/x.pdf" }]);
+  assertEquals((n as any).documentos[0].gcs_url, "https://storage.googleapis.com/b/x.pdf");
+});
