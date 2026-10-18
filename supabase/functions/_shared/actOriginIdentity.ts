@@ -366,7 +366,10 @@ export function planEnrichment(
     const contaminated = rowOrigin.key !== null &&
       compareOrigins(storedAnotOrigin, rowOrigin) === "conflict" &&
       compareOrigins(inOrigin, rowOrigin) === "equivalent";
-    if (contaminated) {
+    if (contaminated && !repairAllowed) {
+      // Contaminated history is left untouched (no text change, no novedad)
+      // until an approved, backed-up repair names this row explicitly.
+    } else if (contaminated) {
       next.anotacion = newAnot;
       next.anotacion_reparada = { en: now, anterior: oldAnot, motivo: "anotacion_de_otro_origen" };
       healed = true;
