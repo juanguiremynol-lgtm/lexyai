@@ -314,12 +314,26 @@ function same(a: unknown, b: unknown): boolean {
  *    own → restored, previous value kept for audit; or
  *  - the incoming anotación is longer (legacy truncation backfill).
  */
+/**
+ * Historical contamination repair is OFF by default. It runs only when the
+ * caller passes an explicit scope naming the provider and the approved act
+ * ids (with a prior backup, per the repair plan). Normal sync never repairs.
+ */
+export interface HistoricalRepairScope {
+  provider: "samai";
+  approvedActIds: ReadonlySet<string>;
+}
+
 export function planEnrichment(
   row: CandidateRow,
   incoming: IncomingAct,
   relation: OriginRelation,
   now: string = new Date().toISOString(),
+  opts: { provider?: string | null; repair?: HistoricalRepairScope | null } = {},
 ): EnrichmentPlan | null {
+  const repairAllowed = !!opts.repair &&
+    (opts.provider ?? "").toLowerCase() === opts.repair.provider &&
+    opts.repair.approvedActIds.has(row.id);
   const rd = { ...(row.raw_data ?? {}) } as Record<string, unknown>;
   const rowOrigin = originFromRow(row);
   const inOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });

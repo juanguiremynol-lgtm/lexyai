@@ -1192,15 +1192,37 @@ function isAndromedaCopyUrl(url) {
   if (parts.length < 2 || parts.some((p) => p === ".." || p === ".")) return false;
   return ANDROMEDA_DOCUMENT_BUCKETS.includes(parts[0]);
 }
+var PDF_HEADER_READ_LIMIT = 1024;
 async function verifyPdfBytes(url, fetchImpl, timeoutMs = 8e3) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(url, { method: "GET", headers: { Range: "bytes=0-1023" }, redirect: "manual", signal: ctrl.signal });
-    if (res.status !== 200 && res.status !== 206) return { status: "inaccesible", http: res.status };
-    const buf = new Uint8Array(await res.arrayBuffer()).slice(0, 5);
-    const head = String.fromCharCode(...buf);
-    return head === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
+    const res = await fetchImpl(url, { method: "GET", headers: { Range: `bytes=0-${PDF_HEADER_READ_LIMIT - 1}` }, redirect: "manual", signal: ctrl.signal });
+    if (res.status !== 200 && res.status !== 206) {
+      await res.body?.cancel().catch(() => {
+      });
+      return { status: "inaccesible", http: res.status };
+    }
+    const head = new Uint8Array(PDF_HEADER_READ_LIMIT);
+    let got = 0;
+    const reader = res.body?.getReader();
+    if (reader) {
+      try {
+        while (got < 5) {
+          const { done, value } = await reader.read();
+          if (done || !value) break;
+          const take = Math.min(value.length, PDF_HEADER_READ_LIMIT - got);
+          head.set(value.subarray(0, take), got);
+          got += take;
+          if (got >= PDF_HEADER_READ_LIMIT) break;
+        }
+      } finally {
+        await reader.cancel().catch(() => {
+        });
+      }
+    }
+    const magic = String.fromCharCode(...head.subarray(0, Math.min(got, 5)));
+    return magic === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
   } catch (e) {
     return { status: "error_red", detail: e.message };
   } finally {
