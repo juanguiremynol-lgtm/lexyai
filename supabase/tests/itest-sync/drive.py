@@ -5,6 +5,11 @@ import json, os, subprocess, time, urllib.request, sys
 
 T = "/tmp/itest"
 WI = "33333333-3333-3333-3333-333333333333"
+required = ["public_schema.sql", "svc.jwt", "anon.jwt", "lpsql", "postgrest.conf", "gateway.ts", "runfn.sh"]
+missing = [name for name in required if not os.path.isfile(f"{T}/{name}")]
+if missing:
+    sys.exit("ISOLATED INTEGRATION BLOCKED: missing local artifacts in /tmp/itest: " + ", ".join(missing)
+             + ". Do not use hosted credentials or rebuild permissions; see README.md.")
 SVC = open(f"{T}/svc.jwt").read().strip()
 ENV_CLEAN = {k: v for k, v in os.environ.items() if not k.startswith("PG") and k != "SUPABASE_DB_URL"}
 procs = []
@@ -29,7 +34,7 @@ def http(url, body=None, headers=None, timeout=120):
         return e.code, json.loads(e.read() or b"null")
 
 def start(cmd, log):
-    p = subprocess.Popen(cmd, shell=True, stdout=open(log, "w"), stderr=subprocess.STDOUT, env=ENV_CLEAN, start_new_session=True)
+    p = subprocess.Popen(cmd, shell=True, stdout=open(log, "w"), stderr=subprocess.STDOUT, env=ENV_CLEAN, start_new_session=True, cwd=T)
     procs.append(p)
 
 def wait_ok(url, body=None, tries=60):

@@ -1,9 +1,10 @@
 # Roadmap
 
 ## SAMAI — isolated persistence validation (2026-10-18)
-- [ ] Abort the real sync batch when a confirmed write cannot be read back; prepare A-confirmed/read-failed/B-distinct regression.
-- [ ] Repair the local harness readiness wait and rerun all persistence scenarios if the existing local database is available.
-- [ ] Document combined results, exact environment blockers and publication effects without deployment or real-data writes.
+- [x] Abort the real sync batch when a confirmed write cannot be read back; prepare A-confirmed/read-failed/B-distinct regression.
+- [x] Repair the local harness readiness wait.
+- [ ] Rerun all real persistence scenarios — blocked: previous /tmp/itest schema, seeded local database and synthetic credentials are absent; recreating roles/grants/credentials is not authorized.
+- [x] Document combined results, exact environment blockers and publication effects without deployment or real-data writes.
 
 ## Responsive móvil (solicitud actual)
 - [ ] Corregir ficha de radicado, hitos, encabezado, chips y pestañas a 390 px.
