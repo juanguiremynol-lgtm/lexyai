@@ -1322,7 +1322,7 @@ var list_act_attachments_default = defineTool18({
       work_item_id,
       radicado
     });
-    if (!r.ok) return errorResult(r.error);
+    if (r.ok === false) return errorResult(r.error);
     return textResult(`Anexos: ${r.data.estado} \u2014 ${r.data.causa}`, r.data);
   }
 });

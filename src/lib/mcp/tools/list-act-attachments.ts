@@ -25,7 +25,7 @@ export default defineTool({
       work_item_id,
       radicado,
     });
-    if (!r.ok) return errorResult(r.error);
+    if (r.ok === false) return errorResult(r.error);
     return textResult(`Anexos: ${r.data.estado} — ${r.data.causa}`, r.data);
   },
 });
