@@ -1177,38 +1177,126 @@ import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z17 } from "npm:zod@^3.25.76";
 
 // src/lib/act-attachments-inventory.ts
-var OWN_COPY = /^https:\/\/storage\.googleapis\.com\//i;
-function summarizeActAttachments(act) {
+var ANDROMEDA_DOCUMENT_BUCKETS = ["andromeda-cpnu-documentos-2026"];
+function isAndromedaCopyUrl(url) {
+  if (typeof url !== "string") return false;
+  let u;
+  try {
+    u = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:" || u.hostname !== "storage.googleapis.com") return false;
+  if (u.search || u.hash || u.username || u.password || u.port) return false;
+  const parts = u.pathname.split("/").filter(Boolean);
+  if (parts.length < 2 || parts.some((p) => p === ".." || p === ".")) return false;
+  return ANDROMEDA_DOCUMENT_BUCKETS.includes(parts[0]);
+}
+async function verifyPdfBytes(url, fetchImpl, timeoutMs = 8e3) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(url, { method: "GET", headers: { Range: "bytes=0-1023" }, redirect: "manual", signal: ctrl.signal });
+    if (res.status !== 200 && res.status !== 206) return { status: "inaccesible", http: res.status };
+    const buf = new Uint8Array(await res.arrayBuffer()).slice(0, 5);
+    const head = String.fromCharCode(...buf);
+    return head === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
+  } catch (e) {
+    return { status: "error_red", detail: e.message };
+  } finally {
+    clearTimeout(t);
+  }
+}
+function ownCopyCandidates(act) {
+  const docs = Array.isArray(act.documentos) ? act.documentos : null;
+  return (docs ?? []).map((d) => {
+    const raw = [d.gcs_url, d.url].find((u) => typeof u === "string" && u.trim());
+    return { nombre: d.nombre ?? null, raw: raw ?? null, own: isAndromedaCopyUrl(raw) ? raw.trim() : null };
+  });
+}
+function summarizeActAttachments(act, verifications = {}) {
   const rd = act.raw_data ?? {};
   const inv = rd.anexos_inventario ?? null;
   const docs = Array.isArray(act.documentos) ? act.documentos : null;
-  const archivos = (docs ?? []).map((d) => {
-    const own = [d.gcs_url, d.url].find((u) => typeof u === "string" && OWN_COPY.test(u));
-    return { nombre: d.nombre ?? null, url: own ?? null, disponible: !!own };
+  const cands = ownCopyCandidates(act);
+  const archivos = cands.map((c) => ({
+    nombre: c.nombre,
+    url: null,
+    verificacion: !c.own ? "origen_no_permitido" : verifications[c.own]?.status ?? "no_verificado"
+  }));
+  cands.forEach((c, i) => {
+    if (c.own && verifications[c.own]?.status === "pdf") archivos[i].url = c.own;
   });
-  const enlazados = archivos.filter((a) => a.disponible).length;
+  const verificados = archivos.filter((a) => a.verificacion === "pdf").length;
+  const owned = cands.filter((c) => c.own).length;
+  const anunciados = inv?.anunciados ?? (docs && docs.length > 0 ? docs.length : null);
+  const faltantes = anunciados !== null ? Math.max(0, anunciados - verificados) : null;
   let estado;
   let causa;
-  if (enlazados > 0) {
+  if (verificados > 0 && anunciados !== null && verificados < anunciados) {
+    estado = "parcial";
+    causa = `Disponibles ${verificados} de ${anunciados}; faltan ${faltantes}.`;
+  } else if (verificados > 0) {
     estado = "disponible";
-    causa = `${enlazados} archivo(s) con copia en Andromeda.`;
-  } else if (inv?.estado && inv.estado !== "disponible") {
+    causa = anunciados !== null ? `Disponibles ${verificados} de ${anunciados} (PDF verificado).` : `${verificados} PDF verificado(s); el proveedor no informa el total.`;
+  } else if (owned > 0 && Object.keys(verifications).length > 0) {
+    estado = "inaccesible";
+    causa = `Hay ${owned} enlace(s) registrado(s) a copias de Andromeda, pero ninguno respondi\xF3 con un PDF legible.`;
+  } else if (owned > 0) {
+    estado = "enlaces_sin_verificar";
+    causa = `${owned} enlace(s) registrado(s); contenido no verificado.`;
+  } else if (inv?.estado && ["restringido", "sesion_requerida", "error", "sin_anexos"].includes(inv.estado)) {
     estado = inv.estado;
     causa = inv.causa ?? "";
   } else if (docs && docs.length === 0 && act.documentos_observados_en) {
     estado = "sin_anexos";
     causa = "El proveedor inform\xF3 cero documentos para esta actuaci\xF3n.";
   } else {
-    estado = "no_consultado";
-    causa = docs === null ? "Sin inventario documental registrado; la consulta de anexos no se ha realizado." : "El proveedor anunci\xF3 documentos sin enlace descargable.";
+    estado = "desconocido";
+    causa = anunciados ? `La actuaci\xF3n anuncia ${anunciados} anexo(s); no hay evidencia de consulta documental ni copia propia.` : "Sin evidencia de consulta documental para esta actuaci\xF3n.";
   }
   return {
     estado,
     causa,
-    anunciados: inv?.anunciados ?? (docs ? docs.length : null),
-    enlazados,
-    archivos: archivos.filter((a) => a.disponible),
+    anunciados,
+    verificados,
+    faltantes,
+    archivos,
     observado_en: act.documentos_observados_en ?? null
+  };
+}
+
+// src/lib/mcp/act-attachments-core.ts
+async function getActAttachments(args) {
+  const { sb } = args;
+  const { data: act, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, source, documentos, documentos_observados_en, raw_data").eq("id", args.act_id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!act) return { ok: false, error: "Actuaci\xF3n no encontrada (o no pertenece a tu cuenta)." };
+  const own = await args.resolveWorkItem(sb, { id: act.work_item_id });
+  if (own.error || !own.item) return { ok: false, error: "Actuaci\xF3n no encontrada (o no pertenece a tu cuenta)." };
+  let note = null;
+  if (args.work_item_id || args.radicado) {
+    const named = await args.resolveWorkItem(sb, { id: args.work_item_id, radicado: args.radicado });
+    if (named.error || !named.item) return { ok: false, error: named.error ?? "Asunto no encontrado." };
+    if (named.item.id !== act.work_item_id) return { ok: false, error: "La actuaci\xF3n no pertenece al asunto indicado." };
+    note = named.note ?? null;
+  }
+  const verifications = {};
+  const urls = ownCopyCandidates(act).map((c) => c.own).filter((u) => !!u);
+  for (const u of urls.slice(0, args.maxVerify ?? 10)) {
+    verifications[u] = await verifyPdfBytes(u, args.fetchImpl);
+  }
+  const summary = summarizeActAttachments(act, verifications);
+  return {
+    ok: true,
+    data: {
+      resolucion: note,
+      work_item_id: act.work_item_id,
+      act_id: act.id,
+      act_date: act.act_date ?? null,
+      source: act.source ?? null,
+      ...summary
+    }
   };
 }
 
@@ -1216,35 +1304,26 @@ function summarizeActAttachments(act) {
 var list_act_attachments_default = defineTool18({
   name: "list_act_attachments",
   title: "Anexos de una actuaci\xF3n",
-  description: "Returns the attachment inventory of one actuaci\xF3n (CPNU/SAMAI) of the caller's matter: announced count, explicit state (no_consultado / restringido / sesion_requerida / error / disponible / sin_anexos) with its cause, and links ONLY for files Andromeda already holds. Read-only under the caller's RLS; never fetches from the court, never invents files, and a missing inventory is reported as no_consultado \u2014 never as 'sin anexos'.",
+  description: "Attachment inventory of one actuaci\xF3n of the caller's matters: announced count, verified PDFs ('1 de 6'), missing count, and an explicit state (desconocido / sin_anexos / enlaces_sin_verificar / restringido / sesion_requerida / error / inaccesible / parcial / disponible) with its cause. Only `act_id` is required; the act and its matter are both resolved under the caller's RLS. If `work_item_id` or `radicado` is given it must be the act's matter. Links are returned only for Andromeda-bucket copies whose bytes were verified as PDF. Read-only; never fetches from the court, never invents files.",
   inputSchema: {
-    work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z17.string().trim().optional().describe("Radicado en cualquier forma."),
-    act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n.")
+    act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n."),
+    work_item_id: z17.string().uuid().optional().describe("Opcional: UUID del asunto; debe ser el de la actuaci\xF3n."),
+    radicado: z17.string().trim().optional().describe("Opcional: radicado del asunto; debe ser el de la actuaci\xF3n.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, act_id }, ctx) => {
+  handler: async ({ act_id, work_item_id, radicado }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
-    if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
-    const itemId = resolved.item.id;
-    const { data: act, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, description, source, documentos, documentos_observados_en, raw_data").eq("id", act_id).maybeSingle();
-    if (error) return errorResult(error.message);
-    if (!act) return errorResult("Actuaci\xF3n no encontrada (o no pertenece a tu cuenta).");
-    if (act.work_item_id !== itemId) {
-      return errorResult("La actuaci\xF3n no pertenece al asunto indicado.");
-    }
-    const summary = summarizeActAttachments(act);
-    return textResult(`Anexos: ${summary.estado} \u2014 ${summary.causa}`, {
-      resolucion: resolved.note ?? null,
-      work_item_id: itemId,
+    const r = await getActAttachments({
+      sb: sbForUser(ctx),
+      resolveWorkItem,
+      fetchImpl: fetch,
       act_id,
-      act_date: act.act_date ?? null,
-      source: act.source ?? null,
-      ...summary
+      work_item_id,
+      radicado
     });
+    if (!r.ok) return errorResult(r.error);
+    return textResult(`Anexos: ${r.data.estado} \u2014 ${r.data.causa}`, r.data);
   }
 });
 
