@@ -522,6 +522,41 @@
         "outputSchema": null
       },
       {
+        "name": "list_act_attachments",
+        "title": "Anexos de una actuación",
+        "description": "Returns the attachment inventory of one actuación (CPNU/SAMAI) of the caller's matter: announced count, explicit state (no_consultado / restringido / sesion_requerida / error / disponible / sin_anexos) with its cause, and links ONLY for files Andromeda already holds. Read-only under the caller's RLS; never fetches from the court, never invents files, and a missing inventory is reported as no_consultado — never as 'sin anexos'.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del asunto."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado en cualquier forma."
+            },
+            "act_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la actuación."
+            }
+          },
+          "required": [
+            "act_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
         "name": "list_email_links",
         "title": "Correos vinculados al expediente",
         "description": "Lists the email metadata linked to one matter (work_item_email_links): subject, direction, sender, date, evidence type, how it was matched, confidence, attachments and the Outlook web link. Read-only; Andromeda never stores email bodies.",
