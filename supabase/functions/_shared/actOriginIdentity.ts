@@ -1,23 +1,29 @@
 /**
- * actOriginIdentity.ts — ITER70.
+ * actOriginIdentity.ts — ITER70 (rev. 2 after independent review).
  *
- * Root cause this module closes: SAMAI's read API (external, samai-read-api on
- * GCP) returns memoriales with NO `indice`, NO `fechaRegistro`, `anexos: null`
- * and no URL. Our two identity layers (canonical fingerprint = date + title
- * head, and the semantic key = date + title + fecha_registro) therefore saw two
- * different "RECIBE MEMORIALES ONLINE" filings of the same day as ONE act, and
- * the "longer anotación wins" backfill grafted solicitud B onto row A.
+ * Root cause: SAMAI's read API (external samai-read-api) returns memoriales
+ * with NO `indice`, NO `fechaRegistro`, `anexos: null` and no URL. Both identity
+ * layers (canonical fingerprint = date + title head; semantic key = date +
+ * title + fecha_registro) then saw two different "RECIBE MEMORIALES ONLINE"
+ * filings of the same day as ONE act and the "longer anotación wins" backfill
+ * grafted solicitud B onto row A.
  *
- * The provider does carry an origin identity — inside the text: the ventanilla
- * virtual "solicitud No. NNNN" and its exact radicación timestamp. We extract it
- * here, verbatim, and use it ONLY to refuse a merge between two different
- * origins. Fingerprints are never redefined (fingerprint-immutability rule):
- * when — and only when — an origin conflict is found, a versioned fingerprint
- * (`<v1>_o<hash>`) identifies the second act.
+ * The provider carries an origin identity inside the text (ventanilla virtual
+ * "solicitud No. NNNN" + exact radicación timestamp) and, sometimes, `indice`.
+ *
+ * Rules:
+ *  - v1 fingerprints are never redefined (fingerprint-immutability rule).
+ *  - Identity resolution compares ALL candidate rows that share the v1 prefix or
+ *    the semantic key, and matches by component EQUIVALENCE (any shared
+ *    component equal). A row first stored as solicitud:X keeps its fingerprint
+ *    when indice:N later appears — it is never re-keyed.
+ *  - A versioned fingerprint `<v1>_o<hash>` is minted only on INSERT of a new
+ *    origin when v1 is already taken by a different origin.
+ *  - Enrichment (origin components + attachment inventory) is independent of
+ *    the anotación length criterion.
  */
 
 export interface ActOriginIdentity {
-  /** Stable key, e.g. `indice:132`, `solicitud:3435550`. null = unknown. */
   key: string | null;
   indice: string | null;
   solicitud: string | null;
@@ -36,57 +42,85 @@ function clean(v: unknown): string | null {
   return s && s.toLowerCase() !== "null" && s.toLowerCase() !== "undefined" ? s : null;
 }
 
+/** Primary key preference: text-borne components first (present from the very
+ *  first read), indice last (may appear later). Display/diagnostic only. */
+function primaryKey(o: Omit<ActOriginIdentity, "key">): string | null {
+  if (o.solicitud) return `solicitud:${o.solicitud}`;
+  if (o.radicada_en) return `radicada:${o.radicada_en}`;
+  if (o.indice) return `indice:${o.indice}`;
+  return null;
+}
+
+function make(o: Omit<ActOriginIdentity, "key">): ActOriginIdentity {
+  return { ...o, key: primaryKey(o) };
+}
+
 export function extractActOrigin(input: {
   indice?: unknown;
   anotacion?: unknown;
   description?: unknown;
 }): ActOriginIdentity {
-  const indice = clean(input.indice);
   const text = `${clean(input.anotacion) ?? ""} ${clean(input.description) ?? ""}`;
-  const solicitud = text.match(SOLICITUD_RE)?.[1] ?? null;
-  const radicadaEn = text.match(RADICADA_EN_RE)?.[1] ?? null;
-  const key = indice
-    ? `indice:${indice}`
-    : solicitud
-      ? `solicitud:${solicitud}`
-      : radicadaEn
-        ? `radicada:${radicadaEn}`
-        : null;
-  return { key, indice, solicitud, radicada_en: radicadaEn };
+  return make({
+    indice: clean(input.indice),
+    solicitud: text.match(SOLICITUD_RE)?.[1] ?? null,
+    radicada_en: text.match(RADICADA_EN_RE)?.[1] ?? null,
+  });
 }
 
-/** Origin of an already-stored row (raw_data first, then visible text). */
+/**
+ * Origin of a stored row. The protected `description` (first text ever
+ * written) is authoritative for text components; raw_data.anotacion may be
+ * contaminated and is deliberately NOT read. Stored origen_* components are
+ * added when they do not contradict the description.
+ */
 export function originFromRow(row: {
   description?: string | null;
   raw_data?: Record<string, unknown> | null;
 }): ActOriginIdentity {
   const rd = (row.raw_data ?? {}) as Record<string, unknown>;
-  const stored = clean(rd.origen_clave);
-  if (stored) {
-    return {
-      key: stored,
-      indice: clean(rd.indice),
-      solicitud: clean(rd.origen_solicitud),
-      radicada_en: clean(rd.origen_radicada_en),
-    };
-  }
-  // The protected `description` is the first text ever written for the row —
-  // the most faithful origin. raw_data.anotacion may already be contaminated.
-  const fromDesc = extractActOrigin({ indice: rd.indice, description: row.description });
-  if (fromDesc.key) return fromDesc;
-  return extractActOrigin({ indice: rd.indice, anotacion: rd.anotacion });
+  const fromDesc = extractActOrigin({ description: row.description });
+  const storedSol = clean(rd.origen_solicitud);
+  const storedRad = clean(rd.origen_radicada_en);
+  return make({
+    indice: clean(rd.origen_indice) ?? clean(rd.indice),
+    solicitud: fromDesc.solicitud ?? storedSol,
+    radicada_en: fromDesc.radicada_en ?? storedRad,
+  });
 }
 
+export type OriginRelation = "equivalent" | "conflict" | "indeterminate";
+
 /**
- * true only when BOTH sides have an origin identity and they differ.
- * Unknown on either side is never treated as a conflict (no new duplicates
- * for providers that do not expose any origin).
+ * equivalent    — at least one shared component is equal and none differs.
+ * conflict      — at least one shared component differs.
+ * indeterminate — one side has no origin, or no component type is shared.
  */
+export function compareOrigins(a: ActOriginIdentity, b: ActOriginIdentity): OriginRelation {
+  let same = 0;
+  let diff = 0;
+  for (const k of ["indice", "solicitud", "radicada_en"] as const) {
+    if (a[k] && b[k]) {
+      if (a[k] === b[k]) same++;
+      else diff++;
+    }
+  }
+  if (diff > 0) return "conflict";
+  if (same > 0) return "equivalent";
+  return "indeterminate";
+}
+
+/** Backward-compatible helper. */
 export function originsConflict(a: ActOriginIdentity, b: ActOriginIdentity): boolean {
-  if (!a.key || !b.key) return false;
-  if (a.indice && b.indice) return a.indice !== b.indice;
-  if (a.solicitud && b.solicitud) return a.solicitud !== b.solicitud;
-  return a.key !== b.key;
+  return compareOrigins(a, b) === "conflict";
+}
+
+export function mergeOrigins(a: ActOriginIdentity, b: ActOriginIdentity): ActOriginIdentity {
+  return make({
+    indice: a.indice ?? b.indice,
+    solicitud: a.solicitud ?? b.solicitud,
+    radicada_en: a.radicada_en ?? b.radicada_en,
+  });
 }
 
 function hash32(s: string): string {
@@ -98,51 +132,114 @@ function hash32(s: string): string {
   return h.toString(16).padStart(8, "0");
 }
 
-/** Versioned fingerprint used only after an origin conflict on v1. */
+/** Versioned fingerprint minted only when inserting a new origin over a taken v1. */
 export function originVersionedFingerprint(v1: string, origin: ActOriginIdentity): string {
   if (!origin.key) return v1;
   return `${v1}_o${hash32(origin.key)}`;
 }
 
+// ─────────────── Identity resolution ───────────────
+
+export interface CandidateRow {
+  id: string;
+  hash_fingerprint: string | null;
+  semantic_key?: string | null;
+  description: string | null;
+  raw_data: Record<string, unknown> | null;
+}
+
+export type IdentityDecision =
+  | { kind: "match"; row: CandidateRow; relation: OriginRelation; via: "fingerprint" | "semantic" }
+  | { kind: "insert"; fingerprint: string; reason: "new" | "origin_conflict" };
+
+/**
+ * Decide whether `incoming` is an existing row or a new act. Candidates are the
+ * rows whose fingerprint is v1 or v1_o*, plus rows sharing the semantic key.
+ */
+export function resolveActIdentity(input: {
+  v1: string;
+  semanticKey: string | null;
+  incoming: ActOriginIdentity;
+  rows: CandidateRow[];
+}): IdentityDecision {
+  const { v1, semanticKey, incoming } = input;
+  const byFp = input.rows.filter(
+    (r) => r.hash_fingerprint === v1 || (r.hash_fingerprint ?? "").startsWith(`${v1}_o`),
+  );
+  const bySem = semanticKey
+    ? input.rows.filter((r) => r.semantic_key === semanticKey && !byFp.includes(r))
+    : [];
+  const rank = (r: CandidateRow) => (r.hash_fingerprint === v1 ? 0 : 1);
+  const fpSorted = [...byFp].sort((a, b) => rank(a) - rank(b));
+
+  for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
+    const eq = list.find((r) => compareOrigins(originFromRow(r), incoming) === "equivalent");
+    if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
+  }
+  for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
+    const ind = list.find((r) => compareOrigins(originFromRow(r), incoming) === "indeterminate");
+    if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };
+  }
+  const v1Taken = input.rows.some((r) => r.hash_fingerprint === v1);
+  const conflicted = byFp.length + bySem.length > 0;
+  return {
+    kind: "insert",
+    fingerprint: v1Taken ? originVersionedFingerprint(v1, incoming) : v1,
+    reason: conflicted ? "origin_conflict" : "new",
+  };
+}
+
 // ─────────────── Attachment inventory per act ───────────────
 
+/**
+ * desconocido      — no evidence of any document query (absence of a link
+ *                    proves nothing).
+ * sin_anexos       — the provider explicitly reported zero.
+ * enlaces_sin_verificar — descriptors with URLs exist; bytes not verified.
+ * restringido / sesion_requerida / error — ONLY from a recorded attempt.
+ * disponible / parcial — ONLY after byte verification (read side).
+ */
 export type AnexosEstado =
-  | "no_consultado"
+  | "desconocido"
+  | "sin_anexos"
+  | "enlaces_sin_verificar"
   | "restringido"
   | "sesion_requerida"
   | "error"
   | "disponible"
-  | "sin_anexos";
+  | "parcial";
+
+export interface DocumentQueryAttempt {
+  status: "restricted" | "session_required" | "error" | "ok";
+  at: string;
+  detail?: string | null;
+}
 
 export interface AnexosInventario {
-  /** Count the provider ANNOUNCED for this act. null = not announced. */
   anunciados: number | null;
-  /** Descriptors with a retrievable URL that we actually hold. */
-  enlazados: number;
+  enlaces_registrados: number;
   estado: AnexosEstado;
   causa: string;
   fuente_conteo: "campo_anexos" | "texto_actuacion" | "descriptores" | null;
+  intento: DocumentQueryAttempt | null;
 }
 
-/**
- * Explicit, honest inventory. `sin_anexos` only when the provider SAID zero;
- * a null count is never read as "no attachments".
- */
+function explicitCount(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 export function buildAnexosInventario(input: {
   anexos?: unknown;
   anotacion?: unknown;
   documentos?: Array<{ url?: string | null; gcs_url?: string | null }> | null;
-  providerError?: string | null;
-  reserved?: boolean;
+  attempt?: DocumentQueryAttempt | null;
 }): AnexosInventario {
   const text = clean(input.anotacion) ?? "";
-  const field = Number(input.anexos);
-  let anunciados: number | null = null;
-  let fuente: AnexosInventario["fuente_conteo"] = null;
-  if (input.anexos !== null && input.anexos !== undefined && Number.isFinite(field)) {
-    anunciados = field;
-    fuente = "campo_anexos";
-  } else {
+  let anunciados = explicitCount(input.anexos);
+  let fuente: AnexosInventario["fuente_conteo"] = anunciados !== null ? "campo_anexos" : null;
+  if (anunciados === null) {
     const m = text.match(ANEXOS_RE) ?? text.match(ARCHIVOS_RE);
     if (m) {
       anunciados = Number(m[1]);
@@ -150,33 +247,127 @@ export function buildAnexosInventario(input: {
     }
   }
   const docs = Array.isArray(input.documentos) ? input.documentos : null;
-  const enlazados = (docs ?? []).filter((d) => !!(d?.gcs_url || d?.url)).length;
+  const links = (docs ?? []).filter((d) => !!(d?.gcs_url || d?.url)).length;
   if (docs && anunciados === null && docs.length > 0) {
     anunciados = docs.length;
     fuente = "descriptores";
   }
+  const attempt = input.attempt ?? null;
 
   let estado: AnexosEstado;
   let causa: string;
-  if (input.reserved) {
+  if (attempt?.status === "restricted") {
     estado = "restringido";
-    causa = "Expediente o actuación con reserva; no se consultan anexos.";
-  } else if (input.providerError) {
+    causa = `Consulta registrada el ${attempt.at}: el proveedor indica reserva.${attempt.detail ? " " + attempt.detail : ""}`;
+  } else if (attempt?.status === "session_required") {
+    estado = "sesion_requerida";
+    causa = `Consulta registrada el ${attempt.at}: el proveedor exige sesión.${attempt.detail ? " " + attempt.detail : ""}`;
+  } else if (attempt?.status === "error") {
     estado = "error";
-    causa = `Error del proveedor al consultar anexos: ${input.providerError}`;
-  } else if (enlazados > 0) {
-    estado = "disponible";
-    causa = anunciados !== null && enlazados < anunciados
-      ? `Disponibles ${enlazados} de ${anunciados} anunciados.`
-      : "Anexos con enlace del proveedor.";
+    causa = `Consulta registrada el ${attempt.at} falló: ${attempt.detail ?? "sin detalle"}.`;
+  } else if (links > 0) {
+    estado = "enlaces_sin_verificar";
+    causa = anunciados !== null
+      ? `${links} de ${anunciados} anexo(s) con enlace registrado; contenido no verificado.`
+      : `${links} enlace(s) registrado(s); contenido no verificado.`;
   } else if (anunciados === 0) {
     estado = "sin_anexos";
-    causa = "El proveedor informa cero anexos.";
+    causa = fuente === "campo_anexos"
+      ? "El proveedor informa cero anexos."
+      : "El texto de la actuación informa cero anexos.";
   } else {
-    estado = "no_consultado";
+    estado = "desconocido";
     causa = anunciados
-      ? `El proveedor anuncia ${anunciados} anexo(s) pero su respuesta no trae enlaces ni descriptores; la consulta documental no se ha realizado.`
-      : "El proveedor no informa anexos ni enlaces; sin consulta documental.";
+      ? `La actuación anuncia ${anunciados} anexo(s); no hay registro de consulta documental ni enlaces.`
+      : "Sin evidencia de consulta documental para esta actuación.";
   }
-  return { anunciados, enlazados, estado, causa, fuente_conteo: fuente };
+  return { anunciados, enlaces_registrados: links, estado, causa, fuente_conteo: fuente, intento: attempt };
+}
+
+// ─────────────── Enrichment (independent of anotación length) ───────────────
+
+export interface IncomingAct {
+  actuacion: string;
+  anotacion: string | null;
+  anexos: unknown;
+  indice: unknown;
+  documentos: Array<{ url?: string | null; gcs_url?: string | null }> | null;
+}
+
+export interface EnrichmentPlan {
+  raw_data: Record<string, unknown>;
+  event_summary?: string;
+  healed_contamination: boolean;
+  anotacion_grew: boolean;
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/**
+ * Patch for a matched row. Origin components and inventory are refreshed on
+ * every match; the anotación changes only when the origins are equivalent (or
+ * the stored row carries no origin at all) and either:
+ *  - the stored anotación belongs to a DIFFERENT origin than the row's own
+ *    protected description (contamination) and the incoming one is the row's
+ *    own → restored, previous value kept for audit; or
+ *  - the incoming anotación is longer (legacy truncation backfill).
+ */
+export function planEnrichment(
+  row: CandidateRow,
+  incoming: IncomingAct,
+  relation: OriginRelation,
+  now: string = new Date().toISOString(),
+): EnrichmentPlan | null {
+  const rd = { ...(row.raw_data ?? {}) } as Record<string, unknown>;
+  const rowOrigin = originFromRow(row);
+  const inOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
+  const next: Record<string, unknown> = { ...rd };
+
+  if (relation === "equivalent" || !rowOrigin.key) {
+    const merged = mergeOrigins(rowOrigin, inOrigin);
+    next.origen_indice = merged.indice;
+    next.origen_solicitud = merged.solicitud;
+    next.origen_radicada_en = merged.radicada_en;
+    next.origen_clave = merged.key;
+  }
+
+  const prevInv = (rd.anexos_inventario ?? null) as AnexosInventario | null;
+  next.anexos_inventario = buildAnexosInventario({
+    anexos: incoming.anexos,
+    anotacion: incoming.anotacion,
+    documentos: incoming.documentos,
+    attempt: prevInv?.intento ?? null,
+  });
+
+  let healed = false;
+  let grew = false;
+  let eventSummary: string | undefined;
+  const newAnot = (incoming.anotacion ?? "").trim();
+  const oldAnot = String(rd.anotacion ?? "").trim();
+  const textAllowed = relation === "equivalent" || (!rowOrigin.key && relation === "indeterminate");
+  if (textAllowed && newAnot) {
+    const storedAnotOrigin = extractActOrigin({ anotacion: oldAnot });
+    const contaminated = rowOrigin.key !== null &&
+      compareOrigins(storedAnotOrigin, rowOrigin) === "conflict" &&
+      compareOrigins(inOrigin, rowOrigin) === "equivalent";
+    if (contaminated) {
+      next.anotacion = newAnot;
+      next.anotacion_reparada = { en: now, anterior: oldAnot, motivo: "anotacion_de_otro_origen" };
+      healed = true;
+    } else if (
+      newAnot.length > oldAnot.length ||
+      (oldAnot.endsWith("…") && newAnot.length >= oldAnot.length - 1)
+    ) {
+      next.anotacion = newAnot;
+      grew = true;
+    }
+    if (healed || grew) {
+      eventSummary = `${incoming.actuacion}${newAnot ? " - " + newAnot : ""}`.slice(0, 500);
+    }
+  }
+
+  if (same(next, rd) && !eventSummary) return null;
+  return { raw_data: next, event_summary: eventSummary, healed_contamination: healed, anotacion_grew: grew };
 }
