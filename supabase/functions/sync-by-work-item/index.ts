@@ -3347,7 +3347,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         // to ensure we report the true latest event even for deduped records
         
         // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
-        const significantEvent = detectSignificantEvent(act.actuacion, act.anotacion || '');
+        const significantEvent = rowFailed ? null : detectSignificantEvent(act.actuacion, act.anotacion || '');
         if (significantEvent) {
           // Use the event type in the fingerprint (not the whole object)
           const alertFingerprint = `alert_${work_item_id.slice(0, 8)}_${significantEvent.type}_${actDate || 'no-date'}`;
