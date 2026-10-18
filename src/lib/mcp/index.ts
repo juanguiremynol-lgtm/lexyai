@@ -16,6 +16,7 @@ import listAlerts from "./tools/list-alerts";
 import listHearings from "./tools/list-hearings";
 import listTasks from "./tools/list-tasks";
 import getDocumentUrl from "./tools/get-document-url";
+import listActAttachments from "./tools/list-act-attachments";
 import addHearing from "./tools/add-hearing";
 import listEmailLinks from "./tools/list-email-links";
 import listDetectedProcesses from "./tools/list-detected-processes";
@@ -48,7 +49,7 @@ export default defineMcp({
     "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medellín') usa `search`, que también acepta radicados con guiones, parciales y correos de despacho.",
     "Radicados: cualquier parámetro `radicado` acepta la forma con guiones, con espacios, la base de 21 dígitos, 22 dígitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electrónicos).",
-    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicación; nunca genera documentos nuevos.",
+    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicación; nunca genera documentos nuevos. `list_act_attachments` da el inventario de anexos de una actuación (estado explícito y causa; enlaces solo de copias propias). Inventario ausente = no_consultado, nunca 'sin anexos'.",
     "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buzón que aún no existen como expediente.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el día calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
@@ -80,6 +81,7 @@ export default defineMcp({
     listHearings,
     listTasks,
     getDocumentUrl,
+    listActAttachments,
     listEmailLinks,
     listDetectedProcesses,
     listClients,
