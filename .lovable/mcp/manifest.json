@@ -524,7 +524,7 @@
       {
         "name": "list_act_attachments",
         "title": "Anexos de una actuación",
-        "description": "Returns the attachment inventory of one actuación (CPNU/SAMAI) of the caller's matter: announced count, explicit state (no_consultado / restringido / sesion_requerida / error / disponible / sin_anexos) with its cause, and links ONLY for files Andromeda already holds. Read-only under the caller's RLS; never fetches from the court, never invents files, and a missing inventory is reported as no_consultado — never as 'sin anexos'.",
+        "description": "Attachment inventory of one actuación of the caller's matters: announced count, verified PDFs ('1 de 6'), missing count, and an explicit state (desconocido / sin_anexos / enlaces_sin_verificar / restringido / sesion_requerida / error / inaccesible / parcial / disponible) with its cause. Only `act_id` is required; the act and its matter are both resolved under the caller's RLS. If `work_item_id` or `radicado` is given it must be the act's matter. Links are returned only for Andromeda-bucket copies whose bytes were verified as PDF. Read-only; never fetches from the court, never invents files.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -533,19 +533,19 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "work_item_id": {
-              "type": "string",
-              "format": "uuid",
-              "description": "UUID del asunto."
-            },
-            "radicado": {
-              "type": "string",
-              "description": "Radicado en cualquier forma."
-            },
             "act_id": {
               "type": "string",
               "format": "uuid",
               "description": "UUID de la actuación."
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Opcional: UUID del asunto; debe ser el de la actuación."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Opcional: radicado del asunto; debe ser el de la actuación."
             }
           },
           "required": [

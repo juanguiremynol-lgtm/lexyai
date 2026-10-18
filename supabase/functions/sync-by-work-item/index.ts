@@ -16,7 +16,7 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
-import { extractActOrigin, originFromRow, originsConflict, originVersionedFingerprint, buildAnexosInventario } from "../_shared/actOriginIdentity.ts";
+import { extractActOrigin, resolveActIdentity, planEnrichment, buildAnexosInventario, type CandidateRow } from "../_shared/actOriginIdentity.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -2936,6 +2936,16 @@ Deno.serve(withSyncTimeline(async (req) => {
     const existingSemanticSet = new Set(existingSemanticMap.keys());
     console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc+fechaReg) tuples for semantic dedup`);
 
+    // ITER70 rev.2 — every stored act is an identity candidate (v1 prefix or
+    // semantic key); resolution happens in _shared/actOriginIdentity.ts.
+    const knownActRows: CandidateRow[] = (existingActsForDedup || []).map((a: any) => ({
+      id: a.id,
+      hash_fingerprint: a.hash_fingerprint ?? null,
+      semantic_key: `${a.act_date || ''}|${(a.description || '').split(' - ')[0].toUpperCase().trim()}|${a.fecha_registro_source || ''}|${a.recurso_consecutivo || '00'}`,
+      description: a.description ?? null,
+      raw_data: a.raw_data ?? null,
+    }));
+
     /**
      * ITER67 — a duplicated act still learns documents. CPNU materialises the
      * PDF hours or days after announcing the actuación, so skipping duplicates
@@ -3066,168 +3076,79 @@ Deno.serve(withSyncTimeline(async (req) => {
       // (…01) belongs to the SAME work item but is a distinct fact: the
       // superior's "Fijacion Estado" is not the origin court's.
       const linkage = resolveProviderLinkage(act as any, workItem.radicado ?? null);
-      let fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint, linkage.consecutivo);
+      const v1Fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint, linkage.consecutivo);
+      let fingerprint = v1Fingerprint;
 
-      // ITER70 — provider origin identity (indice / solicitud No. / radicación
-      // timestamp). Used ONLY to refuse merging two different origins.
+      // ITER70 rev.2 — identity resolution by origin EQUIVALENCE across every
+      // row that shares the v1 prefix (v1, v1_o*) or the semantic key. Stored
+      // fingerprints are never re-keyed; a versioned one is minted only on
+      // INSERT of a genuinely different origin.
       const incomingOrigin = extractActOrigin({ indice: act.indice, anotacion: act.anotacion });
-      let originConflictDetected = false;
+      const fechaRegistroVal = act.fecha_registro || '';
+      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}|${linkage.consecutivo ?? '00'}`;
+      const decision = resolveActIdentity({
+        v1: v1Fingerprint,
+        semanticKey,
+        incoming: incomingOrigin,
+        rows: knownActRows,
+      });
 
-      // Check for existing record using fingerprint (fast, indexed)
-      let { data: existing } = await supabase
-        .from('work_item_acts')
-        .select('id, description, raw_data, documentos, documentos_observados_en')
-        .eq('work_item_id', work_item_id)
-        .eq('hash_fingerprint', fingerprint)
-        .maybeSingle();
-
-      if (existing && originsConflict(originFromRow(existing as any), incomingOrigin)) {
-        // Same date+title but a different provider origin: a distinct act.
-        // Never graft it onto the existing row; use the versioned identity.
-        originConflictDetected = true;
-        const v1 = fingerprint;
-        fingerprint = originVersionedFingerprint(v1, incomingOrigin);
-        console.log(`[sync-by-work-item] ORIGIN CONFLICT on ${v1}: incoming ${incomingOrigin.key} ≠ stored — using ${fingerprint}`);
-        const { data: v2 } = await supabase
-          .from('work_item_acts')
-          .select('id, description, raw_data, documentos, documentos_observados_en')
-          .eq('work_item_id', work_item_id)
-          .eq('hash_fingerprint', fingerprint)
-          .maybeSingle();
-        existing = v2 ?? null;
-      }
-
-      if (existing) {
-        // ── ANOTACION BACKFILL ON FINGERPRINT MATCH ──
-        // A stable fingerprint collision means this is the same judicial event.
-        // Older rows may have been persisted before SAMAI started returning the
-        // full annotation. Patch only mutable enrichment fields and never touch
-        // `description`, which is protected by protect_core_fields_work_item_acts.
-        const newAnot = String(act.anotacion || '').trim();
-        const oldAnot = String(((existing as any).raw_data as any)?.anotacion || '').trim();
-        const shouldBackfillByFingerprint = newAnot && (
-          newAnot.length > oldAnot.length ||
-          (oldAnot.length > 0 && oldAnot.endsWith('…') && newAnot.length >= oldAnot.length - 1)
-        );
-
-        if (shouldBackfillByFingerprint) {
-          const mergedRaw: Record<string, unknown> = {
-            ...(((existing as any).raw_data as Record<string, unknown> | null) || {}),
-            actuacion: act.actuacion,
-            anotacion: newAnot,
-            fecha_registro: act.fecha_registro,
-            estado: act.estado,
-            anexos: act.anexos,
-            indice: act.indice,
-            documentos: act.documentos,
-            instancia: act.instancia,
-            fecha_inicia_termino: act.fecha_inicia_termino,
-            fecha_finaliza_termino: act.fecha_finaliza_termino,
-            anexos_inventario: buildAnexosInventario({ anexos: act.anexos, anotacion: newAnot, documentos: normalizeActDocumentos((act as any).documentos) }),
-            origen_clave: incomingOrigin.key,
-            origen_solicitud: incomingOrigin.solicitud,
-            origen_radicada_en: incomingOrigin.radicada_en,
+      if (decision.kind === 'match') {
+        const matched = decision.row;
+        const plan = planEnrichment(matched, {
+          actuacion: act.actuacion,
+          anotacion: act.anotacion ?? null,
+          anexos: act.anexos,
+          indice: act.indice,
+          documentos: normalizeActDocumentos((act as any).documentos),
+        }, decision.relation);
+        if (plan) {
+          const rawPatch: Record<string, unknown> = { ...plan.raw_data };
+          // Provider scalar fields refresh only when the provider expresses them.
+          for (const k of ['fecha_registro', 'estado', 'anexos', 'indice', 'instancia'] as const) {
+            const v = (act as any)[k];
+            if (v !== undefined && v !== null && v !== '' && decision.relation !== 'conflict') rawPatch[k] = v;
+          }
+          const update: Record<string, unknown> = {
+            raw_data: rawPatch,
+            last_seen_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           };
-          const newEventSummary = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`.slice(0, 500);
-          const { error: fingerprintBackfillErr } = await supabase
+          if (plan.event_summary) update.event_summary = plan.event_summary;
+          const { error: enrichErr } = await supabase
             .from('work_item_acts')
-            .update({
-              raw_data: mergedRaw,
-              event_summary: newEventSummary,
-              last_seen_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', (existing as any).id);
-          if (fingerprintBackfillErr) {
-            console.warn(`[sync-by-work-item] ⚠️ fingerprint anotacion backfill failed for ${(existing as any).id}:`, fingerprintBackfillErr.message);
+            .update(update)
+            .eq('id', matched.id);
+          if (enrichErr) {
+            console.warn(`[sync-by-work-item] ⚠️ enrichment failed for ${matched.id}: ${enrichErr.message}`);
           } else {
-            console.log(`[sync-by-work-item] ✅ fingerprint anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${(existing as any).id} — no new alert`);
+            matched.raw_data = rawPatch;
+            console.log(`[sync-by-work-item] ✅ act ${matched.id} enriched via ${decision.via} (${decision.relation})${plan.healed_contamination ? ' — anotación de otro origen restaurada' : ''}${plan.anotacion_grew ? ' — anotación ampliada' : ''}`);
           }
         }
-        // ITER67 — a duplicated act may still have LEARNED documents upstream.
+        const docRow = (existingActsForDedup || []).find((a: any) => a.id === matched.id) as any;
         await applyDocumentosEnrichment(
-          (existing as any).id,
-          (existing as any).documentos ?? null,
-          (existing as any).documentos_observados_en ?? null,
+          matched.id,
+          docRow?.documentos ?? null,
+          docRow?.documentos_observados_en ?? null,
           act,
         );
         result.skipped_count++;
         continue;
       }
 
-      // ============= SEMANTIC DEDUP: Check date + normalized description + fecha_registro =============
-      // Catches SAMAI variants where annotation text differs slightly
-      // BUT preserves records with same date+title when fecha_registro differs
-      const fechaRegistroVal = act.fecha_registro || '';
-      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}|${linkage.consecutivo ?? '00'}`;
-      const semanticRowForOrigin = existingSemanticMap.get(semanticKey);
-      if (!originConflictDetected && semanticRowForOrigin &&
-          originsConflict(originFromRow(semanticRowForOrigin as any), incomingOrigin)) {
-        originConflictDetected = true;
-        console.log(`[sync-by-work-item] ORIGIN CONFLICT (semantic) "${act.actuacion}" ${actDate}: ${incomingOrigin.key} is a distinct act`);
+      fingerprint = decision.fingerprint;
+      if (decision.reason === 'origin_conflict') {
+        console.log(`[sync-by-work-item] ORIGIN CONFLICT "${act.actuacion}" ${actDate}: ${incomingOrigin.key} is a distinct act → ${fingerprint}`);
       }
-      if (!originConflictDetected && existingSemanticSet.has(semanticKey)) {
-        // ── ANOTACION BACKFILL ──
-        // Existing row was persisted before samai-read-api served the full
-        // annotation. If the incoming feed carries a longer, non-empty
-        // anotacion, patch raw_data/description in place. Never insert a
-        // duplicate row (would create a spurious novedad/alert).
-        const existingRow = existingSemanticMap.get(semanticKey);
-        const newAnot = String(act.anotacion || '').trim();
-        const oldAnot = String((existingRow?.raw_data as any)?.anotacion || '').trim();
-        const shouldBackfill = existingRow && newAnot && (
-          newAnot.length > oldAnot.length ||
-          (oldAnot.length > 0 && oldAnot.endsWith('…') && newAnot.length >= oldAnot.length - 1)
-        );
-        if (shouldBackfill) {
-          const mergedRaw: Record<string, unknown> = {
-            ...(existingRow!.raw_data || {}),
-            actuacion: act.actuacion,
-            anotacion: newAnot,
-            fecha_registro: act.fecha_registro,
-            estado: act.estado,
-            anexos: act.anexos,
-            indice: act.indice,
-            documentos: act.documentos,
-            instancia: act.instancia,
-            fecha_inicia_termino: act.fecha_inicia_termino,
-            fecha_finaliza_termino: act.fecha_finaliza_termino,
-            anexos_inventario: buildAnexosInventario({ anexos: act.anexos, anotacion: newAnot, documentos: normalizeActDocumentos((act as any).documentos) }),
-            origen_clave: incomingOrigin.key,
-            origen_solicitud: incomingOrigin.solicitud,
-            origen_radicada_en: incomingOrigin.radicada_en,
-          };
-          const newDescription = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`;
-          const { error: backfillErr } = await supabase
-            .from('work_item_acts')
-            .update({
-              raw_data: mergedRaw,
-              event_summary: newDescription.slice(0, 500),
-              last_seen_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingRow!.id);
-          if (backfillErr) {
-            console.warn(`[sync-by-work-item] ⚠️ anotacion backfill failed for ${existingRow!.id}:`, backfillErr.message);
-          } else {
-            console.log(`[sync-by-work-item] ✅ anotacion backfilled (${oldAnot.length}→${newAnot.length} chars) for act ${existingRow!.id} — no new alert`);
-          }
-        } else {
-          console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} reg=${fechaRegistroVal} (already exists with different fingerprint)`);
-        }
-        if (existingRow) {
-          await applyDocumentosEnrichment(
-            existingRow.id,
-            existingRow.documentos ?? null,
-            existingRow.documentos_observados_en ?? null,
-            act,
-          );
-        }
-        result.skipped_count++;
-        continue;
-      }
-      // Add to set to prevent intra-batch duplicates too
-      existingSemanticSet.add(semanticKey);
+      // Intra-batch: later items in this run must see this act as a candidate.
+      knownActRows.push({
+        id: `pending:${fingerprint}`,
+        hash_fingerprint: fingerprint,
+        semantic_key: semanticKey,
+        description: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
+        raw_data: { origen_indice: incomingOrigin.indice, origen_solicitud: incomingOrigin.solicitud, origen_radicada_en: incomingOrigin.radicada_en },
+      });
 
       // Build description from actuacion + anotacion
       const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;
@@ -3267,6 +3188,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         fecha_finaliza_termino: act.fecha_finaliza_termino,
         // ITER70 — origin identity + explicit per-act attachment inventory.
         origen_clave: incomingOrigin.key,
+        origen_indice: incomingOrigin.indice,
         origen_solicitud: incomingOrigin.solicitud,
         origen_radicada_en: incomingOrigin.radicada_en,
         anexos_inventario: buildAnexosInventario({
