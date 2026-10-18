@@ -16,7 +16,12 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
-import { extractActOrigin, resolveActIdentity, planEnrichment, buildAnexosInventario, type CandidateRow } from "../_shared/actOriginIdentity.ts";
+import { extractActOrigin, resolveActIdentity, planEnrichment, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
+import { loadAllActiveActs, resolvePersistedAct, ActDocState } from "../_shared/actBatchState.ts";
+
+// ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
+// It is enabled only by an approved, backed-up repair naming explicit act ids.
+const HISTORICAL_REPAIR_SCOPE: HistoricalRepairScope | null = null;
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -2893,11 +2898,13 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
     // This prevents SAMAI duplicates where the same court event produces slightly different
     // annotation text across scraping runs, resulting in different fingerprints.
-    const { data: existingActsForDedup } = await supabase
-      .from('work_item_acts')
-      .select('id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en')
-      .eq('work_item_id', work_item_id)
-      .eq('is_archived', false);
+    // ITER70 rev.3 — complete paginated read; any error aborts the sync
+    // explicitly (identity resolution must never run on a partial set).
+    const existingActsForDedup: any[] = await loadAllActiveActs(supabase, work_item_id);
+    const docState = new ActDocState();
+    for (const a of existingActsForDedup) {
+      docState.set(a.id, { documentos: a.documentos ?? null, documentos_observados_en: a.documentos_observados_en ?? null });
+    }
 
     // Map keyed by semantic tuple so we can UPDATE existing rows when the
     // provider now delivers a longer/better anotacion than what we stored.
@@ -2971,6 +2978,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (docErr) {
         console.warn(`[sync-by-work-item] ⚠️ documentos enrichment failed for ${actId}: ${docErr.message}`);
       } else {
+        docState.set(actId, { documentos: patch.documentos, documentos_observados_en: (patch as any).documentos_observados_en ?? existingObservedAt });
         console.log(`[sync-by-work-item] ✅ documentos enriched for act ${actId} (${patch.documentos.length} descriptor(s))`);
       }
     };
@@ -3101,7 +3109,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           anexos: act.anexos,
           indice: act.indice,
           documentos: normalizeActDocumentos((act as any).documentos),
-        }, decision.relation);
+        }, decision.relation, undefined, { provider: (act as any)._source || fetchResult.provider, repair: HISTORICAL_REPAIR_SCOPE });
         if (plan) {
           const rawPatch: Record<string, unknown> = { ...plan.raw_data };
           // Provider scalar fields refresh only when the provider expresses them.
@@ -3126,13 +3134,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             console.log(`[sync-by-work-item] ✅ act ${matched.id} enriched via ${decision.via} (${decision.relation})${plan.healed_contamination ? ' — anotación de otro origen restaurada' : ''}${plan.anotacion_grew ? ' — anotación ampliada' : ''}`);
           }
         }
-        const docRow = (existingActsForDedup || []).find((a: any) => a.id === matched.id) as any;
-        await applyDocumentosEnrichment(
-          matched.id,
-          docRow?.documentos ?? null,
-          docRow?.documentos_observados_en ?? null,
-          act,
-        );
+        const eff = docState.get(matched.id);
+        await applyDocumentosEnrichment(matched.id, eff.documentos, eff.documentos_observados_en, act);
         result.skipped_count++;
         continue;
       }
@@ -3141,14 +3144,6 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (decision.reason === 'origin_conflict') {
         console.log(`[sync-by-work-item] ORIGIN CONFLICT "${act.actuacion}" ${actDate}: ${incomingOrigin.key} is a distinct act → ${fingerprint}`);
       }
-      // Intra-batch: later items in this run must see this act as a candidate.
-      knownActRows.push({
-        id: `pending:${fingerprint}`,
-        hash_fingerprint: fingerprint,
-        semantic_key: semanticKey,
-        description: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
-        raw_data: { origen_indice: incomingOrigin.indice, origen_solicitud: incomingOrigin.solicitud, origen_radicada_en: incomingOrigin.radicada_en },
-      });
 
       // Build description from actuacion + anotacion
       const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;
@@ -3308,7 +3303,34 @@ Deno.serve(withSyncTimeline(async (req) => {
           );
         }
 
-        if (counts.inserted_count > 0) {
+        // ITER70 rev.3 — intra-batch candidate registered ONLY after a confirmed
+        // write, with the REAL row id read back by fingerprint.
+        const confirmedWrite = (counts.inserted_count || 0) > 0 || (counts.updated_count || 0) > 0;
+        const rowFailed = !confirmedWrite && ((counts.error_count || 0) > 0 || (counts.rejected_count || 0) > 0);
+        if (confirmedWrite) {
+          try {
+            const persisted = await resolvePersistedAct(supabase, work_item_id, fingerprint);
+            if (persisted) {
+              knownActRows.push({
+                id: persisted.id,
+                hash_fingerprint: fingerprint,
+                semantic_key: semanticKey,
+                description: persisted.description,
+                raw_data: persisted.raw_data,
+              });
+              docState.set(persisted.id, { documentos: persisted.documentos, documentos_observados_en: persisted.documentos_observados_en });
+            } else {
+              result.errors.push(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)})`);
+            }
+          } catch (rbErr) {
+            result.errors.push((rbErr as Error).message);
+          }
+        }
+
+        if (rowFailed) {
+          // Not a success and not a normal duplicate skip.
+          result.errors.push(`Act not persisted (fp ${fingerprint.slice(0, 12)}): ${(counts.errors || []).join('; ').slice(0, 300) || 'rejected/error'}`);
+        } else if (counts.inserted_count > 0) {
           result.inserted_count++;
           attemptedFingerprints.push(fingerprint);
         } else if (counts.updated_count > 0) {
@@ -3318,7 +3340,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         } else {
           result.skipped_count++;
         }
-        if (counts.errors && counts.errors.length > 0) {
+        if (!rowFailed && counts.errors && counts.errors.length > 0) {
           result.errors.push(...counts.errors);
         }
         // Note: latestDate is now calculated from ALL fetched actuaciones (before insert loop)
