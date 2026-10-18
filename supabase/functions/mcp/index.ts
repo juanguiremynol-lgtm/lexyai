@@ -1326,7 +1326,7 @@ async function getActAttachments(args) {
 var list_act_attachments_default = defineTool18({
   name: "list_act_attachments",
   title: "Anexos de una actuaci\xF3n",
-  description: "Attachment inventory of one actuaci\xF3n of the caller's matters: announced count, verified PDFs ('1 de 6'), missing count, and an explicit state (desconocido / sin_anexos / enlaces_sin_verificar / restringido / sesion_requerida / error / inaccesible / parcial / disponible) with its cause. Only `act_id` is required; the act and its matter are both resolved under the caller's RLS. If `work_item_id` or `radicado` is given it must be the act's matter. Links are returned only for Andromeda-bucket copies whose bytes were verified as PDF. Read-only; never fetches from the court, never invents files.",
+  description: "Attachment inventory of one actuaci\xF3n of the caller's matters: announced count, header-checked PDFs ('1 de 6'), missing count, and an explicit state (desconocido / sin_anexos / enlaces_sin_verificar / restringido / sesion_requerida / error / inaccesible / parcial / disponible) with its cause. Only `act_id` is required; the act and its matter are both resolved under the caller's RLS. If `work_item_id` or `radicado` is given it must be the act's matter. Links are returned only for Andromeda-bucket copies whose first bytes carry a PDF header (header check only, not full-file integrity). Read-only; never fetches from the court, never invents files.",
   inputSchema: {
     act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n."),
     work_item_id: z17.string().uuid().optional().describe("Opcional: UUID del asunto; debe ser el de la actuaci\xF3n."),
