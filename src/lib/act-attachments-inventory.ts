@@ -49,16 +49,42 @@ export type VerificationResult =
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Reads at most 1 KiB; never follows redirects off the bucket. */
+export const PDF_HEADER_READ_LIMIT = 1024;
+
+/**
+ * HEADER check only: confirms the object is reachable and starts with the
+ * `%PDF-` magic bytes. It does NOT verify the full file's integrity. Reads at
+ * most PDF_HEADER_READ_LIMIT bytes from the stream even if the server ignores
+ * Range, then cancels the body. Never follows redirects off the bucket.
+ */
 export async function verifyPdfBytes(url: string, fetchImpl: FetchLike, timeoutMs = 8000): Promise<VerificationResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(url, { method: "GET", headers: { Range: "bytes=0-1023" }, redirect: "manual", signal: ctrl.signal });
-    if (res.status !== 200 && res.status !== 206) return { status: "inaccesible", http: res.status };
-    const buf = new Uint8Array(await res.arrayBuffer()).slice(0, 5);
-    const head = String.fromCharCode(...buf);
-    return head === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
+    const res = await fetchImpl(url, { method: "GET", headers: { Range: `bytes=0-${PDF_HEADER_READ_LIMIT - 1}` }, redirect: "manual", signal: ctrl.signal });
+    if (res.status !== 200 && res.status !== 206) {
+      await res.body?.cancel().catch(() => {});
+      return { status: "inaccesible", http: res.status };
+    }
+    const head = new Uint8Array(PDF_HEADER_READ_LIMIT);
+    let got = 0;
+    const reader = res.body?.getReader();
+    if (reader) {
+      try {
+        while (got < 5) {
+          const { done, value } = await reader.read();
+          if (done || !value) break;
+          const take = Math.min(value.length, PDF_HEADER_READ_LIMIT - got);
+          head.set(value.subarray(0, take), got);
+          got += take;
+          if (got >= PDF_HEADER_READ_LIMIT) break;
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+      }
+    }
+    const magic = String.fromCharCode(...head.subarray(0, Math.min(got, 5)));
+    return magic === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
   } catch (e) {
     return { status: "error_red", detail: (e as Error).message };
   } finally {

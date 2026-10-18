@@ -64,3 +64,8 @@ Missing Y acts are NOT created by SQL — they come from the provider via sync.
 ## Alert 3b5d9a80 (title "Medida cautelar ordenada")
 Optional retitle to "Actuación relacionada con medida cautelar" with the old
 title saved in payload; separate approval.
+
+## Rev.3 (2026-10-18) — repair is gated
+- Normal sync NEVER repairs contaminated history: `HISTORICAL_REPAIR_SCOPE = null` in sync-by-work-item.
+- Ruta 1 now requires an explicit, approved change setting `{ provider: "samai", approvedActIds: {eb26e63c…, afc43437…, 26436831…, f148bbab…} }`, deployed only AFTER the backup table `_iter70_samai_origin_backup` is created and validated, then reverted to `null`.
+- Ruta 2 (SQL) unchanged. Neither route has been executed.

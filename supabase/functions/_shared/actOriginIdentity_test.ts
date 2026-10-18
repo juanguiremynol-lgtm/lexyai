@@ -7,6 +7,7 @@ import {
   planEnrichment,
   resolveActIdentity,
   type CandidateRow,
+  type HistoricalRepairScope,
 } from "./actOriginIdentity.ts";
 import { normalizeSamaiActuaciones } from "./providerAdapters/samaiAdapter.ts";
 import { canonicalActFingerprint } from "./canonicalFingerprint.ts";
@@ -51,7 +52,7 @@ Deno.test("origin: stored row reads protected description, not contaminated anot
 
 interface StoredRow extends CandidateRow { event_summary: string }
 
-function syncOnce(store: StoredRow[], payload: Array<Record<string, unknown>>) {
+function syncOnce(store: StoredRow[], payload: Array<Record<string, unknown>>, repair: HistoricalRepairScope | null = null) {
   const counts = { inserted: 0, matched: 0, healed: 0 };
   const acts = normalizeSamaiActuaciones(payload);
   for (const act of acts) {
@@ -62,7 +63,7 @@ function syncOnce(store: StoredRow[], payload: Array<Record<string, unknown>>) {
     if (d.kind === "match") {
       const plan = planEnrichment(d.row, {
         actuacion: act.actuacion, anotacion: act.anotacion, anexos: act.anexos_count, indice: act.indice, documentos: null,
-      }, d.relation, "2026-10-18T00:00:00Z");
+      }, d.relation, "2026-10-18T00:00:00Z", { provider: "samai", repair });
       if (plan) {
         d.row.raw_data = plan.raw_data;
         if (plan.event_summary) (d.row as StoredRow).event_summary = plan.event_summary;
@@ -128,7 +129,7 @@ Deno.test("sync: inverted order B then A → same 2 acts, no duplicates on resyn
   assertEquals(store.length, 2);
 });
 
-Deno.test("sync: contaminated real row f148bbab (desc A, anotacion B) is healed despite A shorter", () => {
+Deno.test("sync: contaminated history is NOT repaired by default (no text change, no novedad)", () => {
   const v1 = canonicalActFingerprint({ work_item_id: WI, act_date: "2026-10-16", actuacion: TITLE, party_hint: null });
   const store: StoredRow[] = [{
     id: "f148bbab", hash_fingerprint: v1, semantic_key: `2026-10-16|${TITLE}||00`,
@@ -136,6 +137,31 @@ Deno.test("sync: contaminated real row f148bbab (desc A, anotacion B) is healed 
     raw_data: { actuacion: TITLE, anotacion: B },
   }];
   const c = syncOnce(store, [item(A), item(B)]);
+  assertEquals(c.healed, 0);
+  const f = store.find((r) => r.id === "f148bbab")!;
+  assertEquals(f.raw_data!.anotacion, B);
+  assertEquals(f.raw_data!.anotacion_reparada, undefined);
+  assertEquals(f.event_summary, `${TITLE} - ${B}`.slice(0, 500));
+});
+
+Deno.test("sync: repair scope for another provider or unapproved row does nothing", () => {
+  const v1 = canonicalActFingerprint({ work_item_id: WI, act_date: "2026-10-16", actuacion: TITLE, party_hint: null });
+  const row = { id: "f148bbab", hash_fingerprint: v1, description: `${TITLE} - ${A}`, raw_data: { anotacion: B } };
+  const inc = { actuacion: TITLE, anotacion: A, anexos: null, indice: null, documentos: null };
+  const scope = { provider: "samai" as const, approvedActIds: new Set(["f148bbab"]) };
+  assertEquals(planEnrichment(row, inc, "equivalent", "t", { provider: "cpnu", repair: scope })?.healed_contamination ?? false, false);
+  assertEquals(planEnrichment(row, inc, "equivalent", "t", { provider: "samai", repair: { provider: "samai", approvedActIds: new Set(["other"]) } })?.healed_contamination ?? false, false);
+  assertEquals(planEnrichment(row, inc, "equivalent", "t", { provider: "samai", repair: scope })?.healed_contamination, true);
+});
+
+Deno.test("sync: contaminated real row f148bbab (desc A, anotacion B) is healed ONLY with approved SAMAI scope", () => {
+  const v1 = canonicalActFingerprint({ work_item_id: WI, act_date: "2026-10-16", actuacion: TITLE, party_hint: null });
+  const store: StoredRow[] = [{
+    id: "f148bbab", hash_fingerprint: v1, semantic_key: `2026-10-16|${TITLE}||00`,
+    description: `${TITLE} - ${A}`, event_summary: `${TITLE} - ${B}`.slice(0, 500),
+    raw_data: { actuacion: TITLE, anotacion: B },
+  }];
+  const c = syncOnce(store, [item(A), item(B)], { provider: "samai", approvedActIds: new Set(["f148bbab"]) });
   assertEquals(c.healed, 1);
   assertEquals(c.inserted, 1); // B becomes its own row
   const f = store.find((r) => r.id === "f148bbab")!;

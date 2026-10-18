@@ -107,3 +107,23 @@ describe("MCP core isolation", () => {
     expect(r).toEqual({ ok: false, error: "La actuación no pertenece al asunto indicado." });
   });
 });
+
+describe("verifyPdfBytes header-only stream limit", () => {
+  it("reads at most the header limit and cancels when the server ignores Range", async () => {
+    const { verifyPdfBytes, PDF_HEADER_READ_LIMIT } = await import("@/lib/act-attachments-inventory");
+    let pulled = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(64 * 1024);
+    chunk.set([0x25, 0x50, 0x44, 0x46, 0x2d]);
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) { pulled += chunk.length; c.enqueue(chunk); }, // endless 200 body
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const res = new Response(body, { status: 200 });
+    const r = await verifyPdfBytes("https://storage.googleapis.com/andromeda-cpnu-documentos-2026/a.pdf", async () => res);
+    expect(r).toEqual({ status: "pdf", http: 200 });
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThanOrEqual(2 * chunk.length);
+    expect(PDF_HEADER_READ_LIMIT).toBe(1024);
+  });
+});
