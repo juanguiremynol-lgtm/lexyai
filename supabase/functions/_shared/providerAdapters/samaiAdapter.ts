@@ -365,6 +365,22 @@ async function buscarWithPolling(
  * Normalize raw SAMAI actuaciones into NormalizedActuacion[].
  * SAMAI field names: fechaActuacion, actuacion, anotacion, fechaRegistro, estado, anexos, indice
  */
+function samaiDocumentos(act: Record<string, unknown>): { documentos?: Array<Record<string, unknown>> } {
+  const gcs = typeof act.gcs_url === 'string' && act.gcs_url.trim() ? act.gcs_url.trim() : null;
+  const pdf = typeof act.pdf_url === 'string' && act.pdf_url.trim() ? act.pdf_url.trim() : null;
+  const desc = typeof act.url_descarga === 'string' && act.url_descarga.trim() ? act.url_descarga.trim() : null;
+  if (!gcs && !pdf && !desc) return {};
+  return {
+    documentos: [{
+      id: (act.hash_documento as string) ?? null,
+      gcs_url: gcs ?? (pdf && /storage\.googleapis\.com/i.test(pdf) ? pdf : null),
+      url: gcs ?? pdf ?? null,
+      url_origen: desc,
+      nombre: null,
+    }],
+  };
+}
+
 export function normalizeSamaiActuaciones(
   rawActuaciones: Array<Record<string, unknown>>,
   options: {
@@ -454,6 +470,9 @@ export function normalizeSamaiActuaciones(
       estado,
       anexos_count: anexosCount,
       indice,
+      // ITER70 — only a REAL provider URL becomes a descriptor. Null URL
+      // fields stay "not observed" (never flattened to [] = "no anexos").
+      ...samaiDocumentos(act as Record<string, unknown>),
       raw_data: rawEnriched,
     };
   });

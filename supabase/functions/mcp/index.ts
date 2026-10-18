@@ -1172,19 +1172,95 @@ var get_document_url_default = defineTool17({
   }
 });
 
-// src/lib/mcp/tools/add-hearing.ts
+// src/lib/mcp/tools/list-act-attachments.ts
 import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z17 } from "npm:zod@^3.25.76";
-var add_hearing_default = defineTool18({
+
+// src/lib/act-attachments-inventory.ts
+var OWN_COPY = /^https:\/\/storage\.googleapis\.com\//i;
+function summarizeActAttachments(act) {
+  const rd = act.raw_data ?? {};
+  const inv = rd.anexos_inventario ?? null;
+  const docs = Array.isArray(act.documentos) ? act.documentos : null;
+  const archivos = (docs ?? []).map((d) => {
+    const own = [d.gcs_url, d.url].find((u) => typeof u === "string" && OWN_COPY.test(u));
+    return { nombre: d.nombre ?? null, url: own ?? null, disponible: !!own };
+  });
+  const enlazados = archivos.filter((a) => a.disponible).length;
+  let estado;
+  let causa;
+  if (enlazados > 0) {
+    estado = "disponible";
+    causa = `${enlazados} archivo(s) con copia en Andromeda.`;
+  } else if (inv?.estado && inv.estado !== "disponible") {
+    estado = inv.estado;
+    causa = inv.causa ?? "";
+  } else if (docs && docs.length === 0 && act.documentos_observados_en) {
+    estado = "sin_anexos";
+    causa = "El proveedor inform\xF3 cero documentos para esta actuaci\xF3n.";
+  } else {
+    estado = "no_consultado";
+    causa = docs === null ? "Sin inventario documental registrado; la consulta de anexos no se ha realizado." : "El proveedor anunci\xF3 documentos sin enlace descargable.";
+  }
+  return {
+    estado,
+    causa,
+    anunciados: inv?.anunciados ?? (docs ? docs.length : null),
+    enlazados,
+    archivos: archivos.filter((a) => a.disponible),
+    observado_en: act.documentos_observados_en ?? null
+  };
+}
+
+// src/lib/mcp/tools/list-act-attachments.ts
+var list_act_attachments_default = defineTool18({
+  name: "list_act_attachments",
+  title: "Anexos de una actuaci\xF3n",
+  description: "Returns the attachment inventory of one actuaci\xF3n (CPNU/SAMAI) of the caller's matter: announced count, explicit state (no_consultado / restringido / sesion_requerida / error / disponible / sin_anexos) with its cause, and links ONLY for files Andromeda already holds. Read-only under the caller's RLS; never fetches from the court, never invents files, and a missing inventory is reported as no_consultado \u2014 never as 'sin anexos'.",
+  inputSchema: {
+    work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z17.string().trim().optional().describe("Radicado en cualquier forma."),
+    act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n.")
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, radicado, act_id }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
+    if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    const itemId = resolved.item.id;
+    const { data: act, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, description, source, documentos, documentos_observados_en, raw_data").eq("id", act_id).maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!act) return errorResult("Actuaci\xF3n no encontrada (o no pertenece a tu cuenta).");
+    if (act.work_item_id !== itemId) {
+      return errorResult("La actuaci\xF3n no pertenece al asunto indicado.");
+    }
+    const summary = summarizeActAttachments(act);
+    return textResult(`Anexos: ${summary.estado} \u2014 ${summary.causa}`, {
+      resolucion: resolved.note ?? null,
+      work_item_id: itemId,
+      act_id,
+      act_date: act.act_date ?? null,
+      source: act.source ?? null,
+      ...summary
+    });
+  }
+});
+
+// src/lib/mcp/tools/add-hearing.ts
+import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z18 } from "npm:zod@^3.25.76";
+var add_hearing_default = defineTool19({
   name: "add_hearing",
   title: "Agendar audiencia",
   description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
-    work_item_id: z17.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z17.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
-    date: z17.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
-    description: z17.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
-    location: z17.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
+    work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
+    date: z18.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
+    description: z18.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
+    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
@@ -1218,17 +1294,17 @@ var add_hearing_default = defineTool18({
 });
 
 // src/lib/mcp/tools/list-email-links.ts
-import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z18 } from "npm:zod@^3.25.76";
-var list_email_links_default = defineTool19({
+import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z19 } from "npm:zod@^3.25.76";
+var list_email_links_default = defineTool20({
   name: "list_email_links",
   title: "Correos vinculados al expediente",
   description: "Lists the email metadata linked to one matter (work_item_email_links): subject, direction, sender, date, evidence type, how it was matched, confidence, attachments and the Outlook web link. Read-only; Andromeda never stores email bodies.",
   inputSchema: {
-    work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z18.string().trim().optional().describe("Radicado del asunto (alternativa al UUID)."),
-    status: z18.enum(["CONFIRMED", "SUGGESTED", "DISMISSED", "ALL"]).optional().describe("Estado del v\xEDnculo. Default: CONFIRMED + SUGGESTED."),
-    limit: z18.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
+    work_item_id: z19.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z19.string().trim().optional().describe("Radicado del asunto (alternativa al UUID)."),
+    status: z19.enum(["CONFIRMED", "SUGGESTED", "DISMISSED", "ALL"]).optional().describe("Estado del v\xEDnculo. Default: CONFIRMED + SUGGESTED."),
+    limit: z19.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
@@ -1260,15 +1336,15 @@ var list_email_links_default = defineTool19({
 });
 
 // src/lib/mcp/tools/list-detected-processes.ts
-import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z19 } from "npm:zod@^3.25.76";
-var list_detected_processes_default = defineTool20({
+import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z20 } from "npm:zod@^3.25.76";
+var list_detected_processes_default = defineTool21({
   name: "list_detected_processes",
   title: "Procesos detectados en el correo",
   description: "Lists judicial case numbers (radicados) found in the caller's mailbox that do NOT exist in their Andromeda portfolio yet (detected_processes queue). Use it to help the lawyer triage which ones deserve a matter. Read-only: creating the matter always happens in the app.",
   inputSchema: {
-    status: z19.enum(["PENDING", "DISMISSED", "CREATED", "ALL"]).optional().describe("Estado de la detecci\xF3n. Default: PENDING."),
-    limit: z19.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+    status: z20.enum(["PENDING", "DISMISSED", "CREATED", "ALL"]).optional().describe("Estado de la detecci\xF3n. Default: PENDING."),
+    limit: z20.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ status, limit }, ctx) => {
@@ -1296,8 +1372,8 @@ var list_detected_processes_default = defineTool20({
 });
 
 // src/lib/mcp/tools/atenia-health-overview.ts
-import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
-var atenia_health_overview_default = defineTool21({
+import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_health_overview_default = defineTool22({
   name: "atenia_health_overview",
   title: "Atenia \xB7 Salud de la plataforma (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Returns the current Andromeda platform health snapshot: latest Atenia preflight verdict, service heartbeats and the last cron runs. Non-admin callers get a clean refusal.",
@@ -1329,8 +1405,8 @@ var atenia_health_overview_default = defineTool21({
 });
 
 // src/lib/mcp/tools/atenia-provider-status.ts
-import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
-var atenia_provider_status_default = defineTool22({
+import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_provider_status_default = defineTool23({
   name: "atenia_provider_status",
   title: "Atenia \xB7 Estado de proveedores judiciales (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Per-provider status from the latest Atenia preflight run (CPNU, SAMAI, Publicaciones Procesales, SAMAI Estados), including consecutive failures. Non-admin callers get a clean refusal.",
@@ -1360,15 +1436,15 @@ var atenia_provider_status_default = defineTool22({
 });
 
 // src/lib/mcp/tools/atenia-recent-incidents.ts
-import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z20 } from "npm:zod@^3.25.76";
-var atenia_recent_incidents_default = defineTool23({
+import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z21 } from "npm:zod@^3.25.76";
+var atenia_recent_incidents_default = defineTool24({
   name: "atenia_recent_incidents",
   title: "Atenia \xB7 Incidentes recientes (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Lists WARN/ERROR system health events and failed cron runs in the last N days (default 7). Non-admin callers get a clean refusal.",
   inputSchema: {
-    days: z20.number().int().min(1).max(90).optional().describe("Ventana en d\xEDas (default 7)."),
-    limit: z20.number().int().min(1).max(200).optional().describe("M\xE1ximo de eventos (default 100).")
+    days: z21.number().int().min(1).max(90).optional().describe("Ventana en d\xEDas (default 7)."),
+    limit: z21.number().int().min(1).max(200).optional().describe("M\xE1ximo de eventos (default 100).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ days, limit }, ctx) => {
@@ -1396,7 +1472,7 @@ var atenia_recent_incidents_default = defineTool23({
 });
 
 // src/lib/mcp/tools/list-app-screens.ts
-import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
 var BASE = "https://andromeda.legal";
 var SCREENS = [
   { path: "/app/dashboard", nombre: "Tablero", para: "Resumen del d\xEDa: novedades, tableros por tipo de proceso y pendientes." },
@@ -1423,7 +1499,7 @@ var SCREENS = [
   { path: "/app/connect", nombre: "Conectar asistente", para: "Instrucciones para conectar ChatGPT, Claude u otro cliente MCP." },
   { path: "/app/new-process", nombre: "Nuevo proceso", para: "Alta de un asunto nuevo y su inscripci\xF3n al monitoreo." }
 ];
-var list_app_screens_default = defineTool24({
+var list_app_screens_default = defineTool25({
   name: "list_app_screens",
   title: "Pantallas de Andromeda y enlaces directos",
   description: "Maps every Andromeda screen to what it shows and returns a clickable deep link. Use it to tell the user exactly where in the app to look, or to build a link to a specific matter (/app/radicados/<radicado>). Read-only; it does not render the UI.",
@@ -1444,7 +1520,7 @@ var list_app_screens_default = defineTool24({
 });
 
 // src/lib/mcp/tools/describe-data-model.ts
-import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
 function entry(_table, que_es, columnas_clave) {
   return { que_es, columnas_clave };
 }
@@ -1607,7 +1683,7 @@ var READABLE_TABLES = {
     "created_at"
   ])
 };
-var describe_data_model_default = defineTool25({
+var describe_data_model_default = defineTool26({
   name: "describe_data_model",
   title: "Modelo de datos consultable",
   description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns (validated against the real schema), and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
@@ -1640,26 +1716,26 @@ var describe_data_model_default = defineTool25({
 });
 
 // src/lib/mcp/tools/query-table.ts
-import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z21 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z22 } from "npm:zod@^3.25.76";
 var OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"];
-var query_table_default = defineTool26({
+var query_table_default = defineTool27({
   name: "query_table",
   title: "Consultar una tabla de Andromeda",
   description: "Runs a filtered, ordered, limited read against one catalogued Andromeda table using the caller's own credentials (RLS enforced). Call `describe_data_model` first for table and column names. Read-only: it can never write, delete, or run raw SQL.",
   inputSchema: {
-    table: z21.string().trim().describe("Nombre de la tabla (ver `describe_data_model`)."),
-    columns: z21.string().trim().optional().describe("Columnas separadas por coma. Default: todas."),
-    filters: z21.array(
-      z21.object({
-        column: z21.string().trim(),
-        op: z21.enum(OPERATORS).describe("eq, neq, gt, gte, lt, lte, like, ilike, is, in"),
-        value: z21.string().describe("Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false.")
+    table: z22.string().trim().describe("Nombre de la tabla (ver `describe_data_model`)."),
+    columns: z22.string().trim().optional().describe("Columnas separadas por coma. Default: todas."),
+    filters: z22.array(
+      z22.object({
+        column: z22.string().trim(),
+        op: z22.enum(OPERATORS).describe("eq, neq, gt, gte, lt, lte, like, ilike, is, in"),
+        value: z22.string().describe("Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false.")
       })
     ).max(8).optional().describe("Condiciones combinadas con AND."),
-    order_by: z21.string().trim().optional().describe("Columna de ordenamiento."),
-    descending: z21.boolean().optional().describe("Orden descendente (default true cuando hay order_by)."),
-    limit: z21.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+    order_by: z22.string().trim().optional().describe("Columna de ordenamiento."),
+    descending: z22.boolean().optional().describe("Orden descendente (default true cuando hay order_by)."),
+    limit: z22.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ table, columns, filters, order_by, descending, limit }, ctx) => {
@@ -1716,27 +1792,27 @@ var query_table_default = defineTool26({
 });
 
 // src/lib/mcp/tools/update-work-item.ts
-import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z22 } from "npm:zod@^3.25.76";
-var update_work_item_default = defineTool27({
+import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z23 } from "npm:zod@^3.25.76";
+var update_work_item_default = defineTool28({
   name: "update_work_item",
   title: "Editar datos de un asunto",
   description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
   inputSchema: {
-    radicado: z22.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
-    id: z22.string().uuid().optional().describe("UUID del asunto."),
-    title: z22.string().trim().max(300).optional().describe("Car\xE1tula / t\xEDtulo del asunto."),
-    description: z22.string().trim().max(4e3).optional(),
-    demandantes: z22.string().trim().max(1e3).optional(),
-    demandados: z22.string().trim().max(1e3).optional(),
-    authority_name: z22.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z22.string().trim().email().max(200).optional().describe("Correo del despacho."),
-    authority_city: z22.string().trim().max(120).optional(),
-    expediente_url: z22.string().trim().url().max(2e3).optional(),
-    client_id: z22.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
-    is_flagged: z22.boolean().optional().describe("Marcar/desmarcar como destacado."),
-    monitoring_enabled: z22.boolean().optional().describe("Activar o desactivar el monitoreo autom\xE1tico."),
-    email_linking_enabled: z22.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos.")
+    radicado: z23.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
+    id: z23.string().uuid().optional().describe("UUID del asunto."),
+    title: z23.string().trim().max(300).optional().describe("Car\xE1tula / t\xEDtulo del asunto."),
+    description: z23.string().trim().max(4e3).optional(),
+    demandantes: z23.string().trim().max(1e3).optional(),
+    demandados: z23.string().trim().max(1e3).optional(),
+    authority_name: z23.string().trim().max(300).optional().describe("Nombre del despacho."),
+    authority_email: z23.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_city: z23.string().trim().max(120).optional(),
+    expediente_url: z23.string().trim().url().max(2e3).optional(),
+    client_id: z23.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
+    is_flagged: z23.boolean().optional().describe("Marcar/desmarcar como destacado."),
+    monitoring_enabled: z23.boolean().optional().describe("Activar o desactivar el monitoreo autom\xE1tico."),
+    email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -1789,28 +1865,28 @@ var update_work_item_default = defineTool27({
 });
 
 // src/lib/mcp/tools/manage-deadline.ts
-import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z23 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z24 } from "npm:zod@^3.25.76";
 var CLOSEABLE = ["FULFILLED", "CANCELLED", "DISMISSED"];
-var manage_deadline_default = defineTool28({
+var manage_deadline_default = defineTool29({
   name: "manage_deadline",
   title: "Crear, editar o cerrar un t\xE9rmino",
   description: "Creates a manual procedural deadline on a matter, edits its label/date/notes, or closes it as FULFILLED, CANCELLED or DISMISSED. It never computes a date by itself \u2014 the date given by the user is stored verbatim and marked as manual.",
   inputSchema: {
-    action: z23.enum(["create", "update", "close"]).describe("Qu\xE9 hacer con el t\xE9rmino."),
-    deadline_id: z23.string().uuid().optional().describe("Requerido para update y close."),
-    radicado: z23.string().trim().optional().describe("Asunto del t\xE9rmino (para create)."),
-    work_item_id: z23.string().uuid().optional().describe("UUID del asunto (para create)."),
-    deadline_type: z23.string().trim().max(80).optional().describe("Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."),
-    label: z23.string().trim().max(200).optional().describe("Nombre visible del t\xE9rmino."),
-    description: z23.string().trim().max(2e3).optional(),
-    trigger_event: z23.string().trim().max(200).optional().describe("Hecho que lo origina, tal como lo describe el usuario."),
-    trigger_date: z23.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha del hecho (YYYY-MM-DD)."),
-    deadline_date: z23.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."),
-    business_days_count: z23.number().int().min(0).max(365).optional().describe("D\xEDas h\xE1biles del t\xE9rmino, si el usuario los indica."),
-    notes: z23.string().trim().max(2e3).optional(),
-    close_as: z23.enum(CLOSEABLE).optional().describe("Estado de cierre (para close)."),
-    close_reason: z23.string().trim().max(500).optional().describe("Motivo del cierre.")
+    action: z24.enum(["create", "update", "close"]).describe("Qu\xE9 hacer con el t\xE9rmino."),
+    deadline_id: z24.string().uuid().optional().describe("Requerido para update y close."),
+    radicado: z24.string().trim().optional().describe("Asunto del t\xE9rmino (para create)."),
+    work_item_id: z24.string().uuid().optional().describe("UUID del asunto (para create)."),
+    deadline_type: z24.string().trim().max(80).optional().describe("Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."),
+    label: z24.string().trim().max(200).optional().describe("Nombre visible del t\xE9rmino."),
+    description: z24.string().trim().max(2e3).optional(),
+    trigger_event: z24.string().trim().max(200).optional().describe("Hecho que lo origina, tal como lo describe el usuario."),
+    trigger_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha del hecho (YYYY-MM-DD)."),
+    deadline_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."),
+    business_days_count: z24.number().int().min(0).max(365).optional().describe("D\xEDas h\xE1biles del t\xE9rmino, si el usuario los indica."),
+    notes: z24.string().trim().max(2e3).optional(),
+    close_as: z24.enum(CLOSEABLE).optional().describe("Estado de cierre (para close)."),
+    close_reason: z24.string().trim().max(500).optional().describe("Motivo del cierre.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -1883,21 +1959,21 @@ var manage_deadline_default = defineTool28({
 });
 
 // src/lib/mcp/tools/manage-task.ts
-import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z24 } from "npm:zod@^3.25.76";
-var manage_task_default = defineTool29({
+import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z25 } from "npm:zod@^3.25.76";
+var manage_task_default = defineTool30({
   name: "manage_task",
   title: "Crear, editar o completar una tarea",
   description: "Creates a task on a matter, edits its title/description/priority/due date, or marks it done or reopened. Tasks are internal work reminders \u2014 they are never procedural deadlines.",
   inputSchema: {
-    action: z24.enum(["create", "update", "complete", "reopen"]),
-    task_id: z24.string().uuid().optional().describe("Requerido salvo para create."),
-    radicado: z24.string().trim().optional().describe("Asunto de la tarea (para create)."),
-    work_item_id: z24.string().uuid().optional(),
-    title: z24.string().trim().max(300).optional(),
-    description: z24.string().trim().max(3e3).optional(),
-    priority: z24.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
-    due_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
+    action: z25.enum(["create", "update", "complete", "reopen"]),
+    task_id: z25.string().uuid().optional().describe("Requerido salvo para create."),
+    radicado: z25.string().trim().optional().describe("Asunto de la tarea (para create)."),
+    work_item_id: z25.string().uuid().optional(),
+    title: z25.string().trim().max(300).optional(),
+    description: z25.string().trim().max(3e3).optional(),
+    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    due_date: z25.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -1951,8 +2027,8 @@ var manage_task_default = defineTool29({
 });
 
 // src/lib/mcp/tools/email-integration-status.ts
-import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z25 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z26 } from "npm:zod@^3.25.76";
 
 // src/lib/email-connection-health.ts
 var EMAIL_HEALTH_POLICY = {
@@ -1997,14 +2073,14 @@ function emailHealthReason(c, now = Date.now()) {
 }
 
 // src/lib/mcp/tools/email-integration-status.ts
-var email_integration_status_default = defineTool30({
+var email_integration_status_default = defineTool31({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",
   description: "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
   inputSchema: {
-    include_outbox: z25.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
-    outbox_status: z25.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
-    limit: z25.number().int().min(1).max(100).optional().describe("M\xE1ximo de env\xEDos (default 20).")
+    include_outbox: z26.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
+    outbox_status: z26.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
+    limit: z26.number().int().min(1).max(100).optional().describe("M\xE1ximo de env\xEDos (default 20).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ include_outbox, outbox_status, limit }, ctx) => {
@@ -2049,16 +2125,16 @@ var email_integration_status_default = defineTool30({
 });
 
 // src/lib/mcp/tools/whatsapp-notices.ts
-import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z26 } from "npm:zod@^3.25.76";
-var whatsapp_notices_default = defineTool31({
+import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z27 } from "npm:zod@^3.25.76";
+var whatsapp_notices_default = defineTool32({
   name: "whatsapp_notices",
   title: "Avisos de WhatsApp a clientes",
   description: "Shows the client WhatsApp notice pipeline: recorded consents, drafts awaiting the lawyer's approval, and the audit log of messages already sent. Read-only. Approval and sending happen only in the app \u2014 never over MCP.",
   inputSchema: {
-    view: z26.enum(["all", "consents", "drafts", "sends"]).optional().describe("Qu\xE9 mostrar (default all)."),
-    draft_status: z26.enum(["PENDING", "APPROVED", "SENT", "DISCARDED", "EXPIRED", "FAILED", "ALL"]).optional(),
-    limit: z26.number().int().min(1).max(100).optional().describe("M\xE1ximo por secci\xF3n (default 30).")
+    view: z27.enum(["all", "consents", "drafts", "sends"]).optional().describe("Qu\xE9 mostrar (default all)."),
+    draft_status: z27.enum(["PENDING", "APPROVED", "SENT", "DISCARDED", "EXPIRED", "FAILED", "ALL"]).optional(),
+    limit: z27.number().int().min(1).max(100).optional().describe("M\xE1ximo por secci\xF3n (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ view, draft_status, limit }, ctx) => {
@@ -2100,24 +2176,24 @@ var whatsapp_notices_default = defineTool31({
 });
 
 // src/lib/mcp/tools/whatsapp-prepare.ts
-import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z27 } from "npm:zod@^3.25.76";
-var whatsapp_prepare_default = defineTool32({
+import { defineTool as defineTool33 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z28 } from "npm:zod@^3.25.76";
+var whatsapp_prepare_default = defineTool33({
   name: "whatsapp_prepare",
   title: "Preparar avisos de WhatsApp (sin enviar)",
   description: "Records or revokes a client's WhatsApp consent, generates drafts from provider-reported facts, edits a draft's text, or discards one with a reason. It can NEVER approve or send a message \u2014 that always happens in the app, one message at a time.",
   inputSchema: {
-    action: z27.enum(["record_consent", "revoke_consent", "generate_drafts", "edit_draft", "discard_draft"]).describe("Qu\xE9 hacer. No existe acci\xF3n de aprobar ni de enviar."),
-    client_id: z27.string().uuid().optional().describe("Cliente (para record_consent)."),
-    phone_e164: z27.string().trim().regex(/^[1-9][0-9]{7,14}$/).optional().describe("N\xFAmero con indicativo, solo d\xEDgitos, sin '+'. Ej: 573001234567."),
-    consent_method: z27.string().trim().min(3).max(500).optional().describe("C\xF3mo autoriz\xF3 el cliente, con las palabras del abogado. Obligatorio para record_consent."),
-    consent_note: z27.string().trim().max(1e3).optional(),
-    consent_id: z27.string().uuid().optional().describe("Consentimiento a revocar."),
-    revocation_reason: z27.string().trim().max(500).optional(),
-    lookback_days: z27.number().int().min(1).max(30).optional().describe("Ventana de hechos para generate_drafts (default 7)."),
-    draft_id: z27.string().uuid().optional().describe("Borrador a editar o descartar."),
-    body_text: z27.string().trim().min(5).max(900).optional().describe("Texto corregido del borrador."),
-    discard_reason: z27.string().trim().min(3).max(500).optional().describe("Motivo del descarte (obligatorio).")
+    action: z28.enum(["record_consent", "revoke_consent", "generate_drafts", "edit_draft", "discard_draft"]).describe("Qu\xE9 hacer. No existe acci\xF3n de aprobar ni de enviar."),
+    client_id: z28.string().uuid().optional().describe("Cliente (para record_consent)."),
+    phone_e164: z28.string().trim().regex(/^[1-9][0-9]{7,14}$/).optional().describe("N\xFAmero con indicativo, solo d\xEDgitos, sin '+'. Ej: 573001234567."),
+    consent_method: z28.string().trim().min(3).max(500).optional().describe("C\xF3mo autoriz\xF3 el cliente, con las palabras del abogado. Obligatorio para record_consent."),
+    consent_note: z28.string().trim().max(1e3).optional(),
+    consent_id: z28.string().uuid().optional().describe("Consentimiento a revocar."),
+    revocation_reason: z28.string().trim().max(500).optional(),
+    lookback_days: z28.number().int().min(1).max(30).optional().describe("Ventana de hechos para generate_drafts (default 7)."),
+    draft_id: z28.string().uuid().optional().describe("Borrador a editar o descartar."),
+    body_text: z28.string().trim().min(5).max(900).optional().describe("Texto corregido del borrador."),
+    discard_reason: z28.string().trim().min(3).max(500).optional().describe("Motivo del descarte (obligatorio).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2201,7 +2277,7 @@ var mcp_default = defineMcp({
     "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`, que tambi\xE9n acepta radicados con guiones, parciales y correos de despacho.",
     "Radicados: cualquier par\xE1metro `radicado` acepta la forma con guiones, con espacios, la base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
-    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos.",
+    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos. `list_act_attachments` da el inventario de anexos de una actuaci\xF3n (estado expl\xEDcito y causa; enlaces solo de copias propias). Inventario ausente = no_consultado, nunca 'sin anexos'.",
     "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buz\xF3n que a\xFAn no existen como expediente.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
@@ -2233,6 +2309,7 @@ var mcp_default = defineMcp({
     list_hearings_default,
     list_tasks_default,
     get_document_url_default,
+    list_act_attachments_default,
     list_email_links_default,
     list_detected_processes_default,
     list_clients_default,

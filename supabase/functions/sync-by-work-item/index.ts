@@ -16,6 +16,7 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
+import { extractActOrigin, originFromRow, originsConflict, originVersionedFingerprint, buildAnexosInventario } from "../_shared/actOriginIdentity.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -627,7 +628,7 @@ const SIGNIFICANT_EVENT_PATTERNS: Array<{ patterns: string[]; info: SignificantE
   },
   {
     patterns: ['medida cautelar', 'embargo', 'secuestro de bienes'],
-    info: { type: 'MEDIDA_CAUTELAR', title: 'Medida cautelar ordenada', severity: 'WARNING' },
+    info: { type: 'MEDIDA_CAUTELAR', title: 'Actuación relacionada con medida cautelar', severity: 'WARNING' },
   },
   {
     patterns: ['ejecutoria', 'queda ejecutoriada', 'en firme'],
@@ -3065,15 +3066,36 @@ Deno.serve(withSyncTimeline(async (req) => {
       // (…01) belongs to the SAME work item but is a distinct fact: the
       // superior's "Fijacion Estado" is not the origin court's.
       const linkage = resolveProviderLinkage(act as any, workItem.radicado ?? null);
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint, linkage.consecutivo);
+      let fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow, act.fecha_registro, act.anotacion, act.instancia, partyHint, linkage.consecutivo);
+
+      // ITER70 — provider origin identity (indice / solicitud No. / radicación
+      // timestamp). Used ONLY to refuse merging two different origins.
+      const incomingOrigin = extractActOrigin({ indice: act.indice, anotacion: act.anotacion });
+      let originConflictDetected = false;
 
       // Check for existing record using fingerprint (fast, indexed)
-      const { data: existing } = await supabase
+      let { data: existing } = await supabase
         .from('work_item_acts')
-        .select('id, raw_data, documentos, documentos_observados_en')
+        .select('id, description, raw_data, documentos, documentos_observados_en')
         .eq('work_item_id', work_item_id)
         .eq('hash_fingerprint', fingerprint)
         .maybeSingle();
+
+      if (existing && originsConflict(originFromRow(existing as any), incomingOrigin)) {
+        // Same date+title but a different provider origin: a distinct act.
+        // Never graft it onto the existing row; use the versioned identity.
+        originConflictDetected = true;
+        const v1 = fingerprint;
+        fingerprint = originVersionedFingerprint(v1, incomingOrigin);
+        console.log(`[sync-by-work-item] ORIGIN CONFLICT on ${v1}: incoming ${incomingOrigin.key} ≠ stored — using ${fingerprint}`);
+        const { data: v2 } = await supabase
+          .from('work_item_acts')
+          .select('id, description, raw_data, documentos, documentos_observados_en')
+          .eq('work_item_id', work_item_id)
+          .eq('hash_fingerprint', fingerprint)
+          .maybeSingle();
+        existing = v2 ?? null;
+      }
 
       if (existing) {
         // ── ANOTACION BACKFILL ON FINGERPRINT MATCH ──
@@ -3101,6 +3123,10 @@ Deno.serve(withSyncTimeline(async (req) => {
             instancia: act.instancia,
             fecha_inicia_termino: act.fecha_inicia_termino,
             fecha_finaliza_termino: act.fecha_finaliza_termino,
+            anexos_inventario: buildAnexosInventario({ anexos: act.anexos, anotacion: newAnot, documentos: normalizeActDocumentos((act as any).documentos) }),
+            origen_clave: incomingOrigin.key,
+            origen_solicitud: incomingOrigin.solicitud,
+            origen_radicada_en: incomingOrigin.radicada_en,
           };
           const newEventSummary = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`.slice(0, 500);
           const { error: fingerprintBackfillErr } = await supabase
@@ -3134,7 +3160,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       // BUT preserves records with same date+title when fecha_registro differs
       const fechaRegistroVal = act.fecha_registro || '';
       const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}|${linkage.consecutivo ?? '00'}`;
-      if (existingSemanticSet.has(semanticKey)) {
+      const semanticRowForOrigin = existingSemanticMap.get(semanticKey);
+      if (!originConflictDetected && semanticRowForOrigin &&
+          originsConflict(originFromRow(semanticRowForOrigin as any), incomingOrigin)) {
+        originConflictDetected = true;
+        console.log(`[sync-by-work-item] ORIGIN CONFLICT (semantic) "${act.actuacion}" ${actDate}: ${incomingOrigin.key} is a distinct act`);
+      }
+      if (!originConflictDetected && existingSemanticSet.has(semanticKey)) {
         // ── ANOTACION BACKFILL ──
         // Existing row was persisted before samai-read-api served the full
         // annotation. If the incoming feed carries a longer, non-empty
@@ -3160,6 +3192,10 @@ Deno.serve(withSyncTimeline(async (req) => {
             instancia: act.instancia,
             fecha_inicia_termino: act.fecha_inicia_termino,
             fecha_finaliza_termino: act.fecha_finaliza_termino,
+            anexos_inventario: buildAnexosInventario({ anexos: act.anexos, anotacion: newAnot, documentos: normalizeActDocumentos((act as any).documentos) }),
+            origen_clave: incomingOrigin.key,
+            origen_solicitud: incomingOrigin.solicitud,
+            origen_radicada_en: incomingOrigin.radicada_en,
           };
           const newDescription = `${act.actuacion}${newAnot ? ' - ' + newAnot : ''}`;
           const { error: backfillErr } = await supabase
@@ -3229,6 +3265,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         instancia: act.instancia,
         fecha_inicia_termino: act.fecha_inicia_termino,
         fecha_finaliza_termino: act.fecha_finaliza_termino,
+        // ITER70 — origin identity + explicit per-act attachment inventory.
+        origen_clave: incomingOrigin.key,
+        origen_solicitud: incomingOrigin.solicitud,
+        origen_radicada_en: incomingOrigin.radicada_en,
+        anexos_inventario: buildAnexosInventario({
+          anexos: act.anexos,
+          anotacion: act.anotacion,
+          documentos: normalizeActDocumentos((act as any).documentos),
+        }),
       };
 
       // ITER55 A1 — provider run provenance travels verbatim in raw_data;

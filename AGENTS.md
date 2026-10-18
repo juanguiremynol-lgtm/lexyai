@@ -17,3 +17,4 @@
 
 - atenia-self-health AI check is PASSIVE only: it reads the AI_VERIFY_LINK heartbeat left by real verifications and never fires a paid gateway probe; no recent usage is reported as "not verified", never as an outage. aiVerifyLinkProbe exists only for explicit authorized manual smoke tests.
 - atenia-cron-watchdog HEARTBEAT_MAX_GAP_MINUTES=420 matches the 6h heartbeat cron cadence plus 60min slack (aligned with platformJobHeartbeat 420min); a tighter threshold would force hourly heartbeats.
+- Act origin identity (indice / SAMAI 'solicitud No.' / radicación timestamp) lives in supabase/functions/_shared/actOriginIdentity.ts and is used only to refuse merges between different origins; on conflict a versioned fingerprint <v1>_o<hash> is used — v1 fingerprints are never redefined. Per-act attachment inventory (raw_data.anexos_inventario) never reads a null count as 'sin anexos'.
