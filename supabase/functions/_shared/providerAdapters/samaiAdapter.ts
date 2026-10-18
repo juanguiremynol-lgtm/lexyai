@@ -421,7 +421,11 @@ export function normalizeSamaiActuaciones(
       String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
     );
     let estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
-    const anexosCount = Number(act.anexos ?? 0) || undefined;
+    // ITER70 rev.2 — explicit 0 ("no anexos") and null/absent ("not stated")
+    // are different facts; never collapse 0 into undefined.
+    const anexosRaw = act.anexos;
+    const anexosNum = anexosRaw === null || anexosRaw === undefined || anexosRaw === '' ? NaN : Number(anexosRaw);
+    const anexosCount = Number.isFinite(anexosNum) && anexosNum >= 0 ? anexosNum : undefined;
     const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
 
     // Annulled-act detection — REFINED (2026-07-15, caso 05001333301020230019900).
