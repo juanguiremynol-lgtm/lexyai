@@ -105,6 +105,11 @@ Local run of the real function + real RPC + production schema (schema-only, synt
   the new S6 control has **not** been validated against the real RPC/database.
   Helper tests and syntax checks do not close that gap. Prerequisites and rerun
   commands are in `supabase/tests/itest-sync/README.md`.
+- Checks executed: 28/28 existing identity/persistence helper tests passed;
+  Python driver syntax and Deno gateway check passed; preview build reports OK.
+  Deno checking the complete function reports the same 24 type diagnostics as
+  `9c19e9b` (unchanged shared modules), then the checker panics. This is not a
+  clean full-function typecheck, and no unrelated type fixes were made.
 
 ### Approval order and publication effects (still not approved)
 1. Restore the already-prepared local-only environment and rerun S1–S8, including
