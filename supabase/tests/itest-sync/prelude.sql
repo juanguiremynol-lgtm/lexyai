@@ -1,0 +1,13 @@
+create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
+create role authenticator login noinherit password 'local'; grant anon, authenticated, service_role to authenticator;
+create schema extensions; create schema auth; create schema cron;
+create extension pgcrypto schema extensions; create extension "uuid-ossp" schema extensions;
+create extension pg_trgm schema extensions; create extension unaccent schema extensions; create extension citext schema extensions;
+create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb, raw_app_meta_data jsonb, created_at timestamptz default now(), email_confirmed_at timestamptz, last_sign_in_at timestamptz);
+create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
+create function auth.role() returns text language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim.role', true),''), (current_setting('request.jwt.claims', true)::jsonb->>'role')) $$;
+create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true),''),'{}')::jsonb $$;
+create table cron.job (jobid bigint, jobname text, schedule text, command text, active boolean);
+create table cron.job_run_details (jobid bigint, runid bigint, status text, start_time timestamptz, end_time timestamptz, return_message text);
+grant usage on schema extensions, auth to anon, authenticated, service_role;
+alter database postgres set search_path = public, extensions;

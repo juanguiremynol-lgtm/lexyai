@@ -1,0 +1,2 @@
+#!/bin/sh
+exec env -u PGHOST -u PGPASSWORD -u PGUSER -u PGDATABASE -u PGPORT -u SUPABASE_DB_URL PGSSLMODE=disable psql -h 127.0.0.1 -p 54329 -U postgres -q "$@"
