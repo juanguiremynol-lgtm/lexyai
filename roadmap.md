@@ -1,5 +1,10 @@
 # Roadmap
 
+## SAMAI — isolated persistence validation (2026-10-18)
+- [ ] Abort the real sync batch when a confirmed write cannot be read back; prepare A-confirmed/read-failed/B-distinct regression.
+- [ ] Repair the local harness readiness wait and rerun all persistence scenarios if the existing local database is available.
+- [ ] Document combined results, exact environment blockers and publication effects without deployment or real-data writes.
+
 ## Responsive móvil (solicitud actual)
 - [ ] Corregir ficha de radicado, hitos, encabezado, chips y pestañas a 390 px.
 - [ ] Auditar y corregir patrones compartidos en tablero, procesos, alertas, audiencias/calendario y configuración.

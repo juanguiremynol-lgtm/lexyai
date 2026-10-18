@@ -17,7 +17,7 @@
  */
 
 import { extractActOrigin, resolveActIdentity, planEnrichment, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
-import { loadAllActiveActs, resolvePersistedAct, ActDocState } from "../_shared/actBatchState.ts";
+import { loadAllActiveActs, resolvePersistedAct, ActDocState, ActLoadError } from "../_shared/actBatchState.ts";
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
 // It is enabled only by an approved, backed-up repair naming explicit act ids.
@@ -3320,10 +3320,13 @@ Deno.serve(withSyncTimeline(async (req) => {
               });
               docState.set(persisted.id, { documentos: persisted.documentos, documentos_observados_en: persisted.documentos_observados_en });
             } else {
-              result.errors.push(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)})`);
+              throw new ActLoadError(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)}); batch aborted`);
             }
           } catch (rbErr) {
             result.errors.push((rbErr as Error).message);
+            // The write may already be committed. Never resolve the next origin
+            // against an incomplete candidate set; the next run reloads all rows.
+            throw rbErr;
           }
         }
 
