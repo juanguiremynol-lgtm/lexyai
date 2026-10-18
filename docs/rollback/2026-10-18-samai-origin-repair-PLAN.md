@@ -69,3 +69,20 @@ title saved in payload; separate approval.
 - Normal sync NEVER repairs contaminated history: `HISTORICAL_REPAIR_SCOPE = null` in sync-by-work-item.
 - Ruta 1 now requires an explicit, approved change setting `{ provider: "samai", approvedActIds: {eb26e63c…, afc43437…, 26436831…, f148bbab…} }`, deployed only AFTER the backup table `_iter70_samai_origin_backup` is created and validated, then reverted to `null`.
 - Ruta 2 (SQL) unchanged. Neither route has been executed.
+
+## Rev.4 (2026-10-18) — isolated integration finding (BLOCKS publication)
+Local run of the real function + real RPC + production schema (schema-only, synthetic data):
+- Two solicitudes on the same day/title: identity resolution correctly decides INSERT for B
+  (versioned fingerprint), but the RPC skips it as SKIPPED_DUPLICATE_STRUCTURAL because of the
+  unique index `idx_acts_dedupe_structural` (work_item_id, normalized title, act_date, party, recurso).
+  Only 1 of 2 rows persists; the response reports skipped, not error.
+- Consequence for publication: deploying the sync fix does NOT create the 4 missing solicitudes
+  (3122109, 3223197, 3330259, 3432736) and does NOT emit novedades for them. Ruta 1 ("heal on next
+  sync") is invalid as written. Creating them requires a schema change to that index (e.g. adding
+  the origin key to it), which is a migration needing separate approval and backup.
+- Expected effect once that index is changed: each previously omitted solicitud is inserted as a new
+  act and emits normal novedades (notifications row via notify_new_actuacion, possible alerts),
+  even with historical text repair disabled.
+- Scenarios after S1 in that run were invalid (PostgREST schema cache not reloaded after DB reset);
+  they must be re-run after fixing the harness wait. Not yet verified: repeat batch, indice later,
+  in-batch enrichment, write/read-back failure with rollback, pagination >1000, no-repair of history.
