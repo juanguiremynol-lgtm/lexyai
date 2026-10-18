@@ -1,6 +1,6 @@
 // Local test gateway: /rest/v1 -> local PostgREST, /samai -> synthetic SAMAI, fault injection.
 let samai: unknown = { actuaciones: [] };
-let faults = { rpcUpsert: 0, readBack: 0, rpcUpsertOnFp: "" as string };
+let faults = { rpcUpsert: 0, readBack: 0, readBackMissing: 0, rpcUpsertOnFp: "" as string };
 const log: string[] = [];
 Deno.serve({ port: 54321, hostname: "127.0.0.1" }, async (req) => {
   const u = new URL(req.url);
@@ -30,6 +30,10 @@ Deno.serve({ port: 54321, hostname: "127.0.0.1" }, async (req) => {
     if (path === "/work_item_acts" && req.method === "GET" && u.searchParams.has("hash_fingerprint") && faults.readBack > 0) {
       faults.readBack--; log.push("FAULT readback");
       return Response.json({ code: "XX000", message: "injected read-back failure" }, { status: 500 });
+    }
+    if (path === "/work_item_acts" && req.method === "GET" && u.searchParams.has("hash_fingerprint") && faults.readBackMissing > 0) {
+      faults.readBackMissing--; log.push("FAULT readback missing");
+      return Response.json([]);
     }
     const h = new Headers(req.headers); h.delete("host");
     const r = await fetch(`http://127.0.0.1:3001${path}${u.search}`, { method: req.method, headers: h, body });

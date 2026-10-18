@@ -86,3 +86,44 @@ Local run of the real function + real RPC + production schema (schema-only, synt
 - Scenarios after S1 in that run were invalid (PostgREST schema cache not reloaded after DB reset);
   they must be re-run after fixing the harness wait. Not yet verified: repeat batch, indice later,
   in-batch enrichment, write/read-back failure with rollback, pagination >1000, no-repair of history.
+
+## Rev.5 (2026-10-18) — read-back abort and combined validation status
+- A confirmed insert/update with failed or missing read-back now throws before
+  the next act is processed. The outer handler returns HTTP 500 and logs
+  `SYNC_FAILED`; A may already be committed. This is an abort of remaining work,
+  **not** a transaction-wide rollback. A later run reloads A from the database.
+- The real integration fixture S6 asserts A's confirmed RPC and persisted row,
+  a failed/empty read-back, and **no RPC for distinct B**; it also checks A's
+  UUID/fingerprint on the next run. Both error and empty-read variants are prepared.
+- The harness readiness wait is corrected: after resetting the local database,
+  it requires the synthetic work item to read back through PostgREST before sync.
+- Current sandbox: `/tmp/itest` and the previous database/schema/synthetic
+  credentials did not persist. No local Postgres answers on port 54329.
+  Recreating roles/grants or credentials is prohibited by the current request;
+  no hosted fallback, new schema export, deployment or real-data writes were used.
+- Therefore the previous isolated-integration request remains **blocked** and
+  the new S6 control has **not** been validated against the real RPC/database.
+  Helper tests and syntax checks do not close that gap. Prerequisites and rerun
+  commands are in `supabase/tests/itest-sync/README.md`.
+- Checks executed: 28/28 existing identity/persistence helper tests passed;
+  Python driver syntax and Deno gateway check passed; preview build reports OK.
+  Deno checking the complete function reports the same 24 type diagnostics as
+  `9c19e9b` (unchanged shared modules), then the checker panics. This is not a
+  clean full-function typecheck, and no unrelated type fixes were made.
+
+### Approval order and publication effects (still not approved)
+1. Restore the already-prepared local-only environment and rerun S1–S8, including
+   both S6 variants. Preserve the structural index; do not mask its collision.
+2. If confirmed again, separately approve preparation/testing of the structural
+   index remediation, then approve its production application with backup and
+   validation. No such migration is prepared or applied in this revision.
+3. Only after integration passes, approve deployment of sync and publication of
+   the MCP app. Normal historical text repair stays disabled.
+4. A previously omitted solicitud may nevertheless be inserted as a **new act**
+   once persistence permits it, and normal ingestion may emit notifications or
+   alerts. Disabling historical text repair does **not** disable those insertions
+   or novedades. With the current structural-index collision, some such acts are
+   still skipped; publication alone is not a repair guarantee.
+5. Text repair of the four named historical acts requires its own explicit scope,
+   prior backup/validation, temporary activation and return to disabled. Alert
+   retitling remains a separate approval. None of these actions has been executed.

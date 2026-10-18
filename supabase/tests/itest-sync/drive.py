@@ -5,6 +5,11 @@ import json, os, subprocess, time, urllib.request, sys
 
 T = "/tmp/itest"
 WI = "33333333-3333-3333-3333-333333333333"
+required = ["public_schema.sql", "svc.jwt", "anon.jwt", "lpsql", "postgrest.conf", "gateway.ts", "runfn.sh"]
+missing = [name for name in required if not os.path.isfile(f"{T}/{name}")]
+if missing:
+    sys.exit("ISOLATED INTEGRATION BLOCKED: missing local artifacts in /tmp/itest: " + ", ".join(missing)
+             + ". Do not use hosted credentials or rebuild permissions; see README.md.")
 SVC = open(f"{T}/svc.jwt").read().strip()
 ENV_CLEAN = {k: v for k, v in os.environ.items() if not k.startswith("PG") and k != "SUPABASE_DB_URL"}
 procs = []
@@ -29,7 +34,7 @@ def http(url, body=None, headers=None, timeout=120):
         return e.code, json.loads(e.read() or b"null")
 
 def start(cmd, log):
-    p = subprocess.Popen(cmd, shell=True, stdout=open(log, "w"), stderr=subprocess.STDOUT, env=ENV_CLEAN, start_new_session=True)
+    p = subprocess.Popen(cmd, shell=True, stdout=open(log, "w"), stderr=subprocess.STDOUT, env=ENV_CLEAN, start_new_session=True, cwd=T)
     procs.append(p)
 
 def wait_ok(url, body=None, tries=60):
@@ -47,8 +52,19 @@ def reset(extra_sql=None):
     r = sh(f"{T}/lpsql -d postgres -c 'drop database if exists sync_run with (force)' -c 'create database sync_run template sync_itest'")
     if r.returncode: raise RuntimeError(r.stderr)
     if extra_sql: sql(extra_sql)
-    ctl(faults={"rpcUpsert": 0, "readBack": 0, "rpcUpsertOnFp": ""}, resetLog=True)
-    time.sleep(0.5)
+    ctl(faults={"rpcUpsert": 0, "readBack": 0, "readBackMissing": 0, "rpcUpsertOnFp": ""}, resetLog=True)
+    # A database reset closes pooled connections; readiness means a real row
+    # can be read through PostgREST, not merely that the HTTP port is open.
+    for _ in range(60):
+        try:
+            st, data = http(f"http://127.0.0.1:54321/rest/v1/work_items?id=eq.{WI}&select=id",
+                            headers={"Authorization": f"Bearer {SVC}"}, timeout=3)
+            if st == 200 and isinstance(data, list) and any(row.get("id") == WI for row in data):
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    raise RuntimeError("PostgREST did not read the synthetic work item after database reset")
 
 def sync():
     st, body = http("http://127.0.0.1:8000", {"work_item_id": WI, "_scheduled": True, "force_refresh": True},
@@ -87,8 +103,8 @@ def check(name, cond, detail=""):
 try:
     start("nix run nixpkgs#postgrest -- postgrest.conf", f"{T}/postgrest.log")
     start(f"deno run -A {T}/gateway.ts", f"{T}/gateway.log")
-    reset()
     wait_ok("http://127.0.0.1:54321/__ctl")
+    reset()
     start(f"{T}/runfn.sh", f"{T}/fn.log")
     wait_ok("http://127.0.0.1:8000", {"health_check": True})
     time.sleep(2)
@@ -144,12 +160,21 @@ try:
     st, r = sync(); rows5c = acts()
     check("S5c next run inserts the previously failed act once", sorted(x[2] for x in rows5c) == ["9000001", "9000002"], str(rows5c))
 
-    # S6 — read-back failure after a successful insert, act repeated
-    reset(); feed(item(A), item(A, url=URL))
-    ctl(faults={"readBack": 1})
-    st, r = sync(); rows6 = acts()
-    check("S6 read-back failure reported", any("read-back" in str(e) for e in (r.get("errors") or [])), str(r.get("errors")))
-    check("S6 no duplicate row after read-back failure", len(rows6) == 1, str(rows6))
+    # S6 — actual A write commits, read-back fails/misses, then distinct B.
+    # Assert the RPC count, not just row count: the structural index could
+    # otherwise hide an erroneous attempt to persist B with A's fingerprint.
+    for fault in ("readBack", "readBackMissing"):
+        reset(); feed(item(A), item(B))
+        ctl(faults={fault: 1})
+        st, r = sync(); rows6 = acts(); log6 = ctl()["log"]
+        rpc6 = [entry for entry in log6 if entry.startswith("POST /rpc/rpc_upsert_work_item_acts ")]
+        check(f"S6 {fault}: A committed, B not written", len(rows6) == 1 and rows6[0][2] == "9000001", str(rows6))
+        check(f"S6 {fault}: abort before B RPC", rpc6 == ["POST /rpc/rpc_upsert_work_item_acts 200"], str(log6))
+        check(f"S6 {fault}: failed response names read-back", st == 500 and "read-back" in json.dumps(r).lower(), str(r))
+        OUT.append({"S6_fault": fault, "response": r, "rows": rows6, "gateway_log": log6})
+        # The next run must load A's real UUID and preserve its fingerprint.
+        st, r = sync(); recovered = acts()
+        check(f"S6 {fault}: next run retains A UUID/fingerprint", st == 200 and any(x[:2] == rows6[0][:2] for x in recovered), str(recovered))
 
     # S7 — pagination: target row on page 2 (>1000 existing acts)
     reset()
