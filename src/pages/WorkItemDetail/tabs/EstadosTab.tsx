@@ -104,7 +104,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       });
       return !error && data?.source === "storage" && data?.url ? data.url : null;
     });
-    if (!opened) toast.error("No se pudo abrir la copia. Comprueba que el navegador permita abrir documentos de Andrómeda.");
+    if (!opened) toast.error("No se pudo abrir esta copia. La apertura no se completó y el archivo conserva su estado de recuperación.");
   };
 
   // Resolve the best openable URL for a local publicacion row. The

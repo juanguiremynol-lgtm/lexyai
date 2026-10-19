@@ -18,9 +18,14 @@ describe('browser activation',()=>{
   const resolve=vi.fn(async()=>{expect(open).toHaveBeenCalledOnce();expect(tab.opener).toBeNull();await Promise.resolve();return 'https://files.test/doc.pdf'});
   expect(await openResolvedDocument(resolve)).toBe(true);expect(replace).toHaveBeenCalledWith('https://files.test/doc.pdf');expect(close).not.toHaveBeenCalled();open.mockRestore();
  });
- it('closes the blank tab on denied access and reports blocked popups honestly',async()=>{
+ it('closes the blank tab on denied access',async()=>{
   const close=vi.fn(),open=vi.spyOn(window,'open').mockReturnValue({opener:null,close} as unknown as Window);
   expect(await openResolvedDocument(async()=>null)).toBe(false);expect(close).toHaveBeenCalledOnce();
-  open.mockReturnValue(null);const resolve=vi.fn();expect(await openResolvedDocument(resolve)).toBe(false);expect(resolve).not.toHaveBeenCalled();open.mockRestore();
+  open.mockRestore();
+ });
+ it('opens in the current tab when popups are blocked, without asking the lawyer to repair the browser flow',async()=>{
+  const assign=vi.fn();vi.stubGlobal('window',{open:()=>null,location:{assign}});
+  try { expect(await openResolvedDocument(async()=> 'https://files.test/doc.pdf')).toBe(true);expect(assign).toHaveBeenCalledWith('https://files.test/doc.pdf'); }
+  finally { vi.unstubAllGlobals(); }
  });
 });
