@@ -279,6 +279,11 @@ export function normalizeSamaiEstadosResponse(
     : (Array.isArray(resultado?.actuaciones) ? resultado.actuaciones : []);
 
   return rawEstados
+    // A combined read-api feed also contains expediente acts. They have their
+    // own ingestion path; accepting them here would turn a memorial into an
+    // estado merely because both providers use the `actuaciones` envelope.
+    .filter((e: any) => String(e?.categoria ?? '').toUpperCase() !== 'ACTUACION'
+      && !String(e?.fuente ?? '').toLowerCase().startsWith('expediente'))
     .map((e: any) => {
       if (!corroborateParties(e, options?.expectedParties)) {
         rowOutcomes?.push({
@@ -385,7 +390,7 @@ function normalizeOneEstado(
   );
   const fecha = fechaEstado || fechaGenerica || fechaProvidencia;
   const actuacion = String(e['Actuación'] ?? e.actuacion ?? e.tipo ?? '');
-  const anotacion = String(e['Anotación'] ?? e.anotacion ?? e.descripcion ?? '');
+  const anotacion = String(e['Anotación'] ?? e.anotacion ?? e['Docum. a notif.'] ?? e.descripcion ?? '');
 
   const title = options?.redactPII
     ? redactPII(truncate(actuacion || 'Estado SAMAI', 120) || 'Estado SAMAI')
@@ -464,23 +469,29 @@ export function computeSamaiEstadosFingerprint(
 // ATTACHMENT EXTRACTION
 // ═══════════════════════════════════════════
 
-function extractSamaiEstadosAttachments(e: any, provider: string): PublicacionAttachment[] {
+export function extractSamaiEstadosAttachments(e: any, provider: string): PublicacionAttachment[] {
   const attachments: PublicacionAttachment[] = [];
   const seenUrls = new Set<string>();
 
   const candidateKeys = [
     'pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl',
+    'gcs_url', 'url_descarga', 'urlDescarga', 'urlVer',
     'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url', 'Documento',
   ];
 
-  for (const key of candidateKeys) {
-    const val = e[key];
-    if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
+  const candidates = [e, ...['documentos', 'anexos_documentos', 'documentos_pdf', 'attachments']
+    .flatMap((key) => Array.isArray(e?.[key]) ? e[key] : [])];
+  for (const candidate of candidates) {
+    // PDF proxy, GCS and origin URL on one descriptor are alternate routes
+    // to the same announced document, not three separate annexes.
+    const val = candidateKeys.map((key) => candidate?.[key])
+      .find((value) => typeof value === 'string' && value.startsWith('https://'));
+    if (val && !seenUrls.has(val)) {
       seenUrls.add(val);
       attachments.push({
         type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link',
         url: val,
-        label: 'Ver documento',
+        label: candidate.descripcion || candidate.titulo || candidate.label || 'Ver documento',
         provider,
       });
     }

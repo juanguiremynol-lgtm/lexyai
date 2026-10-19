@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { summarizeActAttachments, knownDocumentPendingCause } from "@/lib/act-attachments-inventory";
 import {
   extractActDocumentos,
   resolveActDocumentoUrl,
@@ -39,7 +40,7 @@ function extractSamaiAttachments(
   if (!Array.isArray(arr)) return [];
   return arr.filter(
     (x): x is SamaiAnexoDocumento =>
-      !!x && typeof x === "object" && (("urlVer" in x) || ("urlDescarga" in x)),
+      !!x && typeof x === "object",
   );
 }
 
@@ -383,14 +384,15 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
 
   const samaiAttachments = extractSamaiAttachments(act.source, act.sources, act.raw_data);
   // ITER60 — CPNU documents live in a dedicated column, not raw_data.
-  // ITER64 — an announced document with no link is still evidence that the
-  // file exists at the despacho. Show it, say the link is missing; never hide.
-  const actDocumentos = extractActDocumentos(act.documentos).filter(
-    (d) =>
-      !!resolveActDocumentoUrl(d) ||
-      !!(typeof d.nombre === "string" && d.nombre.trim()) ||
-      !!(typeof d.descripcion === "string" && d.descripcion.trim()),
-  );
+  // An announced descriptor is evidence of an announcement, not a recovered file.
+  const actDocumentos = extractActDocumentos(act.documentos);
+
+  const attachmentSummary = summarizeActAttachments({
+    ...act,
+    documentos: [...actDocumentos, ...samaiAttachments.map((d) => ({
+      ...d, nombre: d.descripcion, url: d.urlDescarga || d.urlVer,
+    }))],
+  });
 
   return (
     <div
@@ -518,24 +520,28 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
         )}
       </div>
 
+      <div className="mt-3 pt-2 border-t border-border/30 text-xs text-muted-foreground">
+        <p>{attachmentSummary.anunciados === null
+          ? "Total de anexos no informado."
+          : `Anexos anunciados: ${attachmentSummary.anunciados}.`}</p>
+        <p>{attachmentSummary.causa}</p>
+      </div>
+
       {/* Row 6: SAMAI attachments — anexos_documentos */}
       {samaiAttachments.length > 0 && (() => {
-        const hasUrl = (u?: string | null) => typeof u === "string" && u.trim().length > 0;
-        const estado = (act.raw_data?.estado as string | undefined)?.toUpperCase();
-        const isClasificada = estado === "CLASIFICADA";
+        const hasUrl = (u?: string | null) => typeof u === "string" && /^https?:\/\//i.test(u.trim());
         return (
           <div className="mt-3 pt-2 border-t border-border/30">
             <div className="text-xs font-medium text-foreground/70 mb-1.5">
-              📎 Documentos adjuntos ({samaiAttachments.length})
+              📎 Referencias de documentos ({samaiAttachments.length})
             </div>
             <ul className="space-y-1.5">
               {samaiAttachments.map((doc, idx) => {
                 const desc = doc.descripcion?.trim() || `Documento ${idx + 1}`;
-                // Case C: when the act is CLASIFICADA, force-hide Ver/Descargar
-                // and always show the "Documento clasificado" badge instead.
-                const showVer = !isClasificada && hasUrl(doc.urlVer);
-                const showDescarga = !isClasificada && hasUrl(doc.urlDescarga);
-                const showBadge = isClasificada;
+                // An act's classification is not evidence of a document-access denial.
+                const showVer = hasUrl(doc.urlVer);
+                const showDescarga = hasUrl(doc.urlDescarga);
+                const showBadge = !showVer && !showDescarga;
                 return (
                   <li
                     key={idx}
@@ -543,7 +549,9 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                     title={doc.descripcion?.trim() || undefined}
                   >
                     <span className="text-muted-foreground truncate max-w-[60%]">{desc}</span>
+                    {knownDocumentPendingCause(doc) && <span className="w-full text-muted-foreground">{knownDocumentPendingCause(doc)}</span>}
                     <div className="flex items-center gap-1.5 ml-auto">
+                      {(showVer || showDescarga) && <span>Contenido sin verificar</span>}
                       {showVer && (
                         <a
                           href={doc.urlVer as string}
@@ -567,7 +575,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                       )}
                       {showBadge && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                          Documento clasificado
+                          Sin enlace registrado
                         </span>
                       )}
                     </div>
@@ -599,12 +607,14 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
                   }
                 >
                   <span className="text-muted-foreground truncate max-w-[60%]">{label}</span>
+                  {knownDocumentPendingCause(doc) && <span className="w-full text-muted-foreground">{knownDocumentPendingCause(doc)}</span>}
                   {!href ? (
                     <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
                       {actDocumentoStateLabel(state)}
                     </span>
                   ) : (
                   <div className="flex items-center gap-1.5 ml-auto">
+                    <span>Contenido sin verificar</span>
                     <a
                       href={href}
                       target="_blank"

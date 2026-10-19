@@ -10,8 +10,11 @@
  *   stale snapshot (prevents degrading 2 descriptors to 1).
  */
 
+import { compareOrigins, extractActOrigin, originFromRow, planEnrichment, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
+import { documentosEnrichmentPatch, normalizeActDocumentos, mergeActDocumentos } from './actDocumentos.ts';
+
 export const ACT_SELECT_COLUMNS =
-  "id, act_date, description, fecha_registro_source, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en";
+  "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en";
 
 export class ActLoadError extends Error {
   constructor(message: string) {
@@ -87,4 +90,62 @@ export class ActDocState {
   get(id: string): DocState {
     return this.map.get(id) ?? { documentos: null, documentos_observados_en: null };
   }
+}
+
+/** Atomic raw-data/document enrichment. A zero-row conditional PATCH is a
+ * conflict, never success: re-read BOTH values and recompute the union. */
+export async function enrichPersistedAct(
+  client: Client,
+  workItemId: string,
+  actId: string,
+  incoming: IncomingAct & { documentos_observados_en?: unknown; [key: string]: unknown },
+  opts: { provider?: string | null; repair?: HistoricalRepairScope | null } = {},
+  maxAttempts = 3,
+): Promise<Record<string, any>> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data: row, error: readError } = await client.from('work_item_acts')
+      .select(ACT_SELECT_COLUMNS).eq('work_item_id', workItemId).eq('id', actId)
+      .eq('is_archived', false).maybeSingle();
+    if (readError || !row) throw new ActLoadError(`enrichment fresh read failed: ${readError?.message ?? 'row missing'}`);
+    const storedOrigin = originFromRow(row);
+    const incomingOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
+    const relation = compareOrigins(storedOrigin, incomingOrigin);
+    if (relation !== 'equivalent' && (storedOrigin.key || incomingOrigin.key)) {
+      throw new ActLoadError('enrichment rejected: insufficient or conflicting origin evidence');
+    }
+    if (!storedOrigin.key && !incomingOrigin.key && row.description !== `${incoming.actuacion}${incoming.anotacion ? ' - ' + incoming.anotacion : ''}`) {
+      throw new ActLoadError('enrichment rejected: unconfirmed source text changed');
+    }
+    const normalized = { ...incoming, documentos: normalizeActDocumentos(incoming.documentos) };
+    const plan = planEnrichment(row, normalized, relation, undefined, opts);
+    const docs = documentosEnrichmentPatch(row.documentos, row.documentos_observados_en, mergeActDocumentos(row.raw_data?.documentos, incoming.documentos), incoming.documentos_observados_en);
+    const dates: Record<string, string> = {};
+    for (const [column, input] of [['fecha_registro_source', 'fecha_registro'], ['inicia_termino', 'fecha_inicia_termino']]) {
+      const value = incoming[input];
+      if (row[column] == null && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) dates[column] = value;
+    }
+    if (!plan && !docs && Object.keys(dates).length === 0) return row;
+    const raw = { ...(plan?.raw_data ?? row.raw_data ?? {}) };
+    for (const key of ['fecha_registro', 'estado', 'anexos', 'indice', 'instancia']) {
+      const value = incoming[key];
+      if (value !== undefined && value !== null && value !== '') raw[key] = value;
+    }
+    if (docs) raw.documentos = docs.documentos;
+    const update = { raw_data: raw, ...docs, ...dates,
+      ...(plan?.event_summary ? { event_summary: plan.event_summary } : {}),
+      last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    let query = client.from('work_item_acts').update(update)
+      .eq('work_item_id', workItemId).eq('id', actId).eq('is_archived', false);
+    for (const field of ['raw_data', 'documentos']) {
+      query = row[field] === null || row[field] === undefined
+        ? query.is(field, null) : query.eq(field, JSON.stringify(row[field]));
+    }
+    for (const column of Object.keys(dates)) query = query.is(column, null);
+    const { data, error } = await query.select(ACT_SELECT_COLUMNS);
+    if (error) throw new ActLoadError(`enrichment PATCH failed: ${error.message}`);
+    if (Array.isArray(data) && data.length === 1 && data[0].id === actId) return data[0];
+    // Zero rows means another writer changed a compared value; retry from a
+    // fresh read. No success count or downstream effect occurs here.
+  }
+  throw new ActLoadError(`enrichment PATCH affected zero rows after ${maxAttempts} fresh-read attempts`);
 }

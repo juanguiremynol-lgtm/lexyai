@@ -122,7 +122,8 @@ async function runBatch(client: any, rows: Row[], acts: Array<{ fp: string; docs
   return result;
 }
 
-const doc = (n: string, url: string | null) => ({ nombre: n, url });
+// These repeated descriptors have a provider identity; filenames alone do not.
+const doc = (n: string, url: string | null) => ({ id: `provider-${n}`, nombre: n, url });
 
 Deno.test("batch: same act repeated with richer docs → real UUID updated, never pending:*", async () => {
   const rows: Row[] = [];

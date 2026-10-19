@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-18",
+  "application_base": "6b97cbb8",
+  "environment": {
+    "postgresql": "17.6",
+    "postgrest": "12.2.3",
+    "deno": "2.5.4",
+    "node": "24.15.0",
+    "public_tables": 336,
+    "public_functions": 392,
+    "public_triggers": 256,
+    "public_rls_policies": 778,
+    "act_triggers": 16,
+    "hosted_writes": false,
+    "auth_cron": "local synthetic fixtures"
+  },
+  "runs": {
+    "full_driver": {
+      "passed": 35,
+      "total": 35,
+      "includes_native_http_group": true
+    },
+    "latest_native_http": {
+      "passed": 5,
+      "total": 5,
+      "includes_latest_conditional_date_enrichment": true
+    },
+    "native_sql": {
+      "passed": 12,
+      "total": 12
+    },
+    "synthetic_historical": {
+      "passed": 6,
+      "total": 6
+    },
+    "exact_review_only_historical": {
+      "passed": true,
+      "final_transaction": "ROLLBACK",
+      "act_before_images": 3,
+      "alert_before_images": 2,
+      "new_trigger_errors": 0
+    }
+  },
+  "evidence_sha256": {
+    "full-http-results.json": "1fc79ce26207e378cd2f62574a9ffc4581280b8c54b60c06ecac1989545f8ede",
+    "full-http-output.log": "e324c19e43bc82e2c6ebbe7675e8695e655d09ebced18db0ee73787330eb89c6",
+    "native-http-output.log": "81029c7d487809a808514ce13d56bfa26b5f2a68c8d72b5acb730d895147663e",
+    "native-sql-results.json": "04dc927f3680238dc1d1c61a2c9ff579dc0bf2b0e69233108cfc699d093290f7",
+    "historical-repair-results.json": "7512848815bddd4a97edbf79e0657017f11068fa26ed7b42594b9eb7240712e9",
+    "historical-exact-native-replay-results.json": "903135749fc012c83a0c85c04a358bba90f797149d762f03b8df7f200820d239"
+  },
+  "limitations": [
+    "Synthetic local auth/cron schemas; not the full hosted Supabase platform.",
+    "Full application TypeScript compilation is not claimed.",
+    "No production migration, production historical repair or PDF recovery is established by this harness."
+  ],
+  "revision_2": {
+    "date": "2026-10-19",
+    "postgresql": "17.6",
+    "node": "24.21.0",
+    "npm": "12.2.0",
+    "schema_input": "same reviewed private catalog snapshot; both prepared migrations applied",
+    "native_public_functions_after_migrations": 398,
+    "driver_checks": {
+      "passed": 81,
+      "total": 81,
+      "includes_native_http_group": true
+    },
+    "native_http_tests": {
+      "passed": 6,
+      "total": 6
+    },
+    "native_sql_tests": {
+      "passed": 12,
+      "total": 12
+    },
+    "inventory_rpc": {
+      "inventories": 34,
+      "original_inventory_set": 24,
+      "additional_inventories": 10,
+      "document_associations": 42,
+      "missing_memorials_not_assigned_unrelated_documents": 6
+    },
+    "retry_deadline_audit": "Existing deadline RPC appends corroborations and changes updated_at; same IDs, substantive fields and prior audit entries preserved. Other downstream rows unchanged.",
+    "historical_repair_executed": false,
+    "HISTORICAL_REPAIR_SCOPE": null,
+    "hosted_writes": false,
+    "evidence_sha256": {
+      "rpc-driver-final-results.json": "16b4ce2a8b70b4b9c177b4785e126883e91a17e67a0e76d68b26e3c0266fc48b",
+      "rpc-driver-final.log": "7c1cd8cf276990d6f81f21dfdbd9d1b9c5b64da5e63ea66689550852f4fae63e",
+      "rpc-native-http-final.log": "dbfe2366224f955c996d6ee4fa9c72d2e97630ebed4a84de6caaf684b5b391a3",
+      "rpc-native-sql-results.json": "04dc927f3680238dc1d1c61a2c9ff579dc0bf2b0e69233108cfc699d093290f7",
+      "inventory-rpc-final-results.json": "52e466dc95ddf22de8623943d91bc8b820fe58ab457b5de32713f662f0b0b37a",
+      "rpc-schema-counts.json": "009ddfcb5e42875af12d03ca3403335382b98d29c8c73b7efd0e763926e7165d",
+      "rpc-schema-input-manifest.json": "95e271f6462f6d18fc566844a534043d5ff8ec08b20805588c95122bdc70036b"
+    }
+  },
+  "revision_2_final_four_migrations": {
+    "date": "2026-10-19",
+    "migrations": [
+      "20261019000100_samai_origin_identity.sql",
+      "20261019000200_samai_publication_evidence.sql",
+      "20261019000300_estado_document_recovery.sql",
+      "20261019000400_act_document_observation_order.sql"
+    ],
+    "public_schema": {
+      "views": 15,
+      "tables": 336,
+      "version": "PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+      "policies": 778,
+      "triggers": 256,
+      "functions": 404,
+      "act_triggers": 16,
+      "disabled_act_triggers": 0
+    },
+    "driver_checks": {
+      "passed": 81,
+      "total": 81,
+      "includes_native_http_group": true
+    },
+    "native_http": {
+      "passed": 6,
+      "total": 6
+    },
+    "native_sql": {
+      "passed": 12,
+      "total": 12
+    },
+    "inventories": {
+      "individually_checked": 34,
+      "original_set": 24,
+      "additional": 10,
+      "document_associations": 42,
+      "unrecovered_memorials_not_assigned_unrelated_files": 6
+    },
+    "HISTORICAL_REPAIR_SCOPE": null,
+    "historical_repair_executed": false,
+    "hosted_writes": false,
+    "fidelity": "Native local PostgreSQL17.6, reconstructed complete public schema with four final migrations, real application function/Supabase HTTP/PostgREST/RPC. Auth/cron and transport feed synthetic; inventory source records saved observations. No document download or new memorial recovery established.",
+    "evidence_sha256": {
+      "rpc-driver-results-final-r2.json": "13c158e03872d4ef82afe26ec68f7777847788f4169538e6f51b4f7c67d9cc90",
+      "inventory-rpc-results-final-r2.json": "68c987745186e5fd1b016172bdac6764ce030cbd85a96ce35689726dbe191a6b",
+      "rpc-native-http-final-r2.log": "2f311fae84a07c26a66d918fba7d5646b2fa4a5e12366b5d44d660a911327f1c",
+      "rpc-native-sql-results-final-r2.json": "04dc927f3680238dc1d1c61a2c9ff579dc0bf2b0e69233108cfc699d093290f7",
+      "rpc-function-final-r2.log": "a0a0aa0d02c8a6f8982d759fdb7dca158b152b5196060db409cfae87972c9d2f",
+      "rpc-gateway-final-r2.log": "a04e43ccd5d1f168e80a3baa5d479001f89cb1af2eb8f2d774ef19d8a6752346",
+      "rpc-postgrest-final-r2.log": "f7475f29961dd4a3b0ae87333857724a7b02709f9235ea11014eb0f79a514607",
+      "rpc-driver-final-r2.log": "ff33bd8261d87fed2474dfa5d8ee7082d8e9e32d2814cda04a784726e329b35f",
+      "rpc-bootstrap-final-r2.log": "786bda7cf248e1d1fe933230a350ac2263469ff55da5d4d9eef5d5c4845f9dff",
+      "rpc-native-sql-final-r2.log": "91c4ad7d58a7f2fb4a244d536febda4fdcdf96b8cee025bdc088e3b0c4f14d2f",
+      "rpc-schema-counts-final-r2.json": "116ddb64a33641b38e3744f648d9bd62eb0b7014a91ce6b9a12d1e835d0d5814",
+      "rpc-schema-manifest-final-r2.json": "2cd68630d798dd559038da2b31d99d121a735042be420a0a0bf39145ce2cee85"
+    },
+    "compatibility_addendum": {
+      "change": "TypeScript compatibility only: Object.hasOwn(source, key) -> Object.prototype.hasOwnProperty.call(source, key)",
+      "helper_sha256_before": "565852e0ae07f7c571fe058c6655fc48d26b060d24684e874783869e4afb3ba3",
+      "helper_sha256_final": "2f1c2131dfa0c3fc1fa5d7acea7d88e24ff7f30482f56d6a23555901d2c9c096",
+      "full_driver_81_and_inventory_34": "Executed before this semantically equivalent one-line substitution; not rerun afterwards. Original full-run evidence preserved.",
+      "final_native_http": {
+        "passed": 6,
+        "total": 6,
+        "execution": "Real final helper/HTTP/PostgREST/RPC in isolated local PostgreSQL, template containing all four migrations."
+      },
+      "no_production_writes": true,
+      "evidence_sha256": {
+        "rpc-compat-native-driver-final-r2.log": "e65d51833b133f987aaf48be99620e304b0bdd4004eec42b5fd6917d7109d4c3",
+        "rpc-compat-native-http-final-r2.log": "cd4119ecde4c842a0d88f305a10f60bd1dfd86fa43e29ee42f7b6e61a641060b",
+        "rpc-compat-native-results-final-r2.json": "92cb531a98a0389129c0b2ffd28c5bb49b2735eae3e99bc5e8f973ac3fce25e4",
+        "rpc-schema-manifest-final-r2.json": "2cd68630d798dd559038da2b31d99d121a735042be420a0a0bf39145ce2cee85",
+        "rpc-schema-manifest-before-compat-final-r2.json": "39fe2d8a832a9a954421a681ea654937ff9e0dbb1d977a87f5d958c696f8ba05"
+      }
+    }
+  }
+}

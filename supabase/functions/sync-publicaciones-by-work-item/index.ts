@@ -39,6 +39,7 @@ import {
   fetchFromSamaiEstados,
   formatRadicadoForSamai,
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
+import { publicationDownloadUrls, samaiEstadosToProviderUnits } from "../_shared/samaiEstadosIngestion.ts";
 import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
@@ -1974,63 +1975,12 @@ Deno.serve(withSyncTimeline(async (req) => {
 
           // ── Merge results into fetchResult.publicaciones (PublicacionV3) ──
           if (samaiRes.publicaciones.length > 0) {
-            const existingKeys = new Set(
-              fetchResult.publicaciones.map((p) => {
-                const pFecha = p.fecha_publicacion || '';
-                const pTitle = (p.titulo || '').slice(0, 30).toLowerCase();
-                return `${pFecha}|${pTitle}`;
-              })
-            );
-
-            let mergedNew = 0;
-            for (const np of samaiRes.publicaciones) {
-              const pubFecha = np.fecha_fijacion || '';
-              const pubTitle = (np.title || '').slice(0, 30).toLowerCase();
-              const key = `${pubFecha}|${pubTitle}`;
-              if (existingKeys.has(key)) {
-                recordSamaiOutcome(
-                  samaiSummary,
-                  normalizedRadicado,
-                  'SKIPPED_CROSS_SOURCE',
-                  np.title,
-                  'Matched a Publicaciones row in the same provider response by date and normalized title',
-                );
-                continue;
-              }
-
-              const hashDoc = np.hash_fingerprint;
-              const v3: PublicacionV3 = {
-                key: `samai_estado_${pubFecha}_${(np.tipo_publicacion || '').slice(0, 30)}`,
-                tipo: np.tipo_publicacion || 'Estado',
-                titulo: np.title || np.tipo_publicacion || 'Estado SAMAI',
-                fecha_publicacion: pubFecha || null,
-                fecha_estado_raw:
-                  (np as any).raw_data?.fecha_estado_normalizada ||
-                  (np as any).fecha_estado ||
-                  null,
-                fecha_auto_raw:
-                  (np as any).fecha_providencia ||
-                  (np as any).raw_data?.fecha_providencia_normalizada ||
-                  null,
-                pdf_url: np.pdf_url,
-                tipo_evento: 'Estado Electrónico',
-                asset_id: `samai_${hashDoc}`,
-                clasificacion: {
-                  categoria: 'Estado Electrónico',
-                  descripcion:
-                    (np as any).raw_data?.['Anotación'] ||
-                    (np as any).raw_data?.anotacion ||
-                    np.tipo_publicacion,
-                  es_descargable: !!(np.pdf_url && np.pdf_url.toLowerCase().includes('.pdf')),
-                },
-                raw_data: (np as any).raw_data,
-                _source_provider: 'samai_estados',
-                _samai_row: true,
-              } as PublicacionV3;
-              fetchResult.publicaciones.push(v3);
-              existingKeys.add(key);
-              mergedNew++;
-            }
+            const units = samaiEstadosToProviderUnits(samaiRes.publicaciones);
+            // Every estado reaches the canonical mapper and RPC. Previously
+            // date + a 30-character title prefix silently discarded rows and
+            // their documents before persistence could inspect their identity.
+            fetchResult.publicaciones.push(...units.map((unit) => ({ ...unit, _samai_row: true }) as PublicacionV3));
+            const mergedNew = units.length;
             samaiSummary.merged_new = mergedNew;
             if (mergedNew > 0) {
               fetchResult.found = true;
@@ -2617,15 +2567,10 @@ Deno.serve(withSyncTimeline(async (req) => {
             (counts.updated_count || 0) +
             (counts.skipped_count || 0) >
           0;
-        if (
-          rowExists &&
-          pub.pdf_url &&
-          typeof pub.pdf_url === 'string' &&
-          pub.pdf_url.startsWith('https')
-        ) {
+        for (const remoteUrl of rowExists ? publicationDownloadUrls(pub) : []) {
           try {
             const filename =
-              pub.pdf_url.split('/').pop() || pub.titulo || 'attachment.pdf';
+              remoteUrl.split('/').pop() || pub.titulo || 'attachment.pdf';
 
             // Resolve the real publicacion UUID via the natural key
             // (work_item_id + fingerprint). The RPC does not return row ids,
@@ -2654,33 +2599,9 @@ Deno.serve(withSyncTimeline(async (req) => {
                 }),
               );
             } else {
-              // ── Refresh pdf_url on the publicacion row itself (defensive) ──
-              // Ensures updates to the pdf_url land even if the RPC upsert
-              // path elected to skip the row. Best-effort, non-blocking.
-              try {
-                await supabase
-                  .from('work_item_publicaciones')
-                  .update({ pdf_url: pub.pdf_url })
-                  .eq('id', pubRow.id)
-                  .neq('pdf_url', pub.pdf_url);
-              } catch (_e) { /* best-effort */ }
-
-              // ── Re-point stale queue rows for THIS publicacion ──
-              // A previous sync may have enqueued the same publication with an
-              // older remote URL. Repoint rows that are STILL PENDING.
-              // LS1(a)/(c): 'failed' and 'skipped' are conclusions, not pauses.
-              // A routine sync neither revives them nor refunds their attempts.
-              try {
-                await supabase
-                  .from('estado_attachment_queue')
-                  .update({
-                    remote_url: pub.pdf_url,
-                    next_retry_at: new Date().toISOString(),
-                  })
-                  .eq('publicacion_id', pubRow.id)
-                  .neq('remote_url', pub.pdf_url)
-                  .eq('status', 'pending');
-              } catch (_e) { /* best-effort */ }
+              // A different URL may be a different annex. Never repoint all
+              // pending documents to one primary PDF, or overwrite a stored
+              // primary path with an unverified remote link during a retry.
 
               // Insert-if-absent only: on conflict the existing row keeps its
               // status and attempt_count (no budget reset — LS1(a)).
@@ -2691,7 +2612,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                     work_item_id,
                     publicacion_id: pubRow.id,
                     organization_id: workItem.organization_id,
-                    remote_url: pub.pdf_url,
+                    remote_url: remoteUrl,
                     filename: filename.slice(0, 255),
                     status: 'pending',
                     attempt_count: 0,
@@ -2711,7 +2632,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                     reason: 'upsert_error',
                     work_item_id,
                     publicacion_id: pubRow.id,
-                    remote_url: pub.pdf_url,
+                    remote_url: remoteUrl,
                     error: enqueueErr.message,
                   }),
                 );

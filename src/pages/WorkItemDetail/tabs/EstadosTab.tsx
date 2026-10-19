@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
 import { toast } from "sonner";
+import { estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
 import {
   documentUrlCandidates,
   hasResolvableDocument,
@@ -105,6 +106,27 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     enabled: !!workItem.id,
     staleTime: 60 * 1000,
   });
+
+  const { data: recoveryDocuments } = useQuery({
+    queryKey: ["estado-document-recovery", workItem.id],
+    queryFn: async (): Promise<EstadoDocumentRecovery[]> => {
+      const { data, error } = await supabase.from("estado_attachment_queue")
+        .select("id,publicacion_id,filename,status,last_error,storage_path,validation_evidence")
+        .eq("work_item_id", workItem.id);
+      if (error) throw error;
+      return (data ?? []) as unknown as EstadoDocumentRecovery[];
+    },
+    enabled: !!workItem.id,
+    staleTime: 30_000,
+  });
+
+  const openVerifiedCopy = async (document: EstadoDocumentRecovery) => {
+    const { data, error } = await supabase.functions.invoke("get-estado-attachment-url", {
+      body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
+    });
+    if (!error && data?.source === "storage" && data?.url) window.open(data.url, "_blank", "noopener,noreferrer");
+    else toast.error("La copia no está disponible en este momento.");
+  };
 
   // Resolve the best openable URL for a local publicacion row. The
   // `pdf_url` column often stores a *storage path* (e.g.
@@ -407,6 +429,27 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
             })(),
           }))}
         />
+      )}
+      {!!recoveryDocuments?.length && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Recuperación de documentos</CardTitle>
+            <CardDescription>Estado de cada copia asociada a su publicación.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {recoveryDocuments.map((document) => {
+              const status = estadoDocumentStatus(document);
+              const publication = localPubs?.find((pub) => pub.id === document.publicacion_id);
+              return (
+                <div key={document.id} className="rounded border p-3 text-sm">
+                  <p className="font-medium">{publication?.title || "Publicación"} · {document.filename || "Documento"}</p>
+                  <p><span className="font-medium">{status.label}.</span> {status.reason}</p>
+                  {status.available && <Button variant="link" className="h-auto px-0" onClick={() => openVerifiedCopy(document)}>Abrir copia verificada</Button>}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -29,7 +29,7 @@ export async function getActAttachments(args: {
   const { sb } = args;
   const { data: act, error } = await sb
     .from("work_item_acts")
-    .select("id, work_item_id, act_date, source, documentos, documentos_observados_en, raw_data")
+    .select("id, work_item_id, act_date, description, source, documentos, documentos_observados_en, raw_data")
     .eq("id", args.act_id)
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
@@ -47,8 +47,8 @@ export async function getActAttachments(args: {
   }
 
   const verifications: Record<string, VerificationResult> = {};
-  const urls = ownCopyCandidates(act).map((c) => c.own).filter((u): u is string => !!u);
-  for (const u of urls.slice(0, args.maxVerify ?? 10)) {
+  const urls = [...new Set(ownCopyCandidates(act).map((c) => c.own).filter((u): u is string => !!u))];
+  for (const u of urls.slice(0, Math.max(0, Math.min(20, Math.trunc(args.maxVerify ?? 10))))) {
     verifications[u] = await verifyPdfBytes(u, args.fetchImpl);
   }
   const summary = summarizeActAttachments(act, verifications);

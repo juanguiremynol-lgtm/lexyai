@@ -1,3 +1,4 @@
+import { classifyCautelarEvent } from '../../../supabase/functions/_shared/cautelarEvent';
 /**
  * Estado → Stage Inference Engine
  * 
@@ -692,6 +693,13 @@ export function inferWorkItemStageFromEstado(
     );
     
     if (matchedPattern) {
+      if (rule.category === 'EMBARGO') {
+        const event = classifyCautelarEvent(actuacion, anotacion || '');
+        return { suggestedStage: null, suggestedCgpPhase: null, confidence: 'LOW',
+          category: event?.kind === 'traslado' ? 'TRANSFER' : 'OTHER',
+          reasoning: event?.limitation || 'Contenido decisorio del PDF sin comprobar.',
+          matchedPattern, triggersMilestone: false, milestoneType: null };
+      }
       // Determine suggested stage based on workflow type
       let suggestedStage: string | null = null;
       let suggestedCgpPhase: CGPPhase | null = null;

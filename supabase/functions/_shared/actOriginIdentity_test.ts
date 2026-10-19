@@ -236,3 +236,37 @@ Deno.test("samai normalizer: a real provider URL becomes a descriptor", () => {
   const [n] = normalizeSamaiActuaciones([{ "Fecha Providencia": "2026-10-16", "Actuación": "AUTO", gcs_url: "https://storage.googleapis.com/b/x.pdf" }]);
   assertEquals((n as any).documentos[0].gcs_url, "https://storage.googleapis.com/b/x.pdf");
 });
+
+Deno.test("identity: known solicitud cannot match unrelated index-only or no-origin evidence", () => {
+  const row: CandidateRow = { id: "old", hash_fingerprint: "v1", semantic_key: "same", description: `${TITLE} - ${A}`, raw_data: {} };
+  for (const incoming of [extractActOrigin({ indice: 999 }), extractActOrigin({ anotacion: "Sin origen suficiente" })]) {
+    const d = resolveActIdentity({ v1: "v1", semanticKey: "same", incoming, evidence: "Sin origen suficiente", rows: [row] });
+    assertEquals(d.kind, "insert");
+    if (d.kind === "insert") assert(d.fingerprint !== "v1");
+    assertEquals(planEnrichment(row, { actuacion: TITLE, anotacion: "Sin origen suficiente", indice: incoming.indice, anexos: null, documentos: [{ id: "unrelated", url: "https://example.com/a.pdf" }] }, "indeterminate"), null);
+  }
+});
+
+Deno.test("identity: absent origins require exact source text, not only day/title", () => {
+  const row: CandidateRow = { id: "old", hash_fingerprint: "v1", semantic_key: "same", description: `${TITLE} - First unconfirmed text`, raw_data: {} };
+  const d = resolveActIdentity({ v1: "v1", semanticKey: "same", incoming: extractActOrigin({}), evidence: `${TITLE} - Different unconfirmed text`, rows: [row] });
+  assertEquals(d.kind, "insert");
+});
+
+Deno.test("inventory: descriptors are not an announced total and invalid counts are unknown", () => {
+  for (const anexos of [null, false, true, " ", 1.5, [], {}]) {
+    const inv = buildAnexosInventario({ anexos, documentos: [{ url: "https://example.com/a.pdf" }] });
+    assertEquals(inv.anunciados, null);
+    assertEquals(inv.fuente_conteo, null);
+    assertEquals(inv.estado, "enlaces_sin_verificar");
+  }
+});
+
+Deno.test("inventory: memorial source count variants stay announced, never recovered", () => {
+  for (const [text, count] of [["Se realiza la siguiente gestión: 1 archivo", 1], ["Se realiza la siguiente gestión: 1-archivo", 1], ["Se realiza la siguiente gestión: 2 Archivos", 2]] as const) {
+    const inv = buildAnexosInventario({ anotacion: text });
+    assertEquals(inv.anunciados, count);
+    assertEquals(inv.estado, "desconocido");
+    assertEquals(inv.enlaces_registrados, 0);
+  }
+});

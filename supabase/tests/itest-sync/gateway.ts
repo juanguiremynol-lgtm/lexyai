@@ -1,6 +1,6 @@
 // Local test gateway: /rest/v1 -> local PostgREST, /samai -> synthetic SAMAI, fault injection.
 let samai: unknown = { actuaciones: [] };
-let faults = { rpcUpsert: 0, readBack: 0, readBackMissing: 0, rpcUpsertOnFp: "" as string };
+let faults = { rpcUpsert: 0, readBack: 0, readBackMissing: 0, patchZero: 0, rpcUpsertOnFp: "" as string };
 const log: string[] = [];
 Deno.serve({ port: 54321, hostname: "127.0.0.1" }, async (req) => {
   const u = new URL(req.url);
@@ -20,6 +20,10 @@ Deno.serve({ port: 54321, hostname: "127.0.0.1" }, async (req) => {
   if (u.pathname.startsWith("/rest/v1/")) {
     const path = u.pathname.slice("/rest/v1".length);
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
+    if (path === "/work_item_acts" && req.method === "PATCH" && faults.patchZero > 0) {
+      faults.patchZero--; log.push("FAULT zero-row PATCH");
+      return Response.json([]);
+    }
     if (path === "/rpc/rpc_upsert_work_item_acts" && faults.rpcUpsert > 0) {
       const txt = new TextDecoder().decode(body);
       if (!faults.rpcUpsertOnFp || txt.includes(faults.rpcUpsertOnFp)) {

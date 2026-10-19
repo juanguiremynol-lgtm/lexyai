@@ -1,258 +1,107 @@
-/**
- * process-estado-attachments-queue — Worker for downloading judicial PDFs.
- *
- * Reads pending rows from estado_attachment_queue, downloads the PDF,
- * stores it in the private `estado-attachments` bucket, sets status='done'
- * (or 'failed' when attempts are exhausted), and writes the storage path
- * onto work_item_publicaciones.pdf_url.
- *
- * Schema-consistent columns:
- *   id, work_item_id, publicacion_id, organization_id, remote_url, filename,
- *   status (pending|done|failed), attempt_count, max_attempts, last_error,
- *   storage_path, downloaded_at, next_retry_at.
- *
- * Cadence: dedicated pg_cron every 10 minutes (asterisk-slash-10 asterisks).
- * Time budget: 45s per run, batch <= 10.
- */
+/** Durable, bounded recovery of separately associated estado documents. */
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.89.0";
+import { recoverEstadoAttachment, type EstadoQueueRow } from "../_shared/estadoAttachmentRecovery.ts";
+import { readEstadoPdf } from "../_shared/estadoPdfReading.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { estadoDocumentAccess, downloadEstadoDocument } from "../_shared/estadoDocumentAccess.ts";
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
-const LOG_TAG = "[process-estado-attachments]";
-const BATCH_SIZE = 10;
-const DOWNLOAD_TIMEOUT_MS = 25_000;
+const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const TIME_BUDGET_MS = 45_000;
 const BUCKET_NAME = "estado-attachments";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  const runId = crypto.randomUUID().slice(0, 12);
-  const start = Date.now();
-  console.log(`${LOG_TAG} run ${runId} start`);
-
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const internalBearer = !!serviceKey && req.headers.get("Authorization") === `Bearer ${serviceKey}`;
+  if (!isCronCaller(req) && !internalBearer) return json({ error: 'unauthorized' }, 401);
+  let workItemIds: string[] | null;
   try {
-    const nowIso = new Date().toISOString();
-
-    // ── P1.2 NO-OP EARLY EXIT ── head count, zero telemetry on idle runs.
-    const { count: queueDepth, error: depthErr } = await supabase
-      .from("estado_attachment_queue")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .lte("next_retry_at", nowIso);
-    if (depthErr) return json({ ok: false, error: depthErr.message, run_id: runId }, 500);
-    if ((queueDepth ?? 0) === 0) return json({ ok: true, no_op: true, processed: 0, run_id: runId });
-    const { data: pending, error } = await supabase
-      .from("estado_attachment_queue")
-      .select(
-        "id, publicacion_id, remote_url, filename, attempt_count, max_attempts, storage_path, last_error",
-      )
-      .eq("status", "pending")
-      .lte("next_retry_at", nowIso)
-      .order("created_at", { ascending: true })
-      .limit(BATCH_SIZE);
-
-    if (error) return json({ ok: false, error: error.message, run_id: runId }, 500);
-    if (!pending?.length) return json({ ok: true, processed: 0, run_id: runId });
-
-    let ok = 0, ko = 0;
-    for (const row of pending) {
-      if (Date.now() - start > TIME_BUDGET_MS) {
-        console.warn(`${LOG_TAG} time budget reached, stopping`);
-        break;
-      }
-      const res = await processOne(supabase, row as never);
-      if (res.success) ok++; else ko++;
+    const body = await req.text();
+    workItemIds = parseEstadoWorkItemScope(body ? JSON.parse(body) : {});
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'invalid_request' }, 400);
+  }
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } });
+  const start = Date.now();
+  let success = 0, failed = 0;
+  try {
+    // Claim one at a time: no queued batch can expire while earlier files are
+    // being validated. The RPC increments attempts and excludes concurrent workers.
+    while (success + failed < 10 && Date.now() - start < TIME_BUDGET_MS) {
+      const { data, error } = workItemIds
+        ? await supabase.rpc("claim_estado_attachment_downloads_scoped", { p_limit: 1, p_work_item_ids: workItemIds })
+        : await supabase.rpc("claim_estado_attachment_downloads", { p_limit: 1 });
+      if (error) throw new Error(`claim_failed:${error.message}`);
+      const row = data?.[0] as EstadoQueueRow | undefined;
+      if (!row) break;
+      const result = await processOne(supabase, row);
+      if (result.success) success++; else failed++;
     }
-
-    console.log(`${LOG_TAG} ${runId} done: ok=${ok} ko=${ko}`);
-    return json({ ok: true, run_id: runId, processed: ok + ko, success: ok, failed: ko });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${LOG_TAG} fatal`, msg);
-    return json({ ok: false, error: msg, run_id: runId }, 500);
+    return json({ ok: true, processed: success + failed, success, failed, work_item_ids: workItemIds });
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error), success, failed }, 500);
   }
 });
 
-interface QueueRow {
-  id: string;
-  publicacion_id: string;
-  remote_url: string;
-  filename: string | null;
-  attempt_count: number;
-  max_attempts: number;
-  storage_path: string | null;
-  last_error: string | null;
+/** An explicit but invalid scope must never become a global queue run. The
+ * ordinary cron omits this field; a controlled run names one or two matters. */
+export function parseEstadoWorkItemScope(body: unknown): string[] | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid_request');
+  if (!Object.prototype.hasOwnProperty.call(body, 'work_item_ids')) return null;
+  const ids = (body as Record<string, unknown>).work_item_ids;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 2 || ids.some((id) => typeof id !== 'string' || !uuid.test(id))) {
+    throw new Error('work_item_ids_must_contain_one_or_two_uuids');
+  }
+  return [...new Set(ids.map((id) => id.toLowerCase()))];
 }
 
-async function processOne(
-  supabase: ReturnType<typeof createClient>,
-  row: QueueRow,
-): Promise<{ success: boolean; error?: string }> {
-  const nextAttempt = row.attempt_count + 1;
-  const filename = safeName(row.filename || `providencia_${row.id.slice(0, 8)}.pdf`);
-  console.log(`${LOG_TAG} ${row.id} attempt ${nextAttempt}/${row.max_attempts}`);
-
-  // Idempotent close-out: if a prior run (or the publicaciones mapper) already
-  // wrote storage_path with no error, the file is in the bucket — just flip
-  // the status to 'downloaded' instead of re-downloading. Prevents the
-  // "pending forever with storage_path populated" bookkeeping bug.
-  if (row.storage_path && !row.last_error) {
-    console.log(`${LOG_TAG} ${row.id} already has storage_path, closing as downloaded`);
-    await supabase
-      .from("estado_attachment_queue")
-      .update({
-        status: "downloaded",
-        downloaded_at: new Date().toISOString(),
-        last_error: null,
-      } as never)
-      .eq("id", row.id);
-    if (row.publicacion_id) {
-      await supabase
-        .from("work_item_publicaciones")
-        // Storage paths NEVER go into pdf_url (that column is a URL and the
-        // UI would concatenate a path onto the app origin → SPA 404).
-        .update({ pdf_storage_path: row.storage_path, pdf_available: true } as never)
-        .eq("id", row.publicacion_id);
-    }
-    return { success: true };
-  }
-
-  try {
-    const bytes = await downloadPdf(row.remote_url);
-    if (!bytes || bytes.byteLength === 0) throw new Error("empty_body");
-
-    const path = `${row.publicacion_id}/${filename}`;
-    const { error: upErr } = await (supabase.storage
-      .from(BUCKET_NAME) as unknown as {
-        upload: (
-          p: string,
-          d: ArrayBuffer,
-          o: { contentType: string; upsert: boolean },
-        ) => Promise<{ error: { message: string } | null }>;
-      })
-      .upload(path, bytes, { contentType: "application/pdf", upsert: true });
-    if (upErr) throw new Error(`upload_failed:${upErr.message}`);
-
-    await supabase
-      .from("estado_attachment_queue")
-      .update({
-        // Table check constraint enforces status IN ('pending','downloading',
-        // 'downloaded','failed','skipped'). 'done' is silently rejected and
-        // left the queue in a pending loop while the worker kept succeeding.
-        status: "downloaded",
-        storage_path: path,
-        attempt_count: nextAttempt,
-        downloaded_at: new Date().toISOString(),
-        last_error: null,
-      } as never)
-      .eq("id", row.id);
-
-    if (row.publicacion_id) {
-      await supabase
-        .from("work_item_publicaciones")
-        .update({ pdf_storage_path: path, pdf_available: true } as never)
-        .eq("id", row.publicacion_id);
-    }
-    return { success: true };
-  } catch (err) {
-    const msg = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-    const exhausted = nextAttempt >= row.max_attempts;
-    const backoffMin = Math.min(240, Math.pow(2, nextAttempt) * 5);
-    await supabase
-      .from("estado_attachment_queue")
-      .update({
-        status: exhausted ? "failed" : "pending",
-        attempt_count: nextAttempt,
-        last_error: msg,
-        next_retry_at: new Date(Date.now() + backoffMin * 60_000).toISOString(),
-      } as never)
-      .eq("id", row.id);
-    return { success: false, error: msg };
-  }
+async function processOne(supabase: SupabaseClient<any>, row: EstadoQueueRow) {
+  const bucket = supabase.storage.from(BUCKET_NAME);
+  let primaryChange: { available: boolean; path: string | null } | null = null;
+  let primaryInvalidated = false;
+  return recoverEstadoAttachment(row, {
+    publication: async () => {
+      const { data, error } = await supabase.from("work_item_publicaciones").select("pdf_url,raw_data").eq("id", row.publicacion_id).single();
+      if (error || !data) throw new Error(`publication_read_failed:${error?.message || 'missing'}`);
+      return data;
+    },
+    readStored: async (path) => {
+      const { data, error } = await bucket.download(path);
+      if (error) {
+        const status = Number((error as any).statusCode ?? (error as any).status);
+        if (status === 404) return null;
+        throw new Error(`stored_read_failed_${status || 'unknown'}:${error.message}`);
+      }
+      if (!data) throw new Error('stored_read_empty_response');
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    fetchOrigin: downloadPdf,
+    inspect: readEstadoPdf,
+    upload: async (path, bytes) => {
+      const { error } = await bucket.upload(path, bytes, { contentType: 'application/pdf', upsert: true });
+      if (error) throw new Error(`upload_failed:${error.message}`);
+    },
+    saveQueue: async (patch) => {
+      // An expired worker may not finish a newer worker's attempt.
+      const safePrimary = patch.status === 'downloaded' ? primaryChange : (primaryInvalidated ? { available: false, path: null } : null);
+      const { data, error } = await supabase.rpc('finish_estado_attachment_download', { p_id: row.id, p_attempt: row.attempt_count, p_patch: patch, p_primary: safePrimary });
+      if (error || !data) throw new Error(`queue_write_unconfirmed:${error?.message || 'lease_changed'}`);
+    },
+    setPrimaryAvailability: async (available, path) => {
+      // An annex completing later must not replace the primary document.
+      primaryChange = { available, path };
+      if (!available) primaryInvalidated = true;
+    },
+  });
 }
 
-async function downloadPdf(url: string): Promise<ArrayBuffer> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), DOWNLOAD_TIMEOUT_MS);
-  try {
-    // Route selection based on host:
-    //   - Our Cloud Run PDF proxies (publicaciones-procesales-api-*.run.app,
-    //     samai-estados-api-*.run.app) require X-API-Key. Browser-spoofing
-    //     headers are NOT sent — those endpoints authenticate on API key only.
-    //   - Any other host uses the legacy browser-shaped headers.
-    const auth = resolveGcpAuth(url);
-    const headers: Record<string, string> = auth
-      ? {
-          "Accept": "application/pdf, */*",
-          "X-API-Key": auth.apiKey,
-        }
-      : {
-          "Accept": "application/pdf, */*",
-          "User-Agent":
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Andromeda-AttachmentWorker",
-          "Referer": "https://samaicore.consejodeestado.gov.co/",
-          "Origin": "https://samaicore.consejodeestado.gov.co",
-        };
-    if (auth) {
-      console.log(`${LOG_TAG} using ${auth.source} X-API-Key for ${new URL(url).host}`);
-    }
-    const resp = await fetch(url, { signal: ctl.signal, headers });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
-      throw new Error(`http_${resp.status}:${body.slice(0, 200)}`);
-    }
-    return await resp.arrayBuffer();
-  } finally {
-    clearTimeout(t);
-  }
+async function downloadPdf(url: string): Promise<Uint8Array> {
+  return downloadEstadoDocument(url, (key) => Deno.env.get(key));
 }
 
-/**
- * Return the X-API-Key to send for a given absolute URL when the host
- * matches one of our own Cloud Run PDF proxies. Returns null for any other
- * host so the caller falls back to browser-shaped headers.
- *
- * Uses the same secret names as the sync-* edge functions:
- *   - publicaciones-procesales-api-*.run.app → PUBLICACIONES_X_API_KEY || EXTERNAL_X_API_KEY
- *   - samai-estados-api-*.run.app            → SAMAI_ESTADOS_API_KEY
- */
-export function resolveGcpAuth(
-  rawUrl: string,
-): { apiKey: string; source: "publicaciones" | "samai_estados" } | null {
-  let host = "";
-  try { host = new URL(rawUrl).host.toLowerCase(); } catch { return null; }
-
-  // Cloud Run hostnames include the region segment, e.g.
-  //   publicaciones-procesales-api-11974381924.us-central1.run.app
-  // The regex must allow the interior `.us-central1.` (or any region),
-  // not just alphanumerics/dashes, otherwise resolveGcpAuth falls through
-  // and the worker sends no X-API-Key → 401 API key inválida.
-  if (/^publicaciones-procesales-api-[a-z0-9.-]+\.run\.app$/i.test(host)) {
-    const key = Deno.env.get("PUBLICACIONES_X_API_KEY")
-      || Deno.env.get("EXTERNAL_X_API_KEY");
-    return key ? { apiKey: key, source: "publicaciones" } : null;
-  }
-  if (/^samai-estados-api-[a-z0-9.-]+\.run\.app$/i.test(host)) {
-    const key = Deno.env.get("SAMAI_ESTADOS_API_KEY");
-    return key ? { apiKey: key, source: "samai_estados" } : null;
-  }
-  return null;
-}
-
-function safeName(name: string): string {
-  const trimmed = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-  return trimmed.toLowerCase().endsWith(".pdf") ? trimmed : `${trimmed}.pdf`;
+export function resolveGcpAuth(rawUrl: string): { apiKey: string; source: "publicaciones" | "samai_estados" } | null {
+  return estadoDocumentAccess(rawUrl, (key) => Deno.env.get(key));
 }
 
 function json(body: Record<string, unknown>, status = 200) {

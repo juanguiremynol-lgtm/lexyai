@@ -16,8 +16,8 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
-import { extractActOrigin, resolveActIdentity, planEnrichment, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
-import { loadAllActiveActs, resolvePersistedAct, ActDocState, ActLoadError } from "../_shared/actBatchState.ts";
+import { extractActOrigin, resolveActIdentity, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
+import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
 // It is enabled only by an approved, backed-up repair naming explicit act ids.
@@ -25,14 +25,15 @@ const HISTORICAL_REPAIR_SCOPE: HistoricalRepairScope | null = null;
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
 import { resolveProviderLinkage } from "../_shared/recursoStreams.ts";
 import {
   resolveDocumentosObservadosEn,
   normalizeActDocumentos,
-  documentosEnrichmentPatch,
 } from "../_shared/actDocumentos.ts";
+import { classifyCautelarEvent } from "../_shared/cautelarEvent.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { attemptIsAnsweredAbsence } from "../_shared/providerStrategy.ts";
 import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
@@ -219,6 +220,7 @@ interface SyncResult {
   errors: string[];
   trace_id?: string;
   code?: string; // Error code for client
+  persistence_unknown?: { fingerprint: string; reason: string }[];
   // Auto-scraping fields
   scraping_initiated?: boolean;
   scraping_job_id?: string;
@@ -642,6 +644,8 @@ const SIGNIFICANT_EVENT_PATTERNS: Array<{ patterns: string[]; info: SignificantE
 ];
 
 function detectSignificantEvent(actuacion: string, anotacion: string): SignificantEventInfo | null {
+  const cautelar = classifyCautelarEvent(actuacion, anotacion);
+  if (cautelar) return cautelar;
   const textToSearch = `${actuacion} ${anotacion}`.toLowerCase();
   
   for (const { patterns, info } of SIGNIFICANT_EVENT_PATTERNS) {
@@ -1350,6 +1354,8 @@ Deno.serve(withSyncTimeline(async (req) => {
   // Get trace ID from header or generate new one
   const traceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
   const syncStartTime = Date.now();
+  let failureResult: SyncResult | undefined;
+  let traceWorkItemId: string | undefined;
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -1373,6 +1379,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     const { work_item_id, _scheduled, release_gate, force_refresh, allow_buscar } = payload;
+    traceWorkItemId = work_item_id;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
@@ -1381,12 +1388,19 @@ Deno.serve(withSyncTimeline(async (req) => {
     let userId: string;
 
     if (_scheduled) {
-      // FIX 6.3: Scheduled callers (cron/fallback) use service role — skip user auth + membership
-      // Validate that caller is using service role key (not anon)
-      const callerToken = authHeader?.replace('Bearer ', '') || '';
-      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
-      if (callerToken === anonKey) {
-        return errorResponse('UNAUTHORIZED', 'Scheduled mode requires service role', 403, traceId);
+      // Scheduled mode bypasses user membership only for an authenticated
+      // system caller. A token merely differing from the public anon key is
+      // not authentication. Preserve verified legacy service-role JWT callers.
+      const callerToken = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1] || '';
+      let systemCaller = isCronCaller(req) || (!!callerToken && callerToken === supabaseServiceKey);
+      if (!systemCaller && callerToken.split('.').length === 3) {
+        try {
+          const { data, error } = await supabase.auth.getClaims(callerToken);
+          systemCaller = !error && data?.claims?.role === 'service_role';
+        } catch { systemCaller = false; }
+      }
+      if (!systemCaller) {
+        return errorResponse('UNAUTHORIZED', 'Scheduled mode requires verified service role or cron authentication', 401, traceId);
       }
       userId = 'system-scheduled';
       console.log(`[sync-by-work-item] Scheduled mode: skipping auth + membership check for work_item_id=${work_item_id}`);
@@ -1617,51 +1631,8 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
 
-    // ============= HEARING BACKFILL SWEEP (runs EARLY, before fetch) =============
-    // Idempotent sweep over already-persisted work_item_acts for this WI.
-    // Runs regardless of provider health so the canonical work_item_hearings
-    // table converges even when CPNU/SAMAI are degraded on this tick.
-    try {
-      const { extractHearingFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
-      const { data: _dbActs } = await supabase
-        .from('work_item_acts')
-        .select('id, act_type, description')
-        .eq('work_item_id', work_item_id)
-        .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
-        .limit(500);
-      let _bfInserted = 0;
-      for (const _a of (_dbActs || [])) {
-        const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
-        if (!_c) continue;
-        const { data: _exists } = await supabase
-          .from('work_item_hearings')
-          .select('id')
-          .eq('work_item_id', work_item_id)
-          .eq('scheduled_at', _c.starts_at_iso)
-          .maybeSingle();
-        if (_exists) continue;
-        const _isFut = new Date(_c.starts_at_iso) > new Date();
-        const { error: _hInsErr } = await supabase.from('work_item_hearings').insert({
-          organization_id: workItem.organization_id,
-          work_item_id,
-          custom_name: _c.title,
-          scheduled_at: _c.starts_at_iso,
-          auto_detected: true,
-          status: _isFut ? 'scheduled' : 'held',
-          source_act_id: _a.id,
-          extraction_method: 'act_regex_v2',
-          time_inferred: _c.time_inferred,
-          discovery_type: _isFut ? 'NOVEDAD' : 'HISTORICO_DETECTADO',
-        });
-        if (!_hInsErr) _bfInserted++;
-        else console.warn('[sync-by-work-item] hearing backfill insert error:', _hInsErr.message);
-      }
-      if (_bfInserted > 0) {
-        console.log(`[sync-by-work-item] 🎯 Early hearing backfill sweep inserted ${_bfInserted} hearing(s) for WI ${work_item_id}`);
-      }
-    } catch (_bfErr) {
-      console.warn('[sync-by-work-item] early hearing backfill sweep error:', (_bfErr as Error).message);
-    }
+    // Hearing backfill runs after the persistence loop. A pre-fetch write could
+    // produce effects for an act whose later conditional enrichment fails.
 
     const result: SyncResult = {
       ok: false,
@@ -1676,6 +1647,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       warnings: [],
       errors: [],
     };
+    failureResult = result;
 
     // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
@@ -2901,11 +2873,6 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ITER70 rev.3 — complete paginated read; any error aborts the sync
     // explicitly (identity resolution must never run on a partial set).
     const existingActsForDedup: any[] = await loadAllActiveActs(supabase, work_item_id);
-    const docState = new ActDocState();
-    for (const a of existingActsForDedup) {
-      docState.set(a.id, { documentos: a.documentos ?? null, documentos_observados_en: a.documentos_observados_en ?? null });
-    }
-
     // Map keyed by semantic tuple so we can UPDATE existing rows when the
     // provider now delivers a longer/better anotacion than what we stored.
     const existingSemanticMap = new Map<string, {
@@ -2951,36 +2918,76 @@ Deno.serve(withSyncTimeline(async (req) => {
       semantic_key: `${a.act_date || ''}|${(a.description || '').split(' - ')[0].toUpperCase().trim()}|${a.fecha_registro_source || ''}|${a.recurso_consecutivo || '00'}`,
       description: a.description ?? null,
       raw_data: a.raw_data ?? null,
+      documentos: a.documentos ?? null,
+      documentos_observados_en: a.documentos_observados_en ?? null,
     }));
 
-    /**
-     * ITER67 — a duplicated act still learns documents. CPNU materialises the
-     * PDF hours or days after announcing the actuación, so skipping duplicates
-     * wholesale froze the first (linkless) descriptor forever.
-     */
-    const applyDocumentosEnrichment = async (
-      actId: string,
-      existingDocs: unknown,
-      existingObservedAt: string | null,
-      incoming: ActuacionRaw,
-    ): Promise<void> => {
-      const patch = documentosEnrichmentPatch(
-        existingDocs,
-        existingObservedAt,
-        (incoming as any).documentos,
-        (incoming as any).documentos_observados_en,
-      );
-      if (!patch) return;
-      const { error: docErr } = await supabase
-        .from('work_item_acts')
-        .update({ ...patch, last_seen_at: new Date().toISOString() })
-        .eq('id', actId);
-      if (docErr) {
-        console.warn(`[sync-by-work-item] ⚠️ documentos enrichment failed for ${actId}: ${docErr.message}`);
-      } else {
-        docState.set(actId, { documentos: patch.documentos, documentos_observados_en: (patch as any).documentos_observados_en ?? existingObservedAt });
-        console.log(`[sync-by-work-item] ✅ documentos enriched for act ${actId} (${patch.documentos.length} descriptor(s))`);
-      }
+    const failedEnrichmentIds = new Set<string>();
+
+    // Called only with a confirmed persisted row.
+    const applyPersistedHearing = async (persisted: any): Promise<void> => {
+        // ============= AUTO-EXTRACT HEARINGS FROM ACT =============
+        // Errors remain visible in the sync result. Upsert into the
+        // CANONICAL work_item_hearings table (what the UI reads via
+        // useWorkItemHearingsV2). The legacy `hearings` table is deprecated.
+        try {
+          const { extractHearingFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
+          const candidate = extractHearingFromAct({
+            act_type: persisted.raw_data?.actuacion || persisted.description?.split(' - ')[0] || null,
+            description: String(persisted.raw_data?.anotacion || persisted.description || ''),
+          });
+          if (candidate) {
+            const isFuture = new Date(candidate.starts_at_iso) > new Date();
+            const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
+            // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
+            const status = isFuture ? 'scheduled' : 'held';
+            // Cancel prior scheduled hearings for this WI when a new date arrives
+            if (candidate.action === 'reschedule' || isFuture) {
+              const { error: cancelError } = await supabase
+                .from('work_item_hearings')
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .eq('work_item_id', work_item_id)
+                .eq('status', 'scheduled')
+                .eq('auto_detected', true)
+                .neq('scheduled_at', candidate.starts_at_iso);
+              if (cancelError) throw new Error(cancelError.message);
+            }
+            const { data: existingH, error: lookupError } = await supabase
+              .from('work_item_hearings')
+              .select('id')
+              .eq('work_item_id', work_item_id)
+              .eq('scheduled_at', candidate.starts_at_iso)
+              .maybeSingle();
+            if (lookupError) throw new Error(lookupError.message);
+            if (!existingH) {
+              const { error: insertError } = await supabase.from('work_item_hearings').insert({
+                organization_id: workItem.organization_id,
+                work_item_id,
+                custom_name: candidate.title,
+                scheduled_at: candidate.starts_at_iso,
+                auto_detected: true,
+                status,
+                source_act_id: persisted.id,
+                extraction_method: 'act_regex_v2',
+                time_inferred: candidate.time_inferred,
+                discovery_type: discovery,
+              });
+              if (insertError) throw new Error(insertError.message);
+
+            }
+          } else if (isSuspensionAct(persisted.description, String(persisted.raw_data?.anotacion || ''))) {
+            const { error: suspendError } = await supabase
+              .from('work_item_hearings')
+              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+              .eq('work_item_id', work_item_id)
+              .eq('status', 'scheduled')
+              .eq('auto_detected', true);
+            if (suspendError) throw new Error(suspendError.message);
+          }
+        } catch (hErr) {
+          result.errors.push(`Persisted act hearing effect failed: ${(hErr as Error).message}`);
+        }
+
     };
 
     for (const act of fetchResult.actuaciones) {
@@ -3016,61 +3023,6 @@ Deno.serve(withSyncTimeline(async (req) => {
         }
       }
 
-      // ============= AUTO-EXTRACT HEARINGS FROM ACT (runs for EVERY fetched act) =============
-      // Runs BEFORE fingerprint/semantic dedup so recovery works even when the act
-      // itself is already persisted. Idempotent: guarded by an existence check on
-      // (work_item_id, scheduled_at) against the canonical work_item_hearings table.
-      try {
-        const { extractHearingFromAct: _extract, isSuspensionAct: _isSuspension } = await import("../_shared/hearingExtractor.ts");
-        const _cand = _extract({
-          act_type: act.actuacion || null,
-          description: (act.anotacion || act.actuacion || '') as string,
-        });
-        if (_cand) {
-          const _isFuture = new Date(_cand.starts_at_iso) > new Date();
-          const _discovery = _isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
-          const _status = _isFuture ? 'scheduled' : 'held';
-          if (_cand.action === 'reschedule' || _isFuture) {
-            await supabase
-              .from('work_item_hearings')
-              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-              .eq('work_item_id', work_item_id)
-              .eq('status', 'scheduled')
-              .eq('auto_detected', true)
-              .neq('scheduled_at', _cand.starts_at_iso);
-          }
-          const { data: _existingH } = await supabase
-            .from('work_item_hearings')
-            .select('id')
-            .eq('work_item_id', work_item_id)
-            .eq('scheduled_at', _cand.starts_at_iso)
-            .maybeSingle();
-          if (!_existingH) {
-            await supabase.from('work_item_hearings').insert({
-              organization_id: workItem.organization_id,
-              work_item_id,
-              custom_name: _cand.title,
-              scheduled_at: _cand.starts_at_iso,
-              auto_detected: true,
-              status: _status,
-              extraction_method: 'act_regex_v2',
-              time_inferred: _cand.time_inferred,
-              discovery_type: _discovery,
-            });
-            console.log(`[sync-by-work-item] 🎯 Hearing extracted: ${_cand.title} @ ${_cand.starts_at_iso} (from act "${(act.actuacion||'').slice(0,60)}")`);
-          }
-        } else if (_isSuspension(act.actuacion || null, act.anotacion || null)) {
-          await supabase
-            .from('work_item_hearings')
-            .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-            .eq('work_item_id', work_item_id)
-            .eq('status', 'scheduled')
-            .eq('auto_detected', true);
-        }
-      } catch (_hErr) {
-        console.warn('[sync-by-work-item] hearing extractor (pre-dedup) error:', (_hErr as Error).message);
-      }
-
       // Include indice in fingerprint to prevent collisions for same-day actuaciones
       // FIX 1.2: Include provider source in fingerprint to prevent cross-provider collisions
       // For consolidated TUTELA records, use the actual source of the "best" record
@@ -3098,45 +3050,33 @@ Deno.serve(withSyncTimeline(async (req) => {
         v1: v1Fingerprint,
         semanticKey,
         incoming: incomingOrigin,
+        evidence: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
         rows: knownActRows,
       });
 
       if (decision.kind === 'match') {
-        const matched = decision.row;
-        const plan = planEnrichment(matched, {
-          actuacion: act.actuacion,
-          anotacion: act.anotacion ?? null,
-          anexos: act.anexos,
-          indice: act.indice,
-          documentos: normalizeActDocumentos((act as any).documentos),
-        }, decision.relation, undefined, { provider: (act as any)._source || fetchResult.provider, repair: HISTORICAL_REPAIR_SCOPE });
-        if (plan) {
-          const rawPatch: Record<string, unknown> = { ...plan.raw_data };
-          // Provider scalar fields refresh only when the provider expresses them.
-          for (const k of ['fecha_registro', 'estado', 'anexos', 'indice', 'instancia'] as const) {
-            const v = (act as any)[k];
-            if (v !== undefined && v !== null && v !== '' && decision.relation !== 'conflict') rawPatch[k] = v;
-          }
-          const update: Record<string, unknown> = {
-            raw_data: rawPatch,
-            last_seen_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-          if (plan.event_summary) update.event_summary = plan.event_summary;
-          const { error: enrichErr } = await supabase
-            .from('work_item_acts')
-            .update(update)
-            .eq('id', matched.id);
-          if (enrichErr) {
-            console.warn(`[sync-by-work-item] ⚠️ enrichment failed for ${matched.id}: ${enrichErr.message}`);
-          } else {
-            matched.raw_data = rawPatch;
-            console.log(`[sync-by-work-item] ✅ act ${matched.id} enriched via ${decision.via} (${decision.relation})${plan.healed_contamination ? ' — anotación de otro origen restaurada' : ''}${plan.anotacion_grew ? ' — anotación ampliada' : ''}`);
-          }
+        try {
+          const persisted = await enrichPersistedAct(supabase, work_item_id, decision.row.id, {
+            ...act,
+            actuacion: act.actuacion,
+            anotacion: act.anotacion ?? null,
+            anexos: act.anexos,
+            indice: act.indice,
+            documentos: normalizeActDocumentos((act as any).documentos),
+          }, { provider: (act as any)._source || fetchResult.provider, repair: HISTORICAL_REPAIR_SCOPE });
+          Object.assign(decision.row, persisted);
+          result.skipped_count++;
+          persistLedger.parsed++;
+          persistLedger.skippedDuplicate++;
+          persistLedger.outcomes.push({ bucket: 'SKIPPED_DUPLICATE', fingerprint: persisted.hash_fingerprint, reason: 'existing origin confirmed after enrichment' });
+          await applyPersistedHearing(persisted);
+        } catch (error) {
+          failedEnrichmentIds.add(decision.row.id);
+          persistLedger.parsed++;
+          persistLedger.errored++;
+          persistLedger.outcomes.push({ bucket: 'ERROR', fingerprint: decision.row.hash_fingerprint, reason: (error as Error).message });
+          result.errors.push(`Act enrichment failed: ${(error as Error).message}`);
         }
-        const eff = docState.get(matched.id);
-        await applyDocumentosEnrichment(matched.id, eff.documentos, eff.documentos_observados_en, act);
-        result.skipped_count++;
         continue;
       }
 
@@ -3305,28 +3245,35 @@ Deno.serve(withSyncTimeline(async (req) => {
 
         // ITER70 rev.3 — intra-batch candidate registered ONLY after a confirmed
         // write, with the REAL row id read back by fingerprint.
+        let persistedAct: Awaited<ReturnType<typeof resolvePersistedAct>> = null;
         const confirmedWrite = (counts.inserted_count || 0) > 0 || (counts.updated_count || 0) > 0;
+        const claimsDuplicate = Array.isArray(counts.outcomes) && counts.outcomes.some((o) => ['ENRICHED', 'SKIPPED_DUPLICATE'].includes(String(o.bucket)));
         const rowFailed = !confirmedWrite && ((counts.error_count || 0) > 0 || (counts.rejected_count || 0) > 0);
-        if (confirmedWrite) {
+        if (confirmedWrite || claimsDuplicate) {
           try {
             const persisted = await resolvePersistedAct(supabase, work_item_id, fingerprint);
             if (persisted) {
+              persistedAct = persisted;
               knownActRows.push({
                 id: persisted.id,
                 hash_fingerprint: fingerprint,
                 semantic_key: semanticKey,
                 description: persisted.description,
                 raw_data: persisted.raw_data,
+                documentos: persisted.documentos,
+                documentos_observados_en: persisted.documentos_observados_en,
               });
-              docState.set(persisted.id, { documentos: persisted.documentos, documentos_observados_en: persisted.documentos_observados_en });
             } else {
               throw new ActLoadError(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)}); batch aborted`);
             }
           } catch (rbErr) {
             result.errors.push((rbErr as Error).message);
+            result.persistence_unknown ??= [];
+            result.persistence_unknown.push({ fingerprint, reason: (rbErr as Error).message });
+            result.code = 'PERSISTENCE_UNKNOWN';
             // The write may already be committed. Never resolve the next origin
             // against an incomplete candidate set; the next run reloads all rows.
-            throw rbErr;
+            throw new ActLoadError(`persistence_unknown: ${(rbErr as Error).message}`);
           }
         }
 
@@ -3349,6 +3296,10 @@ Deno.serve(withSyncTimeline(async (req) => {
         // Note: latestDate is now calculated from ALL fetched actuaciones (before insert loop)
         // to ensure we report the true latest event even for deduped records
         
+        // A structural skip/rejection is not proof that this request persisted.
+        if (!persistedAct) continue;
+        await applyPersistedHearing(persistedAct);
+
         // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
         const significantEvent = rowFailed ? null : detectSignificantEvent(act.actuacion, act.anotacion || '');
         if (significantEvent) {
@@ -3384,6 +3335,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 fingerprint: alertFingerprint,
                 payload: {
                   event_type: significantEvent.type,
+                  cautelar_classification: classifyCautelarEvent(act.actuacion, act.anotacion || ''),
                   event_date: actDate,
                   provider: fetchResult.provider,
                 },
@@ -3395,80 +3347,6 @@ Deno.serve(withSyncTimeline(async (req) => {
               console.log(`[sync-by-work-item] Created alert for ${significantEvent.type}`);
             }
           }
-        }
-
-        // ============= AUTO-EXTRACT HEARINGS FROM ACT =============
-        // Fire-and-forget: never block sync. Best-effort upsert into the
-        // CANONICAL work_item_hearings table (what the UI reads via
-        // useWorkItemHearingsV2). The legacy `hearings` table is deprecated.
-        try {
-          const { extractHearingFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
-          const candidate = extractHearingFromAct({
-            act_type: act.actuacion || null,
-            description: (act.anotacion || act.actuacion || '') as string,
-          });
-          if (candidate) {
-            const isFuture = new Date(candidate.starts_at_iso) > new Date();
-            const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
-            // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
-            const status = isFuture ? 'scheduled' : 'held';
-            // Cancel prior scheduled hearings for this WI when a new date arrives
-            if (candidate.action === 'reschedule' || isFuture) {
-              await supabase
-                .from('work_item_hearings')
-                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                .eq('work_item_id', work_item_id)
-                .eq('status', 'scheduled')
-                .eq('auto_detected', true)
-                .neq('scheduled_at', candidate.starts_at_iso);
-            }
-            const { data: existingH } = await supabase
-              .from('work_item_hearings')
-              .select('id')
-              .eq('work_item_id', work_item_id)
-              .eq('scheduled_at', candidate.starts_at_iso)
-              .maybeSingle();
-            if (!existingH) {
-              await supabase.from('work_item_hearings').insert({
-                organization_id: workItem.organization_id,
-                work_item_id,
-                custom_name: candidate.title,
-                scheduled_at: candidate.starts_at_iso,
-                auto_detected: true,
-                status,
-                source_act_id: null,
-                extraction_method: 'act_regex_v2',
-                time_inferred: candidate.time_inferred,
-                discovery_type: discovery,
-              });
-              if (isFuture) {
-                await supabase.from('alert_instances').insert({
-                  owner_id: workItem.owner_id,
-                  organization_id: workItem.organization_id,
-                  entity_type: 'HEARING',
-                  entity_id: work_item_id,
-                  severity: 'INFO',
-                  status: 'PENDING',
-                  alert_type: 'HEARING_CREATED',
-                  alert_source: fetchResult.provider || 'auto',
-                  title: 'Audiencia programada',
-                  message: `${candidate.title} — ${candidate.local_date} ${candidate.local_time}`,
-                  fingerprint: `hearing_auto_${work_item_id.slice(0,8)}_${candidate.starts_at_iso}`,
-                  fired_at: new Date().toISOString(),
-                  payload: { starts_at: candidate.starts_at_iso, discovery_type: discovery },
-                });
-              }
-            }
-          } else if (isSuspensionAct(act.actuacion || null, act.anotacion || null)) {
-            await supabase
-              .from('work_item_hearings')
-              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-              .eq('work_item_id', work_item_id)
-              .eq('status', 'scheduled')
-              .eq('auto_detected', true);
-          }
-        } catch (hErr) {
-          console.warn('[sync-by-work-item] hearing extractor error:', (hErr as Error).message);
         }
 
         // ============= STAGE INFERENCE (with daily rate limiting) =============
@@ -3553,6 +3431,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .limit(500);
       let _bfInserted = 0;
       for (const _a of (_dbActs || [])) {
+        if (failedEnrichmentIds.has(_a.id)) continue;
         const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
         if (!_c) continue;
         const { data: _exists } = await supabase
@@ -3605,11 +3484,13 @@ Deno.serve(withSyncTimeline(async (req) => {
     const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
     const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout');
 
-    const syncOk = anyProviderSucceeded && !allProvidersFailed;
+    const persistenceFailed = persistLedger.errored > 0 || persistLedger.rejected > 0 || persistLedger.skippedStructural > 0;
+    if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
+    const syncOk = anyProviderSucceeded && !allProvidersFailed && !persistenceFailed;
     const nowIso = new Date().toISOString();
 
     if (!syncOk) {
-      console.warn(`[SYNC_INTEGRITY_FAIL] ALL_PROVIDERS_FAILED for work_item ${work_item_id}. last_synced_at will NOT advance.`, {
+      console.warn(`[SYNC_INTEGRITY_FAIL] ${result.code || 'ALL_PROVIDERS_FAILED'} for work_item ${work_item_id}. last_synced_at will NOT advance.`, {
         providers: result.provider_attempts.map(a => ({ provider: a.provider, status: a.status })),
         correlationId: traceId,
       });
@@ -3631,7 +3512,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         last_error_code: null,
         provider_reachable: true,
       } : {
-        provider_reachable: false,
+        provider_reachable: anyProviderSucceeded,
         last_error_code: result.code || 'ALL_PROVIDERS_FAILED',
       }),
     };
@@ -4263,7 +4144,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       result.warnings.push(`External provider enrichment error: ${extEnrichErr?.message}`);
     }
 
-    result.ok = true;
+    result.ok = !persistenceFailed;
 
     // ── LAYER 2: POST-INSERT VERIFICATION ──
     // Detect silent trigger failures that roll back inserts without errors
@@ -4477,7 +4358,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* sync run recording is best-effort */ }
     }
 
-    return jsonResponse(result);
+    return jsonResponse(result, persistenceFailed ? 500 : 200);
 
   } catch (err: any) {
     // Enhanced error classification for better diagnostics
@@ -4500,7 +4381,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* ignore */ }
     }
 
-    const errorCode = errorDetail.isTimeout ? 'PROVIDER_TIMEOUT'
+    const errorCode = failureResult?.persistence_unknown?.length ? 'PERSISTENCE_UNKNOWN'
+      : errorDetail.isTimeout ? 'PROVIDER_TIMEOUT'
       : errorDetail.isNetworkError ? 'NETWORK_ERROR'
       : errorDetail.httpStatus === 503 ? 'PROVIDER_UNAVAILABLE'
       : errorDetail.httpStatus === 429 ? 'PROVIDER_RATE_LIMITED'
@@ -4516,9 +4398,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         const supabaseForTrace = createClient(supabaseUrl, supabaseServiceKey);
         await logTrace(supabaseForTrace, {
           trace_id: traceId,
-          work_item_id: work_item_id,
+          work_item_id: traceWorkItemId,
           step: 'SYNC_FAILED',
-          provider: result?.provider_used || 'unknown',
+          provider: failureResult?.provider_used || 'unknown',
           http_status: errorDetail.httpStatus,
           success: false,
           error_code: errorCode,
@@ -4527,12 +4409,16 @@ Deno.serve(withSyncTimeline(async (req) => {
             error_name: errorDetail.name,
             response_preview: errorDetail.responsePreview,
             is_timeout: errorDetail.isTimeout,
-            provider_attempts: result?.provider_attempts?.length || 0,
+            provider_attempts: failureResult?.provider_attempts?.length || 0,
+            persistence_unknown: failureResult?.persistence_unknown ?? [],
           },
         });
       }
     } catch { /* trace logging should never fail the response */ }
 
+    if (failureResult?.persistence_unknown?.length) {
+      return jsonResponse({ ...failureResult, ok: false, code: errorCode, message: errorDetail.message }, 500);
+    }
     return errorResponse(
       errorCode,
       errorDetail.message,

@@ -23,6 +23,9 @@
  *    the anotación length criterion.
  */
 
+import { mergeActDocumentos } from './actDocumentos.ts';
+import { mergeAnexosObservation } from './actDocumentObservation.ts';
+
 export interface ActOriginIdentity {
   key: string | null;
   indice: string | null;
@@ -34,7 +37,7 @@ export interface ActOriginIdentity {
 const SOLICITUD_RE = /solicitud\s+No\.?\s*(\d{4,})/i;
 const RADICADA_EN_RE = /de\s+fecha:\s*(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)/i;
 const ANEXOS_RE = /Documentos\s+anexos:\s*(\d+)/i;
-const ARCHIVOS_RE = /-\s*(\d+)\s+archivos?\b/i;
+const ARCHIVOS_RE = /\b(\d+)\s*-?\s*archivos?\b/i;
 
 function clean(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -52,7 +55,9 @@ function primaryKey(o: Omit<ActOriginIdentity, "key">): string | null {
 }
 
 function make(o: Omit<ActOriginIdentity, "key">): ActOriginIdentity {
-  return { ...o, key: primaryKey(o) };
+  const indice = o.indice && /^\d+$/.test(o.indice) ? o.indice.replace(/^0+(?=\d)/, '') : o.indice;
+  const normalized = { ...o, indice };
+  return { ...normalized, key: primaryKey(normalized) };
 }
 
 export function extractActOrigin(input: {
@@ -146,6 +151,8 @@ export interface CandidateRow {
   semantic_key?: string | null;
   description: string | null;
   raw_data: Record<string, unknown> | null;
+  documentos?: unknown;
+  documentos_observados_en?: string | null;
 }
 
 export type IdentityDecision =
@@ -160,6 +167,8 @@ export function resolveActIdentity(input: {
   v1: string;
   semanticKey: string | null;
   incoming: ActOriginIdentity;
+  /** Exact source text provides repeatability when origin components are absent. */
+  evidence?: string | null;
   rows: CandidateRow[];
 }): IdentityDecision {
   const { v1, semanticKey, incoming } = input;
@@ -177,14 +186,20 @@ export function resolveActIdentity(input: {
     if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
-    const ind = list.find((r) => compareOrigins(originFromRow(r), incoming) === "indeterminate");
+    const ind = list.find((r) => {
+      const stored = originFromRow(r);
+      return !stored.key && !incoming.key &&
+        (input.evidence === undefined || clean(r.description) === clean(input.evidence));
+    });
     if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };
   }
   const v1Taken = input.rows.some((r) => r.hash_fingerprint === v1);
   const conflicted = byFp.length + bySem.length > 0;
   return {
     kind: "insert",
-    fingerprint: v1Taken ? originVersionedFingerprint(v1, incoming) : v1,
+    fingerprint: v1Taken
+      ? incoming.key ? originVersionedFingerprint(v1, incoming) : `${v1}_o${hash32(`unconfirmed:${input.evidence ?? ''}`)}`
+      : v1,
     reason: conflicted ? "origin_conflict" : "new",
   };
 }
@@ -225,15 +240,15 @@ export interface AnexosInventario {
 }
 
 function explicitCount(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null;
+  if (typeof v !== "number" && !(typeof v === "string" && /^\d+$/.test(v.trim()))) return null;
   const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
 export function buildAnexosInventario(input: {
   anexos?: unknown;
   anotacion?: unknown;
-  documentos?: Array<{ url?: string | null; gcs_url?: string | null }> | null;
+  documentos?: Array<{ [key: string]: unknown; url?: string | null; gcs_url?: string | null }> | null;
   attempt?: DocumentQueryAttempt | null;
 }): AnexosInventario {
   const text = clean(input.anotacion) ?? "";
@@ -248,10 +263,7 @@ export function buildAnexosInventario(input: {
   }
   const docs = Array.isArray(input.documentos) ? input.documentos : null;
   const links = (docs ?? []).filter((d) => !!(d?.gcs_url || d?.url)).length;
-  if (docs && anunciados === null && docs.length > 0) {
-    anunciados = docs.length;
-    fuente = "descriptores";
-  }
+  // Visible descriptors do not prove how many annexes the source announced.
   const attempt = input.attempt ?? null;
 
   let estado: AnexosEstado;
@@ -291,7 +303,7 @@ export interface IncomingAct {
   anotacion: string | null;
   anexos: unknown;
   indice: unknown;
-  documentos: Array<{ url?: string | null; gcs_url?: string | null }> | null;
+  documentos: Array<{ [key: string]: unknown; url?: string | null; gcs_url?: string | null }> | null;
 }
 
 export interface EnrichmentPlan {
@@ -337,7 +349,10 @@ export function planEnrichment(
   const rd = { ...(row.raw_data ?? {}) } as Record<string, unknown>;
   const rowOrigin = originFromRow(row);
   const inOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
-  const next: Record<string, unknown> = { ...rd };
+  // An index-only entry cannot enrich a known solicitud without a shared
+  // non-conflicting component. This includes attachments and scalar metadata.
+  if (relation !== 'equivalent' && (rowOrigin.key || inOrigin.key)) return null;
+  const next: Record<string, unknown> = mergeAnexosObservation(rd, (incoming as IncomingAct & { anexos_observacion?: unknown }).anexos_observacion);
 
   if (relation === "equivalent" || !rowOrigin.key) {
     const merged = mergeOrigins(rowOrigin, inOrigin);
@@ -348,10 +363,12 @@ export function planEnrichment(
   }
 
   const prevInv = (rd.anexos_inventario ?? null) as AnexosInventario | null;
+  const documentos = mergeActDocumentos(row.documentos ?? rd.documentos, incoming.documentos);
+  if (documentos !== null) next.documentos = documentos;
   next.anexos_inventario = buildAnexosInventario({
-    anexos: incoming.anexos,
+    anexos: incoming.anexos ?? prevInv?.anunciados,
     anotacion: incoming.anotacion,
-    documentos: incoming.documentos,
+    documentos,
     attempt: prevInv?.intento ?? null,
   });
 

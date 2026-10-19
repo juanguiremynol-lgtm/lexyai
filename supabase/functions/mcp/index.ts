@@ -3,10 +3,10 @@
 // supabase function: mcp
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
 // src/lib/mcp/index.ts
-import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.1";
 
 // src/lib/mcp/tools/list-work-items.ts
-import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/shared.ts
@@ -246,7 +246,7 @@ var list_work_items_default = defineTool({
 });
 
 // src/lib/mcp/tools/get-work-item.ts
-import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z2 } from "npm:zod@^3.25.76";
 var get_work_item_default = defineTool2({
   name: "get_work_item",
@@ -343,7 +343,7 @@ var get_work_item_default = defineTool2({
 });
 
 // src/lib/mcp/tools/list-recent-estados.ts
-import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z3 } from "npm:zod@^3.25.76";
 var list_recent_estados_default = defineTool3({
   name: "list_recent_estados",
@@ -375,7 +375,7 @@ var list_recent_estados_default = defineTool3({
 });
 
 // src/lib/mcp/tools/get-user-context.ts
-import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.1";
 var get_user_context_default = defineTool4({
   name: "get_user_context",
   title: "Contexto del abogado",
@@ -406,7 +406,7 @@ var get_user_context_default = defineTool4({
 });
 
 // src/lib/mcp/tools/list-actuaciones.ts
-import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z4 } from "npm:zod@^3.25.76";
 var list_actuaciones_default = defineTool5({
   name: "list_actuaciones",
@@ -441,7 +441,7 @@ var list_actuaciones_default = defineTool5({
 });
 
 // src/lib/mcp/tools/list-publicaciones.ts
-import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z5 } from "npm:zod@^3.25.76";
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
@@ -476,7 +476,7 @@ var list_publicaciones_default = defineTool6({
 });
 
 // src/lib/mcp/tools/get-estados-hoy.ts
-import { defineTool as defineTool7 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool7 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z6 } from "npm:zod@^3.25.76";
 var get_estados_hoy_default = defineTool7({
   name: "get_estados_hoy",
@@ -505,7 +505,7 @@ var get_estados_hoy_default = defineTool7({
 });
 
 // src/lib/mcp/tools/get-actuaciones-hoy.ts
-import { defineTool as defineTool8 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool8 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z7 } from "npm:zod@^3.25.76";
 var WINDOW_DAYS = { today: 1, "3days": 3, week: 7 };
 var SELECT = "id, work_item_id, act_date, act_type, description, event_summary, despacho, source, detected_at";
@@ -608,7 +608,7 @@ var get_actuaciones_hoy_default = defineTool8({
 });
 
 // src/lib/mcp/tools/list-deadlines.ts
-import { defineTool as defineTool9 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool9 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z8 } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/deadline-status.ts
@@ -737,7 +737,7 @@ var list_deadlines_default = defineTool9({
 });
 
 // src/lib/mcp/tools/list-clients.ts
-import { defineTool as defineTool10 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool10 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z9 } from "npm:zod@^3.25.76";
 var list_clients_default = defineTool10({
   name: "list_clients",
@@ -769,7 +769,7 @@ var list_clients_default = defineTool10({
 });
 
 // src/lib/mcp/tools/get-client.ts
-import { defineTool as defineTool11 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool11 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z10 } from "npm:zod@^3.25.76";
 var get_client_default = defineTool11({
   name: "get_client",
@@ -801,7 +801,7 @@ var get_client_default = defineTool11({
 });
 
 // src/lib/mcp/tools/add-note.ts
-import { defineTool as defineTool12 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool12 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z11 } from "npm:zod@^3.25.76";
 var add_note_default = defineTool12({
   name: "add_note",
@@ -840,7 +840,7 @@ var add_note_default = defineTool12({
 });
 
 // src/lib/mcp/tools/search.ts
-import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z12 } from "npm:zod@^3.25.76";
 var MATCHED_FIELD_KEYS = {
   radicado: "radicado",
@@ -924,7 +924,7 @@ var search_default = defineTool13({
 });
 
 // src/lib/mcp/tools/list-alerts.ts
-import { defineTool as defineTool14 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool14 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z13 } from "npm:zod@^3.25.76";
 var list_alerts_default = defineTool14({
   name: "list_alerts",
@@ -992,7 +992,7 @@ var list_alerts_default = defineTool14({
 });
 
 // src/lib/mcp/tools/list-hearings.ts
-import { defineTool as defineTool15 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool15 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z14 } from "npm:zod@^3.25.76";
 var list_hearings_default = defineTool15({
   name: "list_hearings",
@@ -1072,7 +1072,7 @@ var list_hearings_default = defineTool15({
 });
 
 // src/lib/mcp/tools/list-tasks.ts
-import { defineTool as defineTool16 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool16 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z15 } from "npm:zod@^3.25.76";
 var list_tasks_default = defineTool16({
   name: "list_tasks",
@@ -1110,7 +1110,7 @@ var list_tasks_default = defineTool16({
 });
 
 // src/lib/mcp/tools/get-document-url.ts
-import { defineTool as defineTool17 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool17 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z16 } from "npm:zod@^3.25.76";
 var get_document_url_default = defineTool17({
   name: "get_document_url",
@@ -1173,13 +1173,17 @@ var get_document_url_default = defineTool17({
 });
 
 // src/lib/mcp/tools/list-act-attachments.ts
-import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z17 } from "npm:zod@^3.25.76";
 
 // src/lib/act-attachments-inventory.ts
-var ANDROMEDA_DOCUMENT_BUCKETS = ["andromeda-cpnu-documentos-2026"];
+var ANDROMEDA_DOCUMENT_BUCKETS = [
+  "andromeda-cpnu-documentos-2026",
+  "andromeda-samai-documentos-2026"
+];
 function isAndromedaCopyUrl(url) {
   if (typeof url !== "string") return false;
+  if (/%2f|%5c|\\|(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f|$)/i.test(url)) return false;
   let u;
   try {
     u = new URL(url.trim());
@@ -1189,11 +1193,36 @@ function isAndromedaCopyUrl(url) {
   if (u.protocol !== "https:" || u.hostname !== "storage.googleapis.com") return false;
   if (u.search || u.hash || u.username || u.password || u.port) return false;
   const parts = u.pathname.split("/").filter(Boolean);
-  if (parts.length < 2 || parts.some((p) => p === ".." || p === ".")) return false;
-  return ANDROMEDA_DOCUMENT_BUCKETS.includes(parts[0]);
+  return parts.length >= 2 && ANDROMEDA_DOCUMENT_BUCKETS.includes(parts[0]);
 }
 var PDF_HEADER_READ_LIMIT = 1024;
+function knownDocumentPendingCause(value) {
+  if (!value || typeof value !== "object") return null;
+  const doc = value;
+  if (doc.descarga_estado === "sin_enlace_de_descarga_autorizado") return "El origen todav\xEDa no ofrece un enlace de descarga utilizable por Andr\xF3meda.";
+  if (doc.descarga_estado !== "no_verificada") return null;
+  const recovery = doc.recuperacion_cache;
+  if (recovery?.cacheIssue && recovery.cacheIssue !== "pointer_missing") {
+    return "La copia almacenada no pudo validarse y todav\xEDa no se ha recuperado una sustituta.";
+  }
+  const error = doc.descarga_error;
+  switch (error?.kind) {
+    case "network":
+    case "http_transient":
+      return "Los intentos autom\xE1ticos fallaron por un problema temporal de conexi\xF3n o del portal. Recuperaci\xF3n pendiente en Andr\xF3meda.";
+    case "http_access":
+      return "El portal rechaz\xF3 la solicitud autom\xE1tica de este archivo. Su recuperaci\xF3n sigue pendiente.";
+    case "validation":
+      return "El archivo obtenido no super\xF3 la comprobaci\xF3n de lectura. Su recuperaci\xF3n sigue pendiente.";
+    case "storage":
+    case "concurrency":
+      return "Andr\xF3meda no pudo confirmar una copia almacenada v\xE1lida de este archivo. Recuperaci\xF3n pendiente.";
+    default:
+      return "La descarga autom\xE1tica no obtuvo una copia verificada. Recuperaci\xF3n pendiente en Andr\xF3meda.";
+  }
+}
 async function verifyPdfBytes(url, fetchImpl, timeoutMs = 8e3) {
+  if (!isAndromedaCopyUrl(url)) return { status: "error_red", detail: "Origen de copia no permitido." };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -1214,75 +1243,133 @@ async function verifyPdfBytes(url, fetchImpl, timeoutMs = 8e3) {
           const take = Math.min(value.length, PDF_HEADER_READ_LIMIT - got);
           head.set(value.subarray(0, take), got);
           got += take;
-          if (got >= PDF_HEADER_READ_LIMIT) break;
         }
       } finally {
         await reader.cancel().catch(() => {
         });
       }
     }
-    const magic = String.fromCharCode(...head.subarray(0, Math.min(got, 5)));
-    return magic === "%PDF-" ? { status: "pdf", http: res.status } : { status: "no_pdf", http: res.status };
+    return String.fromCharCode(...head.subarray(0, Math.min(got, 5))) === "%PDF-" ? { status: "cabecera_pdf", http: res.status } : { status: "no_pdf", http: res.status };
   } catch (e) {
     return { status: "error_red", detail: e.message };
   } finally {
     clearTimeout(t);
   }
 }
+function finiteAttachmentCount(value) {
+  if (typeof value !== "number" && (typeof value !== "string" || !/^\d+$/.test(value.trim()))) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+function announcedAttachmentCount(act) {
+  const text = String(act.description ?? "");
+  const m = text.match(/Documentos\s+anexos:\s*(\d+)/i) ?? text.match(/(?:-\s*)?(\d+)\s*-?\s*archivos?\b/i);
+  if (m) return finiteAttachmentCount(m[1]);
+  const rd = act.raw_data ?? {};
+  const inv = rd.anexos_inventario;
+  return finiteAttachmentCount(rd.anexos) ?? (inv?.fuente_conteo === "descriptores" ? null : finiteAttachmentCount(inv?.anunciados));
+}
 function ownCopyCandidates(act) {
-  const docs = Array.isArray(act.documentos) ? act.documentos : null;
-  return (docs ?? []).map((d) => {
-    const raw = [d.gcs_url, d.url].find((u) => typeof u === "string" && u.trim());
-    return { nombre: d.nombre ?? null, raw: raw ?? null, own: isAndromedaCopyUrl(raw) ? raw.trim() : null };
+  const docs = Array.isArray(act.documentos) ? act.documentos : [];
+  return docs.filter((d) => !!d && typeof d === "object").map((d) => {
+    const urls = [d.gcs_url, d.url].filter((u) => typeof u === "string" && !!u.trim());
+    const own = urls.find(isAndromedaCopyUrl)?.trim() ?? null;
+    return {
+      id: typeof d.id === "string" ? d.id : null,
+      nombre: typeof d.nombre === "string" ? d.nombre : typeof d.descripcion === "string" ? d.descripcion : null,
+      raw: urls[0] ?? null,
+      own,
+      causa_pendiente: knownDocumentPendingCause(d)
+    };
   });
 }
+function fullFile(v) {
+  return v?.status === "pdf_verificado" && v.descarga_completa === true && Number.isSafeInteger(v.paginas_totales) && v.paginas_totales > 0 && v.paginas_legibles === v.paginas_totales && Number.isSafeInteger(v.bytes) && v.bytes > 5 && /^[a-f0-9]{64}$/i.test(v.sha256);
+}
 function summarizeActAttachments(act, verifications = {}) {
-  const rd = act.raw_data ?? {};
-  const inv = rd.anexos_inventario ?? null;
-  const docs = Array.isArray(act.documentos) ? act.documentos : null;
+  const observation = act.raw_data?.anexos_observacion;
+  const inv = act.raw_data?.anexos_inventario;
   const cands = ownCopyCandidates(act);
-  const archivos = cands.map((c) => ({
-    nombre: c.nombre,
-    url: null,
-    verificacion: !c.own ? "origen_no_permitido" : verifications[c.own]?.status ?? "no_verificado"
-  }));
-  cands.forEach((c, i) => {
-    if (c.own && verifications[c.own]?.status === "pdf") archivos[i].url = c.own;
+  const archivos = cands.map((c) => {
+    const v = c.own ? verifications[c.own] : void 0;
+    const completo = fullFile(v);
+    const atribuido = completo && !!act.id && v.atribucion?.act_id === act.id && !!c.id && v.atribucion.documento_id === c.id && !!v.atribucion.evidencia?.trim();
+    return {
+      nombre: c.nombre,
+      url: c.own && (v?.status === "cabecera_pdf" || completo) ? c.own : null,
+      verificacion: !c.own ? c.raw ? "origen_no_permitido" : "sin_enlace" : v?.status === "pdf_verificado" && !completo ? "verificacion_incompleta" : v?.status ?? "no_verificado",
+      descarga_completa_y_legible: completo,
+      atribuido_a_actuacion: atribuido,
+      recuperado: atribuido,
+      sha256: completo ? v.sha256 : null,
+      causa_pendiente: atribuido ? null : c.causa_pendiente
+    };
   });
-  const verificados = archivos.filter((a) => a.verificacion === "pdf").length;
-  const owned = cands.filter((c) => c.own).length;
-  const anunciados = inv?.anunciados ?? (docs && docs.length > 0 ? docs.length : null);
+  const uniqueCount = (predicate) => new Set(archivos.filter(predicate).map((a) => a.sha256 ?? a.url)).size;
+  const verificados = uniqueCount((a) => a.recuperado);
+  const descargados_completos = uniqueCount((a) => a.descarga_completa_y_legible);
+  const cabeceras_verificadas = uniqueCount((a) => a.verificacion === "cabecera_pdf");
+  const owned = new Set(cands.map((c) => c.own).filter(Boolean)).size;
+  const anunciados = announcedAttachmentCount(act);
   const faltantes = anunciados !== null ? Math.max(0, anunciados - verificados) : null;
+  const recuperacion_completa = anunciados !== null && anunciados > 0 && verificados === anunciados && archivos.every((a) => a.recuperado);
   let estado;
   let causa;
-  if (verificados > 0 && anunciados !== null && verificados < anunciados) {
-    estado = "parcial";
-    causa = `Disponibles ${verificados} de ${anunciados}; faltan ${faltantes}.`;
-  } else if (verificados > 0) {
+  if (recuperacion_completa) {
     estado = "disponible";
-    causa = anunciados !== null ? `Disponibles ${verificados} de ${anunciados} (PDF verificado).` : `${verificados} PDF verificado(s); el proveedor no informa el total.`;
-  } else if (owned > 0 && Object.keys(verifications).length > 0) {
-    estado = "inaccesible";
-    causa = `Hay ${owned} enlace(s) registrado(s) a copias de Andromeda, pero ninguno respondi\xF3 con un PDF legible.`;
+    causa = `${verificados} de ${anunciados} PDF completos, legibles y vinculados a esta actuaci\xF3n.`;
+  } else if (verificados > 0) {
+    estado = "parcial";
+    causa = anunciados === null ? `${verificados} PDF completos y vinculados; total de anexos desconocido. Recuperaci\xF3n completa no acreditada.` : `${verificados} de ${anunciados} PDF completos y vinculados; recuperaci\xF3n completa no acreditada.`;
+  } else if (cabeceras_verificadas > 0 || descargados_completos > 0) {
+    estado = descargados_completos > 0 ? "pdf_sin_atribuir" : "cabeceras_verificadas";
+    causa = descargados_completos > 0 ? `${descargados_completos} PDF legible(s); falta verificar su v\xEDnculo con esta actuaci\xF3n.` : `${cabeceras_verificadas} enlace(s) responden con cabecera PDF; archivo completo y v\xEDnculo con la actuaci\xF3n sin verificar.`;
   } else if (owned > 0) {
-    estado = "enlaces_sin_verificar";
-    causa = `${owned} enlace(s) registrado(s); contenido no verificado.`;
-  } else if (inv?.estado && ["restringido", "sesion_requerida", "error", "sin_anexos"].includes(inv.estado)) {
+    const allFailed = cands.filter((c) => c.own).every((c) => ["inaccesible", "no_pdf", "error_red"].includes(verifications[c.own]?.status ?? ""));
+    estado = allFailed ? "inaccesible" : "enlaces_sin_verificar";
+    causa = allFailed ? "Los enlaces consultados no devolvieron una cabecera PDF; no se acredit\xF3 recuperaci\xF3n." : `${owned} enlace(s) a copias registrado(s); contenido y v\xEDnculo con la actuaci\xF3n sin verificar.`;
+  } else if (inv?.estado && ["restringido", "sesion_requerida", "error"].includes(inv.estado)) {
     estado = inv.estado;
-    causa = inv.causa ?? "";
-  } else if (docs && docs.length === 0 && act.documentos_observados_en) {
+    causa = inv.causa ?? "Consulta documental registrada por el proveedor.";
+  } else if (observation?.estado === "detalle_sin_inventario") {
+    estado = "desconocido";
+    causa = "La consulta autom\xE1tica del detalle no devolvi\xF3 los documentos anunciados. Recuperaci\xF3n pendiente en Andr\xF3meda.";
+  } else if (observation?.estado === "respuesta_acceso_denegado") {
+    estado = "restringido";
+    causa = "El portal rechaz\xF3 esta consulta autom\xE1tica del detalle. La recuperaci\xF3n de sus documentos sigue pendiente.";
+  } else if (observation?.estado === "error_consulta") {
+    estado = "error";
+    causa = ["network", "http_transient"].includes(observation.error?.kind || "") ? "Los intentos autom\xE1ticos de consultar los documentos fallaron por un problema temporal. Recuperaci\xF3n pendiente en Andr\xF3meda." : "Andr\xF3meda no pudo obtener una respuesta verificable del detalle documental. Recuperaci\xF3n pendiente.";
+  } else if (observation?.estado === "error_interpretacion" || observation?.estado === "control_no_disponible") {
+    estado = "desconocido";
+    causa = "Andr\xF3meda no pudo identificar los documentos anunciados en la respuesta del portal. Recuperaci\xF3n pendiente.";
+  } else if (observation?.estado === "detalle_no_consultado_por_presupuesto") {
+    estado = "desconocido";
+    causa = "La consulta autom\xE1tica alcanz\xF3 su l\xEDmite de ejecuci\xF3n antes de obtener estos documentos. Recuperaci\xF3n pendiente en Andr\xF3meda.";
+  } else if (anunciados === 0 && cands.length === 0) {
     estado = "sin_anexos";
-    causa = "El proveedor inform\xF3 cero documentos para esta actuaci\xF3n.";
+    causa = "El proveedor declara cero anexos para esta actuaci\xF3n.";
   } else {
     estado = "desconocido";
-    causa = anunciados ? `La actuaci\xF3n anuncia ${anunciados} anexo(s); no hay evidencia de consulta documental ni copia propia.` : "Sin evidencia de consulta documental para esta actuaci\xF3n.";
+    causa = anunciados !== null ? `La actuaci\xF3n anuncia ${anunciados} anexo(s); sin archivos recuperados y verificados.` : "Total de anexos y recuperaci\xF3n de archivos sin verificar.";
   }
+  const knownCauses = [...new Set(archivos.map((a) => a.causa_pendiente).filter(Boolean))];
+  const detailCause = observation?.estado === "detalle_sin_inventario" ? "La \xFAltima consulta autom\xE1tica no devolvi\xF3 el inventario documental; recuperaci\xF3n pendiente." : observation?.estado === "respuesta_acceso_denegado" ? "El portal rechaz\xF3 la \xFAltima consulta autom\xE1tica del detalle; recuperaci\xF3n pendiente." : observation?.estado === "error_consulta" ? "La \xFAltima consulta autom\xE1tica del detalle fall\xF3; recuperaci\xF3n pendiente en Andr\xF3meda." : observation?.estado === "detalle_no_consultado_por_presupuesto" ? "La consulta autom\xE1tica alcanz\xF3 su l\xEDmite de ejecuci\xF3n antes de obtener estos documentos. Recuperaci\xF3n pendiente en Andr\xF3meda." : null;
+  if (detailCause && owned > 0) knownCauses.push(detailCause);
+  if (!recuperacion_completa && knownCauses.length) causa += ` ${knownCauses.join(" ")}`;
   return {
     estado,
     causa,
     anunciados,
+    enlaces_registrados: owned,
+    cabeceras_verificadas,
+    documentos_identificados: cands.length,
+    descriptores_sin_enlace: cands.filter((c) => !c.raw).length,
+    asociaciones_verificadas: archivos.filter((a) => a.recuperado).length,
+    descargados_completos,
     verificados,
     faltantes,
+    recuperacion_completa,
     archivos,
     observado_en: act.documentos_observados_en ?? null
   };
@@ -1291,7 +1378,7 @@ function summarizeActAttachments(act, verifications = {}) {
 // src/lib/mcp/act-attachments-core.ts
 async function getActAttachments(args) {
   const { sb } = args;
-  const { data: act, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, source, documentos, documentos_observados_en, raw_data").eq("id", args.act_id).maybeSingle();
+  const { data: act, error } = await sb.from("work_item_acts").select("id, work_item_id, act_date, description, source, documentos, documentos_observados_en, raw_data").eq("id", args.act_id).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!act) return { ok: false, error: "Actuaci\xF3n no encontrada (o no pertenece a tu cuenta)." };
   const own = await args.resolveWorkItem(sb, { id: act.work_item_id });
@@ -1304,8 +1391,8 @@ async function getActAttachments(args) {
     note = named.note ?? null;
   }
   const verifications = {};
-  const urls = ownCopyCandidates(act).map((c) => c.own).filter((u) => !!u);
-  for (const u of urls.slice(0, args.maxVerify ?? 10)) {
+  const urls = [...new Set(ownCopyCandidates(act).map((c) => c.own).filter((u) => !!u))];
+  for (const u of urls.slice(0, Math.max(0, Math.min(20, Math.trunc(args.maxVerify ?? 10))))) {
     verifications[u] = await verifyPdfBytes(u, args.fetchImpl);
   }
   const summary = summarizeActAttachments(act, verifications);
@@ -1326,7 +1413,7 @@ async function getActAttachments(args) {
 var list_act_attachments_default = defineTool18({
   name: "list_act_attachments",
   title: "Anexos de una actuaci\xF3n",
-  description: "Attachment inventory of one actuaci\xF3n of the caller's matters: announced count, header-checked PDFs ('1 de 6'), missing count, and an explicit state (desconocido / sin_anexos / enlaces_sin_verificar / restringido / sesion_requerida / error / inaccesible / parcial / disponible) with its cause. Only `act_id` is required; the act and its matter are both resolved under the caller's RLS. If `work_item_id` or `radicado` is given it must be the act's matter. Links are returned only for Andromeda-bucket copies whose first bytes carry a PDF header (header check only, not full-file integrity). Read-only; never fetches from the court, never invents files.",
+  description: "Attachment inventory for a caller-owned act: announced count (null when unknown), stored links, header checks, full-file recovery and attribution reported separately. This tool only checks up to 1024 bytes; cabeceras_verificadas does NOT mean a complete, readable or correctly attributed PDF. verificados remains zero and recuperacion_completa false after header checks alone. Missing annexes are not recovered. Returned links with cabecera_pdf are unverified complete files. Act and matter use caller RLS; optional matter must match. Read-only; no court fetch, file creation or permission changes.",
   inputSchema: {
     act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n."),
     work_item_id: z17.string().uuid().optional().describe("Opcional: UUID del asunto; debe ser el de la actuaci\xF3n."),
@@ -1350,7 +1437,7 @@ var list_act_attachments_default = defineTool18({
 });
 
 // src/lib/mcp/tools/add-hearing.ts
-import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z18 } from "npm:zod@^3.25.76";
 var add_hearing_default = defineTool19({
   name: "add_hearing",
@@ -1395,7 +1482,7 @@ var add_hearing_default = defineTool19({
 });
 
 // src/lib/mcp/tools/list-email-links.ts
-import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z19 } from "npm:zod@^3.25.76";
 var list_email_links_default = defineTool20({
   name: "list_email_links",
@@ -1437,7 +1524,7 @@ var list_email_links_default = defineTool20({
 });
 
 // src/lib/mcp/tools/list-detected-processes.ts
-import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z20 } from "npm:zod@^3.25.76";
 var list_detected_processes_default = defineTool21({
   name: "list_detected_processes",
@@ -1473,7 +1560,7 @@ var list_detected_processes_default = defineTool21({
 });
 
 // src/lib/mcp/tools/atenia-health-overview.ts
-import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.1";
 var atenia_health_overview_default = defineTool22({
   name: "atenia_health_overview",
   title: "Atenia \xB7 Salud de la plataforma (solo administradores)",
@@ -1506,7 +1593,7 @@ var atenia_health_overview_default = defineTool22({
 });
 
 // src/lib/mcp/tools/atenia-provider-status.ts
-import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.1";
 var atenia_provider_status_default = defineTool23({
   name: "atenia_provider_status",
   title: "Atenia \xB7 Estado de proveedores judiciales (solo administradores)",
@@ -1537,7 +1624,7 @@ var atenia_provider_status_default = defineTool23({
 });
 
 // src/lib/mcp/tools/atenia-recent-incidents.ts
-import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z21 } from "npm:zod@^3.25.76";
 var atenia_recent_incidents_default = defineTool24({
   name: "atenia_recent_incidents",
@@ -1573,7 +1660,7 @@ var atenia_recent_incidents_default = defineTool24({
 });
 
 // src/lib/mcp/tools/list-app-screens.ts
-import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.1";
 var BASE = "https://andromeda.legal";
 var SCREENS = [
   { path: "/app/dashboard", nombre: "Tablero", para: "Resumen del d\xEDa: novedades, tableros por tipo de proceso y pendientes." },
@@ -1621,7 +1708,7 @@ var list_app_screens_default = defineTool25({
 });
 
 // src/lib/mcp/tools/describe-data-model.ts
-import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.1";
 function entry(_table, que_es, columnas_clave) {
   return { que_es, columnas_clave };
 }
@@ -1817,7 +1904,7 @@ var describe_data_model_default = defineTool26({
 });
 
 // src/lib/mcp/tools/query-table.ts
-import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z22 } from "npm:zod@^3.25.76";
 var OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"];
 var query_table_default = defineTool27({
@@ -1893,7 +1980,7 @@ var query_table_default = defineTool27({
 });
 
 // src/lib/mcp/tools/update-work-item.ts
-import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z23 } from "npm:zod@^3.25.76";
 var update_work_item_default = defineTool28({
   name: "update_work_item",
@@ -1966,7 +2053,7 @@ var update_work_item_default = defineTool28({
 });
 
 // src/lib/mcp/tools/manage-deadline.ts
-import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z24 } from "npm:zod@^3.25.76";
 var CLOSEABLE = ["FULFILLED", "CANCELLED", "DISMISSED"];
 var manage_deadline_default = defineTool29({
@@ -2060,7 +2147,7 @@ var manage_deadline_default = defineTool29({
 });
 
 // src/lib/mcp/tools/manage-task.ts
-import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z25 } from "npm:zod@^3.25.76";
 var manage_task_default = defineTool30({
   name: "manage_task",
@@ -2128,7 +2215,7 @@ var manage_task_default = defineTool30({
 });
 
 // src/lib/mcp/tools/email-integration-status.ts
-import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z26 } from "npm:zod@^3.25.76";
 
 // src/lib/email-connection-health.ts
@@ -2226,7 +2313,7 @@ var email_integration_status_default = defineTool31({
 });
 
 // src/lib/mcp/tools/whatsapp-notices.ts
-import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z27 } from "npm:zod@^3.25.76";
 var whatsapp_notices_default = defineTool32({
   name: "whatsapp_notices",
@@ -2277,7 +2364,7 @@ var whatsapp_notices_default = defineTool32({
 });
 
 // src/lib/mcp/tools/whatsapp-prepare.ts
-import { defineTool as defineTool33 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool33 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z28 } from "npm:zod@^3.25.76";
 var whatsapp_prepare_default = defineTool33({
   name: "whatsapp_prepare",
@@ -2378,7 +2465,7 @@ var mcp_default = defineMcp({
     "Cartera: `list_work_items`, `get_work_item`, `list_clients`, `get_client`. Para consultas en lenguaje natural ('el caso contra Bancolombia en Medell\xEDn') usa `search`, que tambi\xE9n acepta radicados con guiones, parciales y correos de despacho.",
     "Radicados: cualquier par\xE1metro `radicado` acepta la forma con guiones, con espacios, la base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
-    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos. `list_act_attachments` (solo exige act_id) da el inventario de anexos de una actuaci\xF3n: estado expl\xEDcito con causa, 'N de M' verificados y faltantes; enlaces solo de copias propias con PDF verificado. Sin evidencia = desconocido, nunca 'sin anexos'.",
+    "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos. `list_act_attachments` (solo exige act_id) da el inventario de anexos de una actuaci\xF3n: estado expl\xEDcito con causa, archivos recuperados y pendientes; una cabecera PDF no acredita lectura completa ni correspondencia documental. Solo declarar disponible con descarga completa, lectura y asociaci\xF3n comprobadas; el hash da trazabilidad. Sin evidencia = desconocido, nunca 'sin anexos'. Distingue ACTUACI\xD3N de ESTADO y conserva sus relaciones sin fusionarlos. Para cautelares distingue solicitud, traslado, negativa y decreto; no infieras concesi\xF3n por palabras aisladas. Comprueba autor, contexto y parte resolutiva del PDF y conserva p\xE1gina y cita. Indica si solo tienes metadatos o falta el documento. Eval\xFAa tareas y t\xE9rminos aparte de la clase del evento.",
     "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buz\xF3n que a\xFAn no existen como expediente.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
@@ -2433,5 +2520,5 @@ var mcp_default = defineMcp({
 });
 
 // lovable-mcp-supabase-entry.ts
-import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.20.0/stacks/supabase";
+import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.20.1/stacks/supabase";
 Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));

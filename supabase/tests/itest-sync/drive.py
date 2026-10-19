@@ -1,15 +1,20 @@
 """Isolated integration run of the REAL sync-by-work-item/index.ts against a
 local Postgres (production schema-only dump, synthetic data) + local PostgREST.
 No hosted services, no production data, no deploy."""
-import json, os, subprocess, time, urllib.request, sys
+import json, os, subprocess, time, urllib.request, sys, fcntl
 
 T = "/tmp/itest"
+lock = open(f"{T}/driver.lock", "a")
+try:
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit("Another native integration driver already owns /tmp/itest")
 WI = "33333333-3333-3333-3333-333333333333"
 required = ["public_schema.sql", "svc.jwt", "anon.jwt", "lpsql", "postgrest.conf", "gateway.ts", "runfn.sh"]
 missing = [name for name in required if not os.path.isfile(f"{T}/{name}")]
 if missing:
     sys.exit("ISOLATED INTEGRATION BLOCKED: missing local artifacts in /tmp/itest: " + ", ".join(missing)
-             + ". Do not use hosted credentials or rebuild permissions; see README.md.")
+             + ". Run the explicitly local bootstrap described in README.md.")
 SVC = open(f"{T}/svc.jwt").read().strip()
 ENV_CLEAN = {k: v for k, v in os.environ.items() if not k.startswith("PG") and k != "SUPABASE_DB_URL"}
 procs = []
@@ -29,9 +34,13 @@ def http(url, body=None, headers=None, timeout=120):
                                  headers={"Content-Type": "application/json", **(headers or {})}, method="POST" if body is not None else "GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, json.loads(r.read() or b"null")
+            status, raw = r.status, r.read()
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b"null")
+        status, raw = e.code, e.read()
+    try:
+        return status, json.loads(raw or b"null")
+    except json.JSONDecodeError:
+        return status, {"non_json_response": raw.decode(errors='replace')}
 
 def start(cmd, log):
     p = subprocess.Popen(cmd, shell=True, stdout=open(log, "w"), stderr=subprocess.STDOUT, env=ENV_CLEAN, start_new_session=True, cwd=T)
@@ -39,8 +48,12 @@ def start(cmd, log):
 
 def wait_ok(url, body=None, tries=60):
     for _ in range(tries):
+        if any(p.poll() is not None for p in procs):
+            raise RuntimeError("A local test server exited during startup; inspect /tmp/itest/*.log")
         try:
-            http(url, body, timeout=3); return
+            status, _ = http(url, body, timeout=3)
+            if 200 <= status < 300:
+                return
         except Exception:
             time.sleep(1)
     raise RuntimeError(f"not up: {url}")
@@ -52,7 +65,7 @@ def reset(extra_sql=None):
     r = sh(f"{T}/lpsql -d postgres -c 'drop database if exists sync_run with (force)' -c 'create database sync_run template sync_itest'")
     if r.returncode: raise RuntimeError(r.stderr)
     if extra_sql: sql(extra_sql)
-    ctl(faults={"rpcUpsert": 0, "readBack": 0, "readBackMissing": 0, "rpcUpsertOnFp": ""}, resetLog=True)
+    ctl(faults={"rpcUpsert": 0, "readBack": 0, "readBackMissing": 0, "patchZero": 0, "rpcUpsertOnFp": ""}, resetLog=True)
     # A database reset closes pooled connections; readiness means a real row
     # can be read through PostgREST, not merely that the HTTP port is open.
     for _ in range(60):
@@ -66,13 +79,13 @@ def reset(extra_sql=None):
         time.sleep(1)
     raise RuntimeError("PostgREST did not read the synthetic work item after database reset")
 
-def sync():
-    st, body = http("http://127.0.0.1:8000", {"work_item_id": WI, "_scheduled": True, "force_refresh": True},
+def sync(work_item_id=WI):
+    st, body = http("http://127.0.0.1:8000", {"work_item_id": work_item_id, "_scheduled": True, "force_refresh": True},
                     {"Authorization": f"Bearer {SVC}"}, timeout=180)
     return st, body
 
 def acts():
-    return sql("select id, hash_fingerprint, raw_data->>'origen_solicitud', raw_data->>'origen_indice', left(raw_data->>'anotacion',60), coalesce(jsonb_array_length(documentos),-1), raw_data->'anotacion_reparada' is not null from work_item_acts where work_item_id='%s' and not is_archived order by created_at, id" % WI)
+    return sql("select id, hash_fingerprint, raw_data->>'origen_solicitud', raw_data->>'origen_indice', raw_data->>'anotacion', coalesce(jsonb_array_length(documentos),-1), raw_data->'anotacion_reparada' is not null from work_item_acts where work_item_id='%s' and not is_archived order by created_at, id" % WI)
 
 def novedades():
     a = sql(f"select count(*) from alert_instances where entity_id='{WI}'")[0][0]
@@ -100,14 +113,120 @@ def check(name, cond, detail=""):
     results.append((name, bool(cond), detail))
     print(("PASS " if cond else "FAIL ") + name + (f" :: {detail}" if detail else ""), flush=True)
 
+def run_native():
+    native = subprocess.run(['deno','test','--cached-only','--no-check','--allow-env','--allow-read','--allow-net=127.0.0.1',
+      os.path.join(os.environ['ITEST_REPO'],'supabase/tests/itest-sync/native-http.test.ts')],
+      capture_output=True,text=True,env=ENV_CLEAN)
+    open(f'{T}/native-http-output.log','w').write(native.stdout + native.stderr)
+    print(native.stdout, flush=True)
+    if native.stderr: print(native.stderr, flush=True)
+    check('Native concurrent HTTP and RLS cases', native.returncode == 0)
+    return native.returncode
+
+def run_inventory():
+    """Optional private saved observations; actual function/HTTP/RPC, no downloads.
+
+    The two synthetic work-item lifecycles are isolated by a database reset. The
+    source act rows and descriptors come from the reviewed snapshot, including
+    the six memorials with missing inventories. Nothing reaches hosted services.
+    """
+    from pathlib import Path
+    evidence = Path(os.environ['ITEST_INVENTORY_EVIDENCE'])
+    matrix = json.loads((evidence/'inventory-matrix.json').read_text())
+    result = []
+    target_indices = {'05001233300020260142400': [25, 26], '05001233300020240115300': [108, 109, 115, 116]}
+    for radicado, memorial_indices in target_indices.items():
+        expected = [m for m in matrix if m['radicado'] == radicado]
+        source = json.loads((evidence/'original'/f'{radicado}-raw.json').read_text())['actuaciones']
+        indices = {m['indice'] for m in expected} | set(memorial_indices)
+        selected = [a for a in source if a['indice'] in indices]
+        # Preserve source associations but omit ephemeral, sensitive origin tokens.
+        selected = json.loads(json.dumps(selected))
+        for act in selected:
+            for document in act.get('anexos_documentos') or []:
+                for key in ['urlDescargaOriginal', 'tokenDocumento']:
+                    document.pop(key, None)
+        reset(f"UPDATE work_items SET radicado='{radicado}' WHERE id='{WI}'")
+        feed(*selected)
+        status, response = sync()
+        check(f'Inventories {radicado}: real function persists snapshot', status == 200 and not response.get('errors'), str(response.get('errors')))
+        def snapshot():
+            return json.loads(sql(f"select coalesce(jsonb_agg(jsonb_build_object('id',id,'fingerprint',hash_fingerprint,'indice',raw_data->>'origen_indice','solicitud',raw_data->>'origen_solicitud','docs',documentos,'raw_docs',raw_data->'documentos') order by id),'[]') from work_item_acts where work_item_id='{WI}'")[0][0])
+        rows = snapshot()
+        def effect_snapshot():
+            return json.loads(sql("""select jsonb_build_object(
+              'notifications',(select jsonb_agg(to_jsonb(n) order by id) from notifications n),
+              'alerts',(select jsonb_agg(to_jsonb(a) order by id) from alert_instances a),
+              'deadlines',(select jsonb_agg(to_jsonb(d) order by id) from work_item_deadlines d),
+              'hearings',(select jsonb_agg(to_jsonb(h) order by id) from work_item_hearings h))""")[0][0])
+        def effect_changes(before, after):
+            changes = []
+            for table in before:
+                old = {r['id']:r for r in before[table] or []}
+                new = {r['id']:r for r in after[table] or []}
+                for key in old.keys() | new.keys():
+                    fields = sorted(k for k in set(old.get(key,{})) | set(new.get(key,{})) if old.get(key,{}).get(k) != new.get(key,{}).get(k))
+                    if fields: changes.append({'table':table,'id':key,'changed_fields':fields,'inserted':key not in old,'deleted':key not in new})
+            return changes
+        def effects_preserved(before, after):
+            # The existing deadline RPC appends corroboration audit entries on
+            # every sync. Those audit timestamps are not a new judicial term.
+            # All row identities, substantive fields and existing audit entries
+            # must survive; no other table gets an exception.
+            left, right = json.loads(json.dumps(before)), json.loads(json.dumps(after))
+            old = {r['id']:r for r in left['deadlines'] or []}
+            new = {r['id']:r for r in right['deadlines'] or []}
+            if old.keys() != new.keys(): return False
+            for key in old:
+                for row in (old[key],new[key]): row.pop('updated_at',None)
+                old_meta, new_meta = old[key].get('calculation_meta') or {}, new[key].get('calculation_meta') or {}
+                old_audit, new_audit = old_meta.pop('corroborations',[]), new_meta.pop('corroborations',[])
+                if new_audit[:len(old_audit)] != old_audit: return False
+            return left == right
+        effects_before = effect_snapshot()
+        for inventory in expected:
+            matched = [a for a in rows if a['indice'] == str(inventory['indice'])]
+            observed = matched[0]['docs'] if len(matched) == 1 else []
+            expected_urls = sorted(d['url'] for d in inventory['documents'])
+            actual_urls = sorted(d.get('url') for d in observed or [])
+            expected_pairs = sorted((d['url'],d['description']) for d in inventory['documents'])
+            actual_pairs = sorted((d.get('url'),d.get('descripcion') or d.get('nombre')) for d in observed or [])
+            preserved = len(matched) == 1 and actual_pairs == expected_pairs and matched[0]['raw_docs'] == observed
+            check(f"Inventory {radicado}/{inventory['indice']}: exact own descriptors at RPC read-back", preserved)
+            result.append({'radicado':radicado,'indice':inventory['indice'],'source_act_id':inventory['source_act_id'],
+              'original_24':inventory['original_24'],'expected_documents':len(expected_urls),'actual_documents':len(actual_urls),
+              'association_preserved':preserved,'application_act_id':matched[0]['id'] if matched else None})
+        for indice in memorial_indices:
+            matched = [a for a in rows if a['indice'] == str(indice)]
+            check(f'Memorial {radicado}/{indice}: no unrelated document assigned', len(matched) == 1 and not matched[0]['docs'])
+        status, response = sync()
+        OUT.append({'inventory_case':radicado,'phase':'repeat','effect_changes':effect_changes(effects_before,effect_snapshot())})
+        check(f'Inventories {radicado}: replay keeps identities/documents/substantive effects', status == 200 and snapshot() == rows and effects_preserved(effects_before,effect_snapshot()))
+        for act in selected:
+            act['anexos_documentos'] = None
+        feed(*selected)
+        status, response = sync()
+        OUT.append({'inventory_case':radicado,'phase':'omitted_inventory','effect_changes':effect_changes(effects_before,effect_snapshot())})
+        check(f'Inventories {radicado}: later omitted inventory cannot erase documents', status == 200 and snapshot() == rows and effects_preserved(effects_before,effect_snapshot()))
+    output = {'execution':'real local function, PostgREST and PostgreSQL public schema; saved source observations; no new downloads or production writes',
+      'inventories':result,'original_24':sum(r['original_24'] for r in result),'other_inventories':sum(not r['original_24'] for r in result)}
+    Path(T+'/inventory-rpc-results.json').write_text(json.dumps(output,indent=2))
+
 try:
-    start("nix run nixpkgs#postgrest -- postgrest.conf", f"{T}/postgrest.log")
-    start(f"deno run -A {T}/gateway.ts", f"{T}/gateway.log")
+    start("postgrest postgrest.conf", f"{T}/postgrest.log")
+    start(f"deno run --cached-only --allow-net=127.0.0.1 {T}/gateway.ts", f"{T}/gateway.log")
     wait_ok("http://127.0.0.1:54321/__ctl")
     reset()
     start(f"{T}/runfn.sh", f"{T}/fn.log")
     wait_ok("http://127.0.0.1:8000", {"health_check": True})
     time.sleep(2)
+    if '--native-only' in sys.argv:
+        reset()
+        sys.exit(run_native())
+    if '--inventory-only' in sys.argv:
+        run_inventory()
+        if not all(r[1] for r in results): sys.exit(1)
+        sys.exit(0)
 
     # S1 — two solicitudes, same day, same title
     reset(); feed(item(A), item(B))
@@ -192,7 +311,7 @@ try:
     reset()
     sql(f"""insert into work_item_acts (id, work_item_id, owner_id, organization_id, act_date, description, event_summary, hash_fingerprint, source, raw_data)
         values ('ffffffff-0000-0000-0000-000000000001', '{WI}', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
-        '2026-10-16', $${TITLE} - {A}$$, left($${TITLE} - {B}$$, 500), 'PLACEHOLDER', jsonb_build_object('actuacion', '{TITLE}', 'anotacion', $${B}$$))""")
+        '2026-10-16', $${TITLE} - {A}$$, left($${TITLE} - {B}$$, 500), 'PLACEHOLDER', 'samai', jsonb_build_object('actuacion', '{TITLE}', 'anotacion', $${B}$$))""")
     # fingerprint as production v1 would compute it: take it from a clean run's first row
     base_nv = novedades()
     feed(item(A), item(B))
@@ -201,9 +320,51 @@ try:
     contaminated = [x for x in rows8 if x[0] == "ffffffff-0000-0000-0000-000000000001"]
     check("S8 contaminated row text untouched (no repair)", contaminated and "DOS" in contaminated[0][4] and contaminated[0][6] == "f", str(contaminated))
     OUT.append({"S8_rows": rows8, "S8_novedades": [base_nv, nv8], "S8_resp": {k: r.get(k) for k in ("inserted_count", "skipped_count", "errors")}})
+
+    # S9 — all three conditional PATCH attempts return zero rows. The sync
+    # must report the failed enrichment and keep every downstream table intact.
+    reset(); feed(item(A)); sync()
+    snapshot_query = f"""select jsonb_build_object(
+      'acts',(select jsonb_agg(jsonb_build_object('id',id,'raw',raw_data,'docs',documentos)) from work_item_acts where work_item_id='{WI}'),
+      'notifications',(select jsonb_agg(to_jsonb(n)) from notifications n),
+      'alerts',(select jsonb_agg(to_jsonb(a)) from alert_instances a),
+      'deadlines',(select jsonb_agg(to_jsonb(d)) from work_item_deadlines d),
+      'hearings',(select jsonb_agg(to_jsonb(h)) from work_item_hearings h))"""
+    before9 = sql(snapshot_query)
+    timestamps9 = sql(f"select last_successful_sync_at,last_synced_at from work_items where id='{WI}'")
+    feed(item(A + ' SE FIJA AUDIENCIA INICIAL PARA EL 20 DE NOVIEMBRE DE 2026 A LAS 09:00.', url=URL))
+    ctl(faults={"patchZero": 3}, resetLog=True)
+    st, r = sync(); log9 = ctl()['log']
+    check('S9 zero-row PATCH stays visible and uncounted', st == 500 and not r.get('ok') and 'zero rows' in json.dumps(r).lower() and not r.get('inserted_count'), str(r))
+    check('S9 three fresh-read attempts, no success', log9.count('FAULT zero-row PATCH') == 3, str(log9))
+    check('S9 zero-row PATCH causes no act/downstream changes', sql(snapshot_query) == before9)
+    check('S9 failed enrichment cannot advance successful-sync timestamps',sql(f"select last_successful_sync_at,last_synced_at from work_items where id='{WI}'")==timestamps9)
+
+    # S10 — the real function and notification/deadline triggers process a
+    # traslado, without manufacturing a granted-cautelar alert or unanchored date.
+    reset()
+    feed({'Fecha Providencia':'2026-10-16T00:00:00.000Z', 'Actuación':'Auto traslado de 5 dias',
+          'Docum. a notif.':'SE CORRE TRASLADO A LA PARTE DEMANDADA DE LA MEDIDA CAUTELAR SOLICITADA CON LA DEMANDA POR CINCO DIAS.',
+          'indice': 12})
+    st, r = sync()
+    check('S10 traslado persists through real sync', st == 200 and len(acts()) == 1, str(r))
+    check('S10 traslado never asserts cautelar granted', sql("select count(*) from alert_instances where title ~* 'medida.*cautelar.*(ordenada|decretada|concedida)'")[0][0] == '0')
+    check('S10 real notification trigger emitted a notification', int(sql('select count(*) from notifications')[0][0]) > 0)
+    check('S10 no provisional dated deadline without an anchor', sql('select count(*) from work_item_deadlines where deadline_date is not null')[0][0] == '0')
+
+    if os.environ.get('ITEST_INVENTORY_EVIDENCE'):
+        run_inventory()
+
+    # Independent concurrent HTTP clients share the native database and exercise
+    # origin guards, actual optimistic conflicts and authenticated RLS.
+    reset()
+    run_native()
 finally:
     for p in procs:
         try: os.killpg(p.pid, 15)
         except Exception: pass
     json.dump({"results": results, "extra": OUT}, open(f"{T}/results.json", "w"), indent=1, default=str)
     print(f"\n{sum(1 for r in results if r[1])}/{len(results)} passed")
+
+if not results or not all(r[1] for r in results):
+    sys.exit(1)

@@ -1,3 +1,4 @@
+import { documentObservationAt, mergeDocumentObservation } from './actDocumentObservation.ts';
 /**
  * actDocumentos.ts — ITERATION 60.
  *
@@ -16,6 +17,8 @@
  */
 
 export interface ActDocumento {
+  /** Retain provider metadata and provenance, including unlinked descriptors. */
+  [key: string]: unknown;
   /** Provider-native identity (idRegDocumento). Never the filename: the same
    *  `01ActaReparto.pdf` repeats across thousands of matters. */
   id: string | null;
@@ -39,13 +42,13 @@ export interface ActDocumento {
   disponible: boolean;
 }
 
-const ID_KEYS = ["idRegDocumento", "id_reg_documento", "id", "documento_id"];
+const ID_KEYS = ["idRegDocumento", "id_reg_documento", "id", "documento_id", "tokenDocumento"];
 const NOMBRE_KEYS = ["nombre", "nombre_archivo", "filename", "name"];
-const TIPO_KEYS = ["tipo", "tipo_documento", "mime", "content_type"];
+const TIPO_KEYS = ["tipo", "tipo_documento", "mime", "content_type", "tipoArchivo"];
 const DESC_KEYS = ["descripcion", "description"];
 const GCS_KEYS = ["gcs_url", "gcsUrl", "public_url", "url_publica"];
-const ORIGEN_KEYS = ["url_origen", "urlOrigen", "url_descarga", "urlDescarga"];
-const URL_KEYS = [...GCS_KEYS, "url", ...ORIGEN_KEYS];
+const ORIGEN_KEYS = ["url_origen", "urlOrigen", "urlDescargaOriginal", "url_descarga", "urlDescarga", "urlVer"];
+const URL_KEYS = [...GCS_KEYS, "url", "urlDescarga", "url_descarga", "urlVer", ...ORIGEN_KEYS];
 const FECHA_KEYS = ["fechaCarga", "fecha_carga", "fecha", "uploaded_at"];
 const ESTADO_KEYS = ["estado", "resultado", "status"];
 
@@ -74,6 +77,7 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
     const origen = str(src, ORIGEN_KEYS);
     const url = gcs ?? str(src, URL_KEYS);
     const doc: ActDocumento = {
+      ...src,
       id: str(src, ID_KEYS),
       nombre: str(src, NOMBRE_KEYS),
       tipo: str(src, TIPO_KEYS),
@@ -83,21 +87,51 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
       url_origen: origen,
       fecha_carga: str(src, FECHA_KEYS),
       estado: str(src, ESTADO_KEYS) ?? (url ? null : "SIN_ENLACE_DEL_PROVEEDOR"),
-      disponible: !!url,
+      disponible: documentObservationAt(src) == null ? !!url : src.descarga_estado === 'descargado_y_leido' && !!src.pdf_verificacion && !!url,
     };
     // A descriptor with no identity, no URL and no filename carries nothing.
-    if (!doc.id && !doc.url && !doc.url_origen && !doc.nombre) continue;
+    if (Object.keys(src).length === 0) continue;
     out.push(doc);
   }
-  // Identity is the provider id or URL; the filename is the last resort so a
-  // name-only announcement is still deduplicated instead of discarded.
-  const seen = new Set<string>();
-  return out.filter((d) => {
-    const key = d.id ?? d.url ?? d.nombre ?? "";
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Preserve uncertain name-only announcements; a filename cannot establish
+  // that a later linked descriptor is the same document.
+  return mergeActDocumentos([], out) ?? [];
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => `${JSON.stringify(k)}:${stable(v)}`).join(',')}}`;
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Additive union: filenames alone cannot identify two different documents. */
+export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDocumento[] | null {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return null;
+  const out: ActDocumento[] = [];
+  for (const value of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+    if (!value || typeof value !== 'object') continue;
+    const doc = { ...value } as ActDocumento;
+    const index = out.findIndex((old) => {
+      if (old.sha256 && doc.sha256 && old.sha256 !== doc.sha256) return false;
+      if (old.id && doc.id && old.id !== doc.id) return false;
+      if (old.id && doc.id) return old.id === doc.id;
+      const links = [old.url, old.gcs_url, old.url_origen].filter(Boolean);
+      return [doc.url, doc.gcs_url, doc.url_origen].some((url) => url && links.includes(url)) || stable(old) === stable(doc);
+    });
+    if (index < 0) { out.push(doc); continue; }
+    const old = out[index];
+    let merged = { ...doc, ...old };
+    for (const [key, value] of Object.entries(doc)) {
+      if (merged[key] === null || merged[key] === undefined || merged[key] === '') merged[key] = value;
+    }
+    const urls = [...new Set([...(Array.isArray(old.url_alternativas) ? old.url_alternativas : []), ...(Array.isArray(doc.url_alternativas) ? doc.url_alternativas : []), old.url, old.gcs_url, old.url_origen, doc.url, doc.gcs_url, doc.url_origen].filter((url): url is string => typeof url === 'string' && !!url))];
+    if (urls.some((url) => ![merged.url, merged.gcs_url, merged.url_origen].includes(url))) merged.url_alternativas = urls;
+    merged.disponible = !!(merged.url || merged.gcs_url || merged.url_origen);
+    if (merged.disponible && merged.estado === 'SIN_ENLACE_DEL_PROVEEDOR') merged.estado = doc.estado === 'SIN_ENLACE_DEL_PROVEEDOR' ? null : doc.estado;
+    merged = mergeDocumentObservation(old, doc, merged) as ActDocumento;
+    out[index] = merged;
+  }
+  return out;
 }
 
 /** true when the provider expressed the documents field on this unit. */
@@ -122,10 +156,6 @@ export function resolveDocumentosObservadosEn(
   return documentosObserved(raw) ? now : null;
 }
 
-function linkedCount(docs: ActDocumento[] | null): number {
-  return (docs ?? []).filter((d) => !!(d.gcs_url || d.url || d.url_origen)).length;
-}
-
 /**
  * ITER67 — an act already stored is still allowed to LEARN documents. The old
  * sync skipped duplicates wholesale, so a PDF that materialised after the first
@@ -146,15 +176,13 @@ export function documentosEnrichmentPatch(
     ? (normalizeActDocumentos(existing) ?? [])
     : null;
 
-  const improves =
-    current === null ||
-    linkedCount(incoming) > linkedCount(current) ||
-    incoming.length > current.length;
+  const merged = mergeActDocumentos(current, incoming)!;
+  const improves = current === null || stable(merged) !== stable(current);
 
   if (!improves) return null;
 
   return {
-    documentos: incoming,
+    documentos: merged,
     documentos_observados_en:
       resolveDocumentosObservadosEn(incomingRaw, providerObservedAt, now) ??
       existingObservedAt,

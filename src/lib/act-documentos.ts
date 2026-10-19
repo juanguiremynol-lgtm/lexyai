@@ -69,7 +69,7 @@ export function actDocumentoState(doc: ActDocumentoLike | null | undefined): Act
 export function actDocumentoStateLabel(state: ActDocumentoState): string {
   switch (state) {
     case "DESCARGADO":
-      return "Disponible";
+      return "Enlace registrado; contenido sin verificar";
     case "PENDIENTE":
       return "Aún no copiado por Andromeda";
     case "FALLIDO":

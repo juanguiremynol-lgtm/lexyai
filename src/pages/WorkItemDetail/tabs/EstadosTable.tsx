@@ -193,7 +193,7 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
                         >
-                          <FileText className="h-3 w-3" /> Auto
+                          <FileText className="h-3 w-3" /> Enlace al auto
                         </a>
                       )}
                       {tabla && (
@@ -203,7 +203,7 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
                         >
-                          <Table2 className="h-3 w-3" /> Tabla
+                          <Table2 className="h-3 w-3" /> Enlace a la tabla
                         </a>
                       )}
                       {pdf && !r.onOpenFile && (
@@ -213,13 +213,14 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
                         >
-                          <ExternalLink className="h-3 w-3" /> PDF
+                          <ExternalLink className="h-3 w-3" /> Enlace PDF
                         </a>
                       )}
                       {!auto && !tabla && !pdf && !r.onOpenFile && (
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </div>
+                    {(auto || tabla || pdf) && <p className="mt-1 text-xs text-muted-foreground">Enlace anunciado; la recuperación de la copia se verifica por separado.</p>}
                   </TableCell>
                 </TableRow>
               );

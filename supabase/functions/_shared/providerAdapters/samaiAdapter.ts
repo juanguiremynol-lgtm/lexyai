@@ -39,6 +39,7 @@ import {
 
 import { parseSujetosArray } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
+import { normalizeActDocumentos, mergeActDocumentos } from '../actDocumentos.ts';
 
 // Deno global declaration — this module is also type-checked by the Vitest
 // (browser/node) program, which has no Deno lib.
@@ -366,18 +367,23 @@ async function buscarWithPolling(
  * SAMAI field names: fechaActuacion, actuacion, anotacion, fechaRegistro, estado, anexos, indice
  */
 function samaiDocumentos(act: Record<string, unknown>): { documentos?: Array<Record<string, unknown>> } {
+  let documentos = mergeActDocumentos(
+    normalizeActDocumentos(act.documentos),
+    normalizeActDocumentos(act.anexos_documentos),
+  );
+  documentos = mergeActDocumentos(documentos, normalizeActDocumentos(act.anexosDocumentos));
   const gcs = typeof act.gcs_url === 'string' && act.gcs_url.trim() ? act.gcs_url.trim() : null;
   const pdf = typeof act.pdf_url === 'string' && act.pdf_url.trim() ? act.pdf_url.trim() : null;
   const desc = typeof act.url_descarga === 'string' && act.url_descarga.trim() ? act.url_descarga.trim() : null;
-  if (!gcs && !pdf && !desc) return {};
+  if (!gcs && !pdf && !desc) return documentos === null ? {} : { documentos };
   return {
-    documentos: [{
+    documentos: mergeActDocumentos(documentos, normalizeActDocumentos([{
       id: (act.hash_documento as string) ?? null,
       gcs_url: gcs ?? (pdf && /storage\.googleapis\.com/i.test(pdf) ? pdf : null),
-      url: gcs ?? pdf ?? null,
+      url: gcs ?? pdf ?? desc,
       url_origen: desc,
       nombre: null,
-    }],
+    }]))!,
   };
 }
 
@@ -388,7 +394,9 @@ export function normalizeSamaiActuaciones(
     crossProviderDedup?: boolean;
   } = {},
 ): NormalizedActuacion[] {
-  return rawActuaciones.map((act) => {
+  // Estados are ingested by samaiEstadosAdapter with their publication identity.
+  // They must never become acts just because they share a ruling title/date.
+  return rawActuaciones.filter(act => act.categoria !== 'ESTADO' && act.fuente !== 'estados').map((act) => {
     const fecha = normalizeDate(
       String(
         act.fechaActuacion ?? act.fecha_actuacion ?? act.fecha ?? act.fechaRegistro ??
@@ -418,14 +426,14 @@ export function normalizeSamaiActuaciones(
       '';
     const anotacion = (typeof anotacionRaw === 'string' ? anotacionRaw : String(anotacionRaw ?? '')).trim() || null;
     const fechaRegistro = normalizeDate(
-      String(act.fechaRegistro ?? act['Fecha Registro'] ?? ''),
+      String(act.fechaRegistro ?? act.fecha_registro ?? act['Fecha Registro'] ?? ''),
     );
     let estado = String(act.estado ?? act['Estado'] ?? '') || undefined;
     // ITER70 rev.2 — explicit 0 ("no anexos") and null/absent ("not stated")
     // are different facts; never collapse 0 into undefined.
     const anexosRaw = act.anexos;
-    const anexosNum = anexosRaw === null || anexosRaw === undefined || anexosRaw === '' ? NaN : Number(anexosRaw);
-    const anexosCount = Number.isFinite(anexosNum) && anexosNum >= 0 ? anexosNum : undefined;
+    const anexosNum = typeof anexosRaw === 'number' || (typeof anexosRaw === 'string' && /^\d+$/.test(anexosRaw.trim())) ? Number(anexosRaw) : NaN;
+    const anexosCount = Number.isSafeInteger(anexosNum) && anexosNum >= 0 ? anexosNum : undefined;
     const indice = String(act.indice ?? act['Reg'] ?? '') || undefined;
 
     // Annulled-act detection — REFINED (2026-07-15, caso 05001333301020230019900).
