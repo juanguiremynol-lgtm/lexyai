@@ -59,7 +59,7 @@ for path in sorted(root.glob('reference-*.json')):
         records=[r for r in records if r.get('owner_id') is None]
     payload=json.dumps(records).replace("'","''")
     psql(f"INSERT INTO public.{name} SELECT * FROM jsonb_populate_recordset(NULL::public.{name}, '{payload}'::jsonb);")
-for migration in ['20261019000100_samai_origin_identity.sql', '20261019000200_samai_publication_evidence.sql', '20261019000300_estado_document_recovery.sql', '20261019000400_act_document_observation_order.sql', '20261019000500_estado_document_scoped_claim.sql', '20261019000600_act_enrichment_body_cas.sql', '20261019000700_act_file_reading_evidence.sql']:
+for migration in ['20261019000100_samai_origin_identity.sql', '20261019000200_samai_publication_evidence.sql', '20261019000300_estado_document_recovery.sql', '20261019000400_act_document_observation_order.sql', '20261019000500_estado_document_scoped_claim.sql', '20261019000600_act_enrichment_body_cas.sql', '20261019000700_act_file_reading_evidence.sql', '20261019000800_samai_rotating_grant_identity.sql', '20261019000900_samai_legacy_grant_identity.sql']:
     psql(file=repo/'supabase/migrations'/migration)
 psql(file=here/'seed.sql')
 secret='local-itest-jwt-secret-not-a-real-credential-0123456789'

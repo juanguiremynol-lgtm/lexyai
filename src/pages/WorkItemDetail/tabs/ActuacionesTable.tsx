@@ -1,3 +1,4 @@
+import { samaiGrantIdentity, sourceGrantToken } from '../../../../supabase/functions/_shared/samaiGrantIdentity';
 /**
  * ActuacionesTable — dense dense-grid table used by every workflow
  * (CGP / CPACA / PENAL / LABORAL / TUTELA) to render actuaciones.
@@ -279,7 +280,9 @@ function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
   const seen = new Set<string>();
   const documents = descriptors.filter((doc, index) => {
     const d = doc as unknown as Record<string, unknown>;
-    const identity = d.id || d.tokenDocumento || d.id_documento || d.url_origen || d.urlDescargaOriginal || d.urlDescarga || d.url || d.urlVer || d.gcs_url;
+    const grant = samaiGrantIdentity(d);
+    const nativeId = d.id && d.id !== sourceGrantToken(d) ? d.id : null;
+    const identity = (grant ? JSON.stringify([grant, nativeId, String(d.solicitud || ''), String(d.indice_actuacion || '').replace(/^0+(?=\d)/,'')]) : null) || d.id || d.tokenDocumento || d.id_documento || d.url_origen || d.urlDescargaOriginal || d.urlDescarga || d.url || d.urlVer || d.gcs_url;
     const key = identity ? String(identity) : `unlinked:${index}`;
     if (seen.has(key)) return false;
     seen.add(key);

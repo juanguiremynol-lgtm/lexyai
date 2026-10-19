@@ -46,3 +46,21 @@ test('ZIP reading stays separate from PDF proof and obeys invalidation and late-
  const recovered=await db.rpc('act_merge_documentos',{existing:sql.data,incoming:repaired});assert.equal(recovered.error,null);
  assert.equal(recovered.data[0].archivo_verificacion.miembros.length,2);assert.equal(recovered.data[0].disponible,true);assert.equal(recovered.data[0].pdf_verificacion,undefined);
 });
+
+
+test('rotating SAMAI grants coalesce only the same source association, preserving aliases and changed files',async()=>{
+ const grant=(expiry:number,extra={})=>'header,'+Buffer.from(JSON.stringify({r:'05001233300020260142400',h:'a'.repeat(64),dt:'',c:'0500123',d:'',cu:'',exp:expiry,...extra})).toString('base64url')+',signature'+expiry;
+ const make=(expiry:number,label='Origen A',extra={})=>({tokenDocumento:grant(expiry),descripcion:label,sha256:'b'.repeat(64),urlDescarga:'https://samaicore.consejodeestado.gov.co/a?tokendoc='+grant(expiry),...extra});
+ const left=normalizeActDocumentos([make(1),make(2),make(3,'Origen B')])!;
+ assert.equal(left.length,2);assert.equal(left[0].token_aliases.length,2);
+ const right=normalizeActDocumentos([make(4),make(5,'Origen A',{sha256:'c'.repeat(64)})])!;
+ const ts=mergeActDocumentos(left,right)!;assert.equal(ts.length,3);assert.equal(ts[0].token_aliases.length,3);
+ const sql=await db.rpc('act_merge_documentos',{existing:left,incoming:right});assert.equal(sql.error,null,JSON.stringify(sql.error));assert.equal(sql.data.length,3);assert.equal(sql.data[0].token_aliases.length,3);
+ const oldUrl=normalizeActDocumentos([{...make(2),tokenDocumento:null}]);
+ const oldMatch=await db.rpc('act_merge_documentos',{existing:normalizeActDocumentos([make(1)]),incoming:oldUrl});assert.equal(oldMatch.error,null);assert.equal(oldMatch.data.length,1);assert.equal(mergeActDocumentos(normalizeActDocumentos([make(1)]),oldUrl)!.length,1);
+ const legacy=normalizeActDocumentos([make(1)])!.concat(normalizeActDocumentos([make(2)])!);
+ const compact=await db.rpc('act_merge_documentos',{existing:legacy,incoming:[]});assert.equal(compact.error,null);assert.equal(compact.data.length,1);assert.equal(compact.data[0].token_aliases.length,2);
+ const parents=await db.rpc('act_merge_documentos',{existing:normalizeActDocumentos([make(1,'Origen A',{solicitud:'3432736'})]),incoming:normalizeActDocumentos([make(2,'Origen A',{solicitud:'3435550'})])});assert.equal(parents.error,null);assert.equal(parents.data.length,2);
+ const foreign=normalizeActDocumentos([{...make(8),tokenDocumento:grant(8,{r:'05001233300020240115300'})}]);
+ const different=mergeActDocumentos(left,foreign)!;assert.equal(different.length,3);
+});
