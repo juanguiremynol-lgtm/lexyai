@@ -26480,6 +26480,86 @@ export type Database = {
         Returns: Json
       }
       rpc_canon_fingerprint_probe: { Args: { p_payload: Json }; Returns: Json }
+      rpc_enrich_work_item_act: {
+        Args: {
+          p_act_id: string
+          p_expected_documentos: Json
+          p_expected_raw_data: Json
+          p_patch: Json
+          p_work_item_id: string
+        }
+        Returns: {
+          act_date: string | null
+          act_date_raw: string | null
+          act_type: string | null
+          api_fetched_at: string | null
+          api_scraped_at: string | null
+          archived_at: string | null
+          archived_by: string | null
+          archived_reason: string | null
+          canonical_at: string | null
+          changed_at: string | null
+          confidence_level: string | null
+          content_hash: string
+          created_at: string
+          date_confidence: string | null
+          date_source: string | null
+          description: string
+          despacho: string | null
+          detected_at: string
+          discovery_type: string | null
+          documentos: Json | null
+          documentos_observados_en: string | null
+          event_category: string | null
+          event_date: string | null
+          event_summary: string | null
+          event_type_normalized: string | null
+          fecha_registro_source: string | null
+          hash_fingerprint: string
+          id: string
+          ingest_run_mode: string
+          ingest_run_mode_source: string | null
+          inicia_termino: string | null
+          instancia: string | null
+          instancia_grado: string | null
+          is_archived: boolean | null
+          is_canonical: boolean | null
+          is_future_dated: boolean
+          is_notifiable: boolean | null
+          is_retroactive: boolean | null
+          keywords_matched: string[] | null
+          last_seen_at: string
+          organization_id: string | null
+          origen_texto: string | null
+          owner_id: string
+          parsing_errors: string[] | null
+          phase_inferred: number | null
+          provenance: Json | null
+          provider_case_id: string | null
+          provider_instance_id: string | null
+          raw_data: Json | null
+          raw_schema_version: string | null
+          recurso_consecutivo: string | null
+          requiere_revision_manual: boolean
+          retro_gap_days: number | null
+          scrape_date: string | null
+          source: string | null
+          source_platform: string | null
+          source_radicado: string | null
+          source_reference: string | null
+          source_url: string | null
+          sources: string[] | null
+          updated_at: string
+          work_item_id: string
+          workflow_type: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "work_item_acts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       rpc_identity_drift_summary: { Args: never; Returns: Json }
       rpc_insert_notification: {
         Args: {
