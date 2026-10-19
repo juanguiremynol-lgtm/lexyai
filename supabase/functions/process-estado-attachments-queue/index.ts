@@ -63,7 +63,7 @@ async function processOne(supabase: SupabaseClient<any>, row: EstadoQueueRow) {
   let primaryInvalidated = false;
   return recoverEstadoAttachment(row, {
     publication: async () => {
-      const { data, error } = await supabase.from("work_item_publicaciones").select("pdf_url,raw_data").eq("id", row.publicacion_id).single();
+      const { data, error } = await supabase.from("work_item_publicaciones").select("pdf_url,raw_data,source,source_radicado").eq("id", row.publicacion_id).single();
       if (error || !data) throw new Error(`publication_read_failed:${error?.message || 'missing'}`);
       return data;
     },

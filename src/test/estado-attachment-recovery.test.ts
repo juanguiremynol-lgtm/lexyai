@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { declaredEstadoDocumentHash, recoverEstadoAttachment, type EstadoQueueRow, type EstadoRecoveryPorts } from '../../supabase/functions/_shared/estadoAttachmentRecovery.ts';
+import { declaredEstadoDocumentHash, publicPpDocumentCorrespondence, recoverEstadoAttachment, type EstadoQueueRow, type EstadoRecoveryPorts } from '../../supabase/functions/_shared/estadoAttachmentRecovery.ts';
 import { estadoDocumentStatus } from '../lib/estado-document-status';
 import { downloadEstadoDocument, estadoDocumentAccess } from '../../supabase/functions/_shared/estadoDocumentAccess.ts';
 
@@ -28,6 +28,52 @@ function harness(row = base, sourceHash: string | null = digest) {
   };
   return { ports, stored, patches, availability, originCalls: () => originCalls };
 }
+
+const ppCase = '05001311000220260018500';
+function ppFixture(kind = 'auto', article = '272358311') {
+  const path = kind === 'auto' ? `${ppCase}/raw/actuaciones/${article}/Auto.pdf` : `${ppCase}/raw/estados/Planilla.pdf`;
+  const url = `https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/${Buffer.from(path).toString('base64url')}`;
+  return { url, pub: { source: 'publicaciones', source_radicado: ppCase, pdf_url: url, raw_data: { raw_data: {
+    estado: { article_id: article }, documentos_pdf: [{ tipo: kind, pdf_url: url }],
+    [kind === 'auto' ? 'gcs_url_pdf_actuacion' : 'gcs_url_pdf_estado']: `https://storage.googleapis.com/andromeda-pp-documentos-2026/${path}`,
+    sha256_auto: 'a'.repeat(64), sha256_tabla: 'b'.repeat(64),
+  } } } };
+}
+
+describe('original public PP document correspondence', () => {
+  it.each(['auto', 'estado'])('binds %s to its native original path without borrowing a processed hash', async kind => {
+    const { url, pub } = ppFixture(kind);
+    expect(declaredEstadoDocumentHash(pub, url)).toBeNull();
+    expect(publicPpDocumentCorrespondence(pub, url)).toMatchObject({ method: 'public_source_document_path', document_kind: kind, case_radicado: ppCase });
+    const row = { ...base, remote_url: url }, h = harness(row, null);
+    h.ports.publication = async () => pub;
+    expect((await recoverEstadoAttachment(row, h.ports)).success).toBe(true);
+    const saved = h.patches[0];
+    expect(saved).toMatchObject({ status: 'downloaded', validation_evidence: { state: 'verified', correspondence: { document_kind: kind } } });
+    expect((saved.validation_evidence as any).correspondence.expected_sha256).toBeUndefined();
+    expect(estadoDocumentStatus({ ...row, ...saved } as any).available).toBe(true);
+  });
+  it('rejects different cases, native articles, document roles and arbitrary paths', () => {
+    const { url, pub } = ppFixture();
+    expect(publicPpDocumentCorrespondence({ ...pub, source_radicado: '1'.repeat(23) }, url)).toBeNull();
+    expect(publicPpDocumentCorrespondence(pub, ppFixture('auto', '999').url)).toBeNull();
+    expect(publicPpDocumentCorrespondence(pub, ppFixture('estado').url)).toBeNull();
+    expect(publicPpDocumentCorrespondence({ ...pub, source: 'samai_estados' }, url)).toBeNull();
+    expect(publicPpDocumentCorrespondence(pub, url + '?other=1')).toBeNull();
+  });
+  it('reuses the retained original on retry and repairs changed stored bytes from the same public source', async () => {
+    const { url, pub } = ppFixture(), row = { ...base, remote_url: url }, h = harness(row, null);
+    h.ports.publication = async () => pub;
+    await recoverEstadoAttachment(row, h.ports);
+    const retry = { ...row, attempt_count: 2, storage_path: h.patches[0].storage_path as string, validation_evidence: h.patches[0].validation_evidence as Record<string, unknown> };
+    expect((await recoverEstadoAttachment(retry, h.ports)).success).toBe(true);
+    expect(h.originCalls()).toBe(1);
+    h.stored.set(retry.storage_path, new TextEncoder().encode('different readable PDF'));
+    expect((await recoverEstadoAttachment({ ...retry, attempt_count: 3 }, h.ports)).success).toBe(true);
+    expect(h.originCalls()).toBe(2);
+    expect(h.patches[2].storage_path).toBe(retry.storage_path);
+  });
+});
 
 describe('recuperación acotada de documentos de ESTADOS (HTTP/storage/lector simulados)', () => {
   it.each(['missing', 'corrupt', 'wrong-document'])('repara copia %s desde origen y verifica la copia guardada', async (failure) => {

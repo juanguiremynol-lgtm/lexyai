@@ -20,7 +20,7 @@ export interface EstadoPdfReading {
 }
 
 export interface EstadoRecoveryPorts {
-  publication: () => Promise<{ pdf_url?: string | null; raw_data?: unknown }>;
+  publication: () => Promise<EstadoPublication>;
   readStored: (path: string) => Promise<Uint8Array | null>;
   fetchOrigin: (url: string) => Promise<Uint8Array>;
   inspect: (bytes: Uint8Array) => Promise<EstadoPdfReading>;
@@ -29,6 +29,41 @@ export interface EstadoRecoveryPorts {
   /** Implementations update only this publication's primary document. */
   setPrimaryAvailability: (available: boolean, path: string | null) => Promise<void>;
   now?: () => Date;
+}
+
+export interface EstadoPublication {
+  pdf_url?: string | null;
+  source?: string | null;
+  source_radicado?: string | null;
+  raw_data?: unknown;
+}
+
+/** The PP /pdf asset is the base64url encoding of the original GCS key
+ * (publicaciones-procesales-api/main.py). Match the exact native descriptor,
+ * document role and case. Processed sha256_auto/tabla do NOT hash these originals. */
+export function publicPpDocumentCorrespondence(pub: EstadoPublication, url: string): Record<string, string> | null {
+  if (pub.source !== 'publicaciones' || !/^\d{23}$/.test(pub.source_radicado || '')) return null;
+  const match = /^https:\/\/publicaciones-procesales-api-11974381924\.us-central1\.run\.app\/pdf\/([A-Za-z0-9_-]+)$/.exec(url);
+  if (!match) return null;
+  let path: string;
+  try { path = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(match[1].replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))); } catch { return null; }
+  if (path.split('/').some(p => !p || p === '.' || p === '..') || /[\\%?#]/.test(path)) return null;
+  const sourceGcs = `https://storage.googleapis.com/andromeda-pp-documentos-2026/${path}`;
+  let layer: any = pub.raw_data;
+  for (let depth = 0; depth < 4 && layer && typeof layer === 'object'; depth++, layer = layer.raw_data) {
+    const article = String(layer.estado?.article_id || layer.article_id || '');
+    if (!/^\d+$/.test(article) || !Array.isArray(layer.documentos_pdf)) continue;
+    for (const [kind, field, prefix] of [
+      ['auto', 'gcs_url_pdf_actuacion', `${pub.source_radicado}/raw/actuaciones/${article}/`],
+      ['estado', 'gcs_url_pdf_estado', `${pub.source_radicado}/raw/estados/`],
+    ]) {
+      if (layer[field] !== sourceGcs || !path.startsWith(prefix) || !/^[^/]+\.pdf$/i.test(path.slice(prefix.length))) continue;
+      if (!layer.documentos_pdf.some((d: any) => d?.tipo === kind && d?.pdf_url === url)) continue;
+      return { method: 'public_source_document_path', case_radicado: pub.source_radicado!, article_id: article,
+        document_kind: kind, source_gcs_url: sourceGcs, source_path: path, document_url: url };
+    }
+  }
+  return null;
 }
 
 const documentUrlFields = ['pdf_url', 'gcs_url', 'url_descarga', 'urlDescarga', 'urlVer', 'url', 'url_origen'];
@@ -62,6 +97,7 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
   try {
     const pub = await ports.publication();
     const expectedHash = declaredEstadoDocumentHash(pub, row.remote_url);
+    const sourceIdentity = publicPpDocumentCorrespondence(pub, row.remote_url);
     let bytes: Uint8Array | null = null;
     let reading: EstadoPdfReading | null = null;
     let source = 'origin';
@@ -73,7 +109,8 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
         if (!bytes) throw new Error('stored_file_missing');
         reading = await ports.inspect(bytes);
         if (expectedHash && reading.sha256 !== expectedHash) throw new Error('stored_document_mismatch');
-        if (!expectedHash && !(evidence.source_url === row.remote_url && evidence.queue_id === row.id)) {
+        if (!expectedHash && !(evidence.source_url === row.remote_url && evidence.queue_id === row.id
+            && (evidence.reading as EstadoPdfReading | undefined)?.sha256 === reading.sha256)) {
           throw new Error('stored_document_association_unverified');
         }
         source = 'storage_revalidated';
@@ -116,7 +153,7 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       if (!stored || (await ports.inspect(stored)).sha256 !== reading.sha256) throw new Error('stored_readback_mismatch');
       path = associationPath;
     }
-    const verified = !!expectedHash && reading.sha256 === expectedHash;
+    const verified = !!expectedHash && reading.sha256 === expectedHash || !!sourceIdentity;
     evidence = {
       ...evidence,
       state: verified ? 'verified' : 'obtained_pending_correspondence',
@@ -125,7 +162,8 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       queue_id: row.id,
       publicacion_id: row.publicacion_id,
       download_source: source,
-      correspondence: verified ? { method: 'source_declared_sha256', expected_sha256: expectedHash } : { method: null, reason: 'specific_document_identity_not_verified' },
+      correspondence: expectedHash ? { method: 'source_declared_sha256', expected_sha256: expectedHash }
+        : sourceIdentity || { method: null, reason: 'specific_document_identity_not_verified' },
       checked_at: now().toISOString(),
       // Neither SHA equality nor full-page parsing asserts complete integrity,
       // signature authenticity, visual rendering or a procedural conclusion.

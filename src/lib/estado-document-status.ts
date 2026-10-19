@@ -11,10 +11,16 @@ export interface EstadoDocumentRecovery {
 export function estadoDocumentStatus(document: EstadoDocumentRecovery): { available: boolean; label: string; reason: string } {
   const evidence = document.validation_evidence;
   const reading = evidence?.reading;
+  const correspondence = evidence?.correspondence;
+  const boundPublicPath = correspondence?.method === 'public_source_document_path'
+    && correspondence.document_url === evidence?.source_url
+    && /^\d{23}$/.test(correspondence.case_radicado || '')
+    && ['auto', 'estado'].includes(correspondence.document_kind)
+    && correspondence.source_gcs_url === `https://storage.googleapis.com/andromeda-pp-documentos-2026/${correspondence.source_path}`
+    && evidence?.queue_id === document.id && evidence?.publicacion_id === document.publicacion_id;
   const available = document.status === 'downloaded' && !!document.storage_path
     && evidence?.state === 'verified' && reading?.pages > 0 && reading.pagesRead === reading.pages
-    && !!evidence?.correspondence?.expected_sha256
-    && evidence.correspondence.expected_sha256 === reading.sha256;
+    && ((!!correspondence?.expected_sha256 && correspondence.expected_sha256 === reading.sha256) || boundPublicPath);
   if (available) return { available: true, label: 'Disponible', reason: 'Copia obtenida, leída y vinculada a este documento.' };
   const error = document.last_error || '';
   if (evidence?.state === 'obtained_pending_correspondence' || error.includes('correspondence_unverified')) {
