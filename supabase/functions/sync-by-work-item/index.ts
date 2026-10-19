@@ -267,6 +267,7 @@ interface ActuacionRaw {
   documentos?: Array<Record<string, unknown>>;
   // ITER67 — provider's own observation timestamp for the documents field.
   documentos_observados_en?: string | null;
+  anexos_observacion?: Record<string, unknown>;
 }
 
 interface FetchResult {
@@ -3119,6 +3120,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         anexos: act.anexos,
         indice: act.indice,
         documentos: act.documentos,
+        anexos_observacion: act.anexos_observacion,
         instancia: act.instancia,
         fecha_inicia_termino: act.fecha_inicia_termino,
         fecha_finaliza_termino: act.fecha_finaliza_termino,

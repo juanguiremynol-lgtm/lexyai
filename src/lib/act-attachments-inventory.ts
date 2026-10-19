@@ -144,7 +144,7 @@ function fullFile(v: VerificationResult | undefined): v is FullPdfVerification {
 }
 
 export function summarizeActAttachments(act: ActRow, verifications: Record<string, VerificationResult> = {}) {
-  const observation = act.raw_data?.anexos_observacion as { estado?: string; causa?: string; error?: { kind?: string } } | undefined;
+  const observation = act.raw_data?.anexos_observacion as { estado?: string; causa?: string; observado_en?: string; error?: { kind?: string } } | undefined;
   const inv = act.raw_data?.anexos_inventario as { estado?: string; causa?: string } | undefined;
   const cands = ownCopyCandidates(act);
   const archivos = cands.map((c) => {
@@ -244,5 +244,5 @@ export function summarizeActAttachments(act: ActRow, verifications: Record<strin
     documentos_identificados: cands.length, descriptores_sin_enlace: cands.filter(c => !c.raw).length,
     asociaciones_verificadas: archivos.filter(a => a.recuperado).length,
     descargados_completos, verificados, faltantes, recuperacion_completa, archivos,
-    observado_en: act.documentos_observados_en ?? null };
+    observado_en: observation?.observado_en ?? act.documentos_observados_en ?? null };
 }

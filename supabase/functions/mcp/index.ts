@@ -1373,7 +1373,7 @@ function summarizeActAttachments(act, verifications = {}) {
     faltantes,
     recuperacion_completa,
     archivos,
-    observado_en: act.documentos_observados_en ?? null
+    observado_en: observation?.observado_en ?? act.documentos_observados_en ?? null
   };
 }
 

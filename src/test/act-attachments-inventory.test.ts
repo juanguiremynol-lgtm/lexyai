@@ -6,6 +6,15 @@ const OWN = "https://storage.googleapis.com/andromeda-cpnu-documentos-2026/x/a.p
 const OWN2 = "https://storage.googleapis.com/andromeda-cpnu-documentos-2026/x/b.pdf";
 
 describe('pending automatic recovery explanations', () => {
+  it('retains the dated public detail limitation without claiming absence of files', () => {
+    const observed = '2026-10-19T17:00:00Z';
+    const result = summarizeActAttachments({ documentos: [], raw_data: { anexos: 2,
+      anexos_observacion: { estado: 'detalle_sin_inventario', observado_en: observed } } });
+    expect(result.observado_en).toBe(observed);
+    expect(result.causa).toContain('No recuperados por la vía pública consultada');
+    expect(result.causa).toContain('no acredita');
+    expect(result.recuperacion_completa).toBe(false);
+  });
   it.each([
     ['detalle_sin_inventario', 'desconocido', 'no devolvió'],
     ['error_consulta', 'error', 'problema temporal'],

@@ -525,6 +525,9 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
           ? "Total de anexos no informado."
           : `Anexos anunciados: ${attachmentSummary.anunciados}.`}</p>
         <p>{attachmentSummary.causa}</p>
+        {attachmentSummary.observado_en && Number.isFinite(Date.parse(attachmentSummary.observado_en)) && (
+          <p>Consulta documental: {new Date(attachmentSummary.observado_en).toLocaleString('es-CO', { timeZone: 'America/Bogota' })} (Colombia).</p>
+        )}
       </div>
 
       {/* Row 6: SAMAI attachments — anexos_documentos */}

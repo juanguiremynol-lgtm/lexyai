@@ -133,6 +133,8 @@ export interface OrchestratorActuacionRaw {
   nombre_despacho?: string;
   documentos?: Array<Record<string, unknown>>;
   documentos_observados_en?: string | null;
+  /** Dated public inventory observation, independent of attachment success. */
+  anexos_observacion?: Record<string, unknown>;
   /** Untouched raw item from the provider — used to recover fields
    *  (e.g. anotacion) that the strict normalizer alias list may have missed. */
   raw_data?: Record<string, unknown>;
@@ -378,6 +380,7 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     documentos: a.documentos,
     documentos_observados_en: a.documentos_observados_en ?? null,
     raw_data: (a as unknown as { raw_data?: Record<string, unknown> }).raw_data,
+    anexos_observacion: publicInventoryObservation(a.raw_data?.anexos_observacion),
   }));
 
   // Build caseMetadata from the adapter's CaseMetadata
@@ -415,4 +418,9 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     scrapingJobId: result.scrapingJobId,
     scrapingPollUrl: result.scrapingPollUrl,
   };
+}
+
+function publicInventoryObservation(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
 }
