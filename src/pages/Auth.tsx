@@ -88,33 +88,33 @@ export default function Auth() {
   };
 
   const handleGoogleSignIn = async () => {
-    if (!termsAccepted) {
+    if (!isLogin && !termsAccepted) {
       setPendingGoogleSignIn(true);
       setShowTerms(true);
       return;
     }
-    await doOAuthSignIn("google", termsData!);
+    await doOAuthSignIn("google", termsData);
   };
 
   const handleAppleSignIn = async () => {
-    if (!termsAccepted) {
+    if (!isLogin && !termsAccepted) {
       setPendingAppleSignIn(true);
       setShowTerms(true);
       return;
     }
-    await doOAuthSignIn("apple", termsData!);
+    await doOAuthSignIn("apple", termsData);
   };
 
   const doOAuthSignIn = async (
     provider: "google" | "apple",
-    terms: { checkboxTerms: boolean; checkboxAge: boolean; checkboxMarketing: boolean }
+    terms: { checkboxTerms: boolean; checkboxAge: boolean; checkboxMarketing: boolean } | null
   ) => {
     const setLoading = provider === "google" ? setGoogleLoading : setAppleLoading;
     setLoading(true);
     try {
       // Survives the provider round-trip even if the query string is stripped.
       if (safeNext) sessionStorage.setItem(POST_AUTH_NEXT_KEY, safeNext);
-      sessionStorage.setItem(
+      if (terms) sessionStorage.setItem(
         "pending_terms_acceptance",
         JSON.stringify({
           ...terms,
@@ -122,6 +122,7 @@ export default function Auth() {
           scrollGated: true,
         })
       );
+      else sessionStorage.removeItem("pending_terms_acceptance");
 
       const { error } = await lovable.auth.signInWithOAuth(provider, {
         redirect_uri: oauthCallbackUrl,

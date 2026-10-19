@@ -1,5 +1,7 @@
 # Architecture rules
 
+- Legal acceptance uses canonical database documents and the server current-version check; never accept fallback or title-only text, and never let a stale profile flag override a confirmed acceptance — preserves the displayed-text audit contract.
+
 - evaluate-deadline-alerts is the only producer of TERMINO_* alerts: one live row per deadline, escalation in payload.escalation_history — avoids daily duplicate alerts.
 - Hearing alerts come only from hearing-reminders reading work_item_hearings — the legacy `hearings` table is deprecated.
 - Calendar export logic lives in `_shared/calendarExport.ts`, mirrored in `src/lib/calendar-export.ts` — same eligibility (PENDING+date, live hearing+scheduled_at) everywhere.
