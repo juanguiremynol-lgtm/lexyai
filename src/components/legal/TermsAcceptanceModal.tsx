@@ -9,7 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Printer, FileText, ShieldCheck, Loader2 } from "lucide-react";
+import { Download, Printer, FileText, Loader2 } from "lucide-react";
 import { fetchActiveTerms, type ActiveTermsData } from "@/lib/terms-service";
 
 interface TermsAcceptanceModalProps {
@@ -37,18 +37,31 @@ export function TermsAcceptanceModal({
   // Fetch canonical terms from DB
   const [termsData, setTermsData] = useState<ActiveTermsData | null>(null);
   const [termsLoading, setTermsLoading] = useState(true);
+  const [termsError, setTermsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchActiveTerms().then((data) => {
-      setTermsData(data);
+  const loadTerms = useCallback(async () => {
+    setTermsLoading(true);
+    setTermsError(null);
+    setTermsData(null);
+    setHasScrolledToEnd(false);
+    setCheckTerms(false);
+    setCheckAge(false);
+    setCheckMarketing(false);
+    try {
+      setTermsData(await fetchActiveTerms());
+    } catch (error) {
+      setTermsError(error instanceof Error ? error.message : "No se pudieron cargar los documentos legales.");
+    } finally {
       setTermsLoading(false);
-    });
+    }
   }, []);
+
+  useEffect(() => { void loadTerms(); }, [loadTerms]);
 
   // Attach scroll listener to the viewport inside ScrollArea
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || termsLoading) return;
+    if (!el || termsLoading || !termsData) return;
     const viewport = el.querySelector("[data-radix-scroll-area-viewport]") as HTMLElement;
     if (viewport) {
       const handler = () => {
@@ -59,16 +72,19 @@ export function TermsAcceptanceModal({
           setHasScrolledToEnd(true);
         }
       };
+      handler();
+      const observer = new ResizeObserver(handler);
+      observer.observe(viewport);
       viewport.addEventListener("scroll", handler);
-      return () => viewport.removeEventListener("scroll", handler);
+      return () => { observer.disconnect(); viewport.removeEventListener("scroll", handler); };
     }
-  }, [hasScrolledToEnd, termsLoading]);
+  }, [hasScrolledToEnd, termsLoading, termsData]);
 
   const canSubmit = hasScrolledToEnd && checkTerms && checkAge && !loading && !termsLoading;
 
   const handleDownload = () => {
     if (!termsData) return;
-    const blob = new Blob([termsData.termsText], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([termsData.termsText, "\n\n", termsData.privacyText], { type: "text/plain;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `Terminos_Condiciones_ANDROMEDA_${termsData.termsVersion}.txt`;
@@ -82,12 +98,25 @@ export function TermsAcceptanceModal({
       printWindow.document.write(`
         <html><head><title>Términos y Condiciones - ANDROMEDA</title>
         <style>body{font-family:serif;max-width:800px;margin:40px auto;padding:20px;line-height:1.8;white-space:pre-wrap;}</style>
-        </head><body>${termsData.termsText}</body></html>
+        </head><body></body></html>
       `);
+      printWindow.document.body.textContent = `${termsData.termsText}\n\n${termsData.privacyText}`;
       printWindow.document.close();
       printWindow.print();
     }
   };
+
+  if (termsError) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-4" role="dialog" aria-modal="true" aria-label="Documentos legales">
+        <div className="max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-card-foreground">
+          <h2 className="text-lg font-semibold">No se pudieron cargar los términos</h2>
+          <p role="alert" className="text-sm text-muted-foreground">{termsError}</p>
+          <Button onClick={() => void loadTerms()}>Reintentar</Button>
+        </div>
+      </div>
+    );
+  }
 
   if (termsLoading || !termsData) {
     return (
@@ -101,7 +130,7 @@ export function TermsAcceptanceModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Términos y Condiciones de Uso">
       <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-[#d4a017]/30 bg-[#0c1529] shadow-[0_0_80px_rgba(212,160,23,0.12)] overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-[#1a3a6a]/40">
@@ -159,6 +188,8 @@ export function TermsAcceptanceModal({
               <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans">
                 {termsData.termsText}
               </pre>
+              <h3 className="mt-6 mb-3 text-base font-semibold text-foreground">Aviso de Privacidad — {termsData.privacyVersion}</h3>
+              <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans">{termsData.privacyText}</pre>
             </div>
           </ScrollArea>
         </div>
@@ -235,15 +266,6 @@ export function TermsAcceptanceModal({
               <span className="text-[#a0b4d0]/60">(opcional)</span>
             </span>
           </label>
-
-          {/* Operator info */}
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-[#d4a017]/5 border border-[#d4a017]/15">
-            <ShieldCheck className="h-4 w-4 text-[#d4a017] mt-0.5 shrink-0" />
-            <p className="text-xs text-[#a0b4d0]/80">
-              Operador: {termsData.operador.razonSocial} · NIT {termsData.operador.nit} ·{" "}
-              {termsData.operador.domicilio}
-            </p>
-          </div>
 
           {/* Submit */}
           <Button

@@ -18,7 +18,7 @@ export default function LegalTermsPage() {
   const [tab, setTab] = useState("terms");
 
   // Fetch canonical terms from DB
-  const { data: activeTerms, isLoading: termsLoading } = useQuery({
+  const { data: activeTerms, isLoading: termsLoading, refetch: retryTerms } = useQuery({
     queryKey: ["active-terms-legal"],
     queryFn: fetchActiveTerms,
     staleTime: 5 * 60 * 1000,
@@ -107,17 +107,11 @@ export default function LegalTermsPage() {
                   <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans max-h-[70vh] overflow-y-auto">
                     {activeTerms.termsText}
                   </pre>
-                  <div className="mt-6 p-4 rounded-lg bg-[#d4a017]/5 border border-[#d4a017]/15">
-                    <p className="text-xs text-[#a0b4d0]">
-                      <strong>Operador:</strong> {activeTerms.operador.razonSocial} · NIT {activeTerms.operador.nit}<br />
-                      <strong>Domicilio:</strong> {activeTerms.operador.domicilio}<br />
-                      <strong>Contacto:</strong> {activeTerms.operador.correo} · Tel: {activeTerms.operador.telefono}<br />
-                      <strong>Privacidad:</strong> {activeTerms.operador.correoPrivacidad}
-                    </p>
-                  </div>
+                  <h2 className="mt-6 mb-3 text-lg font-semibold text-foreground">Aviso de Privacidad — {activeTerms.privacyVersion}</h2>
+                  <pre className="whitespace-pre-wrap text-sm text-foreground leading-relaxed font-sans">{activeTerms.privacyText}</pre>
                 </>
               ) : (
-                <p className="text-[#a0b4d0]">No se pudieron cargar los términos.</p>
+                <div className="space-y-3"><p role="alert" className="text-muted-foreground">No se pudieron cargar los términos.</p><Button onClick={() => void retryTerms()}>Reintentar</Button></div>
               )}
             </CardContent>
           </Card>

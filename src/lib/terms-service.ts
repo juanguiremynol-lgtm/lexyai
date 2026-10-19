@@ -12,13 +12,6 @@
  * Re-acceptance is required if EITHER the T&C or Privacy Policy version changes.
  */
 import { supabase } from "@/integrations/supabase/client";
-import {
-  TERMS_FULL_TEXT as FALLBACK_TERMS_TEXT,
-  TERMS_VERSION as FALLBACK_VERSION,
-  TERMS_LAST_UPDATED as FALLBACK_DATE,
-  PRIVACY_POLICY_VERSION as FALLBACK_PP_VERSION,
-  OPERADOR as FALLBACK_OPERADOR,
-} from "./terms-text";
 
 export interface ActiveTermsData {
   termsVersion: string;
@@ -40,18 +33,20 @@ export interface ActiveTermsData {
 
 /**
  * Fetch the active terms and privacy policy text from the DB (canonical source).
- * Falls back to the dev-only terms-text.ts if DB is unreachable.
+ * Fails closed if the canonical documents cannot be loaded in full.
  */
 export async function fetchActiveTerms(): Promise<ActiveTermsData> {
   try {
     const { data, error } = await supabase.rpc("get_active_terms");
     
-    if (error || !data || (Array.isArray(data) && data.length === 0)) {
-      console.warn("Could not fetch terms from DB, using dev fallback:", error?.message);
-      return getDevFallback();
-    }
+    if (error) throw new Error("No se pudieron cargar los documentos legales. Reintenta.");
+    if (!data || (Array.isArray(data) && data.length === 0))
+      throw new Error("No hay documentos legales vigentes disponibles. Reintenta.");
 
     const row = Array.isArray(data) ? data[0] : data;
+    // A seeded title is not a legal document and must never be accepted.
+    if (!isCompleteLegalDocument(row.terms_text) || !isCompleteLegalDocument(row.privacy_text))
+      throw new Error("Los documentos legales están incompletos. Reintenta o contacta con soporte.");
     
     return {
       termsVersion: row.terms_version,
@@ -71,29 +66,12 @@ export async function fetchActiveTerms(): Promise<ActiveTermsData> {
       },
     };
   } catch (err) {
-    console.warn("Terms fetch exception, using dev fallback:", err);
-    return getDevFallback();
+    throw err instanceof Error ? err : new Error("No se pudieron cargar los documentos legales. Reintenta.");
   }
 }
 
-function getDevFallback(): ActiveTermsData {
-  return {
-    termsVersion: FALLBACK_VERSION,
-    termsLastUpdated: FALLBACK_DATE,
-    termsText: FALLBACK_TERMS_TEXT,
-    termsTextHash: "dev-fallback-no-hash",
-    privacyVersion: FALLBACK_PP_VERSION,
-    privacyText: FALLBACK_TERMS_TEXT,
-    privacyTextHash: "dev-fallback-no-hash",
-    operador: {
-      razonSocial: FALLBACK_OPERADOR.razonSocial,
-      nit: FALLBACK_OPERADOR.nit,
-      domicilio: FALLBACK_OPERADOR.domicilio,
-      correo: FALLBACK_OPERADOR.correoGeneral,
-      correoPrivacidad: FALLBACK_OPERADOR.correoPrivacidad,
-      telefono: FALLBACK_OPERADOR.telefono,
-    },
-  };
+export function isCompleteLegalDocument(text: unknown): text is string {
+  return typeof text === "string" && text.trim().split(/\n\s*\n/).filter(Boolean).length > 1;
 }
 
 export interface TermsAcceptancePayload {
@@ -128,6 +106,8 @@ export async function recordTermsAcceptance(
 
     // Fetch canonical terms data from DB
     const activeTerms = await fetchActiveTerms();
+    // Avoid recording a duplicate acceptance for the same current versions.
+    if (await hasAcceptedCurrentTerms()) return { success: true };
 
     const { error } = await supabase.from("terms_acceptance").insert({
       user_id: user.id,
@@ -180,36 +160,13 @@ export async function hasAcceptedCurrentTerms(): Promise<boolean> {
 
     if (error) {
       console.error("Terms acceptance check error:", error);
-      // Fallback to direct query
-      return fallbackCheck(user.id);
+      throw new Error("No se pudo comprobar tu aceptación. Reintenta.");
     }
 
     return !!data;
-  } catch {
-    return false;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("No se pudo comprobar tu aceptación. Reintenta.");
   }
-}
-
-async function fallbackCheck(userId: string): Promise<boolean> {
-  const { data: activeTerms } = await supabase
-    .from("terms_versions")
-    .select("version")
-    .eq("active", true)
-    .maybeSingle();
-
-  if (!activeTerms) return true;
-
-  const { data: acceptance } = await supabase
-    .from("terms_acceptance")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("terms_version", activeTerms.version)
-    .eq("checkbox_terms", true)
-    .eq("checkbox_age", true)
-    .limit(1)
-    .maybeSingle();
-
-  return !!acceptance;
 }
 
 /**
