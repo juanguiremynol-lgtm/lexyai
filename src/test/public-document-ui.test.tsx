@@ -7,6 +7,7 @@ import { actSearchFields, actSearchFilter, actSearchSnippet } from '@/lib/search
 import { estadosDisplayInventory } from '@/lib/reconcile-estados';
 import { ActuacionesTable } from '@/pages/WorkItemDetail/tabs/ActuacionesTable';
 import type { WorkItemAct } from '@/pages/WorkItemDetail/tabs/WorkItemActCard';
+import { documentDownloadUrl } from '@/lib/download-document';
 
 const own = 'https://storage.googleapis.com/andromeda-samai-documentos-2026/samai/case/file.pdf';
 const expired = `https://samaicore.consejodeestado.gov.co/api/DescargarProvidenciaSAMAI?tokendoc=header,${btoa(JSON.stringify({exp:1}))},sig`;
@@ -45,8 +46,14 @@ describe('document actions in the radicado UI', () => {
     expect(screen.getByRole('link',{name:'Abrir archivo almacenado'}).getAttribute('href')).toBe(own);
     fireEvent.click(screen.getByRole('button',{name:'Descargar'}));
     await waitFor(()=>expect(click).toHaveBeenCalled());
-    expect(fetch).toHaveBeenCalledWith(own,expect.objectContaining({signal:expect.anything()}));
+    expect(fetch).toHaveBeenCalledWith(documentDownloadUrl(own),expect.objectContaining({signal:expect.anything()}));
     cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();
+  });
+  it('downloads the exact public object through its CORS media route and preserves private signed URLs', () => {
+    expect(documentDownloadUrl(own)).toBe('https://storage.googleapis.com/download/storage/v1/b/andromeda-samai-documentos-2026/o/samai%2Fcase%2Ffile.pdf?alt=media');
+    const signed='https://project.supabase.co/storage/v1/object/sign/private/document.pdf?token=signed';
+    expect(documentDownloadUrl(signed)).toBe(signed);
+    expect(documentDownloadUrl(own.replace('file.pdf','Archivo%20p%C3%BAblico.pdf'))).toContain('Archivo%20p%C3%BAblico.pdf?alt=media');
   });
   it('a public source link is distinguished from a missing file and warns before leaving', () => {
     const confirm = vi.spyOn(window,'confirm').mockReturnValue(false);
