@@ -10,7 +10,7 @@
  *   stale snapshot (prevents degrading 2 descriptors to 1).
  */
 
-import { compareOrigins, extractActOrigin, originFromRow, planEnrichment, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
+import { compareOrigins, extractActOrigin, hasStableOrigin, originFromRow, planEnrichment, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
 import { documentosEnrichmentPatch, normalizeActDocumentos, mergeActDocumentos } from './actDocumentos.ts';
 
 export const ACT_SELECT_COLUMNS =
@@ -110,10 +110,11 @@ export async function enrichPersistedAct(
     const storedOrigin = originFromRow(row);
     const incomingOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
     const relation = compareOrigins(storedOrigin, incomingOrigin);
-    if (relation !== 'equivalent' && (storedOrigin.key || incomingOrigin.key)) {
+    const stableStored = hasStableOrigin(storedOrigin), stableIncoming = hasStableOrigin(incomingOrigin);
+    if (relation !== 'equivalent' && (stableStored || stableIncoming)) {
       throw new ActLoadError('enrichment rejected: insufficient or conflicting origin evidence');
     }
-    if (!storedOrigin.key && !incomingOrigin.key && row.description !== `${incoming.actuacion}${incoming.anotacion ? ' - ' + incoming.anotacion : ''}`) {
+    if (relation !== 'equivalent' && row.description !== `${incoming.actuacion}${incoming.anotacion ? ' - ' + incoming.anotacion : ''}`) {
       throw new ActLoadError('enrichment rejected: unconfirmed source text changed');
     }
     const normalized = { ...incoming, documentos: normalizeActDocumentos(incoming.documentos) };
