@@ -17,7 +17,7 @@ export const ACT_SELECT_COLUMNS =
   "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en";
 
 export class ActLoadError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly persistenceUnknown = false) {
     super(message);
     this.name = "ActLoadError";
   }
@@ -134,18 +134,16 @@ export async function enrichPersistedAct(
     const update = { raw_data: raw, ...docs, ...dates,
       ...(plan?.event_summary ? { event_summary: plan.event_summary } : {}),
       last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-    let query = client.from('work_item_acts').update(update)
-      .eq('work_item_id', workItemId).eq('id', actId).eq('is_archived', false);
-    for (const field of ['raw_data', 'documentos']) {
-      query = row[field] === null || row[field] === undefined
-        ? query.is(field, null) : query.eq(field, JSON.stringify(row[field]));
-    }
-    for (const column of Object.keys(dates)) query = query.is(column, null);
-    const { data, error } = await query.select(ACT_SELECT_COLUMNS);
-    if (error) throw new ActLoadError(`enrichment PATCH failed: ${error.message}`);
+    const { data, error } = await client.rpc('rpc_enrich_work_item_act', {
+      p_work_item_id: workItemId, p_act_id: actId,
+      p_expected_raw_data: row.raw_data ?? null,
+      p_expected_documentos: row.documentos ?? null,
+      p_patch: update,
+    }).select(ACT_SELECT_COLUMNS);
+    if (error) throw new ActLoadError(`enrichment RPC failed: ${String(error.code || '')} ${String(error.message || 'unknown error').slice(0, 400)}`, true);
     if (Array.isArray(data) && data.length === 1 && data[0].id === actId) return data[0];
     // Zero rows means another writer changed a compared value; retry from a
     // fresh read. No success count or downstream effect occurs here.
   }
-  throw new ActLoadError(`enrichment PATCH affected zero rows after ${maxAttempts} fresh-read attempts`);
+  throw new ActLoadError(`enrichment CAS affected zero rows after ${maxAttempts} fresh-read attempts`);
 }

@@ -1,5 +1,15 @@
 # Native integration harness for sync-by-work-item
 
+Production verification added migration006, `rpc_enrich_work_item_act`, to keep
+the large expected raw/document values in the POST body. Filtering on their
+full JSON in a PATCH URL exceeded the hosted gateway's URL limit. The RPC
+retains atomic equality checks and rejects source-identity fields. Its native
+test is `enrichment-body-cas.test.ts` on the same isolated PostgreSQL/PostgREST
+fixture as the temporal evidence tests; it exercises >64 KiB request bodies,
+concurrent associations, protected source fields and anonymous denial. RPC
+transport errors abort the remaining batch as `PERSISTENCE_UNKNOWN` before a
+later run reloads all candidates.
+
 This harness runs the real `sync-by-work-item/index.ts`, Supabase client HTTP
 requests, PostgREST, PostgreSQL 17, the application RPC, and the public schema's
 actuation triggers, indexes and RLS policies. The upstream SAMAI feed and case

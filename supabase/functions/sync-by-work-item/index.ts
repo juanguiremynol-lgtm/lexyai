@@ -3076,6 +3076,14 @@ Deno.serve(withSyncTimeline(async (req) => {
           persistLedger.errored++;
           persistLedger.outcomes.push({ bucket: 'ERROR', fingerprint: decision.row.hash_fingerprint, reason: (error as Error).message });
           result.errors.push(`Act enrichment failed: ${(error as Error).message}`);
+          if (error instanceof ActLoadError && error.persistenceUnknown) {
+            result.persistence_unknown ??= [];
+            result.persistence_unknown.push({ fingerprint: decision.row.hash_fingerprint, reason: error.message });
+            result.code = 'PERSISTENCE_UNKNOWN';
+            // The gateway may have lost the response after a committed write.
+            // Reload all candidates in the next run before processing another act.
+            throw error;
+          }
         }
         continue;
       }
