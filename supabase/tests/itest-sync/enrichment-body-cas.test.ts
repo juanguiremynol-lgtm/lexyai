@@ -1,8 +1,9 @@
+import { toActIdentityCandidate, resolveActIdentity, extractActOrigin } from '../../functions/_shared/actOriginIdentity.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
-import { enrichPersistedAct } from '../../functions/_shared/actBatchState.ts';
+import { ACT_SELECT_COLUMNS, enrichPersistedAct } from '../../functions/_shared/actBatchState.ts';
 import { normalizeActDocumentos, mergeActDocumentos } from '../../functions/_shared/actDocumentos.ts';
 const base='http://127.0.0.1:3004';
 const jwt=(await readFile('/tmp/itest/svc.jwt','utf8')).trim();
@@ -63,4 +64,17 @@ test('rotating SAMAI grants coalesce only the same source association, preservin
  const parents=await db.rpc('act_merge_documentos',{existing:normalizeActDocumentos([make(1,'Origen A',{solicitud:'3432736'})]),incoming:normalizeActDocumentos([make(2,'Origen A',{solicitud:'3435550'})])});assert.equal(parents.error,null);assert.equal(parents.data.length,2);
  const foreign=normalizeActDocumentos([{...make(8),tokenDocumento:grant(8,{r:'05001233300020240115300'})}]);
  const different=mergeActDocumentos(left,foreign)!;assert.equal(different.length,3);
+});
+
+test('real batch candidate projection preserves provider and matches the same request across event dates before native CAS enrichment',async()=>{
+ const loaded=await db.from('work_item_acts').select(ACT_SELECT_COLUMNS).eq('id',id).single();assert.equal(loaded.error,null);
+ const candidate=toActIdentityCandidate(loaded.data!);assert.equal(candidate.source,'samai');
+ const decision=resolveActIdentity({v1:'changed-date-'+sol,semanticKey:'2026-10-17|RECIBE MEMORIALES ONLINE||00',provider:'samai',incoming:extractActOrigin({indice:25,anotacion:note}),evidence:'RECIBE MEMORIALES ONLINE - '+note,rows:[candidate]});
+ assert.equal(decision.kind,'match');if(decision.kind!=='match')throw Error('same request would insert again');assert.equal(decision.row.id,id);
+ const start=requests.length;
+ await enrichPersistedAct(db,wi,decision.row.id,{actuacion:'RECIBE MEMORIALES ONLINE',anotacion:note,indice:25,fecha:'2026-10-17',documentos:[{id:'date-shift-document',nombre:'Still the same request'}]},{provider:'samai'});
+ const after=await db.from('work_item_acts').select('id,act_date,description,documentos').eq('id',id).single();assert.equal(after.error,null);
+ assert.equal(after.data!.act_date,'2026-10-16');assert.equal(after.data!.description,'RECIBE MEMORIALES ONLINE - '+note);
+ assert.ok(after.data!.documentos.some((d:any)=>d.id==='date-shift-document'));
+ assert.ok(!requests.slice(start).some(r=>r.url.includes('rpc_upsert_work_item_acts')));
 });

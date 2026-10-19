@@ -164,6 +164,16 @@ export interface CandidateRow {
   documentos_observados_en?: string | null;
 }
 
+/** Shared by the real batch loader and confirmed-write projection. */
+export function toActIdentityCandidate(row: Record<string, any>, semanticKey?: string): CandidateRow {
+  return {
+    id: row.id, source: row.source ?? null, hash_fingerprint: row.hash_fingerprint ?? null,
+    semantic_key: semanticKey ?? `${row.act_date || ''}|${(row.description || '').split(' - ')[0].toUpperCase().trim()}|${row.fecha_registro_source || ''}|${row.recurso_consecutivo || '00'}`,
+    description: row.description ?? null, raw_data: row.raw_data ?? null,
+    documentos: row.documentos ?? null, documentos_observados_en: row.documentos_observados_en ?? null,
+  };
+}
+
 export type IdentityDecision =
   | { kind: "match"; row: CandidateRow; relation: OriginRelation; via: "fingerprint" | "semantic" }
   | { kind: "insert"; fingerprint: string; reason: "new" | "origin_conflict" };

@@ -16,7 +16,7 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
-import { extractActOrigin, resolveActIdentity, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
+import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
@@ -2912,15 +2912,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // ITER70 rev.2 — every stored act is an identity candidate (v1 prefix or
     // semantic key); resolution happens in _shared/actOriginIdentity.ts.
-    const knownActRows: CandidateRow[] = (existingActsForDedup || []).map((a: any) => ({
-      id: a.id,
-      hash_fingerprint: a.hash_fingerprint ?? null,
-      semantic_key: `${a.act_date || ''}|${(a.description || '').split(' - ')[0].toUpperCase().trim()}|${a.fecha_registro_source || ''}|${a.recurso_consecutivo || '00'}`,
-      description: a.description ?? null,
-      raw_data: a.raw_data ?? null,
-      documentos: a.documentos ?? null,
-      documentos_observados_en: a.documentos_observados_en ?? null,
-    }));
+    const knownActRows: CandidateRow[] = (existingActsForDedup || []).map((a: any) => toActIdentityCandidate(a));
 
     const failedEnrichmentIds = new Set<string>();
 
@@ -3263,15 +3255,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             const persisted = await resolvePersistedAct(supabase, work_item_id, fingerprint);
             if (persisted) {
               persistedAct = persisted;
-              knownActRows.push({
-                id: persisted.id,
-                hash_fingerprint: fingerprint,
-                semantic_key: semanticKey,
-                description: persisted.description,
-                raw_data: persisted.raw_data,
-                documentos: persisted.documentos,
-                documentos_observados_en: persisted.documentos_observados_en,
-              });
+              knownActRows.push(toActIdentityCandidate(persisted, semanticKey));
             } else {
               throw new ActLoadError(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)}); batch aborted`);
             }
