@@ -41,6 +41,17 @@ function ppFixture(kind = 'auto', article = '272358311') {
 }
 
 describe('original public PP document correspondence', () => {
+  it('accepts an explicitly advertised legacy native key without an article directory', () => {
+    const { pub } = ppFixture();
+    const path = `${ppCase}/raw/actuaciones/Auto.pdf`;
+    const url = `https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/${Buffer.from(path).toString('base64url')}`;
+    const raw = pub.raw_data.raw_data;
+    raw.documentos_pdf[0].pdf_url = url;
+    raw.gcs_url_pdf_actuacion = `https://storage.googleapis.com/andromeda-pp-documentos-2026/${path}`;
+    expect(publicPpDocumentCorrespondence(pub, url)).toMatchObject({ source_path: path, article_id: '272358311' });
+    delete raw.gcs_url_pdf_actuacion;
+    expect(publicPpDocumentCorrespondence(pub, url)).toBeNull();
+  });
   it.each(['auto', 'estado'])('binds %s to its native original path without borrowing a processed hash', async kind => {
     const { url, pub } = ppFixture(kind);
     expect(declaredEstadoDocumentHash(pub, url)).toBeNull();

@@ -23,9 +23,9 @@ BEGIN
     IF article ~ '^\d+$' AND jsonb_typeof(layer->'documentos_pdf')='array' THEN
       FOREACH kind IN ARRAY ARRAY['auto','estado'] LOOP
         field:=CASE WHEN kind='auto' THEN 'gcs_url_pdf_actuacion' ELSE 'gcs_url_pdf_estado' END;
-        prefix:=case_radicado||CASE WHEN kind='auto' THEN '/raw/actuaciones/'||article||'/' ELSE '/raw/estados/' END;
+        prefix:=case_radicado||CASE WHEN kind='auto' THEN '/raw/actuaciones/' ELSE '/raw/estados/' END;
         IF layer->>field=source_gcs AND left(native_path,length(prefix))=prefix
-          AND substring(native_path from length(prefix)+1) ~* '^[^/]+\.pdf$'
+          AND substring(native_path from length(prefix)+1) ~* (CASE WHEN kind='auto' THEN '^(?:'||article||'/)?[^/]+\.pdf$' ELSE '^[^/]+\.pdf$' END)
           AND EXISTS(SELECT 1 FROM jsonb_array_elements(layer->'documentos_pdf') d WHERE d->>'tipo'=kind AND d->>'pdf_url'=p_url)
           AND p_proof=jsonb_build_object('method','public_source_document_path','case_radicado',case_radicado,
             'article_id',article,'document_kind',kind,'source_gcs_url',source_gcs,'source_path',native_path,'document_url',p_url)

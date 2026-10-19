@@ -54,10 +54,13 @@ export function publicPpDocumentCorrespondence(pub: EstadoPublication, url: stri
     const article = String(layer.estado?.article_id || layer.article_id || '');
     if (!/^\d+$/.test(article) || !Array.isArray(layer.documentos_pdf)) continue;
     for (const [kind, field, prefix] of [
-      ['auto', 'gcs_url_pdf_actuacion', `${pub.source_radicado}/raw/actuaciones/${article}/`],
+      ['auto', 'gcs_url_pdf_actuacion', `${pub.source_radicado}/raw/actuaciones/`],
       ['estado', 'gcs_url_pdf_estado', `${pub.source_radicado}/raw/estados/`],
     ]) {
-      if (layer[field] !== sourceGcs || !path.startsWith(prefix) || !/^[^/]+\.pdf$/i.test(path.slice(prefix.length))) continue;
+      // Earlier PP objects have no article directory. Their exact native key
+      // must still be advertised by this source record; never match a title.
+      const suffix = kind === 'auto' ? new RegExp(`^(?:${article}/)?[^/]+\\.pdf$`, 'i') : /^[^/]+\.pdf$/i;
+      if (layer[field] !== sourceGcs || !path.startsWith(prefix) || !suffix.test(path.slice(prefix.length))) continue;
       if (!layer.documentos_pdf.some((d: any) => d?.tipo === kind && d?.pdf_url === url)) continue;
       return { method: 'public_source_document_path', case_radicado: pub.source_radicado!, article_id: article,
         document_kind: kind, source_gcs_url: sourceGcs, source_path: path, document_url: url };
