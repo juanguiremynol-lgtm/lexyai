@@ -1,4 +1,3 @@
-// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 /**
  * Billing Admin: Plans & Price Management
  * 
@@ -200,10 +199,10 @@ async function listPrices(supabase: any): Promise<Response> {
     .select("*")
     .eq("applied", false);
 
-  const result = (plans || []).map((p) => ({
+  const result = (plans || []).map((p: Record<string, unknown>) => ({
     plan: p,
-    current_prices: (pricePoints || []).filter((pp) => pp.plan_id === p.id),
-    scheduled_changes: (schedules || []).filter((s) => s.plan_id === p.id),
+    current_prices: (pricePoints || []).filter((pp: Record<string, unknown>) => pp.plan_id === p.id),
+    scheduled_changes: (schedules || []).filter((s: Record<string, unknown>) => s.plan_id === p.id),
   }));
 
   return new Response(

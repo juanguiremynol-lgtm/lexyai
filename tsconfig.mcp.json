@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "types": []
+  },
+  "include": [],
+  "files": ["src/lib/mcp/index.ts", "src/vite-env.d.ts", "scripts/mcp-runtime-env.d.ts"]
+}

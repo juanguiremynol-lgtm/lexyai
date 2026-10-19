@@ -1,4 +1,3 @@
-// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 /**
  * html-to-pdf — Converts HTML to PDF via Gotenberg.
  * Service-role only. Stores result in Supabase Storage.
@@ -36,7 +35,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function sha256Hex(data: Uint8Array): Promise<string> {
+async function sha256Hex(data: Uint8Array<ArrayBuffer>): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))

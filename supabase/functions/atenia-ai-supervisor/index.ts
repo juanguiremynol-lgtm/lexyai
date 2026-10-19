@@ -1,4 +1,3 @@
-// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 /**
  * Atenia AI Supervisor V2 — Autonomous Platform Administrator
  *
@@ -22,7 +21,7 @@
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   bogotaDayBoundsUtc,
   bogotaHour,
@@ -107,7 +106,7 @@ interface SyncTrace {
   created_at: string;
 }
 
-type SupabaseAdmin = ReturnType<typeof createClient>;
+type SupabaseAdmin = SupabaseClient;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -1520,6 +1519,7 @@ async function runPostDailyAuditV2(
   report: unknown;
   autoDemonitored: number;
   queued: number;
+  syncKPIs: DailySyncKPIs;
 }> {
   // Use existing audit flow
   const report = await auditOrganization(supabase, orgId, runDate, mode);
