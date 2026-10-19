@@ -11,9 +11,15 @@ function stable(value: any): string {
   return JSON.stringify(value) ?? 'null';
 }
 export function documentObservationAt(value: any): number | null {
-  const date = value?.descarga_observado_en || value?.observado_en || value?.descarga_intentos?.at(-1)?.observado_en || value?.intentos?.at(-1)?.observado_en || value?.pdf_verificacion?.verificado_en;
+  // Older providers persist `intentos` as a counter, not a download log.
+  // Only an actual log can supply a dated observation; do not invent one
+  // from legacy counters or strings.
+  const date = value?.descarga_observado_en || value?.observado_en || lastAttemptAt(value?.descarga_intentos) || lastAttemptAt(value?.intentos) || value?.pdf_verificacion?.verificado_en;
   const time = Date.parse(date);
   return Number.isFinite(time) ? time : null;
+}
+function lastAttemptAt(value: unknown): string | undefined {
+  return Array.isArray(value) ? value.at(-1)?.observado_en : undefined;
 }
 export const hasArchiveReading = (doc: Doc) => doc.archivo_verificacion?.lectura_completa === true
   && doc.archivo_verificacion?.crc_comprobado === true && ['zip', 'xlsx'].includes(doc.archivo_verificacion?.formato);
@@ -36,7 +42,7 @@ function invalidates(previous: Doc, incoming: Doc): boolean {
   const cache = incoming.recuperacion_cache;
   const at = documentObservationAt(previous);
   const facts = [{ cacheIssue: cache?.cacheIssue, cachedObjectUrl: cache?.cachedObjectUrl,
-    observedAt: cache?.cacheObservedAt || incoming.descarga_observado_en || incoming.descarga_intentos?.at(-1)?.observado_en },
+    observedAt: cache?.cacheObservedAt || incoming.descarga_observado_en || lastAttemptAt(incoming.descarga_intentos) },
     ...(Array.isArray(cache?.knownInvalidCopies) ? cache.knownInvalidCopies : [])];
   return facts.some(f => invalid.includes(f.cacheIssue) && !!f.cachedObjectUrl &&
     [previous.gcs_url, previous.urlDescarga, previous.urlVer, previous.url].includes(f.cachedObjectUrl) &&
