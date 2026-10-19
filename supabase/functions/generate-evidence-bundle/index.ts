@@ -1,4 +1,3 @@
-// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 /**
  * generate-evidence-bundle — Produces a Markdown evidence bundle for a work item sync.
  *
