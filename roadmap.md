@@ -1,9 +1,9 @@
 # Roadmap
 
 ## Legal access blocker (2026-10-19)
-- [ ] Repair canonical document loading, retry and no-scroll gating; preserve current-version acceptance.
-- [ ] Publish complete versioned legal documents with authorized company placeholders, preserving historical acceptances.
-- [ ] Run focused tests, publish frontend and verify real-user access (requires existing user session).
+- [x] Repair canonical document loading, retry and no-scroll gating; preserve current-version acceptance (11 focused tests pass; browser modal checked without registration).
+- [x] Publish complete versioned legal documents with authorized company placeholders, preserving historical acceptances (v1.1; both canonical hashes verified).
+- [ ] Publish frontend and verify real-user access — existing browser session remains signed_out; do not mint a session under the user's standing restriction.
 
 ## SAMAI — isolated persistence validation (2026-10-18)
 - [x] Abort the real sync batch when a confirmed write cannot be read back; prepare A-confirmed/read-failed/B-distinct regression.

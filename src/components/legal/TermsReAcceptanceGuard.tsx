@@ -5,7 +5,7 @@
  * This is the UX layer. Server-side enforcement is provided by:
  * - DB function: user_has_accepted_current_terms()  
  * - DB trigger: profiles.pending_terms_acceptance flag
- * - The guard checks BOTH the DB function AND the pending flag
+ * - The server current-version check is authoritative over stale profile flags
  */
 import { ReactNode, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";

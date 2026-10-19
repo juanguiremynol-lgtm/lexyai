@@ -3,7 +3,7 @@
  * Enforces scroll-to-bottom before enabling checkboxes.
  * 
  * CANONICAL SOURCE: Text is fetched from the database via fetchActiveTerms().
- * The frontend file terms-text.ts is only used as a dev fallback.
+ * Incomplete canonical text is an explicit retryable error, never a fallback.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";

@@ -2,8 +2,7 @@
  * Terms & Conditions service — handles acceptance, validation, and version checks.
  * 
  * CANONICAL SOURCE: All terms text and hashes come from the DATABASE via get_active_terms().
- * The frontend file terms-text.ts is a DEV-ONLY fallback and must never be used
- * as the compliance source of truth.
+ * The frontend file terms-text.ts is not a compliance source or runtime fallback.
  * 
  * HASH POLICY: Hashes are ALWAYS server-computed via pgcrypto + canonicalize_legal_text().
  * The client NEVER computes compliance-critical hashes.
