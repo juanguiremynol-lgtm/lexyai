@@ -1,3 +1,5 @@
+import { reconcileEstados } from "@/lib/reconcile-estados";
+import { openResolvedDocument } from "@/lib/open-document-window";
 /**
  * Estados Tab — Estados Procesales
  *
@@ -41,31 +43,6 @@ interface EstadosTabProps {
 
 /** Normalize titles for dedupe: strip .pdf / copy suffixes, drop anotación
  *  tail after " - "/" — ", strip accents, lowercase, collapse whitespace. */
-function normalizeTitleForDedupe(raw: string | null | undefined): string {
-  if (!raw) return "";
-  let s = String(raw);
-  for (let i = 0; i < 5; i++) {
-    const before = s;
-    s = s.replace(/\s*\(\d+\)\s*$/, "");
-    s = s.replace(/\.pdf\s*$/i, "");
-    if (s === before) break;
-  }
-  const sepIdx = (() => {
-    const i1 = s.indexOf(" - ");
-    const i2 = s.indexOf(" — ");
-    if (i1 === -1) return i2;
-    if (i2 === -1) return i1;
-    return Math.min(i1, i2);
-  })();
-  if (sepIdx >= 0) s = s.slice(0, sepIdx);
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ")
-    .slice(0, 200);
-}
 
 export function EstadosTab({ workItem }: EstadosTabProps) {
   const radicado = workItem.radicado || null;
@@ -121,11 +98,13 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   });
 
   const openVerifiedCopy = async (document: EstadoDocumentRecovery) => {
-    const { data, error } = await supabase.functions.invoke("get-estado-attachment-url", {
-      body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
+    const opened = await openResolvedDocument(async () => {
+      const { data, error } = await supabase.functions.invoke("get-estado-attachment-url", {
+        body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
+      });
+      return !error && data?.source === "storage" && data?.url ? data.url : null;
     });
-    if (!error && data?.source === "storage" && data?.url) window.open(data.url, "_blank", "noopener,noreferrer");
-    else toast.error("La copia no está disponible en este momento.");
+    if (!opened) toast.error("No se pudo abrir la copia. Comprueba que el navegador permita abrir documentos de Andrómeda.");
   };
 
   // Resolve the best openable URL for a local publicacion row. The
@@ -179,120 +158,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         hash_documento: hashDoc,
       });
     }
-    // Step 2: canonical dedupe. Identity of an estado is
-    // (radicado, normalized_name, despacho). Since this tab already scopes
-    // to a single work_item (single radicado + single despacho), the key
-    // collapses to normalized_name. Two rows are treated as the SAME
-    // estado when their `fecha` values are within a 3 calendar-day window
-    // of each other — this collapses twin rows produced by the two
-    // ingestion passes (publication scrape vs document/PDF discovery),
-    // which often differ by 0-2 days. The merged row keeps the EARLIEST
-    // fecha and fills in whichever document link (auto/tabla/pdf) is
-    // missing, never overwriting an existing non-null link with null.
-    // With both channels emitting `fecha_providencia_iso`, duplicates now
-    // carry identical dates. Tighten the window to ±2 days to match the
-    // backend canonical rule while still tolerating rare skew from legacy
-    // rows on the fallback path.
-    const DAY_MS = 86_400_000;
-    const WINDOW_DAYS = 2;
-    const parseDay = (s: string | null | undefined): number | null => {
-      if (!s) return null;
-      const t = new Date(s).getTime();
-      return Number.isFinite(t) ? Math.floor(t / DAY_MS) : null;
-    };
-    // Document identity for the over-merge guard: prefer `hash_documento`
-    // when the provider supplied it, otherwise fall back to the pathname of
-    // whichever document URL is present. Returns null when no identity is
-    // available — those rows keep the legacy name+window merge behavior.
-    const docIdentity = (r: PpEstado): string | null => {
-      const h = (r as any).hash_documento;
-      if (typeof h === "string" && h.trim()) return `h:${h.trim()}`;
-      const url = r.pdf_url || r.gcs_url_auto || r.gcs_url_tabla;
-      if (typeof url === "string" && url.trim()) {
-        try {
-          const u = new URL(url);
-          return `u:${u.pathname}`;
-        } catch {
-          return `u:${url}`;
-        }
-      }
-      return null;
-    };
-    const groups = new Map<string, PpEstado[]>();
-    for (const r of candidates) {
-      const nt = normalizeTitleForDedupe(r.descripcion) || `__notitle__:${r.fuente}-${r.id}`;
-      const arr = groups.get(nt) ?? [];
-      arr.push(r);
-      groups.set(nt, arr);
-    }
-    const mergeInto = (target: PpEstado, next: PpEstado): PpEstado => {
-      const tDay = parseDay(target.fecha);
-      const nDay = parseDay(next.fecha);
-      // Keep earliest non-null fecha.
-      let fecha = target.fecha;
-      if (nDay !== null && (tDay === null || nDay < tDay)) fecha = next.fecha;
-      return {
-        ...target,
-        fecha,
-        gcs_url_auto: target.gcs_url_auto || next.gcs_url_auto || null,
-        gcs_url_tabla: target.gcs_url_tabla || next.gcs_url_tabla || null,
-        pdf_url: target.pdf_url || next.pdf_url || null,
-        titulo_original: target.titulo_original || next.titulo_original || null,
-        estado_numero: target.estado_numero || next.estado_numero || null,
-      };
-    };
-    const out: PpEstado[] = [];
-    for (const [, rows] of groups) {
-      // Sort by fecha asc (nulls last) for deterministic clustering that
-      // picks the earliest as the anchor.
-      const sorted = [...rows].sort((a, b) => {
-        const da = parseDay(a.fecha);
-        const db = parseDay(b.fecha);
-        if (da === null && db === null) return 0;
-        if (da === null) return 1;
-        if (db === null) return -1;
-        return da - db;
-      });
-      const clusters: PpEstado[] = [];
-      for (const r of sorted) {
-        const rDay = parseDay(r.fecha);
-        const rIdent = docIdentity(r);
-        // Find an existing cluster whose anchor date is within window,
-        // OR (if r has no fecha) any cluster with the same normalized
-        // name — nameless-date rows always fold in when possible.
-        // Over-merge guard: when BOTH candidates carry a document
-        // identity and the identities differ, do NOT merge — these are
-        // genuinely distinct estados that happen to share a title and
-        // date (e.g. three "Auto admite llamamiento en garantía" on the
-        // same day, each with a different attachment).
-        let absorbed = false;
-        for (let i = 0; i < clusters.length; i++) {
-          const cDay = parseDay(clusters[i].fecha);
-          const within =
-            rDay === null ||
-            cDay === null ||
-            Math.abs(rDay - cDay) <= WINDOW_DAYS;
-          if (!within) continue;
-          const cIdent = docIdentity(clusters[i]);
-          if (rIdent && cIdent && rIdent !== cIdent) continue;
-          clusters[i] = mergeInto(clusters[i], r);
-          absorbed = true;
-          break;
-        }
-        if (!absorbed) clusters.push({ ...r });
-      }
-      for (const c of clusters) out.push(c);
-    }
-    // Sort final list by fecha desc (nulls last) for display.
-    out.sort((a, b) => {
-      const da = parseDay(a.fecha);
-      const db = parseDay(b.fecha);
-      if (da === null && db === null) return 0;
-      if (da === null) return 1;
-      if (db === null) return -1;
-      return db - da;
-    });
-    return out;
+    return reconcileEstados(candidates);
   }, [estados, localPubs]);
 
   if (!radicado) {

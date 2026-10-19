@@ -123,6 +123,13 @@ export function hasStableOrigin(o: ActOriginIdentity): boolean {
   return !!(o.solicitud || o.radicada_en);
 }
 
+/** CPNU consActuacion is a native event identity, unlike SAMAI's position in
+ * a paginated grid. Two known CPNU ids never merge on equal date/title. */
+export function compareProviderOrigins(a: ActOriginIdentity, b: ActOriginIdentity, provider?: string | null): OriginRelation {
+  if (provider?.toLowerCase() === 'cpnu' && a.indice && b.indice && a.indice !== b.indice) return 'conflict';
+  return compareOrigins(a, b);
+}
+
 /** Backward-compatible helper. */
 export function originsConflict(a: ActOriginIdentity, b: ActOriginIdentity): boolean {
   return compareOrigins(a, b) === "conflict";
@@ -204,23 +211,24 @@ export function resolveActIdentity(input: {
     const candidate = indexed.length === 1 ? indexed[0] : stable.length === 1 ? stable[0] : null;
     if (candidate) return { kind: 'match', row: candidate, relation: 'equivalent', via: 'semantic' };
   }
-  const byFp = input.rows.filter(
+  const providerRows = input.rows.filter(r => !input.provider || r.source === input.provider);
+  const byFp = providerRows.filter(
     (r) => r.hash_fingerprint === v1 || (r.hash_fingerprint ?? "").startsWith(`${v1}_o`),
   );
   const bySem = semanticKey
-    ? input.rows.filter((r) => r.semantic_key === semanticKey && !byFp.includes(r))
+    ? providerRows.filter((r) => r.semantic_key === semanticKey && !byFp.includes(r))
     : [];
   const rank = (r: CandidateRow) => (r.hash_fingerprint === v1 ? 0 : 1);
   const fpSorted = [...byFp].sort((a, b) => rank(a) - rank(b));
 
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
-    const eq = list.find((r) => compareOrigins(originFromRow(r), incoming) === "equivalent");
+    const eq = list.find((r) => compareProviderOrigins(originFromRow(r), incoming, input.provider) === "equivalent");
     if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
     const ind = list.find((r) => {
       const stored = originFromRow(r);
-      return !hasStableOrigin(stored) && !hasStableOrigin(incoming) &&
+      return compareProviderOrigins(stored, incoming, input.provider) !== 'conflict' && !hasStableOrigin(stored) && !hasStableOrigin(incoming) &&
         (input.evidence === undefined || clean(r.description) === clean(input.evidence));
     });
     if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };

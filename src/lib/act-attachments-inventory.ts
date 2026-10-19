@@ -54,7 +54,9 @@ export function knownDocumentPendingCause(value: unknown): string | null {
     case 'network': case 'http_transient':
       return 'Los intentos automáticos fallaron por un problema temporal de conexión o del portal. Recuperación pendiente en Andrómeda.';
     case 'http_access':
-      return 'El portal rechazó la solicitud automática de este archivo. Su recuperación sigue pendiente.';
+      return 'No recuperado por la vía pública consultada: el portal rechazó esta descarga. No se ha determinado una causa definitiva.';
+    case 'token_expired':
+      return 'El enlace público caducó y no se obtuvo uno nuevo utilizable en esta consulta.';
     case 'validation':
       return 'El archivo obtenido no superó la comprobación de lectura. Su recuperación sigue pendiente.';
     case 'storage': case 'concurrency':
@@ -201,7 +203,7 @@ export function summarizeActAttachments(act: ActRow, verifications: Record<strin
     causa = inv.causa ?? "Consulta documental registrada por el proveedor.";
   } else if (observation?.estado === 'detalle_sin_inventario') {
     estado = 'desconocido';
-    causa = 'La consulta automática del detalle no devolvió los documentos anunciados. Recuperación pendiente en Andrómeda.';
+    causa = 'No recuperados por la vía pública consultada: el detalle no devolvió un inventario documental. Esto no acredita que los anexos no existan.';
   } else if (observation?.estado === 'respuesta_acceso_denegado') {
     estado = 'restringido';
     causa = 'El portal rechazó esta consulta automática del detalle. La recuperación de sus documentos sigue pendiente.';

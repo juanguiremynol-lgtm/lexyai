@@ -1211,7 +1211,9 @@ function knownDocumentPendingCause(value) {
     case "http_transient":
       return "Los intentos autom\xE1ticos fallaron por un problema temporal de conexi\xF3n o del portal. Recuperaci\xF3n pendiente en Andr\xF3meda.";
     case "http_access":
-      return "El portal rechaz\xF3 la solicitud autom\xE1tica de este archivo. Su recuperaci\xF3n sigue pendiente.";
+      return "No recuperado por la v\xEDa p\xFAblica consultada: el portal rechaz\xF3 esta descarga. No se ha determinado una causa definitiva.";
+    case "token_expired":
+      return "El enlace p\xFAblico caduc\xF3 y no se obtuvo uno nuevo utilizable en esta consulta.";
     case "validation":
       return "El archivo obtenido no super\xF3 la comprobaci\xF3n de lectura. Su recuperaci\xF3n sigue pendiente.";
     case "storage":
@@ -1333,7 +1335,7 @@ function summarizeActAttachments(act, verifications = {}) {
     causa = inv.causa ?? "Consulta documental registrada por el proveedor.";
   } else if (observation?.estado === "detalle_sin_inventario") {
     estado = "desconocido";
-    causa = "La consulta autom\xE1tica del detalle no devolvi\xF3 los documentos anunciados. Recuperaci\xF3n pendiente en Andr\xF3meda.";
+    causa = "No recuperados por la v\xEDa p\xFAblica consultada: el detalle no devolvi\xF3 un inventario documental. Esto no acredita que los anexos no existan.";
   } else if (observation?.estado === "respuesta_acceso_denegado") {
     estado = "restringido";
     causa = "El portal rechaz\xF3 esta consulta autom\xE1tica del detalle. La recuperaci\xF3n de sus documentos sigue pendiente.";

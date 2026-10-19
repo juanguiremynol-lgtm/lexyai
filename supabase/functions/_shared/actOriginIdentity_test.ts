@@ -292,3 +292,16 @@ Deno.test("identity: exact source request survives a corrected event date withou
  const changed=resolveActIdentity({v1:'new-date-fp',semanticKey:'new-date-key',provider:'samai',incoming:extractActOrigin({indice:25,anotacion:A}),evidence:evidence+' otra actuación',rows:[row]});
  assertEquals(changed.kind,'insert');
 });
+
+Deno.test('CPNU native ids survive identical date, title and text while SAMAI indices remain positional', () => {
+  const row = {id:'existing-cpnu',source:'cpnu',hash_fingerprint:'v1',semantic_key:'same-day-title',description:'Fijacion Estado',raw_data:{origen_indice:'121017771'}};
+  const incoming=extractActOrigin({indice:'121017601',anotacion:null});
+  const cpnu=resolveActIdentity({v1:'v1',semanticKey:'same-day-title',provider:'cpnu',incoming,evidence:'Fijacion Estado',rows:[row]});
+  assertEquals(cpnu.kind,'insert');
+  const samai=resolveActIdentity({v1:'v1',semanticKey:'same-day-title',provider:'samai',incoming,evidence:'Fijacion Estado',rows:[{...row,source:'samai'}]});
+  assertEquals(samai.kind,'match');
+});
+Deno.test('semantic fallback does not mix providers',()=>{
+  const decision=resolveActIdentity({v1:'cpnu-v1',semanticKey:'same-day-title',provider:'cpnu',incoming:extractActOrigin({indice:1}),evidence:'Fijacion Estado',rows:[{id:'samai-row',source:'samai',hash_fingerprint:'other',semantic_key:'same-day-title',description:'Fijacion Estado',raw_data:{origen_indice:'1'}}]});
+  assertEquals(decision.kind,'insert');
+});

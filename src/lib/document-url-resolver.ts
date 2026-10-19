@@ -13,6 +13,7 @@
  *   - If nothing resolves, the caller must not render a PDF affordance at all.
  */
 
+import { openResolvedDocument } from "./open-document-window";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface StoredDocumentRow {
@@ -148,8 +149,5 @@ function isAppOrigin(url: string): boolean {
 export async function openStoredDocument(
   row: StoredDocumentRow | null | undefined,
 ): Promise<boolean> {
-  const url = await resolveDocumentUrl(row);
-  if (!url) return false;
-  window.open(url, "_blank", "noopener,noreferrer");
-  return true;
+  return openResolvedDocument(() => resolveDocumentUrl(row));
 }
