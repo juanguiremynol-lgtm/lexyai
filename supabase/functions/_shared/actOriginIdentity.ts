@@ -104,15 +104,23 @@ export type OriginRelation = "equivalent" | "conflict" | "indeterminate";
 export function compareOrigins(a: ActOriginIdentity, b: ActOriginIdentity): OriginRelation {
   let same = 0;
   let diff = 0;
-  for (const k of ["indice", "solicitud", "radicada_en"] as const) {
+  for (const k of ["solicitud", "radicada_en"] as const) {
     if (a[k] && b[k]) {
       if (a[k] === b[k]) same++;
       else diff++;
     }
   }
   if (diff > 0) return "conflict";
+  // indice is positional: upstream renumbers it between snapshots and CPNU/SAMAI
+  // number independently. Equal indices corroborate; different ones never conflict.
+  if (a.indice && b.indice && a.indice === b.indice) same++;
   if (same > 0) return "equivalent";
   return "indeterminate";
+}
+
+/** True when the origin carries a text-borne (non-positional) component. */
+export function hasStableOrigin(o: ActOriginIdentity): boolean {
+  return !!(o.solicitud || o.radicada_en);
 }
 
 /** Backward-compatible helper. */
@@ -188,7 +196,7 @@ export function resolveActIdentity(input: {
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
     const ind = list.find((r) => {
       const stored = originFromRow(r);
-      return !stored.key && !incoming.key &&
+      return !hasStableOrigin(stored) && !hasStableOrigin(incoming) &&
         (input.evidence === undefined || clean(r.description) === clean(input.evidence));
     });
     if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };

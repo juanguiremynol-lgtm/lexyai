@@ -270,3 +270,14 @@ Deno.test("inventory: memorial source count variants stay announced, never recov
     assertEquals(inv.enlaces_registrados, 0);
   }
 });
+
+Deno.test("identity: renumbered or cross-source indice with same text matches, never inserts", () => {
+  const row: CandidateRow = { id: "old", hash_fingerprint: "v1", semantic_key: "same", description: `${TITLE} - Auto admite`, raw_data: { indice: "7" } };
+  const d = resolveActIdentity({ v1: "v1", semanticKey: "same", incoming: extractActOrigin({ indice: 9, anotacion: "Auto admite" }), evidence: `${TITLE} - Auto admite`, rows: [row] });
+  assertEquals(d.kind, "match");
+  assertEquals(compareOrigins(extractActOrigin({ indice: 7 }), extractActOrigin({ indice: 9 })), "indeterminate");
+});
+
+Deno.test("identity: differing solicitud still conflicts even with equal indice", () => {
+  assertEquals(compareOrigins(extractActOrigin({ indice: 5, anotacion: A }), extractActOrigin({ indice: 5, anotacion: B })), "conflict");
+});
