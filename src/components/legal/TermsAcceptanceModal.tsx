@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Download, Printer, FileText, Loader2 } from "lucide-react";
 import { fetchActiveTerms, type ActiveTermsData } from "@/lib/terms-service";
+import { isLegalDocumentEndVisible } from "@/lib/legal-access-policy";
 
 interface TermsAcceptanceModalProps {
   onAccept: (data: {
@@ -65,9 +66,7 @@ export function TermsAcceptanceModal({
     const viewport = el.querySelector("[data-radix-scroll-area-viewport]") as HTMLElement;
     if (viewport) {
       const handler = () => {
-        const threshold = 50;
-        const atBottom =
-          viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < threshold;
+        const atBottom = isLegalDocumentEndVisible(viewport.scrollHeight, viewport.clientHeight, viewport.scrollTop);
         if (atBottom && !hasScrolledToEnd) {
           setHasScrolledToEnd(true);
         }
