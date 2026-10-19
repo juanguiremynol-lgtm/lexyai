@@ -6,7 +6,9 @@
  * edge function so we refetch upstream data on demand.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from 'react-router-dom';
+import { actSearchFields } from '@/lib/search/act-search';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValidSession } from "@/lib/supabase-query-guard";
@@ -76,7 +78,10 @@ function useSupabaseActs(workItemId: string, enabled: boolean) {
 }
 
 export function ActsTab({ workItem }: ActsTabProps) {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('act_search') || '';
+  const [searchTerm, setSearchTerm] = useState(requestedSearch);
+  useEffect(() => setSearchTerm(requestedSearch), [requestedSearch]);
   const [filterSource, setFilterSource] = useState<string>("all");
   const queryClient = useQueryClient();
 
@@ -168,7 +173,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
     const matchesSearch =
       !searchTerm ||
       act.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      act.event_summary?.toLowerCase().includes(searchTerm.toLowerCase());
+      act.event_summary?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      actSearchFields({ act_annotation: act.raw_data?.anotacion, act_request: act.raw_data?.origen_solicitud,
+        act_documents: JSON.stringify(act.documentos ?? act.raw_data?.documentos),
+        legacy_documents: JSON.stringify(act.raw_data?.anexos_documentos) })
+        .some(field => field.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesSource =
       filterSource === "all" || act.source === filterSource;

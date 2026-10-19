@@ -1,4 +1,4 @@
-import { reconcileEstados } from "@/lib/reconcile-estados";
+import { estadosDisplayInventory } from "@/lib/reconcile-estados";
 import { openResolvedDocument } from "@/lib/open-document-window";
 /**
  * Estados Tab — Estados Procesales
@@ -24,7 +24,8 @@ import type { WorkItem } from "@/types/work-item";
 import { usePpEstados, type PpEstado } from "@/hooks/use-pp-estados";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
+import { downloadDocument } from '@/lib/download-document';
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
 import { toast } from "sonner";
 import { estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
@@ -37,6 +38,7 @@ import {
 
 interface EstadosTabProps {
   workItem: WorkItem;
+  onCountChange?: (count: number) => void;
 }
 
 // Row rendering handled by <EstadosTable/>.
@@ -44,7 +46,7 @@ interface EstadosTabProps {
 /** Normalize titles for dedupe: strip .pdf / copy suffixes, drop anotación
  *  tail after " - "/" — ", strip accents, lowercase, collapse whitespace. */
 
-export function EstadosTab({ workItem }: EstadosTabProps) {
+export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
   const radicado = workItem.radicado || null;
   const { data: estados, isLoading, isFetching, error, refetch } = usePpEstados(radicado, !!radicado);
 
@@ -107,6 +109,16 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     if (!opened) toast.error("No se pudo abrir esta copia. La apertura no se completó y el archivo conserva su estado de recuperación.");
   };
 
+  const downloadVerifiedCopy = async (document: EstadoDocumentRecovery) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('get-estado-attachment-url', {
+        body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
+      });
+      if (error || !data?.url) throw new Error('unavailable');
+      await downloadDocument(data.url, document.filename || 'documento.pdf');
+    } catch { toast.error('No se pudo descargar la copia almacenada. Inténtalo de nuevo más tarde.'); }
+  };
+
   // Resolve the best openable URL for a local publicacion row. The
   // `pdf_url` column often stores a *storage path* (e.g.
   // "<pub_id>/<base64>.pdf") rather than a full URL — opening it directly
@@ -158,8 +170,12 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         hash_documento: hashDoc,
       });
     }
-    return reconcileEstados(candidates);
+    // Persisted publications carry stable identities and document permissions.
+    // The API is a fallback view, not a second set of the same publications.
+    return estadosDisplayInventory(candidates);
   }, [estados, localPubs]);
+
+  useEffect(() => { onCountChange?.(mergedEstados.length); }, [mergedEstados.length, onCountChange]);
 
   if (!radicado) {
     return (
@@ -189,9 +205,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 </Badge>
               </CardTitle>
               <CardDescription className="mt-1">
-        Estados electrónicos de la Rama Judicial (Publicaciones Procesales) y de la
-                jurisdicción contencioso administrativa (CPACA). Los términos legales inician el día hábil siguiente a la fecha de
-                desfijación.
+                Estados electrónicos de la Rama Judicial (Publicaciones Procesales) y de la jurisdicción contencioso administrativa (CPACA).
+                Los términos legales inician el día hábil siguiente a la fecha de desfijación.
+                {' '}Se muestran las publicaciones incorporadas al proceso, con sus documentos asociados; la consulta externa es una alternativa cuando aún no hay publicaciones incorporadas.
               </CardDescription>
             </div>
             <Button
@@ -310,7 +326,10 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 <div key={document.id} className="rounded border p-3 text-sm">
                   <p className="font-medium">{publication?.title || "Publicación"} · {document.filename || "Documento"}</p>
                   <p><span className="font-medium">{status.label}.</span> {status.reason}</p>
-                  {status.available && <Button variant="link" className="h-auto px-0" onClick={() => openVerifiedCopy(document)}>Abrir copia verificada</Button>}
+                  {status.available && <div className="flex gap-3">
+                    <Button variant="link" className="h-auto px-0" onClick={() => openVerifiedCopy(document)}>Abrir archivo almacenado</Button>
+                    <Button variant="link" className="h-auto px-0" onClick={() => downloadVerifiedCopy(document)}>Descargar</Button>
+                  </div>}
                 </div>
               );
             })}

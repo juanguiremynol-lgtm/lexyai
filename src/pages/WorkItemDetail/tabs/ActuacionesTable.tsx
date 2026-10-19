@@ -1,3 +1,4 @@
+import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
 import { samaiGrantIdentity, sourceGrantToken } from '../../../../supabase/functions/_shared/samaiGrantIdentity';
 /**
  * ActuacionesTable — dense dense-grid table used by every workflow
@@ -304,11 +305,11 @@ function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
         return (
           <div key={index} className="flex flex-col gap-0.5 border-l border-border pl-2">
             <span>{actDocumentoLabel(doc, index)}</span>
-            {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">{storedReading ? 'Abrir archivo almacenado' : 'Abrir enlace registrado'}</a> : <span className="text-muted-foreground">Pendiente de recuperación automática</span>}
+            <ActDocumentLinks document={d} />
             <span className="text-muted-foreground">{cause || (storedReading && fileReading?.lectura_completa
               ? `Lectura automática registrada: ${fileReading.formato === 'zip' ? `${fileReading.miembros?.length || 0} documentos dentro del ZIP` : `${fileReading.hojas_leidas || 0} hojas de cálculo`}. No certifica integridad completa ni atribución del contenido.`
               : storedReading && pdfReading ? `PDF almacenado y leído automáticamente (${pdfReading.paginas || '?'} páginas). Correspondencia del contenido con la actuación pendiente de revisión.`
-              : 'Recuperación automática pendiente; el enlace por sí solo no acredita un archivo disponible.')}</span>
+              : 'La recuperación de la copia propia sigue pendiente; el enlace del origen se muestra por separado.')}</span>
             {fileReading?.miembros?.map(member => <span key={member.name} className="text-muted-foreground">Contenido: {member.name}</span>)}
             {(d.pdf_verificacion as { avisos_lector?: string } | undefined)?.avisos_lector && <span className="text-muted-foreground">La lectura automática del PDF registró avisos del lector; su contenido requiere cautela.</span>}
           </div>

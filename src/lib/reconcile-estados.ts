@@ -1,5 +1,11 @@
 import type { PpEstado } from "@/hooks/use-pp-estados";
 
+/** One display inventory: incorporated records or the external fallback. */
+export function estadosDisplayInventory(candidates: PpEstado[]): PpEstado[] {
+  const incorporated = candidates.filter(row => String(row.id).startsWith('local-'));
+  return reconcileEstados(incorporated.length ? incorporated : candidates);
+}
+
 function normalizeTitleForDedupe(value: string | null | undefined): string {
   return String(value || '').normalize('NFC').trim().replace(/\s+/g, ' ');
 }

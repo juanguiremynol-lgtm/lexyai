@@ -81,6 +81,13 @@ export default function WorkItemDetail() {
     refetch,
   } = useWorkItemDetail(radicadoParam ? { radicado: radicadoParam } : id);
 
+  const [statesCount, setStatesCount] = useState<{ id: string; count: number } | null>(null);
+  const visibleEstadosCount = statesCount?.id === workItem?.id ? statesCount?.count : null;
+  const handleEstadosCount = useCallback((count: number) => {
+    const itemId = workItem?.id || '';
+    setStatesCount(previous => previous?.id === itemId && previous.count === count ? previous : { id: itemId, count });
+  }, [workItem?.id]);
+
 
   // Toggle flag mutation
   const toggleFlagMutation = useMutation({
@@ -438,14 +445,14 @@ export default function WorkItemDetail() {
                 <TabsTrigger value="estados" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                   <Newspaper className="h-4 w-4" />
                   Estados
-                  {pubCounts && pubCounts.estados > 0 && (
-                    <Badge variant="secondary" className="ml-1 text-xs">{pubCounts.estados}</Badge>
+                  {(visibleEstadosCount ?? pubCounts?.estados ?? 0) > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-xs">{visibleEstadosCount ?? pubCounts?.estados}</Badge>
                   )}
                 </TabsTrigger>
               )}
               <TabsTrigger value="documentos" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <FileText className="h-4 w-4" />
-                Documentos
+                Documentos generados
               </TabsTrigger>
               <TabsTrigger value="alertas" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <Bell className="h-4 w-4" />
@@ -481,7 +488,7 @@ export default function WorkItemDetail() {
 
             {externalDisplayModeFor(workItem.workflow_type) === 'estados' && (
               <TabsContent value="estados" className="mt-4">
-                <EstadosTab workItem={extendedWorkItem} />
+                <EstadosTab workItem={extendedWorkItem} onCountChange={handleEstadosCount} />
               </TabsContent>
             )}
 
@@ -494,6 +501,7 @@ export default function WorkItemDetail() {
             </TabsContent>
 
             <TabsContent value="documentos" className="mt-4">
+              <p className="mb-4 text-sm text-muted-foreground">Esta pestaña contiene documentos generados en Andrómeda. Los archivos públicos recuperados se encuentran en Actuaciones y Estados o Publicaciones.</p>
               <WorkItemDocumentsTab workItem={extendedWorkItem} onMemorialClick={() => setMemorialOpen(true)} />
             </TabsContent>
 

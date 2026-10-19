@@ -1,3 +1,4 @@
+import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
 /**
  * WorkItemActCard - Unified actuación card from work_item_acts table
  * Consistent layout regardless of data source (CPNU, SAMAI, manual)
@@ -530,116 +531,16 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
         )}
       </div>
 
-      {/* Row 6: SAMAI attachments — anexos_documentos */}
-      {samaiAttachments.length > 0 && (() => {
-        const hasUrl = (u?: string | null) => typeof u === "string" && /^https?:\/\//i.test(u.trim());
-        return (
-          <div className="mt-3 pt-2 border-t border-border/30">
-            <div className="text-xs font-medium text-foreground/70 mb-1.5">
-              📎 Referencias de documentos ({samaiAttachments.length})
-            </div>
-            <ul className="space-y-1.5">
-              {samaiAttachments.map((doc, idx) => {
-                const desc = doc.descripcion?.trim() || `Documento ${idx + 1}`;
-                // An act's classification is not evidence of a document-access denial.
-                const showVer = hasUrl(doc.urlVer);
-                const showDescarga = hasUrl(doc.urlDescarga);
-                const showBadge = !showVer && !showDescarga;
-                return (
-                  <li
-                    key={idx}
-                    className="flex items-center gap-2 text-xs flex-wrap"
-                    title={doc.descripcion?.trim() || undefined}
-                  >
-                    <span className="text-muted-foreground truncate max-w-[60%]">{desc}</span>
-                    {knownDocumentPendingCause(doc) && <span className="w-full text-muted-foreground">{knownDocumentPendingCause(doc)}</span>}
-                    <div className="flex items-center gap-1.5 ml-auto">
-                      {(showVer || showDescarga) && <span>Contenido sin verificar</span>}
-                      {showVer && (
-                        <a
-                          href={doc.urlVer as string}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
-                        >
-                          👁️ Ver
-                        </a>
-                      )}
-                      {showDescarga && (
-                        <a
-                          href={doc.urlDescarga as string}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          download
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
-                        >
-                          ⬇️ Descargar
-                        </a>
-                      )}
-                      {showBadge && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                          Sin enlace registrado
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })()}
-
-      {/* Row 7: CPNU act documents — work_item_acts.documentos */}
-      {actDocumentos.length > 0 && (
+      {[...samaiAttachments, ...actDocumentos].length > 0 && (
         <div className="mt-3 pt-2 border-t border-border/30">
-          <div className="text-xs font-medium text-foreground/70 mb-1.5">
-            📎 Documentos de la actuación ({actDocumentos.length})
-          </div>
-          <ul className="space-y-1.5">
-            {actDocumentos.map((doc, idx) => {
-              const label = actDocumentoLabel(doc, idx);
-              const href = resolveActDocumentoUrl(doc);
-              const state = actDocumentoState(doc);
-              return (
-                <li
-                  key={doc.id ?? doc.url ?? idx}
-                  className="flex items-center gap-2 text-xs flex-wrap"
-                  title={
-                    (typeof doc.descripcion === "string" && doc.descripcion.trim()) || label
-                  }
-                >
-                  <span className="text-muted-foreground truncate max-w-[60%]">{label}</span>
-                  {knownDocumentPendingCause(doc) && <span className="w-full text-muted-foreground">{knownDocumentPendingCause(doc)}</span>}
-                  {!href ? (
-                    <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                      {actDocumentoStateLabel(state)}
-                    </span>
-                  ) : (
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span>Contenido sin verificar</span>
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
-                    >
-                      👁️ Ver
-                    </a>
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
-                    >
-                      ⬇️ Descargar
-                    </a>
-                  </div>
-                  )}
-                </li>
-              );
-            })}
+          <p className="text-xs font-medium">Documentos de la actuación</p>
+          <ul className="space-y-2">
+            {[...samaiAttachments, ...actDocumentos].map((doc, index) => (
+              <li key={index} className="text-xs">
+                <p>{actDocumentoLabel(doc, index)}</p>
+                <ActDocumentLinks document={doc} />
+              </li>
+            ))}
           </ul>
         </div>
       )}

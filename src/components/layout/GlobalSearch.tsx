@@ -1,3 +1,4 @@
+import { ACT_SEARCH_COLUMNS, actSearchFields, actSearchFilter, actSearchSnippet, type ActSearchRow } from '@/lib/search/act-search';
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -235,7 +236,6 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const limitPerType = 10;
   const anchorToken =
     tokenize(query).slice().sort((a, b) => b.length - a.length)[0] ?? query;
-  const anchorPattern = `%${anchorToken}%`;
 
   // Work items go through the normalized search RPC (radicado in any form,
   // partial radicado, courthouse e-mail, parties, client id). It is
@@ -270,10 +270,10 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       // ITER13: `actuaciones` is frozen (actuaciones_legacy_20260131).
       // `work_item_acts` is the single canonical actuaciones table.
       .from("work_item_acts")
-      .select("id, work_item_id, act_type, description, act_date")
+      .select<string>(ACT_SEARCH_COLUMNS)
       // Server-side narrowing uses the longest token; the full multi-token,
       // accent-insensitive rule is applied on the fetched rows below.
-      .or(`description.ilike.${anchorPattern},act_type.ilike.${anchorPattern}`)
+      .or(actSearchFilter(anchorToken))
       .or("is_archived.is.null,is_archived.eq.false")
       .order("act_date", { ascending: false })
       .limit(limitPerType * 10);
@@ -286,7 +286,7 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       q = q.eq("owner_id", ctx.userId);
     }
 
-    return q;
+    return q.returns<ActSearchRow[]>();
   };
 
   const [workItemsResult, clientsResult, actuacionesResult] = await Promise.all([
@@ -333,10 +333,9 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   }).sort((a, b) => a.relevance - b.relevance);
 
   const actuaciones: SearchResult[] = (actuacionesResult.data || []).filter((act) =>
-    matchesAllTokens(query, [act.description, act.act_type]),
+    matchesAllTokens(query, actSearchFields(act)),
   ).slice(0, limitPerType).map((act) => {
-    const text = act.description ?? "";
-    const snippet = text ? `${text.substring(0, 60)}${text.length > 60 ? "..." : ""}` : "Sin descripción";
+    const snippet = actSearchSnippet(actSearchFields(act), query);
     const result = {
       id: act.id,
       type: "actuacion" as const,
@@ -344,7 +343,7 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       subtitle: snippet,
       badge: act.act_type || "Actuación",
       badgeVariant: "default" as const,
-      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/processes`,
+      route: act.work_item_id ? `/app/work-items/${act.work_item_id}?tab=actuaciones&act_search=${encodeURIComponent(query)}` : `/app/processes`,
       relevance: 5,
     };
     result.relevance = scoreResult(result, query);
@@ -689,7 +688,7 @@ export function GlobalSearch() {
         <Input
           ref={inputRef}
           type="search"
-          placeholder='Buscar radicado, partes, juzgado...  ("/" para enfocar)'
+          placeholder='Buscar radicado, solicitud, partes...  ("/" para enfocar)'
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
