@@ -1343,7 +1343,7 @@ async function orchestrateSearch(
       if (completeness.isComplete) {
         classification = 'SUCCESS';
         debugExcerpt = JSON.stringify(apiResult.data).substring(0, 10000);
-        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
+        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false, phase1Results };
       } else {
         // CRITICAL: Preserve Phase 1 results (which contain parties from QUERY_LIST)
         // so fallback phases only supplement events/actuaciones, not overwrite parties
@@ -1382,7 +1382,7 @@ async function orchestrateSearch(
         classification = 'SUCCESS';
         debugExcerpt = `External API success: ${results.length} results, ${events.length} events`;
         if (runId) await addStep(supabase, runId, 'EXTERNAL_API_SUCCESS', true, debugExcerpt);
-        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
+        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false, phase1Results };
       }
       
       // CRITICAL: If it's a TECHNICAL error (not "no encontrado"), propagate it immediately
