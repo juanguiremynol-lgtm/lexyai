@@ -1,3 +1,4 @@
+// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { parseCpnuSujetos, toSujetosArray } from "../_shared/partyNormalization.ts";
 

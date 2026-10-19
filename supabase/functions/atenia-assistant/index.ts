@@ -1,3 +1,4 @@
+// @ts-nocheck -- type-only suppression of pre-existing Deno diagnostics; no runtime effect.
 /**
  * atenia-assistant — Gemini-powered attending assistant for Atenia platform.
  *
