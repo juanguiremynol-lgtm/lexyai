@@ -1519,6 +1519,7 @@ async function runPostDailyAuditV2(
   report: unknown;
   autoDemonitored: number;
   queued: number;
+  syncKPIs: DailySyncKPIs;
 }> {
   // Use existing audit flow
   const report = await auditOrganization(supabase, orgId, runDate, mode);
