@@ -11,7 +11,7 @@
  * All actions are logged to atenia_assistant_actions.
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -351,8 +351,8 @@ OUTPUT FORMAT: Always respond with valid JSON matching this structure:
 
 // ---- Context builder ----
 async function buildContext(
-  userClient: ReturnType<typeof createClient>,
-  adminClient: ReturnType<typeof createClient>,
+  userClient: SupabaseClient,
+  adminClient: SupabaseClient,
   userId: string,
   scope: string,
   workItemId?: string,
@@ -710,8 +710,8 @@ async function callGemini(system: string, userMessage: string, apiKey: string): 
 
 // ---- Action executor ----
 async function executeAction(
-  userClient: ReturnType<typeof createClient>,
-  adminClient: ReturnType<typeof createClient>,
+  userClient: SupabaseClient,
+  adminClient: SupabaseClient,
   action: any,
   ctx: any,
 ) {

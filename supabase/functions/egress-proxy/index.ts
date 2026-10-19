@@ -15,7 +15,7 @@
  * - Structural payload whitelist for security observations
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   validateObservationSeverity,
   sanitizeSecurityPayload,
@@ -238,7 +238,7 @@ function checkRateLimit(tenantHash: string): boolean {
 // CRITICAL: Never stores raw payloads, headers, or query strings
 // SECURITY POLICY: Returns false on log failure → caller MUST deny the operation
 async function logViolation(
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: SupabaseClient,
   violation: {
     type: "DOMAIN_BLOCKED" | "PII_DETECTED" | "RATE_LIMITED" | "INVALID_REQUEST" | "AUTH_FAILED";
     caller: string;

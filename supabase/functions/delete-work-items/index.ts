@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { enqueueGcpLifecycleForHardDelete } from "../_shared/lifecycle.ts";
 
 const corsHeaders = {
@@ -30,7 +30,7 @@ interface AuthContext {
 }
 
 async function resolveAuthContext(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   userId: string
 ): Promise<AuthContext> {
   const { data: profile } = await serviceClient
@@ -92,7 +92,7 @@ function canDeleteWorkItem(
 
 // ─── Dependent-entity deletion ──────────────────────────────
 async function deleteWorkItemDependents(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   workItemId: string
 ): Promise<{ storageFilesDeleted: number }> {
   let storageFilesDeleted = 0;

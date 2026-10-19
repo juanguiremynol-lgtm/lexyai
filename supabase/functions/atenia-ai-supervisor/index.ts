@@ -21,7 +21,7 @@
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   bogotaDayBoundsUtc,
   bogotaHour,
@@ -106,7 +106,7 @@ interface SyncTrace {
   created_at: string;
 }
 
-type SupabaseAdmin = ReturnType<typeof createClient>;
+type SupabaseAdmin = SupabaseClient;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
