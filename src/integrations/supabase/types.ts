@@ -25243,6 +25243,9 @@ export type Database = {
         Returns: Json
       }
       act_origin_relation: { Args: { a: Json; b: Json }; Returns: string }
+      act_samai_grant_identity: { Args: { doc: Json }; Returns: Json }
+      act_samai_grant_token: { Args: { doc: Json }; Returns: string }
+      act_same_samai_grant: { Args: { a: Json; b: Json }; Returns: boolean }
       act_structural_origin: {
         Args: {
           description: string
