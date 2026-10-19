@@ -50,3 +50,37 @@ Deno.test('ordinary cron without explicit scope retains its original claim RPC',
   assert.equal(response.status, 200);
   assert.deepEqual(requests, [{ url: 'https://local-fixture.invalid/rest/v1/rpc/claim_estado_attachment_downloads', body: { p_limit: 1 } }]);
 });
+
+Deno.test('one invocation claims at most one document, preserving the hosted per-request CPU budget', async () => {
+  const keys = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+  const previous = new Map(keys.map(key => [key, Deno.env.get(key)]));
+  Deno.env.set('SUPABASE_URL', 'https://local-fixture.invalid');
+  Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'isolated-test-service-key');
+  const originalFetch = globalThis.fetch;
+  let claims = 0, finished = 0;
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    if (url.includes('/rpc/claim_estado_attachment_downloads')) {
+      claims++;
+      return new Response(JSON.stringify([{ id: 'doc-a', publicacion_id: 'pub-a', remote_url: 'https://example.invalid/a.pdf', attempt_count: 1, max_attempts: 5 }]), { headers: { 'content-type': 'application/json' } });
+    }
+    if (url.includes('/work_item_publicaciones')) return new Response('{"message":"transient read failure"}', { status: 503, headers: { 'content-type': 'application/json' } });
+    if (url.includes('/rpc/finish_estado_attachment_download')) {
+      finished++;
+      return new Response('true', { headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error('Unexpected remote operation');
+  }) as typeof fetch;
+  try {
+    const response = await handler(new Request('https://worker.invalid/', { method: 'POST', headers: { Authorization: 'Bearer isolated-test-service-key' }, body: '{}' }));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.processed, 1);
+    assert.equal(result.failed, 1);
+    assert.equal(claims, 1);
+    assert.equal(finished, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of previous) value === undefined ? Deno.env.delete(key) : Deno.env.set(key, value);
+  }
+});

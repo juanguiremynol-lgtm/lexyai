@@ -25,9 +25,10 @@ Deno.serve(async (req) => {
   const start = Date.now();
   let success = 0, failed = 0;
   try {
-    // Claim one at a time: no queued batch can expire while earlier files are
-    // being validated. The RPC increments attempts and excludes concurrent workers.
-    while (success + failed < 10 && Date.now() - start < TIME_BUDGET_MS) {
+    // PDF parsing consumes the hosted Edge CPU budget. Process one document
+    // per invocation; the scheduler supplies a bounded batch of invocations.
+    // Claims retain their attempt/association guards across separate requests.
+    while (success + failed < 1 && Date.now() - start < TIME_BUDGET_MS) {
       const { data, error } = workItemIds
         ? await supabase.rpc("claim_estado_attachment_downloads_scoped", { p_limit: 1, p_work_item_ids: workItemIds })
         : await supabase.rpc("claim_estado_attachment_downloads", { p_limit: 1 });

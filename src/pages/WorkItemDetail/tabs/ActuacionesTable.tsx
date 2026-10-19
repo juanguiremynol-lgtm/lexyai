@@ -22,6 +22,7 @@ import {
 import { FileText, Table2, ExternalLink, HardDrive, Download, Eye } from "lucide-react";
 import type { WorkItemAct } from "./WorkItemActCard";
 import { isAbsoluteHttpUrl } from "@/lib/document-url-resolver";
+import { summarizeActAttachments, knownDocumentPendingCause } from "@/lib/act-attachments-inventory";
 import {
   extractActDocumentos,
   resolveActDocumentoUrl,
@@ -73,6 +74,7 @@ function pickAnotacion(act: WorkItemAct): string {
     sepIdx > 0 && sepIdx < 80 ? desc.substring(sepIdx + 3).trim() : null;
 
   return (
+    (act.source?.toLowerCase() === "samai" && parsedAnnotation ? parsedAnnotation : "") ||
     (rawAnotacion?.trim() ? rawAnotacion.trim() : "") ||
     parsedAnnotation ||
     (act.event_summary && act.event_summary !== act.description
@@ -147,6 +149,8 @@ function extractSamaiAttachments(act: WorkItemAct): SamaiAnexoDocumento[] {
 }
 
 function DefaultDocButtons({ act }: { act: WorkItemAct }) {
+  const isSamai = act.source?.toLowerCase() === 'samai' || act.sources?.some(s => s?.toLowerCase() === 'samai');
+  if (isSamai) return <SamaiDocumentInventory act={act} />;
   const raw = act.raw_data as Record<string, unknown> | null | undefined;
   // Only absolute provider URLs may become links. Anything else (a storage
   // object path) would be resolved against the app origin → SPA 404.
@@ -260,6 +264,44 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
           <span>{it.label}</span>
         </a>
       ))}
+    </div>
+  );
+}
+
+/** The table is the active act view. Keep document evidence visible here too;
+ * a source classification does not establish a documentary access denial. */
+function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
+  const raw = act.raw_data as Record<string, unknown> | null | undefined;
+  const descriptors = [
+    ...extractActDocumentos(act.documentos),
+    ...extractActDocumentos(raw?.anexos_documentos),
+  ];
+  const seen = new Set<string>();
+  const documents = descriptors.filter((doc, index) => {
+    const d = doc as unknown as Record<string, unknown>;
+    const identity = d.id || d.tokenDocumento || d.id_documento || d.gcs_url || d.urlDescarga || d.url || d.urlVer;
+    const key = identity ? String(identity) : `unlinked:${index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const inventory = summarizeActAttachments({ ...act, documentos: documents });
+  return (
+    <div className="flex min-w-[220px] flex-col gap-1 text-xs" aria-label="Inventario documental de la actuación">
+      <span className="font-medium">{inventory.anunciados === null ? 'Total de anexos no informado' : `${inventory.anunciados} anexo(s) anunciado(s)`}</span>
+      <span className="text-muted-foreground">{inventory.causa}</span>
+      {documents.map((doc, index) => {
+        const d = doc as unknown as Record<string, unknown>;
+        const href = [d.gcs_url, d.url, d.urlDescarga, d.urlVer].find(isAbsoluteHttpUrl) as string | undefined;
+        const cause = knownDocumentPendingCause(doc);
+        return (
+          <div key={index} className="flex flex-col gap-0.5 border-l border-border pl-2">
+            <span>{actDocumentoLabel(doc, index)}</span>
+            {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">Abrir enlace registrado</a> : <span className="text-muted-foreground">Pendiente de recuperación automática</span>}
+            <span className="text-muted-foreground">{cause || 'Archivo completo y correspondencia documental sin verificar en esta vista.'}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
