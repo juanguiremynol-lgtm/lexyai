@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "check:mcp:source": "tsc --noEmit -p tsconfig.mcp.json",
+    "check:mcp:artifact": "node scripts/build-mcp.mjs && deno run --no-check --allow-all scripts/check-mcp-artifact.ts",
     "predev": "tsx scripts/generate-sitemap.ts",
     "prebuild": "tsx scripts/generate-sitemap.ts"
   },
