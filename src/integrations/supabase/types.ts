@@ -8613,6 +8613,8 @@ export type Database = {
           status: string
           storage_path: string | null
           updated_at: string
+          validation_checked_at: string | null
+          validation_evidence: Json | null
           work_item_id: string
         }
         Insert: {
@@ -8630,6 +8632,8 @@ export type Database = {
           status?: string
           storage_path?: string | null
           updated_at?: string
+          validation_checked_at?: string | null
+          validation_evidence?: Json | null
           work_item_id: string
         }
         Update: {
@@ -8647,6 +8651,8 @@ export type Database = {
           status?: string
           storage_path?: string | null
           updated_at?: string
+          validation_checked_at?: string | null
+          validation_evidence?: Json | null
           work_item_id?: string
         }
         Relationships: []
@@ -25193,6 +25199,11 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      act_current_copy_invalidated: {
+        Args: { doc: Json; prior: Json }
+        Returns: boolean
+      }
+      act_document_history: { Args: { values_json: Json }; Returns: Json }
       act_is_annulled: {
         Args: { p_description: string; p_raw: Json }
         Returns: boolean
@@ -25214,6 +25225,33 @@ export type Database = {
         Returns: boolean
       }
       act_is_stage_bearing: { Args: { p_text: string }; Returns: boolean }
+      act_merge_document_observation: {
+        Args: { doc: Json; merged: Json; prior: Json }
+        Returns: Json
+      }
+      act_merge_documentos: {
+        Args: { existing: Json; incoming: Json }
+        Returns: Json
+      }
+      act_merge_raw_data: {
+        Args: { existing: Json; incoming: Json }
+        Returns: Json
+      }
+      act_observation_at: { Args: { doc: Json }; Returns: string }
+      act_origin_components: {
+        Args: { description: string; raw_data: Json }
+        Returns: Json
+      }
+      act_origin_relation: { Args: { a: Json; b: Json }; Returns: string }
+      act_structural_origin: {
+        Args: {
+          description: string
+          fingerprint: string
+          raw_data: Json
+          source: string
+        }
+        Returns: string
+      }
       add_business_days_sql:
         | { Args: { p_days: number; p_start: string }; Returns: string }
         | {
@@ -25498,6 +25536,62 @@ export type Database = {
       check_inference_rate_limit: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
+      }
+      claim_estado_attachment_downloads: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          downloaded_at: string | null
+          filename: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_retry_at: string | null
+          organization_id: string
+          publicacion_id: string
+          remote_url: string
+          status: string
+          storage_path: string | null
+          updated_at: string
+          validation_checked_at: string | null
+          validation_evidence: Json | null
+          work_item_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "estado_attachment_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_estado_attachment_downloads_scoped: {
+        Args: { p_limit?: number; p_work_item_ids: string[] }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          downloaded_at: string | null
+          filename: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_retry_at: string | null
+          organization_id: string
+          publicacion_id: string
+          remote_url: string
+          status: string
+          storage_path: string | null
+          updated_at: string
+          validation_checked_at: string | null
+          validation_evidence: Json | null
+          work_item_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "estado_attachment_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_estados_monitor_batch: {
         Args: { _lease_seconds?: number; _limit?: number; _run_id: string }
@@ -25896,6 +25990,15 @@ export type Database = {
       find_subsanacion_evidence_act: {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
+      }
+      finish_estado_attachment_download: {
+        Args: {
+          p_attempt: number
+          p_id: string
+          p_patch: Json
+          p_primary?: Json
+        }
+        Returns: boolean
       }
       finish_estados_monitor_hop: {
         Args: { _run_id: string }
@@ -26425,6 +26528,10 @@ export type Database = {
       }
       run_mode_authority_report: { Args: { p_since?: string }; Returns: Json }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
+      samai_publication_merge_evidence: {
+        Args: { existing: Json; incoming: Json }
+        Returns: Json
+      }
       samai_zero_actuaciones_report: { Args: never; Returns: Json }
       schema_access_probe: { Args: never; Returns: Json }
       search_work_items_normalized: {
