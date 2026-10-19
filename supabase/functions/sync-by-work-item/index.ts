@@ -3048,6 +3048,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}|${fechaRegistroVal}|${linkage.consecutivo ?? '00'}`;
       const decision = resolveActIdentity({
         v1: v1Fingerprint,
+        provider: (act as any)._source || fetchResult.provider,
         semanticKey,
         incoming: incomingOrigin,
         evidence: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,

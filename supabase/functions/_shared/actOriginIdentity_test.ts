@@ -281,3 +281,14 @@ Deno.test("identity: renumbered or cross-source indice with same text matches, n
 Deno.test("identity: differing solicitud still conflicts even with equal indice", () => {
   assertEquals(compareOrigins(extractActOrigin({ indice: 5, anotacion: A }), extractActOrigin({ indice: 5, anotacion: B })), "conflict");
 });
+
+Deno.test("identity: exact source request survives a corrected event date without another insert", () => {
+ const evidence = `${TITLE} - ${A}`;
+ const row: CandidateRow = {id:'prior-request',source:'samai',hash_fingerprint:'old-date-fp',semantic_key:'old-date-key',description:evidence,raw_data:{}};
+ const decision=resolveActIdentity({v1:'new-date-fp',semanticKey:'new-date-key',provider:'samai',incoming:extractActOrigin({indice:25,anotacion:A}),evidence,rows:[row]});
+ assertEquals(decision.kind,'match');
+ const otherProvider=resolveActIdentity({v1:'new-date-fp',semanticKey:'new-date-key',provider:'cpnu',incoming:extractActOrigin({indice:25,anotacion:A}),evidence,rows:[row]});
+ assertEquals(otherProvider.kind,'insert');
+ const changed=resolveActIdentity({v1:'new-date-fp',semanticKey:'new-date-key',provider:'samai',incoming:extractActOrigin({indice:25,anotacion:A}),evidence:evidence+' otra actuación',rows:[row]});
+ assertEquals(changed.kind,'insert');
+});

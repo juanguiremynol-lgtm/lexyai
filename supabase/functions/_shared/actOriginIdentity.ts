@@ -155,6 +155,7 @@ export function originVersionedFingerprint(v1: string, origin: ActOriginIdentity
 
 export interface CandidateRow {
   id: string;
+  source?: string | null;
   hash_fingerprint: string | null;
   semantic_key?: string | null;
   description: string | null;
@@ -174,12 +175,25 @@ export type IdentityDecision =
 export function resolveActIdentity(input: {
   v1: string;
   semanticKey: string | null;
+  provider?: string | null;
   incoming: ActOriginIdentity;
   /** Exact source text provides repeatability when origin components are absent. */
   evidence?: string | null;
   rows: CandidateRow[];
 }): IdentityDecision {
   const { v1, semanticKey, incoming } = input;
+  // A source request and its exact filing text can survive a corrected event
+  // date. A date-based fingerprint alone must not create the request again.
+  // Never use title/day alone, and retain ambiguity rather than choosing a row.
+  if (incoming.solicitud && input.evidence) {
+    const stable = input.rows.filter(r => (!input.provider || r.source === input.provider)
+      && originFromRow(r).solicitud === incoming.solicitud
+      && compareOrigins(originFromRow(r), incoming) !== 'conflict'
+      && clean(r.description) === clean(input.evidence));
+    const indexed = stable.filter(r => incoming.indice && originFromRow(r).indice === incoming.indice);
+    const candidate = indexed.length === 1 ? indexed[0] : stable.length === 1 ? stable[0] : null;
+    if (candidate) return { kind: 'match', row: candidate, relation: 'equivalent', via: 'semantic' };
+  }
   const byFp = input.rows.filter(
     (r) => r.hash_fingerprint === v1 || (r.hash_fingerprint ?? "").startsWith(`${v1}_o`),
   );
