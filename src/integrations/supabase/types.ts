@@ -26367,6 +26367,10 @@ export type Database = {
       platform_verification_snapshot: { Args: never; Returns: Json }
       portfolio_appellate_blindspots: { Args: never; Returns: Json }
       portfolio_silent_success: { Args: { p_days?: number }; Returns: Json }
+      pp_public_document_path_matches: {
+        Args: { p_proof: Json; p_pub: string; p_url: string }
+        Returns: boolean
+      }
       propose_client_party_roles: {
         Args: never
         Returns: {
