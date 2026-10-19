@@ -295,6 +295,13 @@
       "when": 1792257690267,
       "tag": "0041_atenia_ai_reserve_uses_server_bogota_date",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792445026562,
+      "tag": "0042_qualify_legal_text_digest",
+      "breakpoints": true
     }
   ]
 }
