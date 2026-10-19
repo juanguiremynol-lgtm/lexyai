@@ -1,3 +1,13 @@
+Production follow-up: migration007 preserves ZIP/XLSX reading evidence separately
+from PDF evidence. The native body-CAS suite has six tests, including TS/SQL
+observation-order parity for archives and retained member associations when
+bytes are identical. The collector reads every supported ZIP member, validates
+CRC and parses/renders PDF members; XLSX validation reads workbook relationships
+and stored worksheet values, without recalculating formulas. Neither checksum,
+readability nor a source descriptor certifies complete integrity or legal content
+attribution. Unsupported members remain pending. A ZIP remains one source
+attachment with its own member manifest, not separate source solicitudes.
+
 # Native integration harness for sync-by-work-item
 
 Production verification added migration006, `rpc_enrich_work_item_act`, to keep

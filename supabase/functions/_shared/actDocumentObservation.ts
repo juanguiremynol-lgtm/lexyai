@@ -1,7 +1,7 @@
 /** Current download observations are ordered independently of protected act text.
  * URL-only legacy descriptors keep their earlier additive merge behaviour. */
 type Doc = Record<string, any>;
-const fields = ['gcs', 'gcs_url', 'sha256', 'pdf_verificacion', 'descarga_estado', 'descarga_error',
+const fields = ['gcs', 'gcs_url', 'sha256', 'pdf_verificacion', 'archivo_verificacion', 'descarga_estado', 'descarga_error',
   'descarga_intentos', 'descarga_observado_en', 'recuperacion_cache', 'disponible', 'url', 'urlDescarga', 'urlVer'];
 const attemptFields = ['descarga_estado', 'descarga_error', 'descarga_intentos', 'descarga_observado_en', 'recuperacion_cache'];
 const invalid = ['stored_object_missing', 'stored_hash_mismatch', 'stored_pdf_invalid'];
@@ -15,7 +15,9 @@ export function documentObservationAt(value: any): number | null {
   const time = Date.parse(date);
   return Number.isFinite(time) ? time : null;
 }
-const proof = (doc: Doc) => doc.descarga_estado === 'descargado_y_leido' && !!doc.pdf_verificacion && !!(doc.gcs_url || doc.urlDescarga || doc.url);
+export const hasArchiveReading = (doc: Doc) => doc.archivo_verificacion?.lectura_completa === true
+  && doc.archivo_verificacion?.crc_comprobado === true && ['zip', 'xlsx'].includes(doc.archivo_verificacion?.formato);
+const proof = (doc: Doc) => doc.descarga_estado === 'descargado_y_leido' && !!(doc.pdf_verificacion || hasArchiveReading(doc)) && !!(doc.gcs_url || doc.urlDescarga || doc.url);
 function history(values: any[]): any[] {
   const out: any[] = [];
   for (const value of values) {
@@ -60,12 +62,13 @@ export function mergeDocumentObservation(previous: Doc, incoming: Doc, merged: D
       merged.disponible = true;
       delete merged.descarga_error;
     } else if (proof(previous) && !invalidates(previous, incoming)) {
-      copyFields(merged, previous, ['gcs', 'gcs_url', 'sha256', 'pdf_verificacion', 'descarga_estado', 'disponible', 'url', 'urlDescarga', 'urlVer']);
+      copyFields(merged, previous, ['gcs', 'gcs_url', 'sha256', 'pdf_verificacion', 'archivo_verificacion', 'descarga_estado', 'disponible', 'url', 'urlDescarga', 'urlVer']);
     } else {
       merged.gcs = false;
       merged.gcs_url = null;
       delete merged.sha256;
       delete merged.pdf_verificacion;
+      delete merged.archivo_verificacion;
       merged.url = incoming.url_origen || incoming.urlDescargaOriginal || incoming.urlDescarga || incoming.url || null;
       merged.urlDescarga = merged.url;
       merged.urlVer = incoming.urlVerOriginal || merged.url;

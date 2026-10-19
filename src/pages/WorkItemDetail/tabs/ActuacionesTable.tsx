@@ -279,7 +279,7 @@ function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
   const seen = new Set<string>();
   const documents = descriptors.filter((doc, index) => {
     const d = doc as unknown as Record<string, unknown>;
-    const identity = d.id || d.tokenDocumento || d.id_documento || d.gcs_url || d.urlDescarga || d.url || d.urlVer;
+    const identity = d.id || d.tokenDocumento || d.id_documento || d.url_origen || d.urlDescargaOriginal || d.urlDescarga || d.url || d.urlVer || d.gcs_url;
     const key = identity ? String(identity) : `unlinked:${index}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -294,11 +294,20 @@ function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
         const d = doc as unknown as Record<string, unknown>;
         const href = [d.gcs_url, d.url, d.urlDescarga, d.urlVer].find(isAbsoluteHttpUrl) as string | undefined;
         const cause = knownDocumentPendingCause(doc);
+        const fileReading = d.archivo_verificacion as { formato?: string; lectura_completa?: boolean; crc_comprobado?: boolean; miembros?: { name: string }[]; hojas_leidas?: number } | undefined;
+        const pdfReading = d.pdf_verificacion as { paginas?: number; avisos_lector?: string } | undefined;
+        const storedReading = d.descarga_estado === 'descargado_y_leido' && !!d.gcs_url && !!d.sha256
+          && (!!pdfReading || (fileReading?.lectura_completa === true && fileReading.crc_comprobado === true && ['zip', 'xlsx'].includes(fileReading.formato || '')));
         return (
           <div key={index} className="flex flex-col gap-0.5 border-l border-border pl-2">
             <span>{actDocumentoLabel(doc, index)}</span>
-            {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">Abrir enlace registrado</a> : <span className="text-muted-foreground">Pendiente de recuperación automática</span>}
-            <span className="text-muted-foreground">{cause || 'Archivo completo y correspondencia documental sin verificar en esta vista.'}</span>
+            {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">{storedReading ? 'Abrir archivo almacenado' : 'Abrir enlace registrado'}</a> : <span className="text-muted-foreground">Pendiente de recuperación automática</span>}
+            <span className="text-muted-foreground">{cause || (storedReading && fileReading?.lectura_completa
+              ? `Lectura automática registrada: ${fileReading.formato === 'zip' ? `${fileReading.miembros?.length || 0} documentos dentro del ZIP` : `${fileReading.hojas_leidas || 0} hojas de cálculo`}. No certifica integridad completa ni atribución del contenido.`
+              : storedReading && pdfReading ? `PDF almacenado y leído automáticamente (${pdfReading.paginas || '?'} páginas). Correspondencia del contenido con la actuación pendiente de revisión.`
+              : 'Recuperación automática pendiente; el enlace por sí solo no acredita un archivo disponible.')}</span>
+            {fileReading?.miembros?.map(member => <span key={member.name} className="text-muted-foreground">Contenido: {member.name}</span>)}
+            {(d.pdf_verificacion as { avisos_lector?: string } | undefined)?.avisos_lector && <span className="text-muted-foreground">La lectura automática del PDF registró avisos del lector; su contenido requiere cautela.</span>}
           </div>
         );
       })}

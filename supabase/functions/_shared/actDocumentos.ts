@@ -1,4 +1,4 @@
-import { documentObservationAt, mergeDocumentObservation } from './actDocumentObservation.ts';
+import { documentObservationAt, mergeDocumentObservation, hasArchiveReading } from './actDocumentObservation.ts';
 /**
  * actDocumentos.ts — ITERATION 60.
  *
@@ -87,7 +87,7 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
       url_origen: origen,
       fecha_carga: str(src, FECHA_KEYS),
       estado: str(src, ESTADO_KEYS) ?? (url ? null : "SIN_ENLACE_DEL_PROVEEDOR"),
-      disponible: documentObservationAt(src) == null ? !!url : src.descarga_estado === 'descargado_y_leido' && !!src.pdf_verificacion && !!url,
+      disponible: documentObservationAt(src) == null ? !!url : src.descarga_estado === 'descargado_y_leido' && !!(src.pdf_verificacion || hasArchiveReading(src)) && !!url,
     };
     // A descriptor with no identity, no URL and no filename carries nothing.
     if (Object.keys(src).length === 0) continue;
