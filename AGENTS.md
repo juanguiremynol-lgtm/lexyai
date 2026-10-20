@@ -24,3 +24,4 @@
 - After a confirmed act write, sync must abort on a failed or missing read-back before processing another act — an incomplete candidate set can reuse an already committed fingerprint.
 - The generated MCP bundle (supabase/functions/mcp/index.ts) is type-stripped JS: type-check its source with tsconfig.mcp.json and validate the artifact with scripts/check-mcp-artifact.ts — never hand-edit or suppress the artifact.
 - A CPNU snapshot flagged stale whose live re-read was deferred never counts as a successful sync (no SUCCESS, no last_synced_at advance; last_error_code CPNU_SNAPSHOT_STALE_DEFERRED) — prevents silent coverage gaps.
+- Official Rama portal documents (publicacionesprocesales get_file) are recovered only via the attachment queue with raw_data.recuperacion_oficial {url, sha256, article_id, id_despacho, fecha}; worker and finish_estado_attachment_download both require exact URL+SHA match — never title/date matching.
