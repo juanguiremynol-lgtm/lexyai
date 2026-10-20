@@ -677,7 +677,10 @@ const STAGE_INFERENCE_PATTERNS: Array<{
 }> = [
   // ============= AUTO ADMISORIO (HIGH CONFIDENCE) =============
   {
-    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda', 'se admite demanda'],
+    // CPNU registers admission as "Auto Admite - Auto Avoca - demanda" or
+    // "Auto Avoca - Admite demanda"; bare "auto admite" is NOT used because it
+    // also prefixes "Auto admite recurso…".
+    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda', 'se admite demanda', 'admite demanda', 'auto admite - auto avoca - demanda'],
     stages: { CGP: 'AUTO_ADMISORIO', LABORAL: 'AUTO_ADMISORIO', CPACA: 'AUTO_ADMISORIO', TUTELA: 'TUTELA_ADMITIDA' },
     confidence: 0.9,
     reason: 'Auto admisorio detectado en actuación',
