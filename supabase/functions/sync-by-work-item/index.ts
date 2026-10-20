@@ -3481,18 +3481,22 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     const persistenceFailed = persistLedger.errored > 0 || persistLedger.rejected > 0 || persistLedger.skippedStructural > 0;
     if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
-    const syncOk = anyProviderSucceeded && !allProvidersFailed && !persistenceFailed;
+    // A CPNU snapshot flagged stale by the freshness gate whose live re-read was
+    // deferred is NOT evidence of an up-to-date expediente: it must never be
+    // stamped as SUCCESS nor advance last_synced_at (silent-failure guard).
+    const staleSnapshotDeferred = result.cpnu_buscar_deferred === true && !result.cpnu_buscar_used;
+    const syncOk = anyProviderSucceeded && !allProvidersFailed && !persistenceFailed && !staleSnapshotDeferred;
     const nowIso = new Date().toISOString();
 
     if (!syncOk) {
-      console.warn(`[SYNC_INTEGRITY_FAIL] ${result.code || 'ALL_PROVIDERS_FAILED'} for work_item ${work_item_id}. last_synced_at will NOT advance.`, {
+      console.warn(`[SYNC_INTEGRITY_FAIL] ${staleSnapshotDeferred ? 'CPNU_SNAPSHOT_STALE_DEFERRED' : (result.code || 'ALL_PROVIDERS_FAILED')} for work_item ${work_item_id}. last_synced_at will NOT advance.`, {
         providers: result.provider_attempts.map(a => ({ provider: a.provider, status: a.status })),
         correlationId: traceId,
       });
     }
 
     const updatePayload: Record<string, unknown> = {
-      scrape_status: allProvidersFailed ? 'FAILED' : (result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS'),
+      scrape_status: allProvidersFailed ? 'FAILED' : ((result.errors.length > 0 || staleSnapshotDeferred) ? 'PARTIAL_SUCCESS' : 'SUCCESS'),
       last_crawled_at: nowIso,
       last_checked_at: nowIso,
       last_attempted_sync_at: nowIso, // ALWAYS update attempt timestamp
@@ -3506,6 +3510,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         consecutive_failures: 0,
         last_error_code: null,
         provider_reachable: true,
+      } : staleSnapshotDeferred ? {
+        provider_reachable: true,
+        last_error_code: 'CPNU_SNAPSHOT_STALE_DEFERRED',
       } : {
         provider_reachable: anyProviderSucceeded,
         last_error_code: result.code || 'ALL_PROVIDERS_FAILED',
