@@ -1,3 +1,4 @@
+import { locateCaseInPackagePages, verifyDeclaredCasePages } from './publisherResolution.ts';
 export interface EstadoQueueRow {
   id: string;
   publicacion_id: string;
@@ -17,13 +18,15 @@ export interface EstadoPdfReading {
   pagesRead: number;
   textSha256: string;
   method: string;
+  /** Per-page text, used in-memory only (never persisted in evidence). */
+  pageTexts?: string[];
 }
 
 export interface EstadoRecoveryPorts {
   publication: () => Promise<EstadoPublication>;
   readStored: (path: string) => Promise<Uint8Array | null>;
   fetchOrigin: (url: string) => Promise<Uint8Array>;
-  inspect: (bytes: Uint8Array) => Promise<EstadoPdfReading>;
+  inspect: (bytes: Uint8Array, onlyPages?: number[]) => Promise<EstadoPdfReading>;
   upload: (path: string, bytes: Uint8Array) => Promise<void>;
   saveQueue: (patch: Record<string, unknown>) => Promise<void>;
   /** Implementations update only this publication's primary document. */
@@ -101,7 +104,15 @@ export function officialPortalRecoveryHash(pub: { raw_data?: unknown }, url: str
     if (r?.url !== url || typeof r?.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(r.sha256)) continue;
     if (!String(url).startsWith('https://publicacionesprocesales.ramajudicial.gov.co/c/document_library/get_file?')) continue;
     if (!r.article_id || !r.id_despacho || !r.fecha) continue;
-    return { method: 'official_portal_recovery', expected_sha256: r.sha256, article_id: r.article_id, id_despacho: r.id_despacho, fecha: r.fecha };
+    const out: Record<string, unknown> = { method: 'official_portal_recovery', expected_sha256: r.sha256, article_id: r.article_id, id_despacho: r.id_despacho, fecha: r.fecha };
+    // Multi-providencia package from a central publisher: the case must be
+    // located on the declared pages, never assumed for the whole package.
+    const pk = r.paquete;
+    if (pk) {
+      if (!/^\d{23}$/.test(String(pk.radicado || '')) || typeof pk.despacho_autor_nombre !== 'string' || !Array.isArray(pk.paginas_caso)) return null;
+      out.paquete = pk;
+    }
+    return out;
   }
   return null;
 }
@@ -118,6 +129,9 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
     const official = officialPortalRecoveryHash(pub, row.remote_url);
     const expectedHash = declaredEstadoDocumentHash(pub, row.remote_url) ?? (official?.expected_sha256 as string | undefined) ?? null;
     const sourceIdentity = publicPpDocumentCorrespondence(pub, row.remote_url);
+    const declaredPages: number[] | undefined = (official as any)?.paquete?.paginas_caso
+      ?.flatMap(([a, b]: [number, number]) => Array.from({ length: Math.max(0, Math.min(b, a + 20) - a + 1) }, (_, i) => a + i));
+    const inspectFirst = (b: Uint8Array) => ports.inspect(b, declaredPages);
     let bytes: Uint8Array | null = null;
     let reading: EstadoPdfReading | null = null;
     let source = 'origin';
@@ -127,7 +141,7 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
         bytes = await ports.readStored(path);
         storageReadCompleted = true;
         if (!bytes) throw new Error('stored_file_missing');
-        reading = await ports.inspect(bytes);
+        reading = await inspectFirst(bytes);
         if (expectedHash && reading.sha256 !== expectedHash) throw new Error('stored_document_mismatch');
         if (!expectedHash && !(evidence.source_url === row.remote_url && evidence.queue_id === row.id
             && (evidence.reading as EstadoPdfReading | undefined)?.sha256 === reading.sha256)) {
@@ -152,7 +166,7 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
     }
     if (!bytes || !reading) {
       bytes = await ports.fetchOrigin(row.remote_url);
-      reading = await ports.inspect(bytes);
+      reading = await inspectFirst(bytes);
       if (expectedHash && reading.sha256 !== expectedHash) throw new Error('source_document_hash_mismatch');
       // Same filename never means the same document. Content address is scoped
       // to BOTH publication and queue identity; retries of identical bytes reuse it.
@@ -160,8 +174,7 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       await ports.upload(candidatePath, bytes);
       const stored = await ports.readStored(candidatePath);
       if (!stored) throw new Error('stored_readback_missing');
-      const checked = await ports.inspect(stored);
-      if (checked.sha256 !== reading.sha256) throw new Error('stored_readback_mismatch');
+      if (await sha256Hex(stored) !== reading.sha256) throw new Error('stored_readback_mismatch');
       path = candidatePath;
     }
     const associationPath = `${row.publicacion_id}/${row.id}/${reading.sha256}.pdf`;
@@ -170,14 +183,25 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       // namespace; neither the original object nor other references are changed.
       await ports.upload(associationPath, bytes);
       const stored = await ports.readStored(associationPath);
-      if (!stored || (await ports.inspect(stored)).sha256 !== reading.sha256) throw new Error('stored_readback_mismatch');
+      if (!stored || await sha256Hex(stored) !== reading.sha256) throw new Error('stored_readback_mismatch');
       path = associationPath;
     }
-    const verified = !!expectedHash && reading.sha256 === expectedHash || !!sourceIdentity;
+    let verified = !!expectedHash && reading.sha256 === expectedHash || !!sourceIdentity;
+    let packageEvidence: Record<string, unknown> | null = null;
+    const pk = (official as any)?.paquete;
+    if (verified && pk) {
+      const located = locateCaseInPackagePages(reading.pageTexts ?? [], pk.radicado, pk.despacho_autor_nombre,
+        !!pk.publicador && pk.publicador === pk.despacho_autor && pk.publicador === String(pk.radicado).slice(0, 12));
+      const ok = verifyDeclaredCasePages(located, pk.paginas_caso);
+      packageEvidence = { radicado: pk.radicado, publicador: pk.publicador ?? null, despacho_autor: pk.despacho_autor ?? null, paginas_declaradas: pk.paginas_caso, paginas_localizadas: located, verificado: ok };
+      if (!ok) verified = false;
+    }
+    const { pageTexts: _omit, ...readingEvidence } = reading;
     evidence = {
       ...evidence,
       state: verified ? 'verified' : 'obtained_pending_correspondence',
-      reading,
+      reading: readingEvidence,
+      ...(packageEvidence ? { paquete: packageEvidence } : {}),
       source_url: row.remote_url,
       queue_id: row.id,
       publicacion_id: row.publicacion_id,
@@ -210,4 +234,10 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
     });
     return { success: false, error: message };
   }
+}
+
+/** Storage read-back only needs byte identity; the PDF was already parsed. */
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes).buffer);
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
