@@ -62,6 +62,33 @@ function str(raw: Record<string, unknown>, keys: string[]): string | null {
   return null;
 }
 
+/** A retained source URL is provenance even after its download fails; it must
+ * not turn a failed download back into an available document. Only a dated,
+ * fully read own copy may outrank a legacy failed provider status. */
+function failedDownload(doc: Record<string, unknown>): boolean {
+  const state = str(doc, ESTADO_KEYS)?.toUpperCase();
+  if (state == null || !['FALLIDO', 'FAILED', 'ERROR', 'ERROR_DESCARGA'].includes(state)) return false;
+  const reading = doc.pdf_verificacion as Record<string, unknown> | undefined;
+  const pdfRead = Number.isSafeInteger(reading?.paginas) && Number(reading?.paginas) > 0
+    && reading?.paginas_leidas === reading?.paginas
+    && Number.isSafeInteger(reading?.bytes) && Number(reading?.bytes) > 5
+    && typeof reading?.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(reading.sha256 as string)
+    && (doc.sha256 == null || doc.sha256 === reading?.sha256);
+  const ownCopy = [doc.gcs_url, doc.url].some((value) => {
+    if (typeof value !== 'string' || /%2f|%5c|\\|(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f|$)/i.test(value)) return false;
+    try {
+      const url = new URL(value);
+      const [bucket, object] = url.pathname.split('/').filter(Boolean);
+      return url.protocol === 'https:' && url.hostname === 'storage.googleapis.com'
+        && !url.port && !url.username && !url.password && !url.search && !url.hash && !!object
+        && ['andromeda-cpnu-documentos-2026', 'andromeda-samai-documentos-2026'].includes(bucket);
+    } catch { return false; }
+  });
+  if (documentObservationAt(doc) != null && doc.descarga_estado === 'descargado_y_leido'
+    && ownCopy && (pdfRead || hasArchiveReading(doc))) return false;
+  return true;
+}
+
 /**
  * Normalize the provider's `documentos` payload.
  * Returns `null` when the provider did not express the field at all — that is
@@ -88,7 +115,7 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
       url_origen: origen,
       fecha_carga: str(src, FECHA_KEYS),
       estado: str(src, ESTADO_KEYS) ?? (url ? null : "SIN_ENLACE_DEL_PROVEEDOR"),
-      disponible: documentObservationAt(src) == null ? !!url : src.descarga_estado === 'descargado_y_leido' && !!(src.pdf_verificacion || hasArchiveReading(src)) && !!url,
+      disponible: !failedDownload(src) && (documentObservationAt(src) == null ? !!url : src.descarga_estado === 'descargado_y_leido' && !!(src.pdf_verificacion || hasArchiveReading(src)) && !!url),
     };
     // A descriptor with no identity, no URL and no filename carries nothing.
     if (Object.keys(src).length === 0) continue;
@@ -112,6 +139,7 @@ export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDoc
   for (const value of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
     if (!value || typeof value !== 'object') continue;
     const doc = { ...value } as ActDocumento;
+    if (failedDownload(doc)) doc.disponible = false;
     const index = out.findIndex((old) => {
       if (old.sha256 && doc.sha256 && old.sha256 !== doc.sha256) return false;
       const grant = sameSamaiGrant(old,doc);
@@ -133,6 +161,7 @@ export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDoc
     if (merged.disponible && merged.estado === 'SIN_ENLACE_DEL_PROVEEDOR') merged.estado = doc.estado === 'SIN_ENLACE_DEL_PROVEEDOR' ? null : doc.estado;
     if (sameSamaiGrant(old,doc) === true) merged.token_aliases = [...new Set([...(Array.isArray(old.token_aliases) ? old.token_aliases : []), ...(Array.isArray(doc.token_aliases) ? doc.token_aliases : []), old.tokenDocumento, doc.tokenDocumento].filter(Boolean))];
     merged = mergeDocumentObservation(old, doc, merged) as ActDocumento;
+    if (failedDownload(merged)) merged.disponible = false;
     out[index] = merged;
   }
   return out;
