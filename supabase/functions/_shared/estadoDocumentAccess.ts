@@ -18,6 +18,8 @@ export function estadoDocumentAccess(rawUrl: string, env: Env): { apiKey: string
   }
   if (url.hostname === 'storage.googleapis.com' && url.pathname.startsWith('/andromeda-samai-documentos-2026/')) return null;
   if (url.hostname === 'samaicore.consejodeestado.gov.co' && url.pathname.startsWith('/api/DescargarProvidenciaPublica/')) return null;
+  // Official Rama Judicial public portal (anonymous download, never a key).
+  if (url.hostname === 'publicacionesprocesales.ramajudicial.gov.co' && url.pathname === '/c/document_library/get_file') return null;
   throw new Error('document_origin_not_authorized');
 }
 

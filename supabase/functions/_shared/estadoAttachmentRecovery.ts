@@ -90,6 +90,22 @@ export function declaredEstadoDocumentHash(pub: { pdf_url?: string | null; raw_d
   return null;
 }
 
+/** Official-portal recovery evidence: a document located on the public
+ * Publicaciones Procesales portal (article + despacho + date) whose anonymous
+ * download SHA256 was recorded in raw_data.recuperacion_oficial. Only an exact
+ * URL + SHA match counts; never a title, date or filename. */
+export function officialPortalRecoveryHash(pub: { raw_data?: unknown }, url: string): Record<string, unknown> | null {
+  const list = (pub.raw_data as any)?.recuperacion_oficial;
+  if (!Array.isArray(list)) return null;
+  for (const r of list) {
+    if (r?.url !== url || typeof r?.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(r.sha256)) continue;
+    if (!String(url).startsWith('https://publicacionesprocesales.ramajudicial.gov.co/c/document_library/get_file?')) continue;
+    if (!r.article_id || !r.id_despacho || !r.fecha) continue;
+    return { method: 'official_portal_recovery', expected_sha256: r.sha256, article_id: r.article_id, id_despacho: r.id_despacho, fecha: r.fecha };
+  }
+  return null;
+}
+
 /** Recovery core. Storage/HTTP are injected so tests execute this exact state
  * machine without remote writes. Every completion must be confirmed by storage
  * read-back and a checked DB write; attempts are claimed, never refunded. */
@@ -99,7 +115,8 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
   let evidence: Record<string, unknown> = row.validation_evidence ?? {};
   try {
     const pub = await ports.publication();
-    const expectedHash = declaredEstadoDocumentHash(pub, row.remote_url);
+    const official = officialPortalRecoveryHash(pub, row.remote_url);
+    const expectedHash = declaredEstadoDocumentHash(pub, row.remote_url) ?? (official?.expected_sha256 as string | undefined) ?? null;
     const sourceIdentity = publicPpDocumentCorrespondence(pub, row.remote_url);
     let bytes: Uint8Array | null = null;
     let reading: EstadoPdfReading | null = null;
@@ -165,7 +182,8 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       queue_id: row.id,
       publicacion_id: row.publicacion_id,
       download_source: source,
-      correspondence: expectedHash ? { method: 'source_declared_sha256', expected_sha256: expectedHash }
+      correspondence: official && expectedHash === official.expected_sha256 ? official
+        : expectedHash ? { method: 'source_declared_sha256', expected_sha256: expectedHash }
         : sourceIdentity || { method: null, reason: 'specific_document_identity_not_verified' },
       checked_at: now().toISOString(),
       // Neither SHA equality nor full-page parsing asserts complete integrity,

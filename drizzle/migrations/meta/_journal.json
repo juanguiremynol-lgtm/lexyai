@@ -302,6 +302,13 @@
       "when": 1792445026562,
       "tag": "0042_qualify_legal_text_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792534272852,
+      "tag": "0043_estado_official_portal_recovery",
+      "breakpoints": true
     }
   ]
 }
