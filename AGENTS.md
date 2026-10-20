@@ -23,3 +23,4 @@
 - Historical contamination repair in sync is off by default (HISTORICAL_REPAIR_SCOPE=null); it may run only for explicitly approved SAMAI act ids after a backup — normal sync must never rewrite history.
 - After a confirmed act write, sync must abort on a failed or missing read-back before processing another act — an incomplete candidate set can reuse an already committed fingerprint.
 - The generated MCP bundle (supabase/functions/mcp/index.ts) is type-stripped JS: type-check its source with tsconfig.mcp.json and validate the artifact with scripts/check-mcp-artifact.ts — never hand-edit or suppress the artifact.
+- A CPNU snapshot flagged stale whose live re-read was deferred never counts as a successful sync (no SUCCESS, no last_synced_at advance; last_error_code CPNU_SNAPSHOT_STALE_DEFERRED) — prevents silent coverage gaps.
