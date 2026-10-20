@@ -73,6 +73,7 @@ import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
+import { ActAttachmentInventory } from "@/components/work-items/ActAttachmentInventory";
 
 /* ── types ── */
 
@@ -97,6 +98,9 @@ interface ActRow {
   demandados: string | null;
   is_annulled: boolean;
   estado_raw: string | null;
+  documentos: unknown;
+  documentos_observados_en: string | null;
+  raw_data: Record<string, unknown>;
 }
 
 /* ── helpers ── */
@@ -157,6 +161,7 @@ export default function ActuacionesHoy() {
         .select(
           `id, work_item_id, description, event_summary, despacho, act_type, act_date,
            fecha_registro_source, detected_at, inicia_termino, source, source_url, raw_data,
+           documentos, documentos_observados_en,
            work_items!inner(id, radicado, workflow_type, organization_id, demandantes, demandados)`,
         )
         .eq("work_items.organization_id", organization.id)
@@ -196,6 +201,9 @@ export default function ActuacionesHoy() {
           demandados: r.work_items?.demandados || null,
           is_annulled,
           estado_raw: estado,
+          documentos: r.documentos,
+          documentos_observados_en: r.documentos_observados_en || null,
+          raw_data: raw,
         } as ActRow;
       });
     },
@@ -603,6 +611,8 @@ function ActCard({
         {a.annotation && (
           <p className="text-sm text-foreground/75 line-clamp-3">{a.annotation}</p>
         )}
+
+        <ActAttachmentInventory act={a} />
 
         {/* Inline term badge (only when despacho diligenció ancla o motor generó deadline) */}
         {!a.is_annulled && matched && termDays !== null && (

@@ -42,7 +42,8 @@ describe('document actions in the radicado UI', () => {
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,blob:async()=>new Blob(['file'])}));
     Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=> 'blob:download')});
     Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});
-    render(<ActDocumentLinks document={{gcs_url:own,nombre:'Documento.pdf'}} />);
+    render(<ActDocumentLinks document={{gcs_url:own,nombre:'Documento.pdf',descarga_estado:'descargado_y_leido',sha256:'a'.repeat(64),
+      pdf_verificacion:{paginas:1,paginas_leidas:1,bytes:2048,sha256:'a'.repeat(64)}}} />);
     expect(screen.getByRole('link',{name:'Abrir archivo almacenado'}).getAttribute('href')).toBe(own);
     fireEvent.click(screen.getByRole('button',{name:'Descargar'}));
     await waitFor(()=>expect(click).toHaveBeenCalled());
