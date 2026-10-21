@@ -6444,18 +6444,21 @@ export type Database = {
         Row: {
           acknowledged_at: string | null
           deadline_id: string
+          event_key: string | null
           snoozed_until: string | null
           user_id: string
         }
         Insert: {
           acknowledged_at?: string | null
           deadline_id: string
+          event_key?: string | null
           snoozed_until?: string | null
           user_id: string
         }
         Update: {
           acknowledged_at?: string | null
           deadline_id?: string
+          event_key?: string | null
           snoozed_until?: string | null
           user_id?: string
         }
@@ -19585,6 +19588,7 @@ export type Database = {
           organization_id: string | null
           owner_id: string
           requires_manual_review: boolean
+          source_event_id: string | null
           status: string
           supersedes_deadline_id: string | null
           term_class: Database["public"]["Enums"]["term_class"]
@@ -19617,6 +19621,7 @@ export type Database = {
           organization_id?: string | null
           owner_id: string
           requires_manual_review?: boolean
+          source_event_id?: string | null
           status?: string
           supersedes_deadline_id?: string | null
           term_class?: Database["public"]["Enums"]["term_class"]
@@ -19649,6 +19654,7 @@ export type Database = {
           organization_id?: string | null
           owner_id?: string
           requires_manual_review?: boolean
+          source_event_id?: string | null
           status?: string
           supersedes_deadline_id?: string | null
           term_class?: Database["public"]["Enums"]["term_class"]
@@ -25462,6 +25468,7 @@ export type Database = {
         Returns: {
           acknowledged_at: string | null
           deadline_id: string
+          event_key: string | null
           snoozed_until: string | null
           user_id: string
         }[]
@@ -26091,6 +26098,17 @@ export type Database = {
       deadline_business_day_walk: {
         Args: { p_anchor: string; p_days: number }
         Returns: Json
+      }
+      deadline_event_key: {
+        Args: {
+          p_bound_party_role: string
+          p_deadline_type: string
+          p_source_event_id: string
+          p_trigger_date: string
+          p_trigger_event: string
+          p_work_item_id: string
+        }
+        Returns: string
       }
       deadline_rule_override: {
         Args: { p_deadline_type: string; p_work_item_id: string }
