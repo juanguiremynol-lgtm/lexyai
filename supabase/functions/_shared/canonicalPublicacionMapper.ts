@@ -164,6 +164,12 @@ export interface ProviderPubUnit {
   raw_data?: Record<string, unknown>;
 }
 
+function isOfficialPortalFile(u: unknown): boolean {
+  return typeof u === "string"
+    && /^https:\/\/publicacionesprocesales\.ramajudicial\.gov\.co\/c\/document_library\/get_file\?/i.test(u)
+    && /[?&]uuid=[0-9a-f-]{36}/i.test(u);
+}
+
 function buildEstadoUnit(raw: any): ProviderPubUnit | null {
   const estadoObj = raw?.estado && typeof raw.estado === "object" ? raw.estado : null;
   const estadoDoc = findDocumentByType(raw, "estado");
@@ -207,7 +213,12 @@ function buildEstadoUnit(raw: any): ProviderPubUnit | null {
     estado_numero: estadoNumero,
     planilla_sin_documento: sinDocumento,
     asset_id: firstNonEmptyString(estadoArticleId, estadoNumero, estadoTitle, estadoDateRaw),
-    url: firstNonEmptyString(raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url),
+    // Role-scoped: the estado's own official portal link wins. The row-level
+    // url/entry_url can point at the individual auto of the same article.
+    url: firstNonEmptyString(
+      isOfficialPortalFile(estadoObj?.pdf_url) ? estadoObj?.pdf_url : undefined,
+      raw?.entry_url, raw?.url, raw?.enlace, raw?.pdf_referencia_url,
+    ),
     titulo: estadoTitle || estadoObj?.titulo_original || "Estado Electrónico",
     fecha_publicacion: estadoDateRaw,
     fecha_hora_inicio: null,
