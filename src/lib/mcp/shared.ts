@@ -12,15 +12,56 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ToolContext } from "@lovable.dev/mcp-js";
 import { digitsOf, radicadoQueryVariants } from "../search/normalized-search";
 
+type RuntimeGlobals = typeof globalThis & {
+  Deno?: { env?: { get?: (name: string) => string | undefined } };
+  process?: { env?: Record<string, string | undefined> };
+};
+
+// Edge runtime: Deno.env is authoritative; `process` may be absent. Reading
+// `process.env` directly threw ReferenceError/"supabaseKey is required" inside
+// every handler, surfacing to clients as JSON-RPC -32603.
+function runtimeEnv(name: string): string | undefined {
+  const rt = globalThis as RuntimeGlobals;
+  const v = rt.Deno?.env?.get?.(name) ?? rt.process?.env?.[name];
+  return v?.trim() || undefined;
+}
+
+export function supabaseProjectUrl(): string {
+  const url = runtimeEnv("SUPABASE_URL") ?? runtimeEnv("VITE_SUPABASE_URL");
+  if (!url) throw new Error("SUPABASE_URL no configurada en el runtime MCP");
+  return url;
+}
+
+export function supabasePublishableKey(): string {
+  const direct = runtimeEnv("SUPABASE_PUBLISHABLE_KEY") ?? runtimeEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
+  if (direct) return direct;
+  const keyset = runtimeEnv("SUPABASE_PUBLISHABLE_KEYS");
+  if (keyset) {
+    try {
+      const parsed: unknown = JSON.parse(keyset);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const keys = parsed as Record<string, unknown>;
+        const key = [keys.default, ...Object.values(keys)]
+          .find((v): v is string => typeof v === "string" && v.trim().startsWith("sb_publishable_"))
+          ?.trim();
+        if (key) return key;
+      }
+    } catch {
+      // Malformed dictionary; fall back to legacy key.
+    }
+  }
+  const legacy = runtimeEnv("SUPABASE_ANON_KEY") ?? runtimeEnv("VITE_SUPABASE_ANON_KEY");
+  if (legacy) return legacy;
+  throw new Error("Clave pública del backend no configurada en el runtime MCP");
+}
+
 export function sbForUser(ctx: ToolContext): SupabaseClient {
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY!,
-    {
-      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    },
-  );
+  const token = ctx.getToken();
+  if (!token) throw new Error("sbForUser requiere un token OAuth verificado");
+  return createClient(supabaseProjectUrl(), supabasePublishableKey(), {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 /**

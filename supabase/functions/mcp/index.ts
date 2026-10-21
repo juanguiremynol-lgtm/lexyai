@@ -39,15 +39,42 @@ function radicadoQueryVariants(query) {
 }
 
 // src/lib/mcp/shared.ts
-function sbForUser(ctx) {
-  return createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY,
-    {
-      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-      auth: { persistSession: false, autoRefreshToken: false }
+function runtimeEnv(name) {
+  const rt = globalThis;
+  const v = rt.Deno?.env?.get?.(name) ?? rt.process?.env?.[name];
+  return v?.trim() || void 0;
+}
+function supabaseProjectUrl2() {
+  const url = runtimeEnv("SUPABASE_URL") ?? runtimeEnv("VITE_SUPABASE_URL");
+  if (!url) throw new Error("SUPABASE_URL no configurada en el runtime MCP");
+  return url;
+}
+function supabasePublishableKey2() {
+  const direct = runtimeEnv("SUPABASE_PUBLISHABLE_KEY") ?? runtimeEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
+  if (direct) return direct;
+  const keyset = runtimeEnv("SUPABASE_PUBLISHABLE_KEYS");
+  if (keyset) {
+    try {
+      const parsed = JSON.parse(keyset);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const keys = parsed;
+        const key = [keys.default, ...Object.values(keys)].find((v) => typeof v === "string" && v.trim().startsWith("sb_publishable_"))?.trim();
+        if (key) return key;
+      }
+    } catch {
     }
-  );
+  }
+  const legacy = runtimeEnv("SUPABASE_ANON_KEY") ?? runtimeEnv("VITE_SUPABASE_ANON_KEY");
+  if (legacy) return legacy;
+  throw new Error("Clave p\xFAblica del backend no configurada en el runtime MCP");
+}
+function sbForUser(ctx) {
+  const token = ctx.getToken();
+  if (!token) throw new Error("sbForUser requiere un token OAuth verificado");
+  return createClient(supabaseProjectUrl2(), supabasePublishableKey2(), {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
 }
 var WORKFLOW_TOKENS = /* @__PURE__ */ new Set([
   "CGP",
@@ -1145,13 +1172,13 @@ var get_document_url_default = defineTool17({
         source: "public"
       });
     }
-    const base = process.env.SUPABASE_URL;
+    const base = supabaseProjectUrl();
     const res = await fetch(`${base}/functions/v1/get-estado-attachment-url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ctx.getToken()}`,
-        apikey: process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY
+        apikey: supabasePublishableKey()
       },
       body: JSON.stringify({ publicacion_id: document_id })
     });
