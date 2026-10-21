@@ -26,5 +26,5 @@
 - A CPNU snapshot flagged stale whose live re-read was deferred never counts as a successful sync (no SUCCESS, no last_synced_at advance; last_error_code CPNU_SNAPSHOT_STALE_DEFERRED) — prevents silent coverage gaps.
 - Official Rama portal documents (publicacionesprocesales get_file) are recovered only via the attachment queue with raw_data.recuperacion_oficial {url, sha256, article_id, id_despacho, fecha}; worker and finish_estado_attachment_download both require exact URL+SHA match — never title/date matching.
 - Central publishers (e.g. Centros de Servicios) publish multi-providencia estado packages under their own despacho code: resolve candidates by author despacho, then municipality + articleNamesAuthorDespacho, and bind a case only to the pages located by `_shared/publisherResolution.ts` (declared `paquete.paginas_caso`) — never bind a whole package to all cases.
-- trg_preserve_official_publication_recovery: stale responses never erase official recovery evidence.
+- trg_preserve_official_publication_recovery: stale responses never erase official evidence.
 - Read subdir AGENTS.md.
