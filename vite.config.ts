@@ -7,6 +7,19 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 import { componentTagger } from "lovable-tagger";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
 
+// The preview plugin host may hand configResolved a config without envDir;
+// default it to the project root so the MCP plugin's loadEnv does not crash.
+function mcpPluginSafe() {
+  const plugin: any = mcpPlugin();
+  const original = plugin.configResolved;
+  if (typeof original === "function") {
+    plugin.configResolved = function (config: any) {
+      return original.call(this, { ...config, root: config?.root ?? projectRoot, envDir: config?.envDir ?? projectRoot, envPrefix: config?.envPrefix ?? "VITE_" });
+    };
+  }
+  return plugin;
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   // Explicit envDir: the plugin host calls loadEnv with config.envDir and
@@ -17,7 +30,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
-  plugins: [react(), mode === "development" && componentTagger(), mcpPlugin()].filter(Boolean),
+  plugins: [react(), mode === "development" && componentTagger(), mcpPluginSafe()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(projectRoot, "./src"),
