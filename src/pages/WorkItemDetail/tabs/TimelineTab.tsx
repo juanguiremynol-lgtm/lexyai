@@ -4,6 +4,7 @@
  * Shows detected milestone chips with pattern match explanations
  */
 
+import { formatCivilDate } from "@/lib/civil-date";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValidSession } from "@/lib/supabase-query-guard";
@@ -405,7 +406,7 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
                           {event.event_date && (
                             <div className="text-right">
                               <p className="text-sm font-medium">
-                                {format(new Date(event.event_date), "d MMM yyyy", { locale: es })}
+                                {formatCivilDate(event.event_date)}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {formatDistanceToNow(new Date(event.event_date), { addSuffix: true, locale: es })}

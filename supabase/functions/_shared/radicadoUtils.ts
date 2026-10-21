@@ -384,7 +384,7 @@ export function extractDateFromTitle(title: string): string | undefined {
   if (!title) return undefined;
 
   // Pattern 1: "XXXEstadosYYYYMMDD.pdf"
-  const yyyymmddMatch = title.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+  const yyyymmddMatch = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
   if (yyyymmddMatch) {
     const year = parseInt(yyyymmddMatch[1]);
     const month = parseInt(yyyymmddMatch[2]);
@@ -395,7 +395,7 @@ export function extractDateFromTitle(title: string): string | undefined {
   }
 
   // Pattern 2: "YYYYMMDD" anywhere
-  const yyyymmddAnywhere = title.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  const yyyymmddAnywhere = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
   if (yyyymmddAnywhere) {
     return `${yyyymmddAnywhere[1]}-${yyyymmddAnywhere[2]}-${yyyymmddAnywhere[3]}`;
   }

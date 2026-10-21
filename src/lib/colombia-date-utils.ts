@@ -1,3 +1,4 @@
+import { formatCivilDate } from './civil-date';
 /**
  * Colombia Date Utilities
  * 
@@ -108,14 +109,7 @@ export function humanizeCreatedAt(isoString: string): string {
  * Format an act_date (DATE string, no time) as "9 feb 2026"
  */
 export function formatActDate(dateStr: string | null): string {
-  if (!dateStr) return '—';
-  try {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
+  return formatCivilDate(dateStr);
 }
 
 /**

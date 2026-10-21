@@ -15902,6 +15902,48 @@ export type Database = {
           },
         ]
       }
+      public_monitor_activation_backups: {
+        Row: {
+          captured_at: string
+          id: string
+          image: Json
+          reason: string
+        }
+        Insert: {
+          captured_at?: string
+          id?: string
+          image: Json
+          reason: string
+        }
+        Update: {
+          captured_at?: string
+          id?: string
+          image?: Json
+          reason?: string
+        }
+        Relationships: []
+      }
+      public_monitor_dispatch_requests: {
+        Row: {
+          channel: string
+          request_id: number
+          requested_at: string
+          start_new: boolean
+        }
+        Insert: {
+          channel: string
+          request_id: number
+          requested_at?: string
+          start_new: boolean
+        }
+        Update: {
+          channel?: string
+          request_id?: number
+          requested_at?: string
+          start_new?: boolean
+        }
+        Relationships: []
+      }
       rate_limits: {
         Row: {
           count: number
@@ -26012,6 +26054,10 @@ export type Database = {
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
+      dispatch_public_monitors: {
+        Args: { _start_new?: boolean }
+        Returns: number
+      }
       drain_expired_deadlines: {
         Args: { p_grace_business_days?: number }
         Returns: Json

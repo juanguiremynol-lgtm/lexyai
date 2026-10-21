@@ -1,6 +1,7 @@
 /**
  * Unified chronological feed (newest first) over work_item_timeline_v.
  */
+import { compareCivilDesc, formatCivilDate } from "@/lib/civil-date";
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,9 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
     () =>
       (filter === "TODO" ? entries : entries.filter((e) => e.kind === filter))
         .slice()
-        .sort((a, b) => (a.occurred_at ?? "") < (b.occurred_at ?? "") ? 1 : -1),
+        // Valid civil days newest first; undated/invalid rows last (explicit).
+        .sort((a, b) => compareCivilDesc(a.occurred_at, b.occurred_at)
+          || ((a.occurred_at ?? "") < (b.occurred_at ?? "") ? 1 : (a.occurred_at ?? "") > (b.occurred_at ?? "") ? -1 : 0)),
     [entries, filter],
   );
 
@@ -118,9 +121,7 @@ export function TimelineFeed({ workItemId }: { workItemId: string }) {
                       {FILTERS.find((f) => f.key === e.kind)?.label ?? e.kind}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
-                      {e.occurred_at
-                        ? format(new Date(e.occurred_at), "d MMM yyyy", { locale: es })
-                        : "sin fecha"}
+                      {formatCivilDate(e.occurred_at)}
                     </span>
                     {isSegunda && (
                       <Badge

@@ -8,6 +8,7 @@
  * - Works with canonical work_items table
  */
 
+import { formatCivilDate } from "@/lib/civil-date";
 import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
@@ -184,11 +185,8 @@ export default function WorkItemDetail() {
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "—";
-    try {
-      return format(new Date(dateStr), "d MMM yyyy", { locale: es });
-    } catch {
-      return dateStr;
-    }
+    // Calendar dates keep their own day (no UTC→Bogotá shift).
+    return formatCivilDate(dateStr);
   };
 
   const getStatusBadge = (status: string) => {
@@ -599,7 +597,9 @@ export default function WorkItemDetail() {
                     </div>
                   );
                 }
-                return visible.map(([key, label]) => {
+                return [
+                  <p key="__scope" className="text-[11px] text-muted-foreground">Totales por fuente: no se suman entre fuentes y no indican duplicados.</p>,
+                  ...visible.map(([key, label]) => {
                   const entry = sync[key];
                   const status = entry?.status ?? "NOT_ATTEMPTED";
                   const variant: "default" | "destructive" | "secondary" | "outline" =
@@ -611,12 +611,14 @@ export default function WorkItemDetail() {
                     <div key={key} className="space-y-1 pb-2 border-b last:border-b-0 last:pb-0">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-xs uppercase tracking-wide">{label}</span>
-                        <Badge variant={variant} className="text-xs">{status}</Badge>
+                        {key === "cpnu" && workItem.workflow_type === "CPACA"
+                          ? <Badge variant="outline" className="text-xs" title={`Último resultado registrado: ${status}`}>No aplica (CPACA)</Badge>
+                          : <Badge variant={variant} className="text-xs" title="Resultado de la última consulta registrada a esta fuente">{status}</Badge>}
                       </div>
                       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
-                        <span className="text-muted-foreground">Actuaciones:</span>
+                        <span className="text-muted-foreground">Registros de esta fuente:</span>
                         <span className="text-right font-medium">{entry?.total_actuaciones ?? 0}</span>
-                        <span className="text-muted-foreground">Pendientes:</span>
+                        <span className="text-muted-foreground">Novedades sin revisar:</span>
                         <span className="text-right font-medium">{entry?.novedades_pendientes ?? 0}</span>
                         {entry?.ultima_actuacion && (
                           <>
@@ -635,7 +637,7 @@ export default function WorkItemDetail() {
                       </div>
                     </div>
                   );
-                });
+                })];
               })()}
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.

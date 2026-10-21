@@ -7,6 +7,7 @@
  * Actions: Apply, Dismiss, Override (manual selection)
  */
 
+import { formatCivilDate } from "@/lib/civil-date";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -191,7 +192,7 @@ export function StageSuggestionBanner({
               {suggestion.triggering_estado.description && suggestion.triggering_estado.description.length > 100 ? '...' : ''}
               {suggestion.triggering_estado.act_date && (
                 <span className="ml-2 text-muted-foreground">
-                  ({new Date(suggestion.triggering_estado.act_date).toLocaleDateString('es-CO')})
+                  ({formatCivilDate(suggestion.triggering_estado.act_date)})
                 </span>
               )}
             </CardDescription>

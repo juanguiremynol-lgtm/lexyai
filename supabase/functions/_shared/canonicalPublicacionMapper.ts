@@ -74,14 +74,14 @@ export function parseDate(dateStr: string | undefined | null): string | null {
 export function extractDateFromTitle(title: string): string | undefined {
   if (!title) return undefined;
 
-  const yyyymmddMatch = title.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+  const yyyymmddMatch = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
   if (yyyymmddMatch) {
     const [, y, mo, d] = yyyymmddMatch;
     if (+y >= 2020 && +y <= 2030 && +mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) {
       return `${y}-${mo}-${d}`;
     }
   }
-  const anywhere = title.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  const anywhere = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
   if (anywhere) return `${anywhere[1]}-${anywhere[2]}-${anywhere[3]}`;
 
   const spanishMatch = title.match(/(\d{1,2})\s+(?:DE\s+)?(\w+)\s+(?:DE\s+)?(\d{4})/i);
@@ -375,8 +375,24 @@ export interface CanonicalPubRow {
   instancia_grado: string | null;
 }
 
+/** A civil date is persisted only when it is a real calendar day in a
+ * plausible judicial range. Anything else (e.g. digits sliced from a 23-digit
+ * radicado such as 0131-10-01, or "sin-fecha") becomes NULL: an unknown date
+ * is shown as "Fecha no informada", never replaced by today. The original
+ * provider text stays in raw_data for traceability. */
+export function plausibleCivilDate(d: string | null | undefined): string | null {
+  const m = typeof d === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(d) : null;
+  if (!m) return null;
+  const [y, mo, day] = [+m[1], +m[2], +m[3]];
+  if (y < 2000 || y > new Date().getUTCFullYear() + 1) return null;
+  const t = new Date(Date.UTC(y, mo - 1, day));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== day) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 function isoAtNoon(d: string | null): string | null {
-  return d ? new Date(`${d}T12:00:00Z`).toISOString() : null;
+  const civil = plausibleCivilDate(d);
+  return civil ? new Date(`${civil}T12:00:00Z`).toISOString() : null;
 }
 
 /**

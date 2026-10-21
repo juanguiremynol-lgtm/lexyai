@@ -35,6 +35,7 @@ import {
   explodeProviderPublicaciones,
   toCanonicalPubRow,
   type ProviderPubUnit,
+  plausibleCivilDate,
 } from "../_shared/canonicalPublicacionMapper.ts";
 import {
   fetchFromSamaiEstados,
@@ -718,7 +719,7 @@ function extractDateFromTitle(title: string): string | undefined {
   if (!title) return undefined;
 
   // Pattern 1: "XXXEstadosYYYYMMDD.pdf" (e.g., "003Estados20260122.pdf")
-  const yyyymmddMatch = title.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+  const yyyymmddMatch = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
   if (yyyymmddMatch) {
     const year = parseInt(yyyymmddMatch[1]);
     const month = parseInt(yyyymmddMatch[2]);
@@ -729,7 +730,7 @@ function extractDateFromTitle(title: string): string | undefined {
   }
 
   // Pattern 2: "YYYYMMDD" anywhere in string
-  const yyyymmddAnywhere = title.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  const yyyymmddAnywhere = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
   if (yyyymmddAnywhere) {
     return `${yyyymmddAnywhere[1]}-${yyyymmddAnywhere[2]}-${yyyymmddAnywhere[3]}`;
   }
@@ -2404,7 +2405,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Extract date from title if fecha_publicacion is null
       const fechaFromTitle = extractDateFromTitle(pub.titulo || '');
       const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
-      const parsedFecha = parseDate(fechaPublicacion);
+      const parsedFecha = plausibleCivilDate(parseDate(fechaPublicacion));
 
       // ITERATION 22 — one canonical row, one identity. The row we persist and
       // the fingerprint we compare are produced by the SAME shared mapper the
