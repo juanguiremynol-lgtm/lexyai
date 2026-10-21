@@ -1,3 +1,4 @@
+import { publicReadVerdict } from "./publicReadVerdict.ts";
 /**
  * syncPolicy.ts — Single source of truth for sync invariants
  *
@@ -286,7 +287,7 @@ export function isTransientError(code: string | null): boolean {
  */
 export function shouldCountAsSuccess(syncResult: SyncResult | null | undefined): boolean {
   if (!syncResult) return false;
-  return syncResult.ok === true;
+  return publicReadVerdict(true, syncResult).success;
 }
 
 

@@ -1353,6 +1353,10 @@ async function syncSingleItem(
     }
   }
 
+  if (!syncOk) {
+    throw new Error(`PUBLIC_READ_INCOMPLETE: ${syncResult?.code ?? "pending or stale source read"}`);
+  }
+
   // Return CPNU buscar metadata for caller to track budget
   return {
     cpnu_buscar_used: syncResult?.cpnu_buscar_used ?? false,

@@ -1,3 +1,4 @@
+import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
 /**
  * sync-publicaciones-by-work-item Edge Function
  * 
@@ -191,6 +192,7 @@ export type ProcesarAck = {
 };
 
 type FetchResultV3 = {
+  readIncomplete?: boolean;
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
@@ -1025,7 +1027,7 @@ async function tryProcesarFallback(
     }
 
     const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
-    if (extracted.publicaciones.length === 0) {
+    if (extracted.publicaciones.length === 0 && extracted.resultCode !== 'SUCCESS') {
       return {
         ok: true,
         publicaciones: [],
@@ -1180,7 +1182,18 @@ async function fetchPublicaciones(
   rescrapeGate?: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void },
 ): Promise<FetchResultV3> {
   const capture: { read: HistoricoRead | null } = { read: null };
-  const res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
+  let res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
+  const observedBody = res.procesarAck?.body ?? capture.read?.body;
+  if (res.ok && publicSnapshotIncomplete(observedBody)) {
+    // Preserve already retrieved publications. Refresh only through the existing
+    // public scrape gate; an old non-empty inventory is not a fresh daily read.
+    if (rescrapeGate?.allow && !res.procesarAck) {
+      const refreshed = await tryProcesarFallback(baseUrl, radicado, { "x-api-key": apiKey, "Content-Type": "application/json" });
+      if (refreshed) res = { ...refreshed, publicaciones: refreshed.publicaciones.length ? refreshed.publicaciones : res.publicaciones };
+      rescrapeGate.onDecision?.({ triggered: refreshed?.ok === true, reason: refreshed?.ok ? "trigger_accepted" : "trigger_error", httpStatus: refreshed?.httpStatus });
+    }
+    res.readIncomplete = publicSnapshotIncomplete(res.procesarAck?.body ?? observedBody);
+  }
   return capture.read ? { ...res, historicoRead: capture.read } : res;
 }
 
@@ -1262,7 +1275,7 @@ async function fetchPublicacionesInner(
       const latencyMs = Date.now() - startTime;
       console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
       const extracted = extractPublicacionesFromResponse(data, latencyMs);
-      if (extracted.publicaciones.length > 0) {
+      if (extracted.publicaciones.length > 0 || extracted.resultCode === 'SUCCESS') {
         return extracted;
       }
       // 200 + empty → keep looking, and if nothing else works fall through
@@ -1424,7 +1437,7 @@ function extractPublicacionesFromResponse(
       latencyMs,
       found: false,
       httpStatus: 200,
-      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : 'NO_DATA',
+      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : publicSnapshotCompleted(data) ? 'SUCCESS' : 'NO_DATA',
       noDocumentEstados: noDocument,
       rawSample: sampleProviderResponse(data),
     };
@@ -2074,7 +2087,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         (samai.status === 'EMPTY' || samai.status === 'SUCCESS') &&
         (samai.http_status === 200 || samai.http_status === 404),
       );
-      if (result.samai_estados_summary?.contract_mismatch) {
+      if (fetchResult.readIncomplete) {
+        result.result_code = 'PENDING_UPSTREAM';
+      } else if (result.samai_estados_summary?.contract_mismatch) {
         result.result_code = 'CONTRACT_MISMATCH';
       } else if (fetchResult.resultCode === 'NO_DATA' && !(!shouldFetchPP && samaiAnswered)) {
         result.result_code = 'PENDING_UPSTREAM';
@@ -2761,8 +2776,15 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
 
+    if (fetchResult.readIncomplete) {
+      result.ok = false;
+      result.result_code = 'PENDING_UPSTREAM';
+      result.warnings.push('Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.');
+      await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+    }
+
     // Set initial sync completion marker (idempotent: only on first successful sync)
-    try {
+    if (result.ok) try {
       await supabase
         .from('work_items')
         .update({ pubs_initial_sync_completed_at: new Date().toISOString() } as any)
