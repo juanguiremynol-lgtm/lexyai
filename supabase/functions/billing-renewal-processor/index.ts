@@ -15,7 +15,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   resolveCurrentPricePoint,
   buildAmountBreakdown,
-  PriceScope,
 } from "../_shared/pricing-engine.ts";
 
 const corsHeaders = {
@@ -82,13 +81,13 @@ async function processRenewals(
   for (const subscription of dueRenewals || []) {
     try {
       // Resolve price using RENEWALS scope
-      const pricePoint = resolveCurrentPricePoint(pricePoints || [], {
-        planId: subscription.plan_id,
-        billingCycleMonths: subscription.billing_cycle_months,
-        priceType: subscription.price_type || "REGULAR",
-        atTime: renewalDate,
-        scope: "RENEWALS" as PriceScope,
-      });
+      const pricePoint = resolveCurrentPricePoint(
+        pricePoints || [],
+        subscription.plan_id,
+        subscription.billing_cycle_months,
+        subscription.price_type || "REGULAR",
+        renewalDate,
+      );
 
       if (!pricePoint) {
         renewalResults.push({

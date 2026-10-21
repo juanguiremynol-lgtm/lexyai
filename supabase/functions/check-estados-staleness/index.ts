@@ -260,7 +260,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Audit trail
-    await supabase
+    const auditResult = await supabase
       .from("crawler_runs")
       .insert({
         run_type: "STALENESS_CHECK",

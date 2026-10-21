@@ -544,7 +544,7 @@ async function callProviderWithProbing(
   };
 
   // ITER48 — samai has no override any more; it is pinned to its verified host.
-  const baseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
+  const baseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider as ProviderName]);
   const pathPrefix = Deno.env.get(prefixEnvMap[provider]) || ''; // Default to empty
   
   // Get API key with provider-specific selection
@@ -981,11 +981,11 @@ Deno.serve(async (req) => {
         cpnu: 'CPNU_BASE_URL', samai: '',
         publicaciones: 'PUBLICACIONES_BASE_URL',
       };
-      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
+      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider as ProviderName]);
       const apiKeyInfo = await getApiKeyForProvider(provider);
       
       if (!providerBaseUrl) {
-        return jsonResponse({ ok: false, error: `${envMap[provider]} not configured`, provider });
+        return jsonResponse({ ok: false, error: `${envMap[provider as ProviderName]} not configured`, provider });
       }
       
       const cleanBase = providerBaseUrl.replace(/\/+$/, '');
