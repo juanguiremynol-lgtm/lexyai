@@ -27,6 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Newspaper, Search, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
+import { openResolvedDocument } from "@/lib/open-document-window";
+import { downloadDocument } from '@/lib/download-document';
 
 import type { WorkItem } from "@/types/work-item";
 import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
@@ -193,6 +196,29 @@ export function PublicacionesPpTab({ workItem }: Props) {
     enabled: !!workItem.id,
     staleTime: 60 * 1000,
   });
+
+  const { data: recoveryDocuments = [] } = useQuery({
+    queryKey: ['estado-document-recovery', workItem.id],
+    queryFn: async (): Promise<EstadoDocumentRecovery[]> => {
+      const { data, error } = await supabase.from('estado_attachment_queue')
+        .select('id,publicacion_id,filename,status,last_error,storage_path,validation_evidence').eq('work_item_id', workItem.id);
+      if (error) throw error;
+      return data ?? [];
+    }, staleTime: 30_000,
+  });
+  const copyUrl = async (document: EstadoDocumentRecovery) => {
+    const { data, error } = await supabase.functions.invoke('get-estado-attachment-url', {
+      body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
+    });
+    return !error && data?.source === 'storage' ? data.url : null;
+  };
+  const openCopy = async (document: EstadoDocumentRecovery) => {
+    if (!await openResolvedDocument(() => copyUrl(document))) toast.error('No se pudo abrir la copia almacenada');
+  };
+  const downloadCopy = async (document: EstadoDocumentRecovery) => {
+    try { const url = await copyUrl(document); if (!url) throw new Error('unavailable'); await downloadDocument(url, document.filename || 'documento.pdf'); }
+    catch { toast.error('No se pudo descargar la copia almacenada'); }
+  };
 
   const isLoading = apiLoading || localLoading;
 
@@ -391,6 +417,24 @@ export function PublicacionesPpTab({ workItem }: Props) {
       {/* dense-grid dense table (Estados electrónicos) */}
       {estadoRows.length > 0 && <EstadosTable rows={estadoRows} />}
 
+      {recoveryDocuments.length > 0 && <section className="space-y-3">
+        <h3 className="font-semibold">Copias asociadas</h3>
+        {recoveryDocuments.map(document => {
+          const state = estadoDocumentStatus(document);
+          const publication = localPubs?.find(p => p.id === document.publicacion_id);
+          const raw = publication?.raw_data as Record<string, any> | undefined;
+          const pages = raw?.paquete?.paginas_caso ?? raw?.recuperacion_oficial?.paquete?.paginas_caso;
+          return <div key={document.id} className="border-b py-3 text-sm">
+            <p className="font-medium">{publication?.title || document.filename || 'Documento'}</p>
+            <p className="text-muted-foreground">{state.label}. {state.reason}</p>
+            {pages && <p>Paquete original · páginas del caso: {JSON.stringify(pages)}</p>}
+            {state.available && <div className="flex gap-3">
+              <Button variant="link" onClick={() => openCopy(document)}>Abrir archivo almacenado</Button>
+              <Button variant="link" onClick={() => downloadCopy(document)}>Descargar</Button>
+            </div>}
+          </div>;
+        })}
+      </section>}
       {filteredActs?.length === 0 && (
         <Card>
           <CardContent className="py-8">
