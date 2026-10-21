@@ -3,6 +3,15 @@ import { documentObservationAt, mergeAnexosObservation, mergeDocumentObservation
 
 const date = "2026-10-19T20:00:00Z";
 
+Deno.test("large document histories retain every distinct observation and dedupe canonical objects", () => {
+  const variants = Array.from({ length: 1000 }, (_, index) => ({ index, proof: { bytes: index + 10 }, metadata_variants: [{ ignored: true }] }));
+  const previous = { descarga_observado_en: date, metadata_variants: variants };
+  const incoming = { descarga_observado_en: date, metadata_variants: variants.map(v => ({ proof: v.proof, index: v.index })) };
+  const result = mergeDocumentObservation(previous, incoming, { ...previous, ...incoming });
+  assertEquals(result.metadata_variants.length, 1000);
+  assertEquals(result.metadata_variants, variants.map(({ index, proof }) => ({ index, proof })));
+});
+
 Deno.test("legacy attempt counters and malformed logs do not become dated observations", () => {
   for (const value of [null, 0, 3, "3", {}, { observado_en: date }]) {
     assertEquals(documentObservationAt({ intentos: value, descarga_intentos: value }), null);

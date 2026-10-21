@@ -26,10 +26,15 @@ export const hasArchiveReading = (doc: Doc) => doc.archivo_verificacion?.lectura
 const proof = (doc: Doc) => doc.descarga_estado === 'descargado_y_leido' && !!(doc.pdf_verificacion || hasArchiveReading(doc)) && !!(doc.gcs_url || doc.urlDescarga || doc.url);
 function history(values: any[]): any[] {
   const out: any[] = [];
+  const seen = new Set<string>();
   for (const value of values) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     const copy = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'));
-    if (!out.some(v => stable(v) === stable(copy))) out.push(copy);
+    const key = stable(copy);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(copy);
+    }
   }
   return out;
 }
