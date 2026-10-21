@@ -351,6 +351,13 @@
       "when": 1792546219203,
       "tag": "0049_backup_familia_radicado_date_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792548735398,
+      "tag": "0050_close_two_critical_rls_findings",
+      "breakpoints": true
     }
   ]
 }
