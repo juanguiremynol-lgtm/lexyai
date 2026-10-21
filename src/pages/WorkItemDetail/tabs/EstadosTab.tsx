@@ -309,6 +309,15 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
               if (resolvable) return () => openLocalPubAttachment(src);
               return undefined;
             })(),
+            onDownloadFile: (() => {
+              const idStr = String(estado.id);
+              if (!idStr.startsWith("local-")) return undefined;
+              const localId = idStr.slice("local-".length);
+              const copy = (recoveryDocuments ?? []).find(
+                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
+              );
+              return copy ? () => downloadVerifiedCopy(copy) : undefined;
+            })(),
           }))}
         />
       )}
