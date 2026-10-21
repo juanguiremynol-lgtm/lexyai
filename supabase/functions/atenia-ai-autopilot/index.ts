@@ -611,7 +611,7 @@ async function validateAndHeal(
           actions.push({
             type: "ENQUEUE_RETRY",
             work_item_id: item.id,
-            radicado: item.radicado,
+            radicado: item.radicado ?? undefined,
             reason: `Missing retry row for transient error ${item.last_error_code}`,
             evidence: buildAuditEvidence({
               item,
@@ -669,7 +669,7 @@ async function validateAndHeal(
           actions.push({
             type: "AUTO_DEMONITOR",
             work_item_id: item.id,
-            radicado: item.radicado,
+            radicado: item.radicado ?? undefined,
             reason: `${item.consecutive_404_count} consecutive 404/stuck errors (threshold: ${threshold}). Monitoring suspended.`,
             evidence: buildAuditEvidence({
               item,
@@ -790,7 +790,7 @@ async function runCorrectiveSyncs(
           await (supabase.from("sync_retry_queue") as any).insert({
             work_item_id: item.id,
             organization_id: orgId,
-            radicado: item.radicado,
+            radicado: item.radicado ?? undefined,
             kind: "ACT_SCRAPE_RETRY",
             provider: syncResult.scraping_provider || "cpnu",
             attempt: 1,

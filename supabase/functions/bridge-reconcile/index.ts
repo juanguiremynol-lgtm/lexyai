@@ -33,7 +33,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders } from "npm:@supabase/supabase-js@2.118.0/cors";
 import {
   fetchFromCpnu,
   fetchFromPublicaciones,

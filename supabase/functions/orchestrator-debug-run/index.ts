@@ -204,7 +204,6 @@ Deno.serve(async (req) => {
     };
 
     // ── Build fetch registry with all providers ──
-    const externalApiKey = Deno.env.get("EXTERNAL_X_API_KEY") || "";
 
     // Build adapters that wrap the shared provider functions
     const registry = createFetchRegistry([
@@ -213,7 +212,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromCpnu({
             radicado: rad,
-            apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
             forceRefresh: force_refresh,
@@ -226,7 +224,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromSamai({
             radicado: rad,
-            apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
           });
@@ -238,7 +235,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromPublicaciones({
             radicado: rad,
-            apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
           });
@@ -250,7 +246,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromSamaiEstados({
             radicado: rad,
-            apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
           });

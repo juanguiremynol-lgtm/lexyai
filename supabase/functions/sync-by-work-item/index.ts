@@ -220,7 +220,7 @@ interface SyncResult {
   errors: string[];
   trace_id?: string;
   code?: string; // Error code for client
-  persistence_unknown?: { fingerprint: string; reason: string }[];
+  persistence_unknown?: { fingerprint: string | null; reason: string }[];
   // Auto-scraping fields
   scraping_initiated?: boolean;
   scraping_job_id?: string;
@@ -1064,7 +1064,7 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
   const bridged = toOrchestratorResult(result);
   return {
     ok: bridged.ok,
-    actuaciones: bridged.actuaciones,
+    actuaciones: bridged.actuaciones.map(act => ({ ...act })),
     expedienteUrl: bridged.expedienteUrl,
     caseMetadata: bridged.caseMetadata as FetchResult['caseMetadata'],
     sujetos: bridged.sujetos,
