@@ -10,7 +10,8 @@
  * Real-time updates via Supabase channel subscription.
  */
 
-import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
+import { updateNotificationState } from '@/lib/alerts/notification-service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -54,7 +55,7 @@ export type UserRole = 'USER' | 'ORG_ADMIN' | 'SUPER_ADMIN';
 const ROLE_CATEGORIES: Record<UserRole, NotificationCategory[]> = {
   USER: ['TERMS', 'WORK_ITEM_ALERTS'],
   ORG_ADMIN: ['TERMS', 'WORK_ITEM_ALERTS', 'ORG_ACTIVITY'],
-  SUPER_ADMIN: ['OPS_SYNC', 'OPS_INCIDENTS', 'OPS_E2E', 'OPS_WATCHDOG', 'OPS_REMEDIATION', 'SYSTEM'],
+  SUPER_ADMIN: ['TERMS', 'WORK_ITEM_ALERTS', 'OPS_SYNC', 'OPS_INCIDENTS', 'OPS_E2E', 'OPS_WATCHDOG', 'OPS_REMEDIATION', 'SYSTEM'],
 };
 
 // Tab labels per role
@@ -72,7 +73,9 @@ export const ROLE_TABS: Record<UserRole, { key: NotificationCategory | 'ALL'; la
   ],
   SUPER_ADMIN: [
     { key: 'ALL', label: 'Todas' },
-    { key: 'OPS_SYNC', label: 'Sync' },
+    { key: 'WORK_ITEM_ALERTS', label: 'Mis asuntos' },
+    { key: 'TERMS', label: 'Términos' },
+    { key: 'OPS_SYNC', label: 'Operaciones' },
     { key: 'OPS_INCIDENTS', label: 'Incidentes' },
     { key: 'OPS_E2E', label: 'E2E' },
     { key: 'OPS_WATCHDOG', label: 'Watchdog' },
@@ -82,202 +85,85 @@ export const ROLE_TABS: Record<UserRole, { key: NotificationCategory | 'ALL'; la
 const QUERY_KEY = 'unified-notifications';
 const UNREAD_KEY = 'unified-notifications-unread';
 
-// ── Hook ───────────────────────────────────────────────────────────
+// User identity and organization are always part of cache isolation.
 export function useNotifications(options?: { categoryFilter?: NotificationCategory | 'ALL'; limit?: number }) {
   const { categoryFilter = 'ALL', limit = 30 } = options || {};
   const { organization } = useOrganization();
   const { isPlatformAdmin } = usePlatformAdmin();
   const { isAdmin: isOrgAdmin } = useOrganizationMembership(organization?.id || null);
   const queryClient = useQueryClient();
-  const userIdRef = useRef<string | null>(null);
-
-  // Determine effective role
-  const effectiveRole: UserRole = useMemo(() => {
-    if (isPlatformAdmin) return 'SUPER_ADMIN';
-    if (isOrgAdmin) return 'ORG_ADMIN';
-    return 'USER';
-  }, [isPlatformAdmin, isOrgAdmin]);
-
-  // Get user ID
+  const [userId, setUserId] = useState<string | null>(null);
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      userIdRef.current = data?.user?.id ?? null;
-    });
+    let active = true;
+    supabase.auth.getUser().then(({ data }) => { if (active) setUserId(data.user?.id ?? null); });
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setUserId(session?.user.id ?? null));
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
-
-  // ── Fetch notifications (RLS handles visibility) ──
-  const { data: notifications = [], refetch } = useQuery({
-    queryKey: [QUERY_KEY, effectiveRole, categoryFilter, organization?.id],
-    queryFn: async () => {
-      let query = (supabase.from('notifications') as any)
-        .select('*')
-        .is('dismissed_at', null)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (categoryFilter !== 'ALL') {
-        query = query.eq('category', categoryFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) {
-        console.error('[useNotifications] fetch error:', error);
-        return [];
-      }
-      return (data || []) as Notification[];
-    },
-    enabled: true,
-    refetchInterval: 60_000,
-    staleTime: 15_000,
-  });
-
-  // ── Unread count (separate lightweight query) ──
-  const { data: unreadCount = 0 } = useQuery({
-    queryKey: [UNREAD_KEY, effectiveRole, organization?.id],
-    queryFn: async () => {
-      const { count, error } = await (supabase.from('notifications') as any)
-        .select('id', { count: 'exact', head: true })
-        .is('read_at', null)
-        .is('dismissed_at', null);
-
-      if (error) {
-        console.error('[useNotifications] unread count error:', error);
-        return 0;
-      }
-      return count ?? 0;
-    },
-    enabled: true,
-    refetchInterval: 30_000,
-    staleTime: 10_000,
-  });
-
-  // ── Invalidation helper ──
-  const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
-    queryClient.invalidateQueries({ queryKey: [UNREAD_KEY] });
-  }, [queryClient]);
-
-  // ── Mark single as read ──
-  const markRead = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.from('notifications') as any)
-        .update({ read_at: new Date().toISOString() })
-        .eq('id', id)
-        .is('read_at', null);
-      if (error) throw error;
-    },
-    onMutate: async (id) => {
-      // Optimistic: update read_at in cache
-      queryClient.setQueriesData({ queryKey: [QUERY_KEY] }, (old: Notification[] | undefined) =>
-        old?.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n)
-      );
-      // Optimistic: decrement unread count
-      queryClient.setQueriesData({ queryKey: [UNREAD_KEY] }, (old: number | undefined) =>
-        Math.max(0, (old ?? 1) - 1)
-      );
-    },
-    onSettled: () => invalidate(),
-  });
-
-  // ── Mark all as read (in current scope) ──
-  const markAllRead = useMutation({
-    mutationFn: async () => {
-      let query = (supabase.from('notifications') as any)
-        .update({ read_at: new Date().toISOString() })
-        .is('read_at', null)
-        .is('dismissed_at', null);
-
-      if (categoryFilter !== 'ALL') {
-        query = query.eq('category', categoryFilter);
-      }
-
-      const { error } = await query;
-      if (error) throw error;
-    },
-    onMutate: async () => {
-      queryClient.setQueriesData({ queryKey: [QUERY_KEY] }, (old: Notification[] | undefined) =>
-        old?.map(n => ({ ...n, read_at: n.read_at || new Date().toISOString() }))
-      );
-      queryClient.setQueriesData({ queryKey: [UNREAD_KEY] }, () => 0);
-    },
-    onSettled: () => invalidate(),
-  });
-
-  // ── Dismiss single ──
-  const dismiss = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.from('notifications') as any)
-        .update({ dismissed_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw error;
-    },
-    onMutate: async (id) => {
-      const was = notifications.find(n => n.id === id);
-      queryClient.setQueriesData({ queryKey: [QUERY_KEY] }, (old: Notification[] | undefined) =>
-        old?.filter(n => n.id !== id)
-      );
-      if (was && !was.read_at) {
-        queryClient.setQueriesData({ queryKey: [UNREAD_KEY] }, (old: number | undefined) =>
-          Math.max(0, (old ?? 1) - 1)
-        );
-      }
-    },
-    onSettled: () => invalidate(),
-  });
-
-  // ── Dismiss all ──
-  const dismissAll = useMutation({
-    mutationFn: async () => {
-      let query = (supabase.from('notifications') as any)
-        .update({ dismissed_at: new Date().toISOString() })
-        .is('dismissed_at', null);
-
-      if (categoryFilter !== 'ALL') {
-        query = query.eq('category', categoryFilter);
-      }
-
-      const { error } = await query;
-      if (error) throw error;
-    },
-    onMutate: async () => {
-      queryClient.setQueriesData({ queryKey: [QUERY_KEY] }, () => []);
-      queryClient.setQueriesData({ queryKey: [UNREAD_KEY] }, () => 0);
-    },
-    onSettled: () => invalidate(),
-  });
-
-  // ── Real-time subscription ──
-  useEffect(() => {
-    const channel = supabase
-      .channel('notifications-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-        },
-        () => {
-          invalidate();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [invalidate]);
-
-  return {
-    notifications,
-    unreadCount,
-    effectiveRole,
-    tabs: ROLE_TABS[effectiveRole],
-    allowedCategories: ROLE_CATEGORIES[effectiveRole],
-    markRead,
-    markAllRead,
-    dismiss,
-    dismissAll,
-    refetch,
+  const effectiveRole: UserRole = isPlatformAdmin ? 'SUPER_ADMIN' : isOrgAdmin ? 'ORG_ADMIN' : 'USER';
+  const prefix = useMemo(() => [QUERY_KEY, userId, organization?.id ?? null], [userId, organization?.id]);
+  const allowedCategories = ROLE_CATEGORIES[effectiveRole];
+  const scope = (countOnly = false) => {
+    let q = supabase.from('notification_inbox').select('*', countOnly ? { count: 'exact', head: true } : {}).in('category', allowedCategories);
+    const audiences = [`and(audience_scope.eq.USER,user_id.eq.${userId})`];
+    if (isOrgAdmin && organization?.id) audiences.push(`and(audience_scope.eq.ORG_ADMIN,org_id.eq.${organization.id})`);
+    if (isPlatformAdmin) audiences.push('audience_scope.eq.SUPER_ADMIN');
+    q = q.or(audiences.join(','));
+    if (categoryFilter !== 'ALL') q = q.eq('category', categoryFilter);
+    return q;
   };
+  const { data: notifications = [], refetch, isError } = useQuery({
+    queryKey: [...prefix, 'items', effectiveRole, categoryFilter, limit],
+    queryFn: async ({ signal }) => {
+      const { data, error } = await scope().order('created_at', { ascending: false }).limit(limit).abortSignal(signal);
+      if (error) throw error;
+      return (data ?? []).map(n => ({ ...n, read_at: n.effective_read_at })) as Notification[];
+    }, enabled: !!userId, staleTime: 15_000, refetchInterval: 30_000,
+  });
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: [...prefix, 'unread', effectiveRole, categoryFilter],
+    queryFn: async ({ signal }) => {
+      const { count, error } = await scope(true).is('effective_read_at', null).abortSignal(signal);
+      if (error) throw error;
+      return count ?? 0;
+    }, enabled: !!userId, staleTime: 10_000, refetchInterval: 30_000,
+  });
+  const invalidate = useCallback(() => queryClient.invalidateQueries({ queryKey: prefix }), [queryClient, prefix]);
+  type Change = { ids: string[]; action: 'read' | 'dismiss' | 'snooze'; until?: string };
+  const mutation = useMutation({
+    scope: { id: `notification-actions-${userId}-${organization?.id}` },
+    mutationFn: (change: Change) => updateNotificationState(change.ids, change.action, change.until),
+    onMutate: async (change) => {
+      await queryClient.cancelQueries({ queryKey: prefix });
+      const snapshot = queryClient.getQueriesData({ queryKey: prefix });
+      const targets = new Set(change.ids);
+      queryClient.setQueriesData({ queryKey: [...prefix, 'items'] }, (old: Notification[] | undefined) =>
+        change.action === 'read' ? old?.map(n => targets.has(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n)
+          : old?.filter(n => !targets.has(n.id)));
+      // Only counts whose category includes the affected rows are changed.
+      for (const [key, value] of snapshot) {
+        if (key[3] !== 'unread' || typeof value !== 'number') continue;
+        const category = key[5];
+        const removed = notifications.filter(n => targets.has(n.id) && !n.read_at && (category === 'ALL' || category === n.category)).length;
+        queryClient.setQueryData(key, Math.max(0, value - removed));
+      }
+      return { snapshot };
+    },
+    onError: (_error, _change, context) => context?.snapshot.forEach(([key, data]) => queryClient.setQueryData(key, data)),
+    onSettled: () => invalidate(),
+  });
+  const command = (action: Change['action'], all = false) => ({
+    mutate: (id?: string) => mutation.mutate({ ids: all ? notifications.map(n => n.id) : id ? [id] : [], action }),
+    isPending: mutation.isPending,
+  });
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase.channel(`notifications-${userId}-${organization?.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => invalidate())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notification_user_state', filter: `user_id=eq.${userId}` }, () => invalidate()).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, organization?.id, invalidate]);
+  return { notifications, unreadCount, effectiveRole, tabs: ROLE_TABS[effectiveRole], allowedCategories,
+    markRead: command('read'), markAllRead: command('read', true), dismiss: command('dismiss'), dismissAll: command('dismiss', true),
+    snooze: { mutate: ({ id, until }: { id: string; until: string }) => mutation.mutate({ ids: [id], action: 'snooze', until }), isPending: mutation.isPending },
+    error: mutation.error ?? (isError ? new Error('No se pudieron cargar las notificaciones') : null), refetch };
 }

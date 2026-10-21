@@ -97,8 +97,8 @@ Deno.test("normalizePublicacionesResponse: extracts PDF attachments", () => {
   };
   const result = normalizePublicacionesResponse(data);
   assertEquals(result[0].attachments?.length, 2);
-  assertEquals(result[0].attachments![0].type, "pdf");
-  assertEquals(result[0].attachments![1].type, "link");
+  assertEquals(result[0].attachments?.[0].type, "pdf");
+  assertEquals(result[0].attachments?.[1].type, "link");
 });
 
 // ── Fingerprinting ──
@@ -109,13 +109,15 @@ Deno.test("computePublicacionFingerprint: deterministic", () => {
   assertEquals(fp1, fp2);
 });
 
-Deno.test("computePublicacionFingerprint: different assets produce different fingerprints", () => {
+Deno.test("computePublicacionFingerprint: asset changes preserve canonical identity", () => {
   const fp1 = computePublicacionFingerprint("wi-1", "asset-001", undefined, "Title");
   const fp2 = computePublicacionFingerprint("wi-1", "asset-002", undefined, "Title");
-  assertEquals(fp1 !== fp2, true);
+  assertEquals(fp1, fp2);
+  assertEquals(fp1 !== computePublicacionFingerprint('wi-1', 'asset-001', undefined, 'Different Title'), true);
 });
 
 Deno.test("computePublicacionFingerprint: cross-provider mode", () => {
   const fp = computePublicacionFingerprint("wi-1", "asset-001", undefined, "Title", true);
-  assertEquals(fp.startsWith("pub_x_"), true);
+  assertEquals(fp, computePublicacionFingerprint('wi-1', 'asset-001', undefined, 'Title', false));
+  assertEquals(fp !== computePublicacionFingerprint('wi-2', 'asset-001', undefined, 'Title', true), true);
 });

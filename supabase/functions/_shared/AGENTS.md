@@ -1,0 +1,2 @@
+- Public monitor queue RPCs seed today's snapshot before recovering older work; fenced lease tokens and three attempts own completion — HTTP acceptance is not source success.
+- Public snapshot freshness uses the source observation date in Bogotá; attachment incompleteness is independent of query completion — retained rows never imply a fresh read.

@@ -8,6 +8,7 @@
  */
 
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
+import { publicReadVerdict } from "./publicReadVerdict.ts";
 
 // ────────────────────────────── Constants ──────────────────────────────
 
@@ -286,7 +287,7 @@ export function isTransientError(code: string | null): boolean {
  */
 export function shouldCountAsSuccess(syncResult: SyncResult | null | undefined): boolean {
   if (!syncResult) return false;
-  return syncResult.ok === true;
+  return publicReadVerdict(true, syncResult).success;
 }
 
 

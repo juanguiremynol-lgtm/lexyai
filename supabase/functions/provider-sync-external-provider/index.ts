@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
       const snapLatency = Date.now() - snapStart;
       // Save raw snapshot even on fetch error
-      await saveRawSnapshot(db, source, instance, connector, null, "ERROR", snapRes?.status ?? 0, snapLatency, "FETCH_ERROR");
+      await saveRawSnapshot(db, source, instance, connector, null, "ERROR", 0, snapLatency, "FETCH_ERROR");
       await updateSourceError(db, source.id, "FETCH_ERROR", errMsg);
       await writeTrace(db, runId, source, instance, "EXT_PROVIDER_RESPONSE", "ERROR", false, snapLatency, {
         error: errMsg,
@@ -439,7 +439,7 @@ Deno.serve(async (req) => {
       snapshot_format: parsedResult.format,
       parse_ok: parsedResult.ok,
       parse_warnings: parsedResult.warnings.length,
-      has_estados: !!(snapData.estados || parsedResult.snapshot?.estados?.length),
+      has_estados: !!(snapData.estados || (isEstadosProvider && parsedResult.snapshot?.publicaciones?.length)),
       has_actuaciones: !!(snapData.actuaciones || parsedResult.snapshot?.actuaciones?.length),
       has_publicaciones: !!(snapData.publicaciones || parsedResult.snapshot?.publicaciones),
       is_estados_provider: isEstadosProvider,
@@ -530,12 +530,13 @@ Deno.serve(async (req) => {
           sample_count: acts.length + pubs.length,
         });
         // Write to trigger_error_log for watchdog observability
-        await db.from("trigger_error_log").insert({
+        const { error: logError } = await db.from("trigger_error_log").insert({
           trigger_name: "dynamic_adapter_contract",
           table_name: dataKind === "ACTUACIONES" ? "work_item_acts" : "work_item_publicaciones",
           error_message: `Contract violation: ${contractCheck.errors.join('; ')}`.slice(0, 500),
           work_item_id: workItem.id,
-        }).catch(() => {});
+        });
+        if (logError) console.warn('Contract violation logging failed');
       }
       if (contractCheck.warnings.length > 0) {
         console.warn(`[DYNAMIC_ADAPTER_CONTRACT_WARN] ${connector?.key}: ${contractCheck.warnings.join(', ')}`);
@@ -626,8 +627,10 @@ Deno.serve(async (req) => {
 
     // Generic error — only if HTTP failed or explicit ok=false or explicit error present
     if (!snapRes.ok || snapData.ok === false || hasExplicitError) {
-      const errCode = normalizedCode !== "PROVIDER_ERROR" ? normalizedCode : (rawErrorCode || "PROVIDER_ERROR");
-      await updateSourceError(db, source.id, errCode, snapData.message || `HTTP ${snapRes.status}`);
+      const errCodeValue = normalizedCode !== "PROVIDER_ERROR" ? normalizedCode : rawErrorCode;
+      const errCode = typeof errCodeValue === 'string' ? errCodeValue : 'PROVIDER_ERROR';
+      const errorMessage = typeof snapData.message === 'string' ? snapData.message : `HTTP ${snapRes.status}`;
+      await updateSourceError(db, source.id, errCode, errorMessage);
       await writeTrace(db, runId, source, instance, "TERMINAL", errCode, false, Date.now() - startTime, { outcome: "ERROR" });
       return new Response(
         JSON.stringify({ ok: false, code: errCode, duration_ms: Date.now() - startTime }),

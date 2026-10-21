@@ -1,0 +1,270 @@
+{
+  "stage": "backend_deployed_application_integration_pending",
+  "date": "2026-10-21",
+  "branch": "fix/public-connectors-closure-20261020",
+  "bases": {
+    "backend": "d3ee2f7 (origin/fix/samai-preventive-r2)",
+    "application": "b5cbdf8441734e1b069efec10684e893214ec66a"
+  },
+  "github_access": {
+    "read": true,
+    "repository_push_permission": true,
+    "new_branch_push_dry_run": true
+  },
+  "missing_external_changes": {
+    "references": [
+      "bc5c8e3",
+      "486c446"
+    ],
+    "required_to_continue": false,
+    "resolution": "User confirms useful external diff already delivered directly to Lovable; no request to transfer unseen commits"
+  },
+  "equivalents_reused": [
+    "R2 source-bound download redirects, cache repair, rotating public grants and bounded document retries from d3ee2f7 ancestry",
+    "Existing actOriginIdentity/actBatchState, separate publication mapper, attachment queue and original-document correspondence checks",
+    "Lovable publisherResolution.ts and its page/title contract, already in application main",
+    "Lovable WorkItemDetail, explicit download, reading-failure badges, source links and PDF-reader changes preserved",
+    "Existing daily-sync cursor ledger retained; eligibility and incomplete-read verdict corrected"
+  ],
+  "prepared_changes": [
+    "PP author-despacho search followed by municipality candidates filtered by author title; fragmented public case IDs and explicit package page attribution",
+    "Original PDFs content-addressed, cached bytes compared against obtained source bytes; broken stored copy replaced from source; original retained when decoding/rendering fails",
+    "Document attribution survives both PP writers and both read routes; native publication identity is part of the Cloud SQL uniqueness key",
+    "Atomic SQL daily snapshots beyond REST row ceilings; leased items with fencing tokens, three attempts and durable cron redispatch",
+    "Pending/stale snapshots never advance successful read clocks; source date uses America/Bogota; complete empty read ends normally",
+    "Actuaciones eligibility includes null stage, excludes disabled/deleted matters, and advances past invalid-only pages",
+    "PP URLs and downloadable classification are candidates, not availability; existing recovered associations remain owned by the recovery queue"
+  ],
+  "integration_order": [
+    "Backend complete with native-origin migration and compatible PP writers/read API; keep new uniqueness on rollback",
+    "Use this single integration commit against current main; preserve Lovable SQL0045, official-link requeue,305 legacy-copy reading-not-recorded compatibility,UI andMCP",
+    "Apply corrected20261020010000_public_monitor_durable.sql; it seeds current day before selecting an older recovery run. Standalone CREATE OR REPLACE SQL is in backend coordination/20261021010000_public_monitor_daily_seed.sql if an older protocol was already installed",
+    "Drain old unfenced monitor invocations; deploy compatible scheduled-publicaciones-monitor,scheduled-samai-estados-monitor,sync-publicaciones-by-work-item,scheduled-daily-sync and affected ordinary sync/retry importers. Deploy scheduled-daily-estados compatibility endpoint in coordination with its cron auth transition",
+    "Securely populate and verify CRON_SERVICE_KEY and SUPABASE_URL in Vault; verify function runtime configuration matches without exposing values",
+    "Only then apply20261020011000_public_monitor_dispatch.sql; never include activation in an automatic schema batch before compatible functions are ready",
+    "Verify real daily run/recovery and WorkItemDetail authorized opening/downloading; these are not declared completed by backend release"
+  ],
+  "rollback_constraints": [
+    "Retain legitimate native publication rows, IDs, references, document objects and new uniqueness; never delete records to restore the old semantic constraint",
+    "Roll back to a compatibility writer that still targets (work_item_id,estado_id,fecha,descripcion); an unmodified old writer cannot be used after the new constraint",
+    "Keep new RPC/schema protocol during monitor rollback or stop its dispatcher first; do not allow old unfenced workers to finish new claims"
+  ],
+  "verification": {
+    "new_and_reused_focused_deno_tests": 20,
+    "new_pp_execution_pdf_tests": 14,
+    "real_local_postgres": [
+      "503-process snapshot, fenced leases, repeat no-op, interruption recovery, three attempts, channel checks, private RPC grants and dispatch with local Vault/net/cron stubs",
+      "PP migration preserves prior rows, distinct article origins and idempotent insert effects",
+      "Daily snapshot starvation regression: yesterday drains, today claims/completes, late-added matter is queued next day; old token rejected"
+    ],
+    "python_sql_placeholder_checks": 63,
+    "focused_new_monitor_helpers_typecheck": "passed",
+    "broader_types": "5 diagnostics reproduced unchanged on original application main; no suppressions added",
+    "legacy_publicaciones_adapter_tests": "2 pre-existing failures reproduced on original main (asset-based fingerprint and pub_x prefix expectations); 10 pass",
+    "samai_unchanged_tests": "Existing R2 evidence reused; optional rerun 17 pass and cache test cannot import absent pdf-lib/cjs package in the existing dependency tree",
+    "read_route_live_check": "Real authenticated collector PDF proxy, both PP read APIs, stored original/derived bytes decoded/rendered, source page equality and native associations checked",
+    "ui_browser_authenticated_clicks": "Not verified in this backend task; owned by Lovable",
+    "production_writes": true,
+    "deployments": true,
+    "lovable_calls": "Read-only SQL/metadata and explicitly authorized coordination, no application deployment requested",
+    "focused_total_tests": 34,
+    "broader_types_diagnostics": [
+      "syncOrchestrator.ts: timeout attempt missing outcome",
+      "scheduled-daily-sync: manual retry projection cast omits EligibleWorkItem fields",
+      "scheduled-daily-sync: nullable failure_reason return",
+      "sync-publicaciones-by-work-item: routing skip reason missing in union",
+      "sync-publicaciones-by-work-item: PROVIDER_NO_DOCUMENT missing in result-code union"
+    ],
+    "daily_regression": "Isolated PostgreSQL: original starvation reproduced; corrected SQL seeds today, drains yesterday, claims/completes today, includes post-snapshot new process next day, fences old token and limits attempts to3"
+  },
+  "deployment_read_check": {
+    "cloud_project": "andromeda-2026",
+    "active_revisions": {
+      "cpnu_collector": "cpnu-https-jobs-00033-xfb",
+      "cpnu_api": "cpnu-read-api-00023-rj8",
+      "publicaciones": "publicaciones-procesales-api-00061-jhw",
+      "pp_api": "pp-read-api-00014-4pl",
+      "samai_collector": "samai-https-jobs-00021-pup",
+      "samai_api": "samai-read-api-00017-det",
+      "samai_estados": "samai-estados-api-00017-jkg"
+    },
+    "source_git_sha_labels_available": true,
+    "prior_ui_deployment_evidence": "47542d4866b237ecd440892062d4034fbf7b4230 verified 2026-10-19; later current application main is 2916a65a. Do not equate latest main with live deployment.",
+    "samai_collector_image_digest": "sha256:187f366e8add2ac0a0af4e3f1148da3cc12401c5b654ae5cf75d687ae8052b98",
+    "pp_image_digest": "sha256:85114e2ddf222860f1b66b78dcc529d52a4a0fb5354e77641c0e447a2b3a7f32",
+    "source_git_sha_labels_scope": "PP release components only"
+  },
+  "excluded": [
+    "Historical SAMAI repair package",
+    "Old two alerts",
+    "30-day deadline change",
+    "Personal SAMAI authentication",
+    "MCP deployment",
+    "Notification implementation",
+    "MCP rollout",
+    "UI source edits"
+  ],
+  "integration_access": {
+    "connected_project_main_matches_github": true,
+    "project_main": "b5cbdf8441734e1b069efec10684e893214ec66a",
+    "lovable_can_read_branch": false,
+    "proof": "Lovable read_file returns404 for branch manifest; agent confirms internal main-only repository and no GitHub connector",
+    "fallback": "Final PR/diff and SQL; exact files below for direct transfer, no ZIP",
+    "function_bundle_c5cbe222_full_hash": "UNVERIFIED: Lovable read-only metadata/log/history lookup unable to recover full value; not equated to Git source SHA"
+  },
+  "deployed_backend": {
+    "publicaciones-procesales-api": {
+      "revision": "publicaciones-procesales-api-00061-jhw",
+      "image": "us-central1-docker.pkg.dev/andromeda-2026/cloud-run-source-deploy/publicaciones-procesales-api@sha256:85114e2ddf222860f1b66b78dcc529d52a4a0fb5354e77641c0e447a2b3a7f32",
+      "commit": "d3571305fbc7a6fa57a024a4ae10a9779f8007e5",
+      "traffic": [
+        {
+          "percent": 100,
+          "revisionName": "publicaciones-procesales-api-00061-jhw"
+        }
+      ]
+    },
+    "pp-read-api": {
+      "revision": "pp-read-api-00014-4pl",
+      "image": "us-central1-docker.pkg.dev/andromeda-2026/cloud-run-source-deploy/pp-read-api@sha256:5764df207761527daec41af99fb46cf3837e4790e1d2f52a60bd1f37c295ef96",
+      "commit": "7de6dd9e99133aa2494eb332c6fd41700a6248da",
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100,
+          "revisionName": "pp-read-api-00014-4pl"
+        }
+      ]
+    },
+    "pp-sync-job": {
+      "image_digest": "sha256:927c2cc174f09bcda5d315ac82f6bfebc73c11669fa8ac6a815c0e6ad4de4f24",
+      "commit": "3c29e7026c3adf7d01c22aadbfe305825e3a7a13",
+      "generation": 60
+    }
+  },
+  "cloud_sql": {
+    "applied": "migration_pp_public_origin.sql",
+    "existing_rows_preserved": 219,
+    "repeat_no_data_change": true,
+    "backup_id": "1792540876000",
+    "backup_status": "SUCCESSFUL",
+    "native_key": "UNIQUE NULLS NOT DISTINCT(work_item_id,estado_id,fecha,descripcion)",
+    "historical_samai_executed": false
+  },
+  "production_controls": {
+    "medellin_05001400302020250187800": {
+      "publication": "149 / 2026-10-14",
+      "event_date": "2026-10-13",
+      "article_id": "272010322",
+      "db_act_id": 1079,
+      "db_estado_id": 1076,
+      "files_downloaded_rendered": 4,
+      "original_state_pages": 19,
+      "original_ruling_pages": 4,
+      "derived_ruling_pages": [
+        1,
+        2,
+        3
+      ],
+      "derived_state_pages": 19,
+      "hashes_and_ids_stable_on_repeat": true,
+      "scope": "Stored objects and both read routes checked; no authenticated WorkItemDetail clicks",
+      "query_status": "LECTURA_PARCIAL: municipality enumeration includes unrecognized categories; recovered documents preserved"
+    },
+    "retiro_05607408900120260045600": {
+      "publication": "057 / 2026-10-08",
+      "event_date": "2026-10-07",
+      "article_id": "270169827",
+      "db_act_id": 1118,
+      "state_row_page": 2,
+      "status": "SUCCESS_WITH_DATA on final scheduled source consultation",
+      "ruling": "No individual2026-456 offered by consulted article inventory; do not label state as ruling",
+      "files_downloaded_rendered": 2,
+      "original_state_pages": 4,
+      "derived_state_pages": [
+        2
+      ],
+      "same_ids_on_repeat": true,
+      "repeat_receipt": {
+        "scheduler_execution": "pp-sync-job-vpq4g",
+        "execution_completed": true,
+        "same_act_id": 1118,
+        "same_state_id": 1115,
+        "same_novelty_id": 782,
+        "no_new_ids": true,
+        "no_false_ruling_after_repeat": true,
+        "raw_state_preserved": true,
+        "exact_state_page_copy_preserved": true,
+        "api_after_scheduler_matches": true,
+        "query_status": "SUCCESS_WITH_DATA",
+        "native_duplicate_count": 0
+      }
+    },
+    "amaga_05030318900120250000200": {
+      "window": "2026-10-08..2026-10-14",
+      "result": "0 matches in consulted PDFs; do not treat as a complete reconciliation of external census"
+    }
+  },
+  "regression_control": {
+    "found_in_real_control": true,
+    "cause": "Legacy names fallback reused state planilla as ruling for newly created test row",
+    "fixed_source_commit": "d3571305fbc7a6fa57a024a4ae10a9779f8007e5",
+    "rectified_only_new_test_act": 1118,
+    "rectified_only_new_test_novelty": 782,
+    "cas_transaction_backup": true,
+    "identity_state_and_valid_table_preserved": true,
+    "objects_deleted": 0,
+    "other_acts_unchanged": true,
+    "unmodified_legacy_writer_not_restored": true
+  },
+  "secret_checks": {
+    "function_environment_cron_key": "Name confirmed configured by Lovable; value not read",
+    "function_environment_supabase_url": "Platform-injected per Lovable; runtime value not independently observed",
+    "vault_secret_count": 0,
+    "activation_blocker": "Dispatcher requires CRON_SERVICE_KEY and SUPABASE_URL in Vault; no secrets present. Seed through an authorized secure technical channel and verify without printing values before activation."
+  },
+  "pending_application_files": [
+    "coordination/20261021010000_public_monitor_daily_seed.sql",
+    "public-connectors-closure.json",
+    "supabase/functions/_shared/canonicalPublicacionMapper.ts",
+    "supabase/functions/_shared/estadosMonitor.ts",
+    "supabase/functions/_shared/estadosMonitor_execution_test.ts",
+    "supabase/functions/_shared/providerAdapters/publicacionesAdapter.ts",
+    "supabase/functions/_shared/publicDocumentAvailability_test.ts",
+    "supabase/functions/_shared/publicEligibility_test.ts",
+    "supabase/functions/_shared/publicReadVerdict.ts",
+    "supabase/functions/_shared/publicReadVerdict_test.ts",
+    "supabase/functions/_shared/publicSnapshotFreshness.ts",
+    "supabase/functions/_shared/publicSnapshotFreshness_test.ts",
+    "supabase/functions/_shared/sync-eligibility.ts",
+    "supabase/functions/_shared/syncPolicy.ts",
+    "supabase/functions/scheduled-daily-estados/index.ts",
+    "supabase/functions/scheduled-daily-sync/index.ts",
+    "supabase/functions/sync-publicaciones-by-work-item/index.ts",
+    "supabase/migrations/20261020010000_public_monitor_durable.sql",
+    "supabase/migrations/20261020011000_public_monitor_dispatch.sql",
+    "supabase/tests/public_monitor_durable_test.py"
+  ],
+  "scheduler": {
+    "name": "pp-sync-cron",
+    "state": "ENABLED",
+    "schedule": "10 7 * * *",
+    "ordinary_selection_restored": true,
+    "writer_barrier": "PUBLIC_WRITES_PAUSED=0",
+    "final_real_execution": "pp-sync-job-vpq4g: completed successfully,0 new records on repeat",
+    "supabase_dispatcher_activated": false
+  },
+  "backend_ready_for_monitor_integration": true,
+  "rollback_compatible_images": {
+    "collector": "us-central1-docker.pkg.dev/andromeda-2026/cloud-run-source-deploy/publicaciones-procesales-api@sha256:0c70459a3b464fc7324ab79862fe543da8a1dbb7ff8af132dd17b1a07cfd8a25",
+    "sync": "us-central1-docker.pkg.dev/andromeda-2026/cloud-run-source-deploy/pp-sync-job@sha256:927c2cc174f09bcda5d315ac82f6bfebc73c11669fa8ac6a815c0e6ad4de4f24",
+    "read": "us-central1-docker.pkg.dev/andromeda-2026/cloud-run-source-deploy/pp-read-api@sha256:5764df207761527daec41af99fb46cf3837e4790e1d2f52a60bd1f37c295ef96",
+    "rules": "Keep native-origin constraint and all legitimate rows/objects; pause writers while changing images; full database backup is not a blind historical restore"
+  },
+  "lovable_preservation": {
+    "git_base": "b5cbdf8441734e1b069efec10684e893214ec66a",
+    "all_UI_and_drizzle_files_equal_base": true,
+    "official_requeue_hunks_untouched": true,
+    "not_deployed_by_codex": true
+  }
+}

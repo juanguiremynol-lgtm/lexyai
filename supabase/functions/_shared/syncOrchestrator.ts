@@ -292,7 +292,7 @@ function sanitizeForDebug(obj: unknown): unknown {
       continue;
     }
     if (typeof val === "string" && (key.includes("key") || key.includes("secret") || key.includes("token"))) {
-      result[key] = val ? `***${val.slice(-4)}` : null;
+      result[key] = val ? '[redacted]' : null;
       continue;
     }
     result[key] = val;
@@ -682,6 +682,7 @@ async function safeProviderFetch(
         data_kind: dataKind,
         role,
         status: "timeout",
+        outcome: "RUN_FAILED",
         http_code: null,
         latency_ms: budget + 5_000,
         error_code: "FORCED_TIMEOUT",

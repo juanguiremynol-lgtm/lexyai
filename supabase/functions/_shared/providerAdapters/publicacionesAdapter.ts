@@ -13,6 +13,7 @@
  * This adapter does NOT persist data — it returns normalized results only.
  */
 
+import { publicSnapshotIncomplete } from '../publicSnapshotFreshness.ts';
 import type {
   NormalizedPublicacion,
   PublicacionAttachment,
@@ -138,7 +139,7 @@ async function fetchMonitoring(
       if (hasContent) {
         return {
           provider: PROVIDER_KEY,
-          status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
+          status: publicSnapshotIncomplete(result.data) ? 'SCRAPING_INITIATED' : publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',
           actuaciones: [],
           publicaciones,
           metadata: extractPublicacionesMetadata(result.data),
@@ -150,7 +151,7 @@ async function fetchMonitoring(
     }
   }
 
-  return emptyResult('EMPTY', Date.now() - startTime, 'No publicaciones found');
+  return emptyResult('ERROR', Date.now() - startTime, 'Public source read failed or response was not a recognized inventory');
 }
 
 // ═══════════════════════════════════════════

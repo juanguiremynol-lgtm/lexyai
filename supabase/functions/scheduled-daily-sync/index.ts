@@ -29,6 +29,7 @@ import {
   markNeedsCpnuRefresh,
 } from "../_shared/cpnuFreshnessGate.ts";
 import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,6 +79,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  const caller = await requirePrivilegedCaller(req, corsHeaders);
+  if (!caller.ok && caller.response) return caller.response;
 
   // Health check short-circuit
   try {
@@ -333,7 +336,7 @@ Deno.serve(async (req) => {
   if (bodyParams.work_item_id) {
     const { data: item, error: itemError } = await supabase
       .from("work_items")
-      .select("id, organization_id, radicado, workflow_type, stage, total_actuaciones")
+      .select("id, organization_id, radicado, workflow_type, stage, total_actuaciones, last_synced_at, scrape_status, consecutive_failures")
       .eq("id", bodyParams.work_item_id)
       .maybeSingle();
 
@@ -345,7 +348,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[daily-sync] DIRECT_ITEM work_item_id=${item.id} workflow=${item.workflow_type} trigger=${triggerSource}`);
-    const result = await syncSingleItem(supabase, item as EligibleWorkItem, item.organization_id, undefined, true);
+    const result = await syncSingleItem(supabase, item, item.organization_id, undefined, true);
     return new Response(
       JSON.stringify({ ok: true, mode: "DIRECT_ITEM", work_item_id: item.id, result }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -1223,7 +1226,7 @@ async function syncOrganization(
       org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed,
       dispatched: itemsDispatched,
       dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId,
-      skipped: itemsSkipped, failure_reason: failureReason,
+      skipped: itemsSkipped, failure_reason: failureReason ?? undefined,
       skipped_radicados: skippedRadicados.slice(0, 50),
       skipped_reasons: skippedReasons,
       timeout_items: [...new Set(timeoutItems)].slice(0, 50),
@@ -1351,6 +1354,10 @@ async function syncSingleItem(
     if (syncResult?.ok === false) {
       throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
     }
+  }
+
+  if (!syncOk) {
+    throw new Error(`PUBLIC_READ_INCOMPLETE: ${syncResult?.code ?? "pending or stale source read"}`);
   }
 
   // Return CPNU buscar metadata for caller to track budget

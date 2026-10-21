@@ -23,6 +23,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
@@ -92,6 +93,7 @@ type SyncResult = {
     | 'SUCCESS_EMPTY'
     | 'PENDING_UPSTREAM'
     | 'CONTRACT_MISMATCH'
+    | 'PROVIDER_NO_DOCUMENT'
     | 'ERROR';
   provider_latency_ms?: number;
   samai_estados_summary?: {
@@ -191,6 +193,7 @@ export type ProcesarAck = {
 };
 
 type FetchResultV3 = {
+  readIncomplete?: boolean;
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
@@ -353,7 +356,8 @@ type RescrapeDecision = {
     | 'gate_suppressed'
     | 'trigger_accepted'
     | 'trigger_error'
-    | 'not_evaluated';
+    | 'not_evaluated'
+    | 'routing_skip_non_pp_category';
   httpStatus?: number;
   error?: string;
 };
@@ -1025,7 +1029,7 @@ async function tryProcesarFallback(
     }
 
     const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
-    if (extracted.publicaciones.length === 0) {
+    if (extracted.publicaciones.length === 0 && extracted.resultCode !== 'SUCCESS') {
       return {
         ok: true,
         publicaciones: [],
@@ -1180,7 +1184,16 @@ async function fetchPublicaciones(
   rescrapeGate?: { allow: boolean; onDecision?: (decision: RescrapeDecision) => void },
 ): Promise<FetchResultV3> {
   const capture: { read: HistoricoRead | null } = { read: null };
-  const res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
+  let res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
+  const observedBody = res.procesarAck?.body ?? capture.read?.body;
+  if (res.ok && publicSnapshotIncomplete(observedBody)) {
+    if (rescrapeGate?.allow && !res.procesarAck) {
+      const refreshed = await tryProcesarFallback(baseUrl, radicado, { 'x-api-key': apiKey, 'Content-Type': 'application/json' });
+      if (refreshed) res = { ...refreshed, publicaciones: refreshed.publicaciones.length ? refreshed.publicaciones : res.publicaciones };
+      rescrapeGate.onDecision?.({ triggered: true, reason: refreshed?.ok ? 'trigger_accepted' : 'trigger_error', httpStatus: refreshed?.httpStatus });
+    }
+    res.readIncomplete = publicSnapshotIncomplete(res.procesarAck?.body ?? observedBody);
+  }
   return capture.read ? { ...res, historicoRead: capture.read } : res;
 }
 
@@ -1262,7 +1275,7 @@ async function fetchPublicacionesInner(
       const latencyMs = Date.now() - startTime;
       console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
       const extracted = extractPublicacionesFromResponse(data, latencyMs);
-      if (extracted.publicaciones.length > 0) {
+      if (extracted.publicaciones.length > 0 || extracted.resultCode === 'SUCCESS') {
         return extracted;
       }
       // 200 + empty → keep looking, and if nothing else works fall through
@@ -1424,7 +1437,7 @@ function extractPublicacionesFromResponse(
       latencyMs,
       found: false,
       httpStatus: 200,
-      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : 'NO_DATA',
+      resultCode: noDocument.length > 0 ? 'PROVIDER_NO_DOCUMENT' : publicSnapshotCompleted(data) ? 'SUCCESS' : 'NO_DATA',
       noDocumentEstados: noDocument,
       rawSample: sampleProviderResponse(data),
     };
@@ -2074,7 +2087,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         (samai.status === 'EMPTY' || samai.status === 'SUCCESS') &&
         (samai.http_status === 200 || samai.http_status === 404),
       );
-      if (result.samai_estados_summary?.contract_mismatch) {
+      if (fetchResult.readIncomplete) {
+        result.result_code = 'PENDING_UPSTREAM';
+      } else if (result.samai_estados_summary?.contract_mismatch) {
         result.result_code = 'CONTRACT_MISMATCH';
       } else if (fetchResult.resultCode === 'NO_DATA' && !(!shouldFetchPP && samaiAnswered)) {
         result.result_code = 'PENDING_UPSTREAM';
@@ -2094,6 +2109,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // Return early with an explicit PENDING_UPSTREAM verdict and let the
       // 10-minute re-check (iteration 54) settle the question.
       if (result.result_code === 'PENDING_UPSTREAM') {
+        result.ok = false;
         (result as any).status = 'PENDING_UPSTREAM';
         await writePublicacionesAttemptRow(
           supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
@@ -2736,9 +2752,9 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     if (result.errors.length > 0) {
       if (result.inserted_count > 0) {
-        result.ok = true;
+        result.ok = false;
         result.status = 'SUCCESS'; // Some inserted, some errored — still "ok" overall
-        result.result_code = 'SUCCESS_WITH_DATA';
+        result.result_code = 'PENDING_UPSTREAM';
         result.warnings.push(`${result.errors.length} RPC error(s) occurred but ${result.inserted_count} publications were inserted`);
       } else {
         result.ok = false;
@@ -2761,8 +2777,15 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
 
-    // Set initial sync completion marker (idempotent: only on first successful sync)
-    try {
+    if (fetchResult.readIncomplete || result.result_code === 'CONTRACT_MISMATCH') {
+      result.ok = false;
+      result.result_code = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
+      result.warnings.push('Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.');
+      await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+    }
+
+    // Set initial sync completion marker only on a completed read.
+    if (result.ok) try {
       await supabase
         .from('work_items')
         .update({ pubs_initial_sync_completed_at: new Date().toISOString() } as any)
@@ -2895,7 +2918,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         duration_ms: result.provider_latency_ms || 0,
         status: result.ok ? 'SUCCESS' : (result.errors.length > 0 ? 'FAILED' : 'PARTIAL'),
         // chk_failed_run_declares_reason — never write a FAILED row without a code.
-        error_code: (!result.ok && result.errors.length > 0)
+        error_code: !result.ok
           ? (result.result_code || 'UNSPECIFIED_ERROR')
           : null,
         provider_attempts: canonicalizeAttemptsForPersist([

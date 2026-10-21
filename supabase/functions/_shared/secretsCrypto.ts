@@ -41,6 +41,6 @@ export async function encryptSecret(plain: string): Promise<{ cipher: Uint8Array
 
 export async function decryptSecret(cipher: Uint8Array, nonce: Uint8Array): Promise<string> {
   const key = await (await import("./cryptoKey.ts")).getAesKey();
-  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, cipher);
+  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce.slice().buffer }, key, cipher.slice().buffer);
   return new TextDecoder().decode(new Uint8Array(plainBuf));
 }

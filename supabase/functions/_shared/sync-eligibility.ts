@@ -60,9 +60,11 @@ export async function selectEligibleWorkItems(
     .from("work_items")
     .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
     .eq("organization_id", orgId)
+    .eq("monitoring_enabled", true)
+    .is("deleted_at", null)
     .eq("lifecycle_state", "ACTIVE")
     .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-    .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
+    .or(`stage.is.null,stage.not.in.(${[...TERMINAL_STAGES].join(",")})`)
     .not("radicado", "is", null)
     .order("id", { ascending: true });
 
@@ -99,5 +101,8 @@ export async function selectEligibleWorkItems(
     (item: any) => item.radicado && item.radicado.replace(/\D/g, "").length === 23,
   );
 
+  if (!items.length && data?.length && data[data.length - 1].id !== options?.afterId) {
+    return selectEligibleWorkItems(supabase, orgId, { ...options, afterId: data[data.length - 1].id });
+  }
   return items;
 }

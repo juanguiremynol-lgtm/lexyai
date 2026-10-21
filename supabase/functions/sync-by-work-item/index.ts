@@ -220,7 +220,7 @@ interface SyncResult {
   errors: string[];
   trace_id?: string;
   code?: string; // Error code for client
-  persistence_unknown?: { fingerprint: string; reason: string }[];
+  persistence_unknown?: { fingerprint: string | null; reason: string }[];
   // Auto-scraping fields
   scraping_initiated?: boolean;
   scraping_job_id?: string;
@@ -248,6 +248,10 @@ interface WorkItem {
 }
 
 interface ActuacionRaw {
+  [key: string]: unknown;
+  instancia?: string;
+  fechaActuacion?: string;
+  fecha_actuacion?: string;
   fecha: string;
   actuacion: string;
   anotacion?: string;
@@ -275,6 +279,11 @@ interface FetchResult {
   actuaciones: ActuacionRaw[];
   expedienteUrl?: string;
   caseMetadata?: {
+    corte_status?: string;
+    sentencia_ref?: string;
+    tutela_code?: string;
+    ciudad?: string;
+    departamento?: string;
     despacho?: string;
     demandante?: string;
     demandado?: string;
@@ -423,7 +432,8 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
   };
   
   const primary = keyMap[primaryProvider?.key || 'CPNU'] || 'cpnu';
-  const fallback = fallbackProvider ? (keyMap[fallbackProvider.key] || null) : null;
+  const candidateFallback = fallbackProvider ? keyMap[fallbackProvider.key] : null;
+  const fallback = candidateFallback === 'cpnu' || candidateFallback === 'samai' ? candidateFallback : null;
   
   return {
     primary,
@@ -1054,7 +1064,7 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
   const bridged = toOrchestratorResult(result);
   return {
     ok: bridged.ok,
-    actuaciones: bridged.actuaciones,
+    actuaciones: bridged.actuaciones.map(act => ({ ...act })),
     expedienteUrl: bridged.expedienteUrl,
     caseMetadata: bridged.caseMetadata as FetchResult['caseMetadata'],
     sujetos: bridged.sujetos,

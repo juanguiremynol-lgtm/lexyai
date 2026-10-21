@@ -121,6 +121,9 @@ export function NotificationCenter() {
     markRead,
     markAllRead,
     dismiss,
+    snooze,
+    error,
+    refetch,
   } = useNotifications({ categoryFilter: activeTab });
 
   const handleNotificationClick = (notification: Notification) => {
@@ -141,7 +144,7 @@ export function NotificationCenter() {
 
   // Role badge for the panel header
   const roleBadgeLabel = effectiveRole === 'SUPER_ADMIN' 
-    ? 'Ops' 
+    ? 'Operaciones y mis asuntos' 
     : effectiveRole === 'ORG_ADMIN' 
       ? 'Admin' 
       : null;
@@ -164,7 +167,7 @@ export function NotificationCenter() {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent className="w-[380px] p-0" align="end" sideOffset={8}>
+      <PopoverContent className="w-[380px] max-w-[calc(100vw-24px)] p-0" align="end" sideOffset={8}>
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-2">
@@ -195,7 +198,7 @@ export function NotificationCenter() {
               value={activeTab}
               onValueChange={(v) => setActiveTab(v as NotificationCategory | "ALL")}
             >
-              <TabsList className="w-full h-8">
+              <TabsList className="w-full h-auto flex-wrap">
                 {tabs.map((tab) => (
                   <TabsTrigger
                     key={tab.key}
@@ -210,6 +213,8 @@ export function NotificationCenter() {
           </div>
         )}
 
+        {error && <div className="px-4 py-2 text-sm text-destructive">No se pudo confirmar el cambio.
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>Reintentar</Button></div>}
         {/* ── Notification list ── */}
         <ScrollArea className="max-h-[360px]">
           {notifications.length === 0 ? (
@@ -222,8 +227,11 @@ export function NotificationCenter() {
           ) : (
             <div className="divide-y">
               {notifications.map((n) => (
-                <button
+                <div
                   key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter') handleNotificationClick(n); }}
                   onClick={() => handleNotificationClick(n)}
                   className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors flex gap-3 group ${
                     !n.read_at ? "bg-primary/5" : ""
@@ -261,15 +269,19 @@ export function NotificationCenter() {
                       })}
                     </p>
                   </div>
-                  {/* Dismiss button */}
-                  <button
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" disabled={snooze.isPending}
+                    title="Aplazar una hora" aria-label="Aplazar una hora"
+                    onClick={e => { e.stopPropagation(); snooze.mutate({ id: n.id, until: new Date(Date.now() + 3600000).toISOString() }); }}>
+                    <Timer className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" disabled={dismiss.isPending}
                     onClick={(e) => handleDismiss(e, n.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0 self-start"
+                    className="h-7 w-7 shrink-0 self-start"
                     aria-label="Descartar"
                   >
                     <X className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </button>
+                  </Button>
+                </div>
               ))}
             </div>
           )}
