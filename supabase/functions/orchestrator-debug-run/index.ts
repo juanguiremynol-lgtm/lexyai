@@ -204,11 +204,6 @@ Deno.serve(async (req) => {
     };
 
     // ── Build fetch registry with all providers ──
-    const cpnuBaseUrl = Deno.env.get("CPNU_BASE_URL") || "";
-    // ITER48 — pinned: SAMAI_BASE_URL was deleted (it named a different contract).
-    const samaiBaseUrl = upstreamBaseUrl("samai_read");
-    const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL") || "";
-    const samaiEstadosBaseUrl = Deno.env.get("SAMAI_ESTADOS_BASE_URL") || "";
     const externalApiKey = Deno.env.get("EXTERNAL_X_API_KEY") || "";
 
     // Build adapters that wrap the shared provider functions
@@ -218,7 +213,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromCpnu({
             radicado: rad,
-            baseUrl: cpnuBaseUrl,
             apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
@@ -232,7 +226,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromSamai({
             radicado: rad,
-            baseUrl: samaiBaseUrl,
             apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
@@ -245,7 +238,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromPublicaciones({
             radicado: rad,
-            baseUrl: pubBaseUrl,
             apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",
@@ -258,7 +250,6 @@ Deno.serve(async (req) => {
         fetchFn: createLegacyAdapter(async (rad: string) => {
           const result = await fetchFromSamaiEstados({
             radicado: rad,
-            baseUrl: samaiEstadosBaseUrl,
             apiKey: externalApiKey,
             workItemId,
             mode: "monitoring",

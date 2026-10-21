@@ -65,7 +65,7 @@ export async function getAes256KeyBytesFromEnv(): Promise<Uint8Array> {
   }
 
   // Derive 32 bytes via SHA-256 (deterministic, no salt needed for this use case)
-  const hash = await crypto.subtle.digest("SHA-256", rawBytes);
+  const hash = await crypto.subtle.digest("SHA-256", rawBytes.slice().buffer);
   return new Uint8Array(hash); // Always exactly 32 bytes
 }
 
@@ -74,7 +74,7 @@ export async function getAes256KeyBytesFromEnv(): Promise<Uint8Array> {
  */
 export async function getAesKey(): Promise<CryptoKey> {
   const keyBytes = await getAes256KeyBytesFromEnv();
-  return crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, [
+  return crypto.subtle.importKey("raw", keyBytes.slice().buffer, "AES-GCM", false, [
     "encrypt",
     "decrypt",
   ]);

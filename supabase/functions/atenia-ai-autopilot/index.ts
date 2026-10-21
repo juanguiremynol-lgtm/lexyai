@@ -599,7 +599,7 @@ async function validateAndHeal(
           await (supabase.from("sync_retry_queue") as any).insert({
             work_item_id: item.id,
             organization_id: orgId,
-            radicado: item.radicado,
+            radicado: item.radicado ?? undefined,
             kind: "ACT_SCRAPE_RETRY",
             provider: "cpnu",
             attempt: 1,
