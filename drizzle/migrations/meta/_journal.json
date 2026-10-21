@@ -344,6 +344,13 @@
       "when": 1792544036692,
       "tag": "0048_notification_personal_read_isolation",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792546219203,
+      "tag": "0049_backup_familia_radicado_date_rows",
+      "breakpoints": true
     }
   ]
 }
