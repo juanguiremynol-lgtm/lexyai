@@ -13,7 +13,7 @@ export interface PendingDeadlineRow {
   label: string | null;
   deadline_type: string | null;
   trigger_date: string | null;
-  work_items?: { id: string; radicado: string | null: string | null; title: string | null } | null;
+  work_items?: { id: string; radicado: string | null; title: string | null } | null;
 }
 
 export interface DeadlineReviewState {
