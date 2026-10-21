@@ -39,5 +39,11 @@ export function estadoDocumentStatus(document: EstadoDocumentRecovery): { availa
   if (/hash_mismatch|document_mismatch/.test(error)) return { available: false, label: 'Documento pendiente', reason: 'La copia recibida no coincide con el documento anunciado.' + suffix };
   if (/pdf_|stored_/.test(error)) return { available: false, label: 'Lectura pendiente', reason: 'No se pudo comprobar la lectura de la copia.' + suffix };
   if (error) return { available: false, label: 'Recuperación pendiente', reason: 'No se completó la descarga o su almacenamiento.' + suffix };
+  // Legacy own copies stored before the reading observer existed carry no
+  // validation evidence. Hiding them would conceal valid files, so they stay
+  // openable but are labelled as not yet read (mirrors act-document-presentation).
+  if (document.status === 'downloaded' && document.storage_path && !evidence) {
+    return { available: true, label: 'Archivo almacenado; lectura no registrada', reason: 'Copia propia anterior al control de lectura; su contenido no se ha comprobado.' };
+  }
   return { available: false, label: 'Verificación pendiente', reason: 'El enlace anunciado todavía no acredita una copia disponible.' };
 }
