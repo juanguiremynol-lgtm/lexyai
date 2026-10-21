@@ -51,3 +51,8 @@ Huellas del código enviado, NO commits Git ni metadatos de versión desplegada:
 - Defect fixed: a verified multi-case package read only on its declared case pages (Rionegro estado 131, 68 pages, pages 5/60/61 read) was shown as "Verificación pendiente". It now reads "Disponible (paquete original)" and states it is not an individual providencia. Partial reads without declared pages or verified package stay pending (test: src/test/estado-document-status-package.test.ts).
 - "Abrir" navigates a new tab to the signed copy; storage serves application/pdf without attachment disposition, so a normal browser shows it inline. Headless Chromium has no PDF viewer: that is a test-environment limit, not an app defect.
 - Existing cron jobs (do not duplicate): 64 andromeda-daily-estados `20 12 * * *` PAUSED; 66 daily-sync `0 12 * * *` active; 91 publicaciones-monitor `0 11 * * *` active; 92 samai-estados-monitor `50 10 * * *` active (UTC).
+
+## Addendum 2026-10-21 01:30 UTC — dates
+- Guard: 8-digit dates are read only as standalone runs with year 2020–2039 (never sliced from a radicado); persisted fecha_fijacion must be a real calendar day (plausibleCivilDate), else NULL. Deployed: sync-publicaciones-by-work-item a8dc6317…, bridge-reconcile da071316…, provider-sync-external-provider 0ce2de56… (source SHA-256).
+- UI: civil dates keep their own day (src/lib/civil-date.ts); invalid → "Fecha no informada", undated last.
+- Pending point repair (NOT applied): work_item_publicaciones 7db9964d…, 18f4c6c4…, a1f7414b… fecha_fijacion 0131-10-01 → NULL. Source evidence: raw_data.fecha_publicacion = "sin-fecha", key suffix ":sin-fecha". Do not recompute hash_fingerprint.
