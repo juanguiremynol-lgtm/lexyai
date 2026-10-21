@@ -266,5 +266,85 @@
         "ventana_hasta": null
       }
     ]
+  },
+  "consumer-samai-proof.json": [
+    {
+      "radicado": "05001233300020240115300",
+      "observed_at": "2026-10-21T16:36:50.963030+00:00",
+      "http_status": 200,
+      "path": "/buscar?numero_radicacion=05001233300020240115300",
+      "total_rows": 161,
+      "selected": [
+        {
+          "source_act_id": "samai_actuaciones:34003",
+          "categoria": "ACTUACION",
+          "fecha_providencia_iso": "2026-10-20",
+          "fecha_actuacion": null,
+          "fecha_registro": "2026-10-20T00:00:00.000Z",
+          "indice": 138,
+          "Fecha Providencia": "2026-10-20T00:00:00.000Z",
+          "Fecha Registro": null
+        },
+        {
+          "source_act_id": "samai_actuaciones:34004",
+          "categoria": "ACTUACION",
+          "fecha_providencia_iso": "2026-10-20",
+          "fecha_actuacion": null,
+          "fecha_registro": "2026-10-20T00:00:00.000Z",
+          "indice": 137,
+          "Fecha Providencia": "2026-10-20T00:00:00.000Z",
+          "Fecha Registro": null
+        },
+        {
+          "source_act_id": "samai_actuaciones:34000",
+          "categoria": "ACTUACION",
+          "fecha_providencia_iso": "2026-10-20",
+          "fecha_actuacion": null,
+          "fecha_registro": "2026-10-19T00:00:00.000Z",
+          "indice": 134,
+          "Fecha Providencia": "2026-10-20T00:00:00.000Z",
+          "Fecha Registro": null
+        }
+      ]
+    },
+    {
+      "radicado": "05001233300020260142400",
+      "observed_at": "2026-10-21T16:36:54.076574+00:00",
+      "http_status": 200,
+      "path": "/buscar?numero_radicacion=05001233300020260142400",
+      "total_rows": 31,
+      "selected": [
+        {
+          "source_act_id": "samai_actuaciones:34005",
+          "categoria": "ACTUACION",
+          "fecha_providencia_iso": "2026-10-20",
+          "fecha_actuacion": null,
+          "fecha_registro": "2026-10-20T00:00:00.000Z",
+          "indice": 28,
+          "Fecha Providencia": "2026-10-20T00:00:00.000Z",
+          "Fecha Registro": null
+        },
+        {
+          "source_act_id": "samai_actuaciones:34006",
+          "categoria": "ACTUACION",
+          "fecha_providencia_iso": "2026-10-20",
+          "fecha_actuacion": null,
+          "fecha_registro": "2026-10-20T00:00:00.000Z",
+          "indice": 27,
+          "Fecha Providencia": "2026-10-20T00:00:00.000Z",
+          "Fecha Registro": null
+        }
+      ]
+    }
+  ],
+  "pp_novedades_control": {
+    "work_items": [
+      29,
+      31,
+      120
+    ],
+    "created_since": "2026-10-21T15:00:00Z",
+    "new_rows": 0,
+    "observed_on": "2026-10-21"
   }
 }
