@@ -345,3 +345,13 @@ Deno.test("absorbed CPNU entry with other anotación never claims the active row
     evidence: "Solicitud adicion y corrección", rows: [old] });
   assertEquals(d.kind, "insert");
 });
+
+Deno.test("explicit native owner wins over inferred legacy row (no 23505 enrich)", () => {
+  const v1 = "wi_91edd371_4fe7427519120f13";
+  const legacy = { id: "b62c5613", source: "cpnu", hash_fingerprint: v1, semantic_key: "a", description: "Archivo Definitivo - Se archiva el presente proceso digital",
+    raw_data: { indice: "6", consolidated_from: [{ source: "cpnu", raw_data: { actuacion: "Archivo Definitivo", anotacion: "Se archiva el presente proceso digital", indice: "106713346" } }] } };
+  const copy = { id: "27fb5471", source: "cpnu", hash_fingerprint: v1 + "_o700e2d0a", semantic_key: "b", description: legacy.description,
+    raw_data: { indice: "106713346", origen_indice: "106713346" } };
+  const d = resolveActIdentity({ v1, semanticKey: "b", provider: "cpnu", incoming: extractActOrigin({ indice: "106713346" }), evidence: legacy.description, rows: [legacy, copy] });
+  assertEquals(d.kind === "match" && d.row.id, "27fb5471");
+});

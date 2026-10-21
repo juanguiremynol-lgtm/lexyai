@@ -125,8 +125,12 @@ export async function enrichPersistedAct(
       const value = incoming[input];
       if (row[column] == null && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) dates[column] = value;
     }
-    if (!plan && !docs && Object.keys(dates).length === 0) return row;
+    const incomingProc = typeof incoming._idProceso === 'string' && incoming._idProceso ? incoming._idProceso : null;
+    const addProc = !!incomingProc && !(row.raw_data as any)?._idProceso;
+    if (!plan && !docs && Object.keys(dates).length === 0 && !addProc) return row;
     const raw = { ...(plan?.raw_data ?? row.raw_data ?? {}) };
+    // Provider process provenance is append-only: never overwrite a stored one.
+    if (addProc) raw._idProceso = incomingProc;
     for (const key of ['fecha_registro', 'estado', 'anexos', 'indice', 'instancia']) {
       const value = incoming[key];
       if (value !== undefined && value !== null && value !== '') raw[key] = value;
