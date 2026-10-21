@@ -88,10 +88,29 @@ export function originFromRow(row: {
   const storedSol = clean(rd.origen_solicitud);
   const storedRad = clean(rd.origen_radicada_en);
   return make({
-    indice: clean(rd.origen_indice) ?? clean(rd.indice),
+    indice: clean(rd.origen_indice) ?? consolidatedIndice(rd) ?? clean(rd.indice),
     solicitud: fromDesc.solicitud ?? storedSol,
     radicada_en: fromDesc.radicada_en ?? storedRad,
   });
+}
+
+/** Legacy consolidated rows keep the provider-native id inside
+ * raw_data.consolidated_from while raw_data.indice holds a list position.
+ * Only a single, unanimous id is used; disagreement yields null. */
+function consolidatedIndice(rd: Record<string, unknown>): string | null {
+  const list = Array.isArray(rd.consolidated_from) ? rd.consolidated_from : [];
+  const ids = new Set<string>();
+  for (const e of list) {
+    const v = clean((e as any)?.raw_data?.indice);
+    if (v) ids.add(v.replace(/^0+(?=\d)/, ''));
+  }
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+/** A stored CPNU row written before origin capture (no origen_* fields). */
+function isLegacyOriginless(r: CandidateRow): boolean {
+  const rd = (r.raw_data ?? {}) as Record<string, unknown>;
+  return !clean(rd.origen_indice) && !clean(rd.origen_solicitud) && !clean(rd.origen_radicada_en) && !clean(rd.origen_clave);
 }
 
 export type OriginRelation = "equivalent" | "conflict" | "indeterminate";
@@ -232,6 +251,16 @@ export function resolveActIdentity(input: {
         (input.evidence === undefined || clean(r.description) === clean(input.evidence));
     });
     if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };
+  }
+  // Legacy CPNU reconciliation: a pre-origin row with the same v1 (date+title)
+  // and exact text is the same act when it is the ONLY such row and no row
+  // already owns the incoming native id. Its raw indice may be positional.
+  if (input.provider?.toLowerCase() === 'cpnu' && incoming.indice && input.evidence) {
+    const ownsId = providerRows.some(r => clean((r.raw_data as any)?.origen_indice) === incoming.indice);
+    const legacy = fpSorted.filter(r => isLegacyOriginless(r)
+      && !hasStableOrigin(originFromRow(r)) && !hasStableOrigin(incoming)
+      && clean(r.description) === clean(input.evidence));
+    if (!ownsId && legacy.length === 1) return { kind: 'match', row: legacy[0], relation: 'indeterminate', via: 'fingerprint' };
   }
   const v1Taken = input.rows.some((r) => r.hash_fingerprint === v1);
   const conflicted = byFp.length + bySem.length > 0;
