@@ -44,3 +44,10 @@ Huellas del código enviado, NO commits Git ni metadatos de versión desplegada:
 - PostgreSQL desechable: 503 procesos, hoy/ayer, inclusión al siguiente snapshot, fencing, 3 intentos, repetición idempotente y dispatcher local; dos usuarios, persistencia y lectura personal aislada.
 - Build preview OK. Estas pruebas locales NO cierran el circuito público.
 - Publicación de interfaz solicitada; confirmar entrega productiva aparte. MCP no modificado ni redesplegado; se conserva catálogo 33.
+
+## Addendum 2026-10-21 01:15 UTC — document Open/Download and cron names
+
+- Defect fixed: the site security policy (connect-src) blocked "Descargar" for Andromeda copies stored in Google Cloud Storage; `https://storage.googleapis.com` was added. The storage bucket already returns CORS for andromeda.legal.
+- Defect fixed: a verified multi-case package read only on its declared case pages (Rionegro estado 131, 68 pages, pages 5/60/61 read) was shown as "Verificación pendiente". It now reads "Disponible (paquete original)" and states it is not an individual providencia. Partial reads without declared pages or verified package stay pending (test: src/test/estado-document-status-package.test.ts).
+- "Abrir" navigates a new tab to the signed copy; storage serves application/pdf without attachment disposition, so a normal browser shows it inline. Headless Chromium has no PDF viewer: that is a test-environment limit, not an app defect.
+- Existing cron jobs (do not duplicate): 64 andromeda-daily-estados `20 12 * * *` PAUSED; 66 daily-sync `0 12 * * *` active; 91 publicaciones-monitor `0 11 * * *` active; 92 samai-estados-monitor `50 10 * * *` active (UTC).
