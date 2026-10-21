@@ -1,0 +1,1 @@
+- act-document-presentation: a document is openable only with a dated full reading, or as a legacy own copy with no descarga_estado (labelled unread) — never fabricate availability, never hide valid legacy copies.

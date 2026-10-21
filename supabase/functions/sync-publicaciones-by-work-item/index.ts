@@ -40,6 +40,7 @@ import {
   formatRadicadoForSamai,
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 import { publicationDownloadUrls, samaiEstadosToProviderUnits } from "../_shared/samaiEstadosIngestion.ts";
+import { withRetainedOfficialPublicationUrls } from "../_shared/publicationRecoveryUrls.ts";
 import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
@@ -2567,38 +2568,32 @@ Deno.serve(withSyncTimeline(async (req) => {
             (counts.updated_count || 0) +
             (counts.skipped_count || 0) >
           0;
-        for (const remoteUrl of rowExists ? publicationDownloadUrls(pub) : []) {
+        // Read once AFTER the upsert: the database guard retains official
+        // recovery evidence atomically when an older provider response omits
+        // its PDF. Queue that exact persisted URL as well, never derived from
+        // title/date or borrowed from another publication.
+        let persistedPub: { id: string; raw_data?: unknown } | null = null;
+        if (rowExists) {
+          const { data, error } = await supabase.from('work_item_publicaciones')
+            .select('id,raw_data')
+            .eq('work_item_id', work_item_id)
+            .eq('organization_id', workItem.organization_id)
+            .eq('hash_fingerprint', fingerprint)
+            .maybeSingle();
+          if (error || !data?.id) {
+            result.attachment_enqueue_failed = (result.attachment_enqueue_failed || 0) + 1;
+            console.warn(JSON.stringify({ tag: '[sync-pub]', event: 'attachment_enqueue_failed', reason: 'publicacion_lookup_failed', work_item_id, fingerprint, error: error?.message || 'row_not_found' }));
+          } else persistedPub = data;
+        }
+        const attachmentUrls = persistedPub
+          ? withRetainedOfficialPublicationUrls(publicationDownloadUrls(pub), persistedPub)
+          : [];
+        for (const remoteUrl of attachmentUrls) {
           try {
             const filename =
               remoteUrl.split('/').pop() || pub.titulo || 'attachment.pdf';
-
-            // Resolve the real publicacion UUID via the natural key
-            // (work_item_id + fingerprint). The RPC does not return row ids,
-            // so we look it up post-upsert. Required because
-            // estado_attachment_queue.publicacion_id is a UUID FK — passing a
-            // literal string silently failed the upsert (onConflict included
-            // publicacion_id).
-            const { data: pubRow, error: pubLookupErr } = await supabase
-              .from('work_item_publicaciones')
-              .select('id')
-              .eq('work_item_id', work_item_id)
-              .eq('hash_fingerprint', fingerprint)
-              .maybeSingle();
-
-            if (pubLookupErr || !pubRow?.id) {
-              result.attachment_enqueue_failed =
-                (result.attachment_enqueue_failed || 0) + 1;
-              console.warn(
-                JSON.stringify({
-                  tag: '[sync-pub]',
-                  event: 'attachment_enqueue_failed',
-                  reason: 'publicacion_lookup_failed',
-                  work_item_id,
-                  fingerprint,
-                  error: pubLookupErr?.message || 'row_not_found',
-                }),
-              );
-            } else {
+            const pubRow = persistedPub!;
+            {
               // A different URL may be a different annex. Never repoint all
               // pending documents to one primary PDF, or overwrite a stored
               // primary path with an unverified remote link during a retry.

@@ -1,4 +1,5 @@
 import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
+import { ActAttachmentInventory } from '@/components/work-items/ActAttachmentInventory';
 import { samaiGrantIdentity, sourceGrantToken } from '../../../../supabase/functions/_shared/samaiGrantIdentity';
 /**
  * ActuacionesTable — dense dense-grid table used by every workflow
@@ -154,6 +155,11 @@ function DefaultDocButtons({ act }: { act: WorkItemAct }) {
   const isSamai = act.source?.toLowerCase() === 'samai' || act.sources?.some(s => s?.toLowerCase() === 'samai');
   if (isSamai) return <SamaiDocumentInventory act={act} />;
   const raw = act.raw_data as Record<string, unknown> | null | undefined;
+  // CPNU documents use the same reading/failure policy as the global view.
+  // Legacy URLs with FALLIDO/disponible=true never become download buttons.
+  if (extractActDocumentos(act.documentos).length || Array.isArray(raw?.documentos_respaldo_publico)) {
+    return <ActAttachmentInventory act={act as any} />;
+  }
   // Only absolute provider URLs may become links. Anything else (a storage
   // object path) would be resolved against the app origin → SPA 404.
   const abs = (v: unknown): string | undefined =>
