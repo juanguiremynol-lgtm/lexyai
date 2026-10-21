@@ -26486,6 +26486,10 @@ export type Database = {
         Args: { p_work_item_id: string }
         Returns: Json
       }
+      retain_official_publication_recovery: {
+        Args: { incoming: Json; previous: Json; primary_url: string }
+        Returns: Json
+      }
       rpc_canon_fingerprint_probe: { Args: { p_payload: Json }; Returns: Json }
       rpc_enrich_work_item_act: {
         Args: {
