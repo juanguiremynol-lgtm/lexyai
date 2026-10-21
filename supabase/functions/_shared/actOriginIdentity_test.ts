@@ -355,3 +355,12 @@ Deno.test("explicit native owner wins over inferred legacy row (no 23505 enrich)
   const d = resolveActIdentity({ v1, semanticKey: "b", provider: "cpnu", incoming: extractActOrigin({ indice: "106713346" }), evidence: legacy.description, rows: [legacy, copy] });
   assertEquals(d.kind === "match" && d.row.id, "27fb5471");
 });
+
+Deno.test("origin cache is decision-local and sees confirmed candidate changes", () => {
+  const row: CandidateRow = { id: 'mutable', source: 'cpnu', hash_fingerprint: 'v', semantic_key: 'k', description: 'Memorial', raw_data: { origen_indice: '100' } };
+  const input = { v1: 'v', semanticKey: 'k', provider: 'cpnu', incoming: extractActOrigin({ indice: '100' }), evidence: 'Memorial', rows: [row] };
+  assertEquals(resolveActIdentity(input).kind, 'match');
+  row.raw_data = { origen_indice: '101' };
+  assertEquals(resolveActIdentity(input).kind, 'insert');
+  assertEquals(resolveActIdentity({ ...input, incoming: extractActOrigin({ indice: '101' }) }).kind, 'match');
+});
