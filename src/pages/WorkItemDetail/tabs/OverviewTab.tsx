@@ -1,3 +1,4 @@
+import { LastOccurredEventField } from "@/components/work-items/LastOccurredEventField";
 /**
  * Overview Tab - Rich work item summary with Authority, Parties, Milestones, and Electronic File
  * Professional "lawyer cockpit" view for managing cases
@@ -648,12 +649,7 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
               </div>
             )}
 
-            {workItem.last_action_date && (
-              <div>
-                <p className="text-sm text-muted-foreground">Última Actuación</p>
-                <p className="font-medium">{formatDate(workItem.last_action_date)}</p>
-              </div>
-            )}
+            <LastOccurredEventField workItemId={workItem.id} />
 
             <div>
               <p className="text-sm text-muted-foreground">Creado en ATENIA</p>

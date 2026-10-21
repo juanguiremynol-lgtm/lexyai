@@ -1,5 +1,5 @@
 import { useLastOccurredEvent } from "@/hooks/use-last-occurred-event";
-import { formatCivilDate } from "@/lib/colombia-date-utils";
+import { formatCivilDate } from "@/lib/civil-date";
 
 /** "Última actuación" from stored records; future dates shown as programadas. */
 export function LastOccurredEventField({ workItemId, label = "Última actuación" }: { workItemId: string; label?: string }) {
