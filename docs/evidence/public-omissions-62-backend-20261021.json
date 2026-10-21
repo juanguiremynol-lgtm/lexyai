@@ -1,0 +1,270 @@
+{
+  "production-public-copy-reading.json": [
+    {
+      "observed_at": "2026-10-21T16:18:48.993294+00:00",
+      "radicado": "05030318900120250000200",
+      "native_article": "262954054",
+      "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05030318900120250000200/autos/eef1748975b40c240f4e917c5213c9a3956449e939af3a57b40bac39360e3d06.pdf",
+      "sha256": "eef1748975b40c240f4e917c5213c9a3956449e939af3a57b40bac39360e3d06",
+      "pages_read": 2,
+      "source_pages": [
+        11,
+        12
+      ],
+      "content_cases": [
+        "05030318900120250000200"
+      ]
+    },
+    {
+      "observed_at": "2026-10-21T16:18:50.382874+00:00",
+      "radicado": "05001310302120250021100",
+      "native_article": "272173949",
+      "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/autos/483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf.pdf",
+      "sha256": "483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf",
+      "pages_read": 5,
+      "source_pages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "content_cases": [
+        "05001310302120250021100"
+      ]
+    }
+  ],
+  "final-context-proof.json": {
+    "observed_at": "2026-10-21T16:31:19.552887+00:00",
+    "started_at": "2026-10-21T16:30:28.185465+00:00",
+    "http_status": 200,
+    "run_status": "LECTURA_PARCIAL",
+    "stable_records": 26,
+    "originals_and_copy": [
+      {
+        "field": "gcs_url_pdf_estado",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/raw/estados/8abdd4bf0ed42e4c60f60bb3520d497bee2d980476eb9594c030da7c7160569c.pdf",
+        "pages_read": 3,
+        "sha256": "8abdd4bf0ed42e4c60f60bb3520d497bee2d980476eb9594c030da7c7160569c"
+      },
+      {
+        "field": "gcs_url_pdf_actuacion",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/raw/actuaciones/272173949/1725f9619a1221e0de5e1e4ab6f94cbc34c8eb17152806a4f2986030a92a31eb.pdf",
+        "pages_read": 5,
+        "sha256": "1725f9619a1221e0de5e1e4ab6f94cbc34c8eb17152806a4f2986030a92a31eb"
+      },
+      {
+        "field": "gcs_url_auto",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/autos/483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf.pdf",
+        "pages_read": 5,
+        "sha256": "483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf"
+      }
+    ]
+  },
+  "final-context-repeat-proof.json": {
+    "observed_at": "2026-10-21T16:32:48.541621+00:00",
+    "started_at": "2026-10-21T16:32:01.557313+00:00",
+    "http_status": 200,
+    "run_status": "LECTURA_PARCIAL",
+    "stable_records": 26,
+    "originals_and_copy": [
+      {
+        "field": "gcs_url_pdf_estado",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/raw/estados/8abdd4bf0ed42e4c60f60bb3520d497bee2d980476eb9594c030da7c7160569c.pdf",
+        "pages_read": 3,
+        "sha256": "8abdd4bf0ed42e4c60f60bb3520d497bee2d980476eb9594c030da7c7160569c"
+      },
+      {
+        "field": "gcs_url_pdf_actuacion",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/raw/actuaciones/272173949/1725f9619a1221e0de5e1e4ab6f94cbc34c8eb17152806a4f2986030a92a31eb.pdf",
+        "pages_read": 5,
+        "sha256": "1725f9619a1221e0de5e1e4ab6f94cbc34c8eb17152806a4f2986030a92a31eb"
+      },
+      {
+        "field": "gcs_url_auto",
+        "url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001310302120250021100/autos/483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf.pdf",
+        "pages_read": 5,
+        "sha256": "483a8bf1020cfe813139b8568b5e3796dab99990352d14cff1c43f669394cdcf"
+      }
+    ]
+  },
+  "daily-and-repetition-proof.json": {
+    "observed_at": "2026-10-21T16:18:49.209751+00:00",
+    "samai": [
+      {
+        "id": 1368,
+        "tipo": "MONITOREO",
+        "inicio": "2026-10-21 15:53:31.234430",
+        "fin": "2026-10-21 15:53:31.234430",
+        "actuaciones_nuevas": 0,
+        "estado": "ok",
+        "documentos": "pendiente"
+      },
+      {
+        "id": 1367,
+        "tipo": "MONITOREO",
+        "inicio": "2026-10-21 07:45:19.334454",
+        "fin": "2026-10-21 07:45:19.334454",
+        "actuaciones_nuevas": 2,
+        "estado": "ok",
+        "documentos": "pendiente"
+      },
+      {
+        "id": 1352,
+        "tipo": "MONITOREO",
+        "inicio": "2026-10-20 07:49:43.425668",
+        "fin": "2026-10-20 07:49:43.425668",
+        "actuaciones_nuevas": 0,
+        "estado": "ok",
+        "documentos": "pendiente"
+      },
+      {
+        "id": 1337,
+        "tipo": "MONITOREO",
+        "inicio": "2026-10-19 18:00:56.381499",
+        "fin": "2026-10-19 18:00:56.381499",
+        "actuaciones_nuevas": 0,
+        "estado": "ok",
+        "documentos": "pendiente"
+      }
+    ],
+    "cpnu": [
+      {
+        "id": 6199,
+        "creado_en": "2026-10-21 07:28:54.066265+00:00",
+        "status": "SUCCESS",
+        "total_actuaciones": 15,
+        "has_3991487491": null,
+        "has_3991487361": null
+      },
+      {
+        "id": 6152,
+        "creado_en": "2026-10-20 07:10:46.122138+00:00",
+        "status": "SUCCESS",
+        "total_actuaciones": 15,
+        "has_3991487491": true,
+        "has_3991487361": true
+      },
+      {
+        "id": 6107,
+        "creado_en": "2026-10-19 07:05:07.126110+00:00",
+        "status": "SUCCESS",
+        "total_actuaciones": 13,
+        "has_3991487491": null,
+        "has_3991487361": null
+      },
+      {
+        "id": 6072,
+        "creado_en": "2026-10-18 07:05:46.117391+00:00",
+        "status": "SUCCESS",
+        "total_actuaciones": 13,
+        "has_3991487491": null,
+        "has_3991487361": null
+      }
+    ],
+    "first_persisted_samai": [
+      {
+        "id": 34006,
+        "work_item_id": 65,
+        "creado_en": "2026-10-21 07:45:19.334454"
+      },
+      {
+        "id": 34005,
+        "work_item_id": 65,
+        "creado_en": "2026-10-21 07:45:19.334454"
+      }
+    ],
+    "pp": [
+      {
+        "id": 13017,
+        "work_item_id": 29,
+        "fin": "2026-10-21 16:16:10.931539+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "SUCCESS_WITH_DATA",
+        "ventana_desde": "2026-09-18",
+        "ventana_hasta": "2026-09-18"
+      },
+      {
+        "id": 13016,
+        "work_item_id": 120,
+        "fin": "2026-10-21 16:09:22.183631+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-10-15",
+        "ventana_hasta": "2026-10-15"
+      },
+      {
+        "id": 13015,
+        "work_item_id": 31,
+        "fin": "2026-10-21 16:08:39.095374+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-10-15",
+        "ventana_hasta": "2026-10-15"
+      },
+      {
+        "id": 13014,
+        "work_item_id": 29,
+        "fin": "2026-10-21 16:07:51.446048+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "SUCCESS_WITH_DATA",
+        "ventana_desde": "2026-09-18",
+        "ventana_hasta": "2026-09-18"
+      },
+      {
+        "id": 13013,
+        "work_item_id": 120,
+        "fin": "2026-10-21 15:54:37.871196+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-10-15",
+        "ventana_hasta": "2026-10-15"
+      },
+      {
+        "id": 13012,
+        "work_item_id": 31,
+        "fin": "2026-10-21 15:54:17.077882+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-10-15",
+        "ventana_hasta": "2026-10-15"
+      },
+      {
+        "id": 13011,
+        "work_item_id": 29,
+        "fin": "2026-10-21 15:53:52.115782+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-09-18",
+        "ventana_hasta": "2026-09-18"
+      },
+      {
+        "id": 13009,
+        "work_item_id": 31,
+        "fin": "2026-10-21 15:28:47.096325+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": "2026-10-14",
+        "ventana_hasta": "2026-10-16"
+      },
+      {
+        "id": 13008,
+        "work_item_id": 29,
+        "fin": "2026-10-21 15:27:56.122079+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "SUCCESS_WITH_DATA",
+        "ventana_desde": "2026-09-18",
+        "ventana_hasta": "2026-10-15"
+      },
+      {
+        "id": 12969,
+        "work_item_id": 120,
+        "fin": "2026-10-21 08:07:15.956325+00:00",
+        "actuaciones_nuevas": 0,
+        "estado": "LECTURA_PARCIAL",
+        "ventana_desde": null,
+        "ventana_hasta": null
+      }
+    ]
+  }
+}
