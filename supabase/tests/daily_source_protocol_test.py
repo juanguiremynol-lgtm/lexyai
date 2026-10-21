@@ -3,16 +3,23 @@ import concurrent.futures
 import json
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CMD = ['psql', '-h', '127.0.0.1', '-p', '54329', '-U', 'lovable', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-qAt']
+DATABASE = 'daily_protocol_' + uuid.uuid4().hex
+CMD = ['psql', '-h', '127.0.0.1', '-p', '54329', '-U', 'lovable', '-d', DATABASE, '-v', 'ON_ERROR_STOP=1', '-qAt']
+subprocess.run([*CMD[:8], 'postgres', *CMD[9:], '-c', f'CREATE DATABASE {DATABASE}'], check=True, capture_output=True, env={**os.environ, 'PGSSLMODE': 'disable'})
 
 def sql(text):
     return subprocess.run(CMD, input=text, text=True, capture_output=True, check=True, env={**os.environ, 'PGSSLMODE': 'disable'}).stdout.strip()
 
 sql("""
-CREATE ROLE service_role; CREATE ROLE authenticated; CREATE ROLE anon;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
+END $$;
 CREATE TABLE public.work_items(id uuid primary key, organization_id uuid, deleted_at timestamptz, monitoring_enabled boolean, workflow_type text,stage text,last_stage_change_source text,last_stage_change_by_user_id uuid,stage_inference_enabled boolean);
 CREATE TABLE public.auto_sync_daily_ledger(id uuid primary key default gen_random_uuid(),organization_id uuid,run_date date,scheduled_for timestamptz,status text,run_id text,is_continuation boolean,items_failed int default 0,items_skipped int default 0,items_succeeded int default 0,items_targeted int default 0,metadata jsonb default '{}',last_heartbeat_at timestamptz,started_at timestamptz,completed_at timestamptz,finished_at timestamptz,retry_count int default 0,updated_at timestamptz,unique(organization_id,run_date));
 CREATE TABLE public.work_item_acts(id uuid primary key,work_item_id uuid,act_date date,description text,is_archived boolean);
