@@ -637,7 +637,7 @@ export default function WorkItemDetail() {
                       </div>
                     </div>
                   );
-                });
+                })];
               })()}
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
