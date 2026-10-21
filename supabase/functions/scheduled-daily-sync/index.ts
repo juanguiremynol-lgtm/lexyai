@@ -1325,7 +1325,12 @@ async function syncSingleItem(
   // Sync actuaciones
   const { data: syncResult, error: syncError } = await supabase.functions.invoke(
     "sync-by-work-item",
-    { body: { work_item_id: item.id, _scheduled: true, allow_buscar: allowBuscar } },
+    {
+      body: { work_item_id: item.id, _scheduled: true, allow_buscar: allowBuscar },
+      // Scheduled mode in sync-by-work-item requires verified system auth; the
+      // service key is not a JWT here, so present the dedicated cron secret.
+      headers: Deno.env.get("CRON_SERVICE_KEY") ? { "x-cron-key": Deno.env.get("CRON_SERVICE_KEY")! } : undefined,
+    },
   );
   
   // Check abort between calls
