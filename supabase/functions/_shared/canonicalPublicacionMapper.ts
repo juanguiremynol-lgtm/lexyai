@@ -495,9 +495,9 @@ export function toCanonicalPubRow(
     annotation: unit.clasificacion?.descripcion || null,
     pdf_url: unit.pdf_url || null,
     entry_url: unit.url || null,
-    // SAMAI URLs announce a candidate document. Availability is established
-    // by the recovery worker after reading bytes and checking correspondence.
-    pdf_available: isSamai ? false : (unit.clasificacion?.es_descargable === true || !!unit.pdf_url),
+    // Public URLs are candidates. Only the recovery worker proves availability;
+    // the publication RPC preserves existing recovered copies on updates.
+    pdf_available: false,
     published_at: isSamai
       // 00:00 America/Bogota for SAMAI providencia rows.
       ? (samaiProvidenciaDate ? new Date(`${samaiProvidenciaDate}T05:00:00Z`).toISOString() : null)

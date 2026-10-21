@@ -1,5 +1,13 @@
 # Roadmap
 
+## Authorized public closure (2026-10-21)
+- [ ] Reconcile supplied Codex patches, five diagnostics and adapter tests; preserve SQL0045 and document evidence compatibility.
+- [ ] Drain old monitor invocations, install corrected durable protocol once and deploy all affected importers.
+- [ ] Verify secure runtime/Vault credential coordination and real gateway auth before dispatcher activation.
+- [ ] Implement per-user/organization notification dismiss/snooze, isolated optimistic caches, rollback and persisted confirmation.
+- [ ] Run isolated multiuser/monitor/document tests; validate authorized real UI and scheduler persistence where possible.
+- [ ] Activate dispatcher only after dependencies pass; report exact applied deployments and blockers without declaring local tests a public closure.
+
 ## Legal access blocker (2026-10-19)
 - [x] Repair canonical document loading, retry and no-scroll gating; preserve current-version acceptance (11 focused tests pass; browser modal checked without registration).
 - [x] Publish complete versioned legal documents with authorized company placeholders, preserving historical acceptances (v1.1; both canonical hashes verified).

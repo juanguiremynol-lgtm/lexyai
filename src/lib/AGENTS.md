@@ -1,1 +1,2 @@
 - act-document-presentation: a document is openable only with a dated full reading, or as a legacy own copy with no descarga_estado (labelled unread) — never fabricate availability, never hide valid legacy copies.
+- notifications use personal notification_user_state and notification_inbox; mutations confirm RPC rows and isolate caches by user/org/category — shared history is immutable to personal actions.

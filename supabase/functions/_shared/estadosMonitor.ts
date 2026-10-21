@@ -1,28 +1,24 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isCronCaller, CRON_HEADER } from "./cronAuth.ts";
+import { publicReadVerdict } from "./publicReadVerdict.ts";
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
 
 // One case per hop: a hop must fit the ~150s edge wall clock, and one read
 // may take up to ITEM_TIMEOUT_MS. 60 hops cover the largest channel (44).
 const BATCH_SIZE = 1;
-const MAX_DEPTH = 60; // must stay <= claim_estados_monitor_run ceiling (64)
 const COOLDOWN_MS = 1_500;
 // Must exceed the callee's own PUB_SAFETY_TIMEOUT_MS (110s) so real reads finish.
 const ITEM_TIMEOUT_MS = 125_000;
-const LEASE_SECONDS = 180; // one read (<=125s) plus finish RPCs; orphans re-claimable quickly
 const HOP_ATTEMPTS = 3;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-key",
 };
 type Channel = "publicaciones" | "samai_estados";
-type ClaimedItem = { work_item_id: string; ordinal: number };
+type ClaimedItem = { work_item_id: string; ordinal: number; lease_token: string };
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-}
-function validRadicado(value: string | null): boolean {
-  return Boolean(value && value.replace(/\D/g, "").length === 23);
 }
 
 /**
@@ -53,29 +49,14 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const cronKey = Deno.env.get("CRON_SERVICE_KEY");
   if (!url || !serviceKey || !cronKey) return response({ error: "Configuración interna incompleta" }, 500);
-  const db = createClient(url, serviceKey);
+  const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const body = await req.json().catch(() => ({})) as { run_id?: string; depth_remaining?: number };
-  const depthBudget = Math.max(1, Math.min(Number(body.depth_remaining ?? MAX_DEPTH), MAX_DEPTH));
   let runId = body.run_id;
   if (!runId) {
     const workflows = channel === "publicaciones" ? PP_ESTADOS_WORKFLOWS : SAMAI_ESTADOS_WORKFLOWS;
-    const orderColumn = channel === "publicaciones" ? "pp_ultima_sync" : "last_synced_at";
-    const { data: rows, error } = await db.from("work_items").select("id,radicado")
-      .eq("monitoring_enabled", true).is("deleted_at", null).eq("lifecycle_state", "ACTIVE")
-      .in("workflow_type", [...workflows]).not("radicado", "is", null)
-      .order(orderColumn, { ascending: true, nullsFirst: true }).limit(500);
-    if (error) return response({ error: error.message }, 500);
-    /**
-     * Daily read for every active eligible matter. The former MA2 weekly
-     * cadence (estados_probe_deferred_ids) is removed from this path: zero-row
-     * history is a reporting classification, never a reason to skip the read.
-     * Duplicate work is prevented by claim_estados_monitor_run (single flight
-     * per channel + Bogotá run date).
-     */
-    const ids = (rows ?? []).filter((row) => validRadicado(row.radicado)).map((row) => row.id);
     const runDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
-    const { data: claim, error: claimError } = await db.rpc("claim_estados_monitor_run", {
-      _channel: channel, _run_date: runDate, _work_item_ids: ids, _depth_budget: depthBudget, _lease_seconds: LEASE_SECONDS,
+    const { data: claim, error: claimError } = await db.rpc("start_public_monitor_run", {
+      _channel: channel, _run_date: runDate, _workflows: [...workflows],
     });
     if (claimError) {
       // A rejected claim means NO matter was read today. Never silent: the
@@ -84,37 +65,42 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       await db.from("system_health_events").insert({
         service: "ESTADOS_SYNC", status: "ERROR",
         message: `Corrida diaria de ${channel} no iniciada: ${claimError.message}`,
-        metadata: { channel, run_date: runDate, expected: ids.length, attempted: 0, kind: "RUN_NOT_STARTED" },
+        metadata: { channel, run_date: runDate, attempted: 0, kind: "RUN_NOT_STARTED" },
       });
-      return response({ error: claimError.message, expected: ids.length, attempted: 0 }, 500);
+      return response({ error: claimError.message, attempted: 0 }, 500);
     }
     const claimedRun = claim?.[0];
     if (!claimedRun?.acquired) return response({ ok: true, skipped: "single_flight" });
     runId = claimedRun.run_id;
   }
   if (!runId) return response({ error: "No se pudo identificar la corrida" }, 500);
-  const { data: claimed, error: batchError } = await db.rpc("claim_estados_monitor_batch", {
-    _run_id: runId, _limit: BATCH_SIZE, _lease_seconds: LEASE_SECONDS,
+  const { data: claimed, error: batchError } = await db.rpc("claim_public_monitor_items", {
+    _run_id: runId, _channel: channel, _limit: BATCH_SIZE,
   });
   if (batchError) return response({ error: batchError.message }, 500);
   for (const item of (claimed ?? []) as ClaimedItem[]) {
     let success = false;
+    let retryable = true;
     let errorCode: string | null = null;
     let result: Record<string, unknown> = {};
     try {
       // Per-item timeout so one hanging read cannot push the hop past the edge wall-clock.
       const sync = await fetch(`${url}/functions/v1/sync-publicaciones-by-work-item`, {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+        method: "POST", headers: { "Content-Type": "application/json", [CRON_HEADER]: cronKey },
         body: JSON.stringify({ work_item_id: item.work_item_id, _scheduled: true }),
         signal: AbortSignal.timeout(ITEM_TIMEOUT_MS),
       });
       result = await sync.json().catch(() => ({ http_status: sync.status }));
-      success = sync.ok && result.ok === true;
-      errorCode = success ? null : String(result.result_code ?? result.error ?? `HTTP_${sync.status}`);
+      const verdict = publicReadVerdict(sync.ok, result, sync.status);
+      success = verdict.success;
+      retryable = verdict.retryable;
+      errorCode = verdict.code;
     } catch (error) { errorCode = error instanceof Error ? error.message.slice(0, 200) : "SYNC_FAILED"; }
-    await db.rpc("finish_estados_monitor_item", {
-      _run_id: runId, _work_item_id: item.work_item_id, _success: success, _error_code: errorCode, _result: result,
+    const { data: sealed, error: sealError } = await db.rpc("finish_public_monitor_item", {
+      _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token,
+      _success: success, _retryable: retryable, _error_code: errorCode, _result: result,
     });
+    if (sealError || sealed !== true) return response({ error: sealError?.message ?? "Lease expired before completion", run_id: runId }, 503);
     const label = ppLabelFromResult(success, errorCode, result);
     const stampedAt = new Date().toISOString();
     const patch: Record<string, unknown> = {
@@ -131,13 +117,13 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     if (channel === "publicaciones") {
       patch.pp_estado = label;
       // A skip is not a read: it may relabel, but it must not move the clock.
-      if (label !== "no_aplica") patch.pp_ultima_sync = stampedAt;
+      if (success) patch.pp_ultima_sync = stampedAt;
     }
     const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
     if (labelError) console.error("[estadosMonitor] no se pudo refrescar el estado de lectura", labelError.message);
   }
 
-  const { data: finish, error: finishError } = await db.rpc("finish_estados_monitor_hop", { _run_id: runId });
+  const { data: finish, error: finishError } = await db.rpc("finish_public_monitor_hop", { _run_id: runId, _channel: channel });
   if (finishError) return response({ error: finishError.message }, 500);
   const state = finish?.[0];
   if (state?.remaining_count > 0 && state.depth_remaining > 0) {
@@ -169,5 +155,5 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     const { error: covErr } = await db.rpc("refresh_estados_fijacion_coverage_signals" as never);
     if (covErr) console.error("[estadosMonitor] coverage signals", covErr.message);
   }
-  return response({ ok: true, run_id: runId, channel, ...state });
+  return response({ ok: state?.status === "OK", accepted: true, run_id: runId, channel, ...state });
 }

@@ -8890,9 +8890,12 @@ export type Database = {
       }
       estados_monitor_run_items: {
         Row: {
+          attempts: number
           claimed_at: string | null
           error_code: string | null
           finished_at: string | null
+          lease_token: string | null
+          next_attempt_at: string
           ordinal: number
           result: Json
           run_id: string
@@ -8900,9 +8903,12 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          attempts?: number
           claimed_at?: string | null
           error_code?: string | null
           finished_at?: string | null
+          lease_token?: string | null
+          next_attempt_at?: string
           ordinal: number
           result?: Json
           run_id: string
@@ -8910,9 +8916,12 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          attempts?: number
           claimed_at?: string | null
           error_code?: string | null
           finished_at?: string | null
+          lease_token?: string | null
+          next_attempt_at?: string
           ordinal?: number
           result?: Json
           run_id?: string
@@ -12375,6 +12384,45 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_user_state: {
+        Row: {
+          dismissed_at: string | null
+          notification_id: string
+          read_at: string | null
+          snoozed_until: string | null
+          user_id: string
+        }
+        Insert: {
+          dismissed_at?: string | null
+          notification_id: string
+          read_at?: string | null
+          snoozed_until?: string | null
+          user_id: string
+        }
+        Update: {
+          dismissed_at?: string | null
+          notification_id?: string
+          read_at?: string | null
+          snoozed_until?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_user_state_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notification_inbox"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_user_state_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
             referencedColumns: ["id"]
           },
         ]
@@ -23550,6 +23598,46 @@ export type Database = {
           },
         ]
       }
+      notification_inbox: {
+        Row: {
+          audience_scope:
+            | Database["public"]["Enums"]["notification_audience"]
+            | null
+          body: string | null
+          category: Database["public"]["Enums"]["notification_category"] | null
+          created_at: string | null
+          dedupe_key: string | null
+          deep_link: string | null
+          dismissed_at: string | null
+          effective_read_at: string | null
+          id: string | null
+          metadata: Json | null
+          org_id: string | null
+          read_at: string | null
+          severity: string | null
+          snoozed_until: string | null
+          title: string | null
+          type: string | null
+          user_id: string | null
+          work_item_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "email_recipients_by_org"
+            referencedColumns: ["organization_id"]
+          },
+          {
+            foreignKeyName: "notifications_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       retroactive_actuaciones_v: {
         Row: {
           detected_on: string | null
@@ -25619,6 +25707,14 @@ export type Database = {
           selected_count: number
         }[]
       }
+      claim_public_monitor_items: {
+        Args: { _channel: string; _limit?: number; _run_id: string }
+        Returns: {
+          lease_token: string
+          ordinal: number
+          work_item_id: string
+        }[]
+      }
       classify_deadline_birth_status: {
         Args: { p_deadline_date: string }
         Returns: string
@@ -26022,6 +26118,28 @@ export type Database = {
           _work_item_id: string
         }
         Returns: undefined
+      }
+      finish_public_monitor_hop: {
+        Args: { _channel: string; _run_id: string }
+        Returns: {
+          attempted_count: number
+          depth_remaining: number
+          remaining_count: number
+          selected_count: number
+          status: string
+        }[]
+      }
+      finish_public_monitor_item: {
+        Args: {
+          _error_code: string
+          _lease_token: string
+          _result: Json
+          _retryable: boolean
+          _run_id: string
+          _success: boolean
+          _work_item_id: string
+        }
+        Returns: boolean
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_active_terms: {
@@ -26643,6 +26761,22 @@ export type Database = {
           workflow_type: string
         }[]
       }
+      set_notification_user_state: {
+        Args: { _action: string; _ids: string[]; _until?: string }
+        Returns: {
+          dismissed_at: string | null
+          notification_id: string
+          read_at: string | null
+          snoozed_until: string | null
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "notification_user_state"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       set_work_item_lifecycle: {
         Args: {
           p_actor?: string
@@ -26734,6 +26868,14 @@ export type Database = {
         }[]
       }
       stage_rank: { Args: { p_stage: string }; Returns: number }
+      start_public_monitor_run: {
+        Args: { _channel: string; _run_date: string; _workflows: string[] }
+        Returns: {
+          acquired: boolean
+          run_id: string
+          selected_count: number
+        }[]
+      }
       sub_business_days_sql: {
         Args: { p_days: number; p_start: string }
         Returns: string

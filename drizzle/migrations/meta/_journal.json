@@ -323,6 +323,20 @@
       "when": 1792540833448,
       "tag": "0045_preserve_official_publication_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792543044062,
+      "tag": "0046_public_monitor_durable",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792543082573,
+      "tag": "0047_notification_user_state",
+      "breakpoints": true
     }
   ]
 }
