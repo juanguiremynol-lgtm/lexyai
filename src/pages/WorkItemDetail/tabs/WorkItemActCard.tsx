@@ -484,6 +484,13 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
               {formatActDate(String(act.fecha_registro_source || act.raw_data?.fecha_registro))}
             </span>
           )}
+          {typeof act.raw_data?.fecha_providencia_origen === "string" &&
+            act.raw_data.fecha_providencia_origen !== act.act_date && (
+            <span title="La fecha principal de la tarjeta es la de registro en el origen; ambas se conservan.">
+              <span className="font-medium text-foreground/70">F. Providencia (origen):</span>{" "}
+              {formatActDate(String(act.raw_data.fecha_providencia_origen))}
+            </span>
+          )}
           {(act.inicia_termino || act.raw_data?.fecha_inicia_termino) && (
             <span>
               <span className="font-medium text-foreground/70">Inicia término:</span>{" "}

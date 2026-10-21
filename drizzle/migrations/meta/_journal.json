@@ -379,6 +379,13 @@
       "when": 1792585911999,
       "tag": "0053_deadline_producer_event_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792601375626,
+      "tag": "0054_daily_sync_lock_respects_window",
+      "breakpoints": true
     }
   ]
 }

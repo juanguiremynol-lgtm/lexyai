@@ -165,7 +165,7 @@ export function programadoLabel(value: string | null | undefined): string | null
   const day = bogotaCalendarDay(value);
   if (!day || day <= getColombiaToday()) return null;
   const [y, m, d] = day.split('-');
-  return `Programado para ${d}/${m}/${y}`;
+  return `Fecha futura del origen: ${d}/${m}/${y}`;
 }
 
 /** Window label in Spanish */

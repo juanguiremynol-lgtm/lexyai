@@ -33,6 +33,8 @@ export interface EstadoRow {
   fecha?: string | null;
   /** Provider text provenance — 'ocr' when the body was recovered from an image. */
   origen_texto?: string | null;
+  /** Cause text when the document does not accredit this process. */
+  asociacion_no_acreditada?: string | null;
   /** Provider flagged the row as needing a human read. */
   requiere_revision_manual?: boolean | null;
   gcs_url_auto?: string | null;
@@ -157,6 +159,17 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                       >
                         {fuenteLabel(r.fuente)}
                       </span>
+                      {r.asociacion_no_acreditada && (
+                        <span
+                          className="inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded border border-destructive/40 bg-destructive/10 text-[10px] font-medium uppercase tracking-wide text-destructive"
+                          title={r.asociacion_no_acreditada}
+                        >
+                          Asociación no acreditada — no es providencia de este expediente
+                        </span>
+                      )}
+                      {r.asociacion_no_acreditada && (
+                        <p className="text-xs text-muted-foreground">{r.asociacion_no_acreditada}</p>
+                      )}
                       {(r.origen_texto?.toLowerCase() === "ocr" || r.requiere_revision_manual) && (
                         <span
                           className="inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300"

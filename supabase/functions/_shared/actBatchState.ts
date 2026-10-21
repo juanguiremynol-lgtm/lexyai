@@ -52,6 +52,8 @@ export async function loadAllActiveActs(
 
 export interface PersistedAct {
   id: string;
+  source?: string | null;
+  hash_fingerprint?: string | null;
   description: string | null;
   raw_data: Record<string, unknown> | null;
   documentos: unknown;
@@ -66,7 +68,10 @@ export async function resolvePersistedAct(
 ): Promise<PersistedAct | null> {
   const { data, error } = await client
     .from("work_item_acts")
-    .select("id, description, raw_data, documentos, documentos_observados_en")
+    // source + hash_fingerprint are identity inputs: without them the intra-batch
+    // candidate is invisible to provider-scoped resolution and a second native
+    // origin sharing date/title collapses onto the first row's fingerprint.
+    .select("id, source, hash_fingerprint, act_date, fecha_registro_source, recurso_consecutivo, description, raw_data, documentos, documentos_observados_en")
     .eq("work_item_id", workItemId)
     .eq("hash_fingerprint", fingerprint)
     .eq("is_archived", false)
