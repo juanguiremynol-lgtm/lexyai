@@ -13,12 +13,14 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { track, ANALYTICS_EVENTS } from "@/lib/analytics";
 import type { WorkItem } from "@/types/work-item";
+import { useLastOccurredEvent } from "@/hooks/use-last-occurred-event";
 
 interface AtAGlanceProps {
   workItem: WorkItem;
 }
 
 export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
+  const { data: lastEvent } = useLastOccurredEvent(workItem.id);
   // Fetch pending tasks count
   const { data: taskStats } = useQuery({
     queryKey: ["work-item-task-stats", workItem.id],
@@ -73,8 +75,8 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
     {
       id: "last_update",
       icon: Clock,
-      label: workItem.last_action_date
-        ? formatDistanceToNow(new Date(workItem.last_action_date), { addSuffix: true, locale: es })
+      label: lastEvent?.last
+        ? formatDistanceToNow(new Date(`${lastEvent.last.day}T12:00:00-05:00`), { addSuffix: true, locale: es })
         : workItem.updated_at
           ? formatDistanceToNow(new Date(workItem.updated_at), { addSuffix: true, locale: es })
           : "Sin actualización",
