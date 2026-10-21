@@ -6,6 +6,9 @@ import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Explicit envDir: the plugin host calls loadEnv with config.envDir and
+  // crashes when it is undefined.
+  envDir: path.resolve(__dirname),
   server: {
     host: "::",
     port: 8080,
