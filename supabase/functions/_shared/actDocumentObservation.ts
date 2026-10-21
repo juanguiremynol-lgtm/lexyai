@@ -99,7 +99,12 @@ export function mergeAnexosObservation(existingRaw: Doc, incomingObservation: an
   const oldAt = documentObservationAt(previous), at = documentObservationAt(incomingObservation);
   const out = { ...existingRaw };
   const variants = [...(Array.isArray(existingRaw.anexos_observacion_historial) ? existingRaw.anexos_observacion_historial : [])];
-  const add = (v: any) => { if (v && !variants.some(x => stable(x) === stable(v))) variants.push(v); };
+  const seen = new Set(variants.map(stable));
+  const add = (v: any) => {
+    if (!v) return;
+    const key = stable(v);
+    if (!seen.has(key)) { seen.add(key); variants.push(v); }
+  };
   if (!previous || at != null && (oldAt == null || at > oldAt)) {
     if (previous && stable(previous) !== stable(incomingObservation)) add(previous);
     out.anexos_observacion = incomingObservation;
