@@ -6440,6 +6440,42 @@ export type Database = {
         }
         Relationships: []
       }
+      deadline_review_user_state: {
+        Row: {
+          acknowledged_at: string | null
+          deadline_id: string
+          snoozed_until: string | null
+          user_id: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          deadline_id: string
+          snoozed_until?: string | null
+          user_id: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          deadline_id?: string
+          snoozed_until?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deadline_review_user_state_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "v_deadline_attribution"
+            referencedColumns: ["deadline_id"]
+          },
+          {
+            foreignKeyName: "deadline_review_user_state_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_deadlines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deadline_rules: {
         Row: {
           anchor_kind: string
@@ -25420,6 +25456,21 @@ export type Database = {
           _upstream_evidence?: Json
         }
         Returns: Json
+      }
+      acknowledge_deadline_reviews: {
+        Args: { _action: string; _ids: string[]; _until?: string }
+        Returns: {
+          acknowledged_at: string | null
+          deadline_id: string
+          snoozed_until: string | null
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deadline_review_user_state"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       acquire_daily_sync_lock: {
         Args: { p_organization_id: string; p_run_id?: string }
