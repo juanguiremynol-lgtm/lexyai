@@ -21,3 +21,13 @@ Deno.test("completed empty read and pending attachments are independent", () => 
   assert(publicReadVerdict(true,{ok:true,result_code:"SUCCESS_EMPTY"}).success);
   assert(publicReadVerdict(true,{ok:true,result_code:"SUCCESS_WITH_DATA",documentos_pendientes:6}).success);
 });
+Deno.test("SAMAI SUCCESS_EMPTY with legacy NO_DATA is a completed read", () => {
+  const real = { ok: true, result_code: "SUCCESS_EMPTY", status: "NO_DATA", errors: [],
+    samai_estados_summary: { called: true, http_status: 200, status: "EMPTY", raw_count: 0 } };
+  const v = publicReadVerdict(true, real);
+  assertEquals(v.success, true); assertEquals(v.retryable, false);
+  for (const extra of [{ consulta_completa: false }, { stale: true }, { snapshot_stale: true }, { run_status: "PENDING" }]) {
+    assertEquals(publicReadVerdict(true, { ...real, ...extra }).success, false);
+  }
+  assertEquals(publicReadVerdict(true, { ok: true, status: "NO_DATA" }).success, false);
+});
