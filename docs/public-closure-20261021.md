@@ -56,3 +56,8 @@ Huellas del código enviado, NO commits Git ni metadatos de versión desplegada:
 - Guard: 8-digit dates are read only as standalone runs with year 2020–2039 (never sliced from a radicado); persisted fecha_fijacion must be a real calendar day (plausibleCivilDate), else NULL. Deployed: sync-publicaciones-by-work-item a8dc6317…, bridge-reconcile da071316…, provider-sync-external-provider 0ce2de56… (source SHA-256).
 - UI: civil dates keep their own day (src/lib/civil-date.ts); invalid → "Fecha no informada", undated last.
 - Pending point repair (NOT applied): work_item_publicaciones 7db9964d…, 18f4c6c4…, a1f7414b… fecha_fijacion 0131-10-01 → NULL. Source evidence: raw_data.fecha_publicacion = "sin-fecha", key suffix ":sin-fecha". Do not recompute hash_fingerprint.
+
+
+## Actualización operativa posterior de Codex
+
+Vault y el dispatcher ya fueron activados y comprobados después de esta entrega. El estado final de cron, corridas reales, documentos y limitaciones está en [public-dispatch-execution-20261021.md](public-dispatch-execution-20261021.md). La sección anterior de pendientes describe el momento de la entrega de Lovable, no el estado actual de Vault. No se repitieron0046/0047/0048 ni la alternativa de siembra diaria.

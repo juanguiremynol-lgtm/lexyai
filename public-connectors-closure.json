@@ -1,5 +1,5 @@
 {
-  "stage": "backend_deployed_application_integration_pending",
+  "stage": "dispatcher_active_production_runs_verified_with_explicit_partial",
   "date": "2026-10-21",
   "branch": "fix/public-connectors-closure-20261020",
   "bases": {
@@ -36,13 +36,13 @@
     "PP URLs and downloadable classification are candidates, not availability; existing recovered associations remain owned by the recovery queue"
   ],
   "integration_order": [
-    "Backend complete with native-origin migration and compatible PP writers/read API; keep new uniqueness on rollback",
-    "Use this single integration commit against current main; preserve Lovable SQL0045, official-link requeue,305 legacy-copy reading-not-recorded compatibility,UI andMCP",
-    "Apply corrected20261020010000_public_monitor_durable.sql; it seeds current day before selecting an older recovery run. Standalone CREATE OR REPLACE SQL is in backend coordination/20261021010000_public_monitor_daily_seed.sql if an older protocol was already installed",
-    "Drain old unfenced monitor invocations; deploy compatible scheduled-publicaciones-monitor,scheduled-samai-estados-monitor,sync-publicaciones-by-work-item,scheduled-daily-sync and affected ordinary sync/retry importers. Deploy scheduled-daily-estados compatibility endpoint in coordination with its cron auth transition",
-    "Securely populate and verify CRON_SERVICE_KEY and SUPABASE_URL in Vault; verify function runtime configuration matches without exposing values",
-    "Only then apply20261020011000_public_monitor_dispatch.sql; never include activation in an automatic schema batch before compatible functions are ready",
-    "Verify real daily run/recovery and WorkItemDetail authorized opening/downloading; these are not declared completed by backend release"
+    "Backend native-origin migration and compatible PP services already deployed; pp-sync-cron ENABLED.",
+    "0046,0047,0048 already applied by Lovable; DO NOT REAPPLY0046 or alternative daily seed.",
+    "Current Lovable compatible functions retained; no deployment from old application checkout.",
+    "Existing runtime technical configuration securely copied server-side to Vault and validated by authenticated request1016.",
+    "coordination/20261020011000_public_monitor_dispatch.sql applied;64 authenticated daily,97 recovery,91/92 disabled;66 preserved.",
+    "Current-day explicit recovery preference applied narrowly; no repeat of protocol migration.",
+    "Observe actual full run, bounded partial causes, document persistence and no-duplicate replay; UI verification remains Lovable scope."
   ],
   "rollback_constraints": [
     "Retain legitimate native publication rows, IDs, references, document objects and new uniqueness; never delete records to restore the old semantic constraint",
@@ -218,33 +218,15 @@
     "unmodified_legacy_writer_not_restored": true
   },
   "secret_checks": {
-    "function_environment_cron_key": "Name confirmed configured by Lovable; value not read",
-    "function_environment_supabase_url": "Platform-injected per Lovable; runtime value not independently observed",
-    "vault_secret_count": 0,
-    "activation_blocker": "Dispatcher requires CRON_SERVICE_KEY and SUPABASE_URL in Vault; no secrets present. Seed through an authorized secure technical channel and verify without printing values before activation."
+    "vault_secret_count": 2,
+    "vault_names": [
+      "CRON_SERVICE_KEY",
+      "SUPABASE_URL"
+    ],
+    "runtime_correspondence": "Authenticated real monitor processing, normal sync and daily-sync verified; no secret values exported",
+    "activation_blocker": null
   },
-  "pending_application_files": [
-    "coordination/20261021010000_public_monitor_daily_seed.sql",
-    "public-connectors-closure.json",
-    "supabase/functions/_shared/canonicalPublicacionMapper.ts",
-    "supabase/functions/_shared/estadosMonitor.ts",
-    "supabase/functions/_shared/estadosMonitor_execution_test.ts",
-    "supabase/functions/_shared/providerAdapters/publicacionesAdapter.ts",
-    "supabase/functions/_shared/publicDocumentAvailability_test.ts",
-    "supabase/functions/_shared/publicEligibility_test.ts",
-    "supabase/functions/_shared/publicReadVerdict.ts",
-    "supabase/functions/_shared/publicReadVerdict_test.ts",
-    "supabase/functions/_shared/publicSnapshotFreshness.ts",
-    "supabase/functions/_shared/publicSnapshotFreshness_test.ts",
-    "supabase/functions/_shared/sync-eligibility.ts",
-    "supabase/functions/_shared/syncPolicy.ts",
-    "supabase/functions/scheduled-daily-estados/index.ts",
-    "supabase/functions/scheduled-daily-sync/index.ts",
-    "supabase/functions/sync-publicaciones-by-work-item/index.ts",
-    "supabase/migrations/20261020010000_public_monitor_durable.sql",
-    "supabase/migrations/20261020011000_public_monitor_dispatch.sql",
-    "supabase/tests/public_monitor_durable_test.py"
-  ],
+  "pending_application_files": [],
   "scheduler": {
     "name": "pp-sync-cron",
     "state": "ENABLED",
@@ -252,7 +234,8 @@
     "ordinary_selection_restored": true,
     "writer_barrier": "PUBLIC_WRITES_PAUSED=0",
     "final_real_execution": "pp-sync-job-vpq4g: completed successfully,0 new records on repeat",
-    "supabase_dispatcher_activated": false
+    "supabase_dispatcher_activated": true,
+    "time_zone": "Etc/UTC"
   },
   "backend_ready_for_monitor_integration": true,
   "rollback_compatible_images": {
@@ -262,9 +245,123 @@
     "rules": "Keep native-origin constraint and all legitimate rows/objects; pause writers while changing images; full database backup is not a blind historical restore"
   },
   "lovable_preservation": {
-    "git_base": "b5cbdf8441734e1b069efec10684e893214ec66a",
-    "all_UI_and_drizzle_files_equal_base": true,
-    "official_requeue_hunks_untouched": true,
-    "not_deployed_by_codex": true
-  }
+    "current_main_base": "42406aef",
+    "codex_app_functions_or_ui_deployed": false,
+    "official_requeue_and_0045_preserved": true,
+    "notifications0047_0048_preserved": true,
+    "new_identity_dates_and_daily_sync_changes_preserved": true,
+    "codex_scope": "SQL dispatcher activation, GCP CPNU union fix, focused production verification; application corrections deployed by Lovable from current main"
+  },
+  "dispatch_20261021": {
+    "vault": [
+      "CRON_SERVICE_KEY",
+      "SUPABASE_URL"
+    ],
+    "secret_transport": "server-side Vault create_secret from matching existing91/92 configuration; no exported values",
+    "activation_applied": true,
+    "current_first_patch_applied": true,
+    "cron_timezone": "GMT",
+    "active": {
+      "64": "andromeda-daily-estados:20 12 * * *",
+      "66": "daily-sync:0 12 * * *",
+      "97": "andromeda-public-estados-resume:*/5 * * * *",
+      "74": "process-estado-attachments:*/6 * * * *"
+    },
+    "disabled": [
+      91,
+      92
+    ],
+    "temporary_verification_job98": "cron run509087 succeeded, HTTP1018/1019 observed; then unscheduled",
+    "execution_proof": {
+      "cron_run": 509087,
+      "http_requests": [
+        1018,
+        1019,
+        1025
+      ],
+      "http_timeout_ms": 140000
+    },
+    "revalidation_backup": "2ac8b436-ab8d-4259-94ca-68e51a876240",
+    "local_test": "supabase/tests/public_monitor_activation_test.py; rollback and net/cron/Vault stubs",
+    "rollback": "coordination/public-monitor-dispatch-stop.sql; stop callers without schema or judicial data rollback",
+    "production_results": {
+      "run_date_bogota": "2026-10-20",
+      "publicaciones": {
+        "run_id": "987a1851-5055-4c5c-9493-37e40e41b06e",
+        "selected": 47,
+        "success": 46,
+        "partial_or_failed": 1,
+        "unprocessed": 0,
+        "cause": "public source collection incomplete for municipal-center categories; no false SUCCESS"
+      },
+      "samai_estados": {
+        "run_id": "ba5aab62-3e4d-4f06-82a8-562fb6efbbca",
+        "selected": 15,
+        "success": 15,
+        "failed": 0,
+        "unprocessed": 0
+      },
+      "repeat_http_requests": [
+        1054,
+        1055
+      ],
+      "act_repetition_zero_insert_requests": [
+        1044,
+        1045,
+        1075,
+        1076,
+        1077
+      ],
+      "daily_sync_authenticated_direct_item": {
+        "before": 1048,
+        "before_http": 500,
+        "underlying_error": "internal call missing x-cron-key ->401",
+        "after": 1078,
+        "after_http": 200
+      },
+      "details": "docs/public-dispatch-execution-20261021.md",
+      "role_link_repeat": {
+        "request": 1085,
+        "http": 200,
+        "inserted": 0,
+        "recognized": 22,
+        "read_result": "PENDING_UPSTREAM",
+        "cause": "bounded source read remains incomplete; documents retained",
+        "role_urls_preserved": true,
+        "no_new_association_ids": true
+      }
+    },
+    "empty_verdict_postfix_backup": "7fc01bb8-570f-4c56-a20c-7b8c55333987",
+    "deployed_function_body_matches_committed_sql": true,
+    "function_body_md5_trace": "0e91ace73504fa6581af074f9023f61d"
+  },
+  "cpnu_public_union": {
+    "backend_commit": "fdb6857",
+    "build": "04ccf096-1092-4308-bd08-b496f2681fa5",
+    "revision": "cpnu-https-jobs-00034-h98",
+    "image_digest": "sha256:123f9ff5d6fa391d58895b8eb3de6d22911118e416db83c2d11f86b65616d7c0",
+    "previous_revision": "cpnu-https-jobs-00033-xfb",
+    "previous_image_digest": "sha256:e23314dbb3f5c2eade2bfb66eaca9bdcbb078f81539fd48d2c13497faf0a2c6a",
+    "preventive_test": "3node tests pass; selected-process union and source associations preserved"
+  },
+  "application_current_main_integrated": "42406aef",
+  "backend_ready_for_monitors": true,
+  "whole_product_closed": false,
+  "remaining_limits": [
+    "Daily PP snapshot has1 explicit partial; later focused J23 read also reports incomplete municipal-center category coverage while retaining its two recovered documents.",
+    "Legacy duplicate copies preserved;72 controlled insertion IDs recorded without declaring them72 new events; no rows archived.",
+    "Familia fecha_fijacion corrected; published_at0131 remains blocked by existing historical collision, with backup.",
+    "Final UI publication and authorized opening tests remain coordinated by Lovable."
+  ],
+  "report": "docs/public-dispatch-execution-20261021.md",
+  "do_not_repeat": [
+    "drizzle/migrations/0046_public_monitor_durable.sql",
+    "drizzle/migrations/0047_notification_user_state.sql",
+    "drizzle/migrations/0048_notification_personal_read_isolation.sql",
+    "coordination/20261021010000_public_monitor_daily_seed.sql",
+    "coordination/20261020011000_public_monitor_dispatch.sql (already activated)",
+    "coordination/public-monitor-controlled-revalidation.sql (one-off already guarded)",
+    "coordination/public-monitor-empty-verdict-revalidation.sql (one-off already guarded)"
+  ],
+  "application_delivery_branch": "fix/public-dispatch-activation-20261021"
 }

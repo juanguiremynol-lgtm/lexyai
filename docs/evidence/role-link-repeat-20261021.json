@@ -1,0 +1,49 @@
+{
+  "production_response": {
+    "id": 1085,
+    "response": "{\"ok\":false,\"work_item_id\":\"b4037a4d-0dab-422d-a65f-b7172b040fa4\",\"inserted_count\":0,\"skipped_count\":22,\"alerts_created\":0,\"attachment_enqueued\":42,\"attachment_enqueue_failed\":0,\"newest_publication_date\":null,\"warnings\":[\"Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.\"],\"errors\":[],\"inserted\":[],\"provider_latency_ms\":405,\"status\":\"SUCCESS\",\"result_code\":\"PENDING_UPSTREAM\"}",
+    "status_code": 200,
+    "timed_out": false
+  },
+  "scoped_id_sets_unchanged": true,
+  "before": [
+    {
+      "count": 456,
+      "ids": "92ab6ce0dd13bbf22d02b784f5c79b16",
+      "kind": "acts"
+    },
+    {
+      "count": 98,
+      "ids": "a7cddf604ef1a0cdf5f537f0d4e68382",
+      "kind": "publicaciones"
+    },
+    {
+      "count": 116,
+      "ids": "9a0fa4fc26d67f27b3f982e7880f1427",
+      "kind": "associations"
+    }
+  ],
+  "after": [
+    {
+      "count": 456,
+      "ids": "92ab6ce0dd13bbf22d02b784f5c79b16",
+      "kind": "acts"
+    },
+    {
+      "count": 98,
+      "ids": "a7cddf604ef1a0cdf5f537f0d4e68382",
+      "kind": "publicaciones"
+    },
+    {
+      "count": 116,
+      "ids": "9a0fa4fc26d67f27b3f982e7880f1427",
+      "kind": "associations"
+    }
+  ],
+  "role_links_preserved": {
+    "estado_publicacion": "9bfda8e2-40b0-45eb-b872-cacb2cb28a38",
+    "estado_uuid": "2003ad39-9316-5546-8fd9-82cf06f4c3ef",
+    "providencia_publicacion": "80098b0b-a566-46b7-9e37-ee7811a65d81",
+    "providencia_uuid": "12a95c98-7757-f612-3c47-d4ffdba0402f"
+  }
+}

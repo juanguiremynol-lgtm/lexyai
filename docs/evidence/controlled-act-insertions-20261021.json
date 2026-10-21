@@ -1,0 +1,725 @@
+{
+  "scope": "Normal sync requests1022/1023/1024/1035; all newly inserted IDs preserved; no automatic archival; includes legitimate missing acts and duplicate copies caused by legacy identity conflict.",
+  "records": [
+    {
+      "created_at": "2026-10-21 01:17:41.484547+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_7aab209b7e9146fd_o180d3edf",
+      "id": "da219a62-d5bd-4352-8e3c-8d94653dc44a",
+      "is_archived": false,
+      "native_act": "106713635",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.033166+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_600d88c72e0f94f5_o170d3d4c",
+      "id": "c9a18746-9c2c-4c69-9459-73d21c2ef817",
+      "is_archived": false,
+      "native_act": "106713634",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.116495+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_25c0709d5ea5c30f_o160d3bb9",
+      "id": "52474b59-9e15-4ff9-b2ee-697730ea9943",
+      "is_archived": false,
+      "native_act": "106713633",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.214104+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_27afd7bb3e4d3381_o150d3a26",
+      "id": "541a83a4-b1e3-4eef-af4f-0888fe7279a2",
+      "is_archived": false,
+      "native_act": "106713632",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.456849+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_27afd7bb3e4d3381_o140d3893",
+      "id": "689f7020-8d3e-4538-9a27-3d58c397d90d",
+      "is_archived": false,
+      "native_act": "106713631",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.525946+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6a3e8c4051d8567a_o130d3700",
+      "id": "65fcbe6a-c9a5-4d84-a25a-87c6be034a8f",
+      "is_archived": false,
+      "native_act": "106713630",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.609938+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6a3e8c4051d8567a_oa010538e",
+      "id": "09b1df29-fabb-4705-8be5-1a70fb0e45af",
+      "is_archived": false,
+      "native_act": "106713629",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.846199+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_28c6f41927e6b301_o9a104a1c",
+      "id": "3b7e43a9-6978-464a-a473-d64f5bd9973f",
+      "is_archived": false,
+      "native_act": "106713627",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:42.927893+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_10af60435ff1f575_oa1105521",
+      "id": "5aa7f328-2993-4e9c-b8f1-a22be80733b2",
+      "is_archived": false,
+      "native_act": "106713628",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.025537+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_7e7a667d37b87181_o9b104baf",
+      "id": "a8b622a4-6b02-40f9-ae88-26a5bc15fd3c",
+      "is_archived": false,
+      "native_act": "106713626",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.108015+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_317bbb6404a5b88e_o9c104d42",
+      "id": "df499d90-4f94-4418-87e2-29cc385dd6c7",
+      "is_archived": false,
+      "native_act": "106713625",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.16968+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_7f263d0669723d8a_o9d104ed5",
+      "id": "4a5d94bc-9d4b-4b3c-8523-3522a4f5be67",
+      "is_archived": false,
+      "native_act": "106713624",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.230596+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6bf4011c65ec7a02_o961043d0",
+      "id": "eac095c3-be41-4cc1-847e-03ba74cb9f62",
+      "is_archived": false,
+      "native_act": "106713623",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.411797+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_5395d77b17993781_o97104563",
+      "id": "194cb6c2-19d4-41f9-9f93-9b7eb4bcaa4a",
+      "is_archived": false,
+      "native_act": "106713622",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.484955+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_25fa62df78e990f9_o981046f6",
+      "id": "748f1134-2c02-47d0-bd95-e1d4dc0a5418",
+      "is_archived": false,
+      "native_act": "106713621",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.555596+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_4a5e1ddd21141875_o99104889",
+      "id": "c1d0f1a1-8e98-4d4f-872c-2c116f438c27",
+      "is_archived": false,
+      "native_act": "106713620",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.613234+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_0eacaecd48ba228b_oa8129ebd",
+      "id": "383422b3-c668-4e75-a880-a08d9978a0a7",
+      "is_archived": false,
+      "native_act": "106713619",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.713386+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_09cfd0723f8fbc78_oa7129d2a",
+      "id": "5bbac8cb-228a-42a9-8ea9-9ad7ef6bc372",
+      "is_archived": false,
+      "native_act": "106713618",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.782989+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_09cfd0723f8fbc78_o9a1288b3",
+      "id": "379a0254-60e6-4dfa-b142-a47ab1e8c1dd",
+      "is_archived": false,
+      "native_act": "106713617",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.913378+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6a640c8a5a644908_o99128720",
+      "id": "5bbe236c-959c-4e78-b0f7-cdd3df44195c",
+      "is_archived": false,
+      "native_act": "106713616",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:43.984131+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_4d0ee0d2154ec6a6_oab14e20d",
+      "id": "942de8c5-d9c8-4259-b796-e41e5be6c714",
+      "is_archived": false,
+      "native_act": "106713606",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.083651+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_793be3d21102e704_o95c2b88b",
+      "id": "47e25a18-73d4-4c36-b82b-8999b2c3886f",
+      "is_archived": false,
+      "native_act": "106713594",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.151514+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_60ddba315b6f2985_o95c079f4",
+      "id": "14f44ef2-ea7a-4313-bd08-5459c1b379e6",
+      "is_archived": false,
+      "native_act": "106713586",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.223624+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_38b9b2f1522a9eed_o82a00860",
+      "id": "778136c1-3373-4514-8786-dfe2c9949f3d",
+      "is_archived": false,
+      "native_act": "106713573",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.277188+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_7a0fa533569ad279_o8ca256b5",
+      "id": "14e06b9a-b7fc-4b2a-a0e9-774d6149febf",
+      "is_archived": false,
+      "native_act": "106713541",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.366844+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_61f8115d2c697ef1_o93a4a051",
+      "id": "250f1394-bc74-461a-b28f-edc493046459",
+      "is_archived": false,
+      "native_act": "106713552",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.433958+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_05525e0d5c38e3b7_o10a7a3af",
+      "id": "d1c91ba6-9c16-4148-aa3c-05483eb1ddcc",
+      "is_archived": false,
+      "native_act": "106713529",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.544105+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_60f93bab04006d07_o86af1936",
+      "id": "484cc6f2-8f4a-42c5-aaba-090028a4b7bc",
+      "is_archived": false,
+      "native_act": "106713517",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.629341+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_317f191802d64b00_o02ac0ad3",
+      "id": "f1e0aef5-4dbc-4d58-801b-2c370f0b2773",
+      "is_archived": false,
+      "native_act": "106713503",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.693557+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_67ac02ba4610b410_oee85ccb0",
+      "id": "fd7e8338-d6ae-46ae-bcb1-cc52748f2b84",
+      "is_archived": false,
+      "native_act": "106713421",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.756749+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_63caab8a37042210_o807e63c1",
+      "id": "4484e086-b7bb-4f8a-8a01-c5de017f0920",
+      "is_archived": false,
+      "native_act": "106713413",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.837173+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_4857b70d78eee985_o7a6d112e",
+      "id": "d6945aed-5ede-4a57-b44c-afc494938d36",
+      "is_archived": false,
+      "native_act": "106713489",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.892408+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_4857b70d78eee985_o818d6fde",
+      "id": "65d7ec3f-1b18-4311-a922-35546fe31cb0",
+      "is_archived": false,
+      "native_act": "106713470",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:44.946691+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_0d5bbb57773f57fb_of406ae11",
+      "id": "c1f9fc51-9dfa-46b0-ae24-22e31d0a50af",
+      "is_archived": false,
+      "native_act": "106713394",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.017492+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_72219f8548e4d6f5_oee046608",
+      "id": "7003ea11-df07-4ace-aefb-bcf762516667",
+      "is_archived": false,
+      "native_act": "106713384",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.0701+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6ca0e48018294742_oe71126f6",
+      "id": "af48b1ac-2294-4d4f-91d9-92803dbbb559",
+      "is_archived": false,
+      "native_act": "106713359",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.16182+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_4fe7427519120f13_o700e2d0a",
+      "id": "27fb5471-13dc-4c22-b1bd-2712584fc435",
+      "is_archived": false,
+      "native_act": "106713346",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.217419+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_01422bc17b7b4bf3_o731d3c4d",
+      "id": "2234530d-c489-4dd0-895d-77db2f521998",
+      "is_archived": false,
+      "native_act": "106713325",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.305568+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_7c09617b022a56db_o5e189e10",
+      "id": "037575af-078d-4d46-aa5a-0a71319ec82c",
+      "is_archived": false,
+      "native_act": "106713304",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.385635+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_44ddbcbf61252c09_o4e9b9cf9",
+      "id": "8956d389-545e-416c-89c5-412e5a7d784c",
+      "is_archived": false,
+      "native_act": "106713286",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.449434+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6d9125d63dd4fb2e_od3a0eb86",
+      "id": "baa4d7ad-c455-4362-a328-7329fc985b27",
+      "is_archived": false,
+      "native_act": "106713269",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:17:45.543704+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_91edd371_6e1067d01cebb832_oe3a3434d",
+      "id": "bcf0f19c-bea8-476f-924d-8f1364543d7a",
+      "is_archived": false,
+      "native_act": "106713251",
+      "source_process": "3272913431",
+      "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f"
+    },
+    {
+      "created_at": "2026-10-21 01:16:38.02479+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_0f045d2f499c2e7b",
+      "id": "b0601521-e42d-4a3c-b190-4ea8a2ebe94a",
+      "is_archived": false,
+      "native_act": "126576581",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:38.231773+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_19dc5398544dc746",
+      "id": "bd83e79b-4a03-4964-8e87-4e8bcd88d836",
+      "is_archived": false,
+      "native_act": "126576580",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.375527+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_3a88ea317d4cae79_o0c185164",
+      "id": "c6805314-15f9-4ed5-af4b-4febe9e53e81",
+      "is_archived": false,
+      "native_act": "77192676",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.456874+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_0ea2522c01b1ff5e_o0f18561d",
+      "id": "744a95ed-ae96-4756-8e35-682ca2d761ba",
+      "is_archived": false,
+      "native_act": "77192675",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.535387+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_2e9a155046d2b08c_o0e18548a",
+      "id": "709949de-cd70-47af-8f38-333c547be68c",
+      "is_archived": false,
+      "native_act": "77192674",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.777617+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_02223df251c6bc76_o09184cab",
+      "id": "0b31779c-f59d-42c1-b958-8f50b2494f3a",
+      "is_archived": false,
+      "native_act": "77192673",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.83634+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_02223df251c6bc76_o08184b18",
+      "id": "53c04bf1-072c-4055-aaf3-017833e522a6",
+      "is_archived": false,
+      "native_act": "77192672",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.883965+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_14a8a3537ffac4f7_o0b184fd1",
+      "id": "31abea51-d7cd-4356-bf4b-a8c0884ce504",
+      "is_archived": false,
+      "native_act": "77192671",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.933324+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_495dd3ec63f5cb02_o0a184e3e",
+      "id": "85c5947e-5a7a-4878-a65a-55a31f402b75",
+      "is_archived": false,
+      "native_act": "77192670",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:39.990282+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_0ef09c9c45febb02_o871b519c",
+      "id": "02355e22-a10d-4e25-94fc-c52ce7366e6d",
+      "is_archived": false,
+      "native_act": "77192669",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.076019+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_157ca1ef49f66c79_o881b532f",
+      "id": "09ff76d9-ff2f-42d6-a113-82b0072e0de9",
+      "is_archived": false,
+      "native_act": "77192668",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.145066+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_29e11de966760621_o8d1b5b0e",
+      "id": "f24c7958-ae54-4bbe-80a1-5babc6f28fc2",
+      "is_archived": false,
+      "native_act": "77192667",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.220875+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_4221eb6f627b04f7_o8e1b5ca1",
+      "id": "765c0dbe-bc90-4451-a8a7-3054016627ba",
+      "is_archived": false,
+      "native_act": "77192666",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.261967+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_29c3c1ce1427c276_o8b1b57e8",
+      "id": "024d4eef-ab00-4c49-8cfe-b25528b06514",
+      "is_archived": false,
+      "native_act": "77192665",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.31119+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_2cde95b90c10e287_o8c1b597b",
+      "id": "8e6ba890-e524-4943-9a66-06effab85f8f",
+      "is_archived": false,
+      "native_act": "77192664",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.376932+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_44f9645d362293ff_o911b615a",
+      "id": "61cdffdb-a5da-4a88-962a-40f8d8a3ba1f",
+      "is_archived": false,
+      "native_act": "77192663",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.432446+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_7e9f82b93601820d_o921b62ed",
+      "id": "d4510ef5-b243-4acd-8f55-04cbed67b833",
+      "is_archived": false,
+      "native_act": "77192662",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.479327+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_02799aa92e85b70d_o8f1b5e34",
+      "id": "9c64b26b-e7b8-4dc3-bb58-d04cc1cf301c",
+      "is_archived": false,
+      "native_act": "77192661",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.553312+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_7e9f82b93601820d_o901b5fc7",
+      "id": "ea081df8-c5a3-4c9c-8e15-11674d8e9d64",
+      "is_archived": false,
+      "native_act": "77192660",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.619049+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_645ff5cc4a1f3c02_o0713cc57",
+      "id": "e21c3dcc-2178-4f88-9c59-de778b167cf8",
+      "is_archived": false,
+      "native_act": "77192659",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.679935+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_1d965e855b69f18d_o0613cac4",
+      "id": "87887b49-3460-40f4-ab41-c47e1e2744c2",
+      "is_archived": false,
+      "native_act": "77192658",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.721566+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_5a7bb4d15194330b_ofd13bc99",
+      "id": "d920152d-9b0a-40ae-8eb8-7aa6f797f75e",
+      "is_archived": false,
+      "native_act": "77192657",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.7667+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_5e2eba3f2ed0aeab_ofc13bb06",
+      "id": "a3ff8d7d-fe52-4936-8b41-9b3c8811b03a",
+      "is_archived": false,
+      "native_act": "77192656",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.897525+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_719fdbf25ac7e67c_ofb13b973",
+      "id": "3d4b5204-772f-4855-83a8-29465f32d982",
+      "is_archived": false,
+      "native_act": "77192655",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.945181+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_719fdbf25ac7e67c_ofa13b7e0",
+      "id": "9e9da0c4-e0f2-4344-8fac-20a1845a8076",
+      "is_archived": false,
+      "native_act": "77192654",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:40.998337+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_48bec1ec6cfa0782_o0113c2e5",
+      "id": "1639c75b-1113-4c88-9934-50e28c2b46da",
+      "is_archived": false,
+      "native_act": "77192653",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:41.051152+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_02df47bf380257a7_o0013c152",
+      "id": "eac98abc-e22f-4684-8ec0-2ce171eaadb4",
+      "is_archived": false,
+      "native_act": "77192652",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:16:41.14071+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_b4037a4d_29a752c04f31ddc2_off13bfbf",
+      "id": "94453367-e662-4693-8ee7-6fe86a0cb59a",
+      "is_archived": false,
+      "native_act": "77192651",
+      "source_process": "3250682691",
+      "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4"
+    },
+    {
+      "created_at": "2026-10-21 01:17:41.975152+00",
+      "documents": 0,
+      "hash_fingerprint": "wi_ea6a804b_4467c1e425e6ea84_o3c6eb1ff",
+      "id": "21eb972f-8fa1-4ac2-a7d6-f1f23221ea84",
+      "is_archived": false,
+      "native_act": "8",
+      "source_process": "189479201",
+      "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044"
+    },
+    {
+      "created_at": "2026-10-21 01:36:10.470311+00",
+      "documents": 1,
+      "hash_fingerprint": "wi_ea6a804b_5a687d9a7d63063a",
+      "id": "eabb2d7b-5736-49c3-a8fd-9839baf5a740",
+      "is_archived": false,
+      "native_act": "68818314",
+      "source_process": "3241026841",
+      "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044"
+    }
+  ]
+}

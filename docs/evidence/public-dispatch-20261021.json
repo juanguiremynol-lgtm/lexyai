@@ -1,0 +1,380 @@
+{
+  "production": {
+    "captured_at": "2026-10-21T01:51:32.569471+00:00",
+    "cron": [
+      {
+        "active": true,
+        "id": 64,
+        "name": "andromeda-daily-estados",
+        "schedule": "20 12 * * *"
+      },
+      {
+        "active": true,
+        "id": 66,
+        "name": "daily-sync",
+        "schedule": "0 12 * * *"
+      },
+      {
+        "active": true,
+        "id": 74,
+        "name": "process-estado-attachments",
+        "schedule": "*/6 * * * *"
+      },
+      {
+        "active": false,
+        "id": 91,
+        "name": "publicaciones-monitor",
+        "schedule": "0 11 * * *"
+      },
+      {
+        "active": false,
+        "id": 92,
+        "name": "samai-estados-monitor",
+        "schedule": "50 10 * * *"
+      },
+      {
+        "active": true,
+        "id": 97,
+        "name": "andromeda-public-estados-resume",
+        "schedule": "*/5 * * * *"
+      }
+    ],
+    "cron_timezone": "GMT",
+    "repeat_responses": [
+      {
+        "http": 200,
+        "request_id": 1044,
+        "response": {
+          "errors": [],
+          "inserted_count": 0,
+          "latest_event_date": "2026-10-20",
+          "ok": true,
+          "provider_attempts": [
+            {
+              "actuacionesCount": 8,
+              "latencyMs": 285,
+              "provider": "cpnu",
+              "status": "success"
+            }
+          ],
+          "provider_order_reason": "orchestrator_partial_cpnu",
+          "provider_used": "cpnu",
+          "skipped_count": 8,
+          "warnings": [],
+          "work_item_id": "ab251e24-ebe4-4fde-9c47-792d8bcedbe3",
+          "workflow_type": "CGP"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1045,
+        "response": {
+          "errors": [],
+          "inserted_count": 0,
+          "latest_event_date": "2026-10-20",
+          "ok": true,
+          "provider_attempts": [
+            {
+              "actuacionesCount": 8,
+              "latencyMs": 239,
+              "provider": "cpnu",
+              "status": "success"
+            }
+          ],
+          "provider_order_reason": "orchestrator_partial_cpnu",
+          "provider_used": "cpnu",
+          "skipped_count": 8,
+          "warnings": [],
+          "work_item_id": "9802f7f6-d2c4-40b1-a15f-d07f0ca135dd",
+          "workflow_type": "CGP"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1054,
+        "response": {
+          "accepted": true,
+          "attempted_count": 47,
+          "channel": "publicaciones",
+          "depth_remaining": 0,
+          "ok": false,
+          "remaining_count": 0,
+          "run_id": "987a1851-5055-4c5c-9493-37e40e41b06e",
+          "selected_count": 47,
+          "status": "PARTIAL"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1055,
+        "response": {
+          "accepted": true,
+          "attempted_count": 15,
+          "channel": "samai_estados",
+          "depth_remaining": 55,
+          "ok": true,
+          "remaining_count": 0,
+          "run_id": "ba5aab62-3e4d-4f06-82a8-562fb6efbbca",
+          "selected_count": 15,
+          "status": "OK"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1075,
+        "response": {
+          "errors": [],
+          "inserted_count": 0,
+          "latest_event_date": "2026-09-14",
+          "ok": true,
+          "provider_attempts": [
+            {
+              "actuacionesCount": 53,
+              "latencyMs": 450,
+              "provider": "cpnu",
+              "status": "success"
+            }
+          ],
+          "provider_order_reason": "orchestrator_partial_cpnu",
+          "provider_used": "cpnu",
+          "skipped_count": 53,
+          "warnings": [],
+          "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+          "workflow_type": "CGP"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1076,
+        "response": {
+          "errors": [],
+          "inserted_count": 0,
+          "latest_event_date": "2026-10-20",
+          "ok": true,
+          "provider_attempts": [
+            {
+              "actuacionesCount": 37,
+              "latencyMs": 441,
+              "provider": "cpnu",
+              "status": "success"
+            }
+          ],
+          "provider_order_reason": "orchestrator_partial_cpnu",
+          "provider_used": "cpnu",
+          "skipped_count": 37,
+          "warnings": [],
+          "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+          "workflow_type": "CGP"
+        },
+        "timed_out": false
+      },
+      {
+        "http": 200,
+        "request_id": 1077,
+        "response": {
+          "errors": [],
+          "inserted_count": 0,
+          "latest_event_date": "2026-10-14",
+          "ok": true,
+          "provider_attempts": [
+            {
+              "actuacionesCount": 28,
+              "latencyMs": 325,
+              "provider": "cpnu",
+              "status": "success"
+            }
+          ],
+          "provider_order_reason": "orchestrator_partial_cpnu",
+          "provider_used": "cpnu",
+          "skipped_count": 28,
+          "warnings": [],
+          "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+          "workflow_type": "CGP"
+        },
+        "timed_out": false
+      }
+    ],
+    "runs": [
+      {
+        "channel": "publicaciones",
+        "date": "2026-10-20",
+        "failed": 1,
+        "finished_at": "2026-10-21T01:45:01.599353+00:00",
+        "id": "987a1851-5055-4c5c-9493-37e40e41b06e",
+        "selected": 47,
+        "status": "PARTIAL",
+        "success": 46
+      },
+      {
+        "channel": "samai_estados",
+        "date": "2026-10-20",
+        "failed": 0,
+        "finished_at": "2026-10-21T01:45:03.158318+00:00",
+        "id": "ba5aab62-3e4d-4f06-82a8-562fb6efbbca",
+        "selected": 15,
+        "status": "OK",
+        "success": 15
+      }
+    ],
+    "vault_names": [
+      "CRON_SERVICE_KEY",
+      "SUPABASE_URL"
+    ]
+  },
+  "no_duplicate_repeat": {
+    "before": [
+      {
+        "count": 456,
+        "ids": "92ab6ce0dd13bbf22d02b784f5c79b16",
+        "kind": "acts"
+      },
+      {
+        "count": 98,
+        "ids": "a7cddf604ef1a0cdf5f537f0d4e68382",
+        "kind": "publicaciones"
+      },
+      {
+        "count": 116,
+        "ids": "9a0fa4fc26d67f27b3f982e7880f1427",
+        "kind": "associations"
+      }
+    ],
+    "after": [
+      {
+        "count": 456,
+        "ids": "92ab6ce0dd13bbf22d02b784f5c79b16",
+        "kind": "acts"
+      },
+      {
+        "count": 98,
+        "ids": "a7cddf604ef1a0cdf5f537f0d4e68382",
+        "kind": "publicaciones"
+      },
+      {
+        "count": 116,
+        "ids": "9a0fa4fc26d67f27b3f982e7880f1427",
+        "kind": "associations"
+      }
+    ]
+  },
+  "documents": [
+    {
+      "correspondence": {
+        "article_id": "273810898",
+        "case_radicado": "05001400302320250063800",
+        "document_kind": "auto",
+        "document_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2FjdHVhY2lvbmVzLzI3MzgxMDg5OC9lNjBmZmJhY2VmYmE3MDQzNzVhMDFjZWI1NzIzNTkxMjQzNTNjYjJjNzhiYTI3MjQzMzJkMDA4YTk4MWJhMjgyLnBkZg",
+        "method": "public_source_document_path",
+        "source_gcs_url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001400302320250063800/raw/actuaciones/273810898/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf",
+        "source_path": "05001400302320250063800/raw/actuaciones/273810898/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf"
+      },
+      "publicacion_id": "80098b0b-a566-46b7-9e37-ee7811a65d81",
+      "reading": {
+        "bytes": 163027,
+        "method": "pdfjs-4.10.38-text-and-operators-every-page; no-render-or-signature-check",
+        "pages": 3,
+        "pagesRead": 3,
+        "sha256": "e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282",
+        "textSha256": "b9296ccf4d401a3c1500ca5b0956aacf0658f658a7de90e4b61ecd4c9b4ca234"
+      },
+      "remote_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2FjdHVhY2lvbmVzLzI3MzgxMDg5OC9lNjBmZmJhY2VmYmE3MDQzNzVhMDFjZWI1NzIzNTkxMjQzNTNjYjJjNzhiYTI3MjQzMzJkMDA4YTk4MWJhMjgyLnBkZg",
+      "storage_path": "80098b0b-a566-46b7-9e37-ee7811a65d81/c9ca80ca-8e31-4f10-baec-c806c294e975/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf"
+    },
+    {
+      "correspondence": {
+        "article_id": "273810898",
+        "case_radicado": "05001400302320250063800",
+        "document_kind": "estado",
+        "document_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2VzdGFkb3MvYTY5YjMyZTVlYThhNjkyNTliZTY2MGU3NGQwNmNkNGE3YWZlMzcxZDFjODgyOWM1YzNkNWUyNGJjNDVmMWZlYS5wZGY",
+        "method": "public_source_document_path",
+        "source_gcs_url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001400302320250063800/raw/estados/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf",
+        "source_path": "05001400302320250063800/raw/estados/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf"
+      },
+      "publicacion_id": "80098b0b-a566-46b7-9e37-ee7811a65d81",
+      "reading": {
+        "bytes": 1789710,
+        "method": "pdfjs-4.10.38-text-and-operators-every-page; no-render-or-signature-check",
+        "pages": 11,
+        "pagesRead": 11,
+        "sha256": "a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea",
+        "textSha256": "5c210454b1facc1e317a759f6059324f793841eb23d1f549179b64d1584c55f8"
+      },
+      "remote_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2VzdGFkb3MvYTY5YjMyZTVlYThhNjkyNTliZTY2MGU3NGQwNmNkNGE3YWZlMzcxZDFjODgyOWM1YzNkNWUyNGJjNDVmMWZlYS5wZGY",
+      "storage_path": "80098b0b-a566-46b7-9e37-ee7811a65d81/ff3118c3-0496-4f0b-9f65-47bd34804864/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf"
+    },
+    {
+      "correspondence": {
+        "article_id": "273810898",
+        "case_radicado": "05001400302320250063800",
+        "document_kind": "auto",
+        "document_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2FjdHVhY2lvbmVzLzI3MzgxMDg5OC9lNjBmZmJhY2VmYmE3MDQzNzVhMDFjZWI1NzIzNTkxMjQzNTNjYjJjNzhiYTI3MjQzMzJkMDA4YTk4MWJhMjgyLnBkZg",
+        "method": "public_source_document_path",
+        "source_gcs_url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001400302320250063800/raw/actuaciones/273810898/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf",
+        "source_path": "05001400302320250063800/raw/actuaciones/273810898/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf"
+      },
+      "publicacion_id": "9bfda8e2-40b0-45eb-b872-cacb2cb28a38",
+      "reading": {
+        "bytes": 163027,
+        "method": "pdfjs-4.10.38-text-and-operators-every-page; no-render-or-signature-check",
+        "pages": 3,
+        "pagesRead": 3,
+        "sha256": "e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282",
+        "textSha256": "b9296ccf4d401a3c1500ca5b0956aacf0658f658a7de90e4b61ecd4c9b4ca234"
+      },
+      "remote_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2FjdHVhY2lvbmVzLzI3MzgxMDg5OC9lNjBmZmJhY2VmYmE3MDQzNzVhMDFjZWI1NzIzNTkxMjQzNTNjYjJjNzhiYTI3MjQzMzJkMDA4YTk4MWJhMjgyLnBkZg",
+      "storage_path": "9bfda8e2-40b0-45eb-b872-cacb2cb28a38/18ea456a-e1e8-4744-a991-0146b035d643/e60ffbacefba704375a01ceb572359124353cb2c78ba2724332d008a981ba282.pdf"
+    },
+    {
+      "correspondence": {
+        "article_id": "273810898",
+        "case_radicado": "05001400302320250063800",
+        "document_kind": "estado",
+        "document_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2VzdGFkb3MvYTY5YjMyZTVlYThhNjkyNTliZTY2MGU3NGQwNmNkNGE3YWZlMzcxZDFjODgyOWM1YzNkNWUyNGJjNDVmMWZlYS5wZGY",
+        "method": "public_source_document_path",
+        "source_gcs_url": "https://storage.googleapis.com/andromeda-pp-documentos-2026/05001400302320250063800/raw/estados/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf",
+        "source_path": "05001400302320250063800/raw/estados/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf"
+      },
+      "publicacion_id": "9bfda8e2-40b0-45eb-b872-cacb2cb28a38",
+      "reading": {
+        "bytes": 1789710,
+        "method": "pdfjs-4.10.38-text-and-operators-every-page; no-render-or-signature-check",
+        "pages": 11,
+        "pagesRead": 11,
+        "sha256": "a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea",
+        "textSha256": "5c210454b1facc1e317a759f6059324f793841eb23d1f549179b64d1584c55f8"
+      },
+      "remote_url": "https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/MDUwMDE0MDAzMDIzMjAyNTAwNjM4MDAvcmF3L2VzdGFkb3MvYTY5YjMyZTVlYThhNjkyNTliZTY2MGU3NGQwNmNkNGE3YWZlMzcxZDFjODgyOWM1YzNkNWUyNGJjNDVmMWZlYS5wZGY",
+      "storage_path": "9bfda8e2-40b0-45eb-b872-cacb2cb28a38/f954035a-dcb1-40f5-816a-0063ded1a82f/a69b32e5ea8a69259be660e74d06cd4a7afe371d1c8829c5c3d5e24bc45f1fea.pdf"
+    }
+  ],
+  "limitations": [
+    "Source completeness distinct from document retrieval",
+    "No UI certification by Codex",
+    "No SAMAI historical repair, old alerts or30-day-term changes",
+    "No automatically archived rows"
+  ],
+  "daily_sync": {
+    "failing_request": 1048,
+    "http_before": 500,
+    "cause_confirmed_by_lovable_logs": "inner sync-by-work-item HTTP401 missing x-cron-key",
+    "postfix_request": 1078,
+    "http_after": 200,
+    "mode": "DIRECT_ITEM",
+    "work_item": "ab251e24-ebe4-4fde-9c47-792d8bcedbe3",
+    "cpnu_buscar_used": false,
+    "cpnu_buscar_deferred": false
+  },
+  "cpnu_backend": {
+    "commit": "fdb68575aeb12d6c6d8d68a7fa0a1d7bc155f2a0",
+    "revision": "cpnu-https-jobs-00034-h98",
+    "image_digest": "sha256:123f9ff5d6fa391d58895b8eb3de6d22911118e416db83c2d11f86b65616d7c0",
+    "actual_union_job": "job_1792546413267_09cc1110650a",
+    "canonical_acts": 28,
+    "secondary_native_act": "68818314"
+  }
+}
