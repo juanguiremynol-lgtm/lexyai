@@ -17,6 +17,7 @@
  * "Publicaciones 2" but the panel was empty).
  */
 
+import { civilDate } from "@/lib/civil-date";
 import { useState } from "react";
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -75,12 +76,11 @@ interface LocalPub {
 
 function mapLocalPubToAct(p: LocalPub): WorkItemAct {
   const raw = (p.raw_data || {}) as Record<string, unknown>;
-  const fecha =
-    p.fecha_fijacion ||
-    p.fecha_providencia ||
-    (typeof raw.fecha_publicacion === "string" ? (raw.fecha_publicacion as string) : null) ||
-    (typeof raw.fecha === "string" ? (raw.fecha as string) : null) ||
-    (p.detected_at ? p.detected_at.slice(0, 10) : null);
+  // First VALID civil date only; detection time is never a legal date. The
+  // original provider text is kept in act_date_raw for traceability.
+  const candidates = [p.fecha_fijacion, p.fecha_providencia, raw.fecha_publicacion, raw.fecha];
+  const fecha = candidates.map(civilDate).find(Boolean) ?? null;
+  const fechaOriginal = candidates.find(v => typeof v === "string" && v) as string | undefined;
 
   // pdf_url on the row can be either a proxy URL (http[s]://…) or, on
   // older rows, a raw storage path. Keep both channels distinct.
@@ -99,7 +99,7 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
     description: p.title || "Sin descripción",
     event_summary: null,
     act_date: dateKey(fecha),
-    act_date_raw: fecha,
+    act_date_raw: fecha ?? fechaOriginal ?? null,
     event_date: null,
     act_type: null,
     source: "pp",
@@ -112,7 +112,7 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
     scrape_date: null,
     hash_fingerprint: `local-pub-${p.id}`,
     created_at: p.detected_at || new Date().toISOString(),
-    date_confidence: p.fecha_fijacion ? "high" : "low",
+    date_confidence: civilDate(p.fecha_fijacion) ? "high" : "low",
     raw_data: {
       ...raw,
       pdf_url: rawPdfUrl,

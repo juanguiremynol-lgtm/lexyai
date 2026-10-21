@@ -7,6 +7,7 @@
  * (storage-signed via edge fn is handled by the parent's onOpen callback).
  */
 
+import { civilDate, formatCivilDate, FECHA_NO_INFORMADA } from "@/lib/civil-date";
 import { cn } from "@/lib/utils";
 import { isDirectlyOpenable } from "@/lib/document-url-resolver";
 import { programadoLabel } from "@/lib/colombia-date-utils";
@@ -63,9 +64,10 @@ function parseFlexibleDate(input: string): Date | null {
 }
 
 function fmt(dateStr?: string | null): string {
-  if (!dateStr) return "";
+  if (!dateStr) return FECHA_NO_INFORMADA;
+  if (civilDate(String(dateStr))) return formatCivilDate(String(dateStr));
   const d = parseFlexibleDate(String(dateStr));
-  if (!d) return String(dateStr);
+  if (!d || d.getFullYear() < 2000) return FECHA_NO_INFORMADA;
   return d.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });
 }
 

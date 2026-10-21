@@ -5,6 +5,7 @@ import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
  * Missing fields show graceful placeholders, never collapse the layout
  */
 
+import { civilDate, formatCivilDate, FECHA_NO_INFORMADA } from "@/lib/civil-date";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { summarizeActAttachments, knownDocumentPendingCause } from "@/lib/act-attachments-inventory";
@@ -239,8 +240,9 @@ function parseFlexibleDate(input: string): Date | null {
 }
 
 function formatActDate(dateStr: string): string {
+  if (civilDate(dateStr)) return formatCivilDate(dateStr);
   const date = parseFlexibleDate(dateStr);
-  if (!date) return dateStr;
+  if (!date || date.getFullYear() < 2000) return FECHA_NO_INFORMADA;
   return date.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
 }
 
@@ -344,12 +346,7 @@ function buildDetailFallback(
     const anexos = rawData.anexos as number | undefined;
 
     if (fechaRegistro) {
-      try {
-        const d = new Date(fechaRegistro);
-        parts.push(`Registrado: ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`);
-      } catch {
-        parts.push(`Registrado: ${fechaRegistro}`);
-      }
+      parts.push(`Registrado: ${formatCivilDate(fechaRegistro)}`);
     }
     if (clase) parts.push(`Clase: ${clase}`);
     if (tipo) parts.push(`Tipo: ${tipo}`);

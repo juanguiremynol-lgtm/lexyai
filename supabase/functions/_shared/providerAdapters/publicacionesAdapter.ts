@@ -335,7 +335,7 @@ function normalizeOnePublicacion(
   if (!fecha && tituloStr) fecha = extractDateFromTitle(tituloStr) || null;
   const pdfUrl = String(unit.pdf_url || '');
   if (!fecha && pdfUrl) {
-    const m = pdfUrl.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+    const m = pdfUrl.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
     if (m) fecha = `${m[1]}-${m[2]}-${m[3]}`;
   }
 
@@ -443,7 +443,7 @@ export function extractDateFromTitle(title: string): string | undefined {
   if (!title) return undefined;
 
   // Pattern 1: "XXXEstadosYYYYMMDD.pdf"
-  const yyyymmddMatch = title.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+  const yyyymmddMatch = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
   if (yyyymmddMatch) {
     const [, y, m, d] = yyyymmddMatch;
     if (+y >= 2020 && +y <= 2030 && +m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) {
@@ -452,7 +452,7 @@ export function extractDateFromTitle(title: string): string | undefined {
   }
 
   // Pattern 2: YYYYMMDD anywhere
-  const yyyymmddAnywhere = title.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  const yyyymmddAnywhere = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
   if (yyyymmddAnywhere) {
     return `${yyyymmddAnywhere[1]}-${yyyymmddAnywhere[2]}-${yyyymmddAnywhere[3]}`;
   }
