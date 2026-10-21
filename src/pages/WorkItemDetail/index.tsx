@@ -1,4 +1,5 @@
 import { LastOccurredEventField } from "@/components/work-items/LastOccurredEventField";
+import { ProviderRunSummary } from "@/components/work-items/ProviderRunSummary";
 /**
  * WorkItemDetail - Unified detail page for all work items
  * 
@@ -612,7 +613,7 @@ export default function WorkItemDetail() {
                           : <Badge variant={variant} className="text-xs" title="Resultado de la última consulta registrada a esta fuente">{status}</Badge>}
                       </div>
                       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
-                        <span className="text-muted-foreground">Registros de esta fuente:</span>
+                        <span className="text-muted-foreground">Registros del resumen externo:</span>
                         <span className="text-right font-medium">{entry?.total_actuaciones ?? 0}</span>
                         <span className="text-muted-foreground">Novedades sin revisar:</span>
                         <span className="text-right font-medium">{entry?.novedades_pendientes ?? 0}</span>
@@ -624,13 +625,14 @@ export default function WorkItemDetail() {
                         )}
                         {entry?.last_sync_at && (
                           <>
-                            <span className="text-muted-foreground">Última sync:</span>
+                            <span className="text-muted-foreground">Fecha del resumen externo:</span>
                             <span className="text-right">
                               {formatDistanceToNow(new Date(entry.last_sync_at), { addSuffix: true, locale: es })}
                             </span>
                           </>
                         )}
                       </div>
+                      {['cpnu', 'samai'].includes(key) && !(key === 'cpnu' && workItem.workflow_type === 'CPACA') && <ProviderRunSummary workItemId={workItem.id} source={key} />}
                     </div>
                   );
                 })];

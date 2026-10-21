@@ -386,6 +386,34 @@
       "when": 1792601375626,
       "tag": "0054_daily_sync_lock_respects_window",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792605126420,
+      "tag": "0055_daily_source_attempts_fenced",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792605481811,
+      "tag": "0056_daily_recovery_source_exhaustion_and_fencing",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1792605769661,
+      "tag": "0057_stage_decision_projection_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1792605850740,
+      "tag": "0058_stage_decision_anchor_classification",
+      "breakpoints": true
     }
   ]
 }

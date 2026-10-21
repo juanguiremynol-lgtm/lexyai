@@ -1,2 +1,3 @@
 - Public monitor queue RPCs seed today's snapshot before recovering older work; fenced lease tokens and three attempts own completion — HTTP acceptance is not source success.
 - Public snapshot freshness uses the source observation date in Bogotá; attachment incompleteness is independent of query completion — retained rows never imply a fresh read.
+- Daily source attempts own three fenced, leased attempts per Bogotá day/work item/source; cached success is reused and dispatch acknowledgement never seals ingestion. Ledger run IDs fence late updates.

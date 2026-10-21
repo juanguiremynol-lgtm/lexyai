@@ -1,5 +1,13 @@
 # Roadmap
 
+## Scoped completion — 2026-10-21 17:46 UTC
+- [ ] Correct daily attempt completion/recovery with existing durable leases; preserve successful sources and bound retries.
+- [ ] Verify six native acts and repeat only the three authorized cases today; preserve historical terms.
+- [ ] Verify J19 communication/providencia relationship and production document controls.
+- [ ] Finish Familia/J15 attempt/snapshot presentation and eight evidence-backed stage suggestions, preserving manual overrides.
+- [ ] Compare the exact 14 failed tests with the prior baseline; fix functional regressions.
+- [ ] Run focused tests, confirm publication and served bundle; report automatic next-run verification separately.
+
 ## Authorized public closure (2026-10-21)
 - [x] Reconcile five diagnostics and two adapter tests; preserve SQL0045, official evidence and legacy-copy compatibility.
 - [x] Confirm no active recent claims; apply corrected durable protocol 0046 and deploy 13 affected importers; Deno check passes all.

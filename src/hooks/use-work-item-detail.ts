@@ -435,8 +435,8 @@ export function useWorkItemDetail(
       ultima_novedad_revisada: cpnu.ultima_novedad_revisada ?? null,
       ultima_novedad_fecha: cpnu.ultima_novedad_fecha ?? null,
       last_checked_at: apiLastSync ?? workItem.last_checked_at,
-      last_synced_at: apiLastSync ?? workItem.last_synced_at,
-      total_actuaciones: apiTotal ?? workItem.total_actuaciones,
+      last_synced_at: workItem.last_synced_at,
+      total_actuaciones: workItem.total_actuaciones,
       sync,
       api_work_item_id: apiWorkItemId,
     } as WorkItemDetail;
