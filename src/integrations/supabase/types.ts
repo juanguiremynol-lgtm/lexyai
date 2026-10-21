@@ -281,6 +281,39 @@ export type Database = {
         }
         Relationships: []
       }
+      _pub_radicado_date_backup_20261021: {
+        Row: {
+          backed_up_at: string
+          fecha_fijacion: string | null
+          hash_fingerprint: string | null
+          id: string
+          published_at: string | null
+          raw_fecha_publicacion: string | null
+          title: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          backed_up_at?: string
+          fecha_fijacion?: string | null
+          hash_fingerprint?: string | null
+          id: string
+          published_at?: string | null
+          raw_fecha_publicacion?: string | null
+          title?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          backed_up_at?: string
+          fecha_fijacion?: string | null
+          hash_fingerprint?: string | null
+          id?: string
+          published_at?: string | null
+          raw_fecha_publicacion?: string | null
+          title?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       act_provenance: {
         Row: {
           first_seen_at: string

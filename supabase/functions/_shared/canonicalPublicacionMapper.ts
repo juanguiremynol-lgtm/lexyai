@@ -77,12 +77,15 @@ export function extractDateFromTitle(title: string): string | undefined {
   const yyyymmddMatch = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\.pdf/i);
   if (yyyymmddMatch) {
     const [, y, mo, d] = yyyymmddMatch;
-    if (+y >= 2020 && +y <= 2030 && +mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) {
-      return `${y}-${mo}-${d}`;
-    }
+    const iso = plausibleCivilDate(`${y}-${mo}-${d}`);
+    if (iso) return iso;
   }
   const anywhere = title.match(/(?<!\d)(20[2-3]\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
-  if (anywhere) return `${anywhere[1]}-${anywhere[2]}-${anywhere[3]}`;
+  if (anywhere) {
+    const iso = plausibleCivilDate(`${anywhere[1]}-${anywhere[2]}-${anywhere[3]}`);
+    if (iso) return iso;
+  }
+
 
   const spanishMatch = title.match(/(\d{1,2})\s+(?:DE\s+)?(\w+)\s+(?:DE\s+)?(\d{4})/i);
   if (spanishMatch) {

@@ -16,3 +16,19 @@ Deno.test("implausible or impossible civil dates are null", () => {
   assertEquals(plausibleCivilDate("2026-02-30"), null);
   assertEquals(plausibleCivilDate("2026-10-20T12:00:00Z"), "2026-10-20");
 });
+const FAMILIA_TITLES = [
+  "Providencia 11001311001320240075200.pdf — sin-fecha",
+  "Providencia 11001311001320240075200 Continúa Trámite.pdf — sin-fecha",
+  "Providencia 11001311001320240075200 Admite DIV..pdf — sin-fecha",
+];
+Deno.test("Familia 0131 titles: unknown date stays undefined, never today", () => {
+  for (const t of FAMILIA_TITLES) {
+    assertEquals(extractDateFromTitle(t), undefined);
+    assertEquals(adapterExtract(t), undefined);
+  }
+});
+Deno.test("explicit valid date parses; impossible calendar day does not", () => {
+  assertEquals(extractDateFromTitle("Estado 20261020 Juzgado"), "2026-10-20");
+  assertEquals(extractDateFromTitle("Estado 20260230.pdf"), undefined);
+  assertEquals(extractDateFromTitle("Estado 20260230 Juzgado"), undefined);
+});
