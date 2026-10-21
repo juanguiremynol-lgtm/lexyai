@@ -1218,7 +1218,7 @@ Deno.serve(async (req: Request) => {
     }
     const contentHash = simpleHash({ actuaciones, estados, proceso: merged.proceso });
 
-    supabaseAdmin
+    const cacheUpsert = supabaseAdmin
       .from("demo_radicado_cache")
       .upsert({
         radicado_normalized: radicado,
