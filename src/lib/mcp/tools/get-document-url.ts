@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { errorResult, requireAuth, resolveWorkItem, sbForUser, supabaseProjectUrl, supabasePublishableKey, textResult } from "../shared";
 
 export default defineTool({
   name: "get_document_url",
@@ -48,13 +48,13 @@ export default defineTool({
 
     // Signed URL path — delegated to the hardened edge function, which
     // re-validates the caller's organization membership server-side.
-    const base = process.env.SUPABASE_URL!;
+    const base = supabaseProjectUrl();
     const res = await fetch(`${base}/functions/v1/get-estado-attachment-url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ctx.getToken()}`,
-        apikey: process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY!,
+        apikey: supabasePublishableKey(),
       },
       body: JSON.stringify({ publicacion_id: document_id }),
     });
