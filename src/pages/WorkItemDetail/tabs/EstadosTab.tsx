@@ -302,6 +302,10 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
               const idStr = String(estado.id);
               if (!idStr.startsWith("local-")) return undefined;
               const localId = idStr.slice("local-".length);
+              const verified = (recoveryDocuments ?? []).find(
+                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
+              );
+              if (verified) return () => openVerifiedCopy(verified);
               const src = (localPubs ?? []).find((p: any) => p.id === localId);
               if (!src) return undefined;
               const { directUrl, resolvable } = resolveLocalPubUrls(src);
