@@ -1,4 +1,5 @@
 import { publicReadVerdict } from "./publicReadVerdict.ts";
+function assertEquals(a: unknown, b: unknown) { if (a !== b) throw new Error(`${a} !== ${b}`); }
 function assert(value: unknown, message = "assertion failed") { if (!value) throw new Error(message); }
 Deno.test("deferred, stale, partial and initiated reads cannot become successes", () => {
   for (const code of ["PENDING_UPSTREAM","STALE_SNAPSHOT","PARTIAL","SCRAPING_INITIATED","CONTRACT_MISMATCH"]) {
