@@ -305,3 +305,41 @@ Deno.test('semantic fallback does not mix providers',()=>{
   const decision=resolveActIdentity({v1:'cpnu-v1',semanticKey:'same-day-title',provider:'cpnu',incoming:extractActOrigin({indice:1}),evidence:'Fijacion Estado',rows:[{id:'samai-row',source:'samai',hash_fingerprint:'other',semantic_key:'same-day-title',description:'Fijacion Estado',raw_data:{origen_indice:'1'}}]});
   assertEquals(decision.kind,'insert');
 });
+
+// Real legacy CPNU shapes (J15 b62c5613, 638 10f59e00).
+const J15_V1 = "wi_91edd371_4fe7427519120f13";
+const j15Legacy = { id: "b62c5613", source: "cpnu", hash_fingerprint: J15_V1, semantic_key: "2025-05-26|ARCHIVO DEFINITIVO||00",
+  description: "Archivo Definitivo - Se archiva el presente proceso digital",
+  raw_data: { indice: "6", actuacion: "Archivo Definitivo", consolidated_from: [{ raw_data: { indice: "106713346" } }] } };
+Deno.test("legacy CPNU consolidated id matches incoming native id", () => {
+  const d = resolveActIdentity({ v1: J15_V1, semanticKey: "2025-05-26|ARCHIVO DEFINITIVO|2025-05-26|00", provider: "cpnu",
+    incoming: extractActOrigin({ indice: "106713346" }), evidence: j15Legacy.description, rows: [j15Legacy] });
+  assertEquals(d.kind, "match");
+});
+Deno.test("unique originless legacy CPNU row with positional indice is reconciled", () => {
+  const legacy = { id: "10f59e00", source: "cpnu", hash_fingerprint: "wi_b4037a4d_645ff5cc4a1f3c02", semantic_key: "x",
+    description: "Auto decreta medida cautelar", raw_data: { indice: "9" } };
+  const d = resolveActIdentity({ v1: "wi_b4037a4d_645ff5cc4a1f3c02", semanticKey: "y", provider: "cpnu",
+    incoming: extractActOrigin({ indice: "77192659" }), evidence: "Auto decreta medida cautelar", rows: [legacy] });
+  assertEquals(d.kind, "match");
+  // Two legacy candidates: ambiguous, never pick one.
+  const two = resolveActIdentity({ v1: legacy.hash_fingerprint, semanticKey: "y", provider: "cpnu",
+    incoming: extractActOrigin({ indice: "77192659" }), evidence: legacy.description,
+    rows: [legacy, { ...legacy, id: "other", hash_fingerprint: legacy.hash_fingerprint + "_oabc" }] });
+  assertEquals(two.kind, "insert");
+  // Different text: never reconciled.
+  const txt = resolveActIdentity({ v1: legacy.hash_fingerprint, semanticKey: "y", provider: "cpnu",
+    incoming: extractActOrigin({ indice: "77192659" }), evidence: "Auto decreta medida cautelar - otra", rows: [legacy] });
+  assertEquals(txt.kind, "insert");
+  // Another row already owns the native id.
+  const owned = resolveActIdentity({ v1: legacy.hash_fingerprint, semanticKey: "y", provider: "cpnu",
+    incoming: extractActOrigin({ indice: "77192659" }), evidence: legacy.description,
+    rows: [legacy, { ...legacy, id: "n", hash_fingerprint: "zz", raw_data: { origen_indice: "77192659" } }] });
+  assertEquals(owned.kind === "match" && owned.row.id, false);
+});
+Deno.test("SAMAI distinct solicitudes never merge via legacy rule", () => {
+  const row = { id: "s", source: "samai", hash_fingerprint: "v", semantic_key: "k", description: "Memorial solicitud No. 1111", raw_data: {} };
+  const d = resolveActIdentity({ v1: "v", semanticKey: "k", provider: "samai",
+    incoming: extractActOrigin({ description: "Memorial solicitud No. 2222" }), evidence: "Memorial solicitud No. 2222", rows: [row] });
+  assertEquals(d.kind, "insert");
+});
