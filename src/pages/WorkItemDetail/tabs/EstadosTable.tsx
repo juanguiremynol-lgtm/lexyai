@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, ShieldAlert } from "lucide-react";
+import { Download, ExternalLink, FileText, ShieldAlert, Table2 } from "lucide-react";
 
 export interface EstadoRow {
   key: string;
