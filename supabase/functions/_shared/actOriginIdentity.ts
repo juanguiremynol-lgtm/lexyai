@@ -223,15 +223,25 @@ export function resolveActIdentity(input: {
   rows: CandidateRow[];
 }): IdentityDecision {
   const { v1, semanticKey, incoming } = input;
+  // Cache only for this decision: candidate mutation between confirmed writes
+  // remains visible to the next decision, including inferred legacy origins.
+  const origins = new Map<CandidateRow, ActOriginIdentity>();
+  const origin = (row: CandidateRow) => {
+    const cached = origins.get(row);
+    if (cached) return cached;
+    const value = originFromRow(row);
+    origins.set(row, value);
+    return value;
+  };
   // A source request and its exact filing text can survive a corrected event
   // date. A date-based fingerprint alone must not create the request again.
   // Never use title/day alone, and retain ambiguity rather than choosing a row.
   if (incoming.solicitud && input.evidence) {
     const stable = input.rows.filter(r => (!input.provider || r.source === input.provider)
-      && originFromRow(r).solicitud === incoming.solicitud
-      && compareOrigins(originFromRow(r), incoming) !== 'conflict'
+      && origin(r).solicitud === incoming.solicitud
+      && compareOrigins(origin(r), incoming) !== 'conflict'
       && clean(r.description) === clean(input.evidence));
-    const indexed = stable.filter(r => incoming.indice && originFromRow(r).indice === incoming.indice);
+    const indexed = stable.filter(r => incoming.indice && origin(r).indice === incoming.indice);
     const candidate = indexed.length === 1 ? indexed[0] : stable.length === 1 ? stable[0] : null;
     if (candidate) return { kind: 'match', row: candidate, relation: 'equivalent', via: 'semantic' };
   }
@@ -252,17 +262,17 @@ export function resolveActIdentity(input: {
     const owners = providerRows.filter(r => {
       const own = clean((r.raw_data as any)?.origen_indice);
       return own && own.replace(/^0+(?=\d)/, '') === incoming.indice
-        && compareProviderOrigins(originFromRow(r), incoming, input.provider) === 'equivalent';
+        && compareProviderOrigins(origin(r), incoming, input.provider) === 'equivalent';
     });
     if (owners.length === 1) return { kind: 'match', row: owners[0], relation: 'equivalent', via: byFp.includes(owners[0]) ? 'fingerprint' : 'semantic' };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
-    const eq = list.find((r) => compareProviderOrigins(originFromRow(r), incoming, input.provider) === "equivalent");
+    const eq = list.find((r) => compareProviderOrigins(origin(r), incoming, input.provider) === "equivalent");
     if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
     const ind = list.find((r) => {
-      const stored = originFromRow(r);
+      const stored = origin(r);
       return compareProviderOrigins(stored, incoming, input.provider) !== 'conflict' && !hasStableOrigin(stored) && !hasStableOrigin(incoming) &&
         (input.evidence === undefined || clean(r.description) === clean(input.evidence));
     });
