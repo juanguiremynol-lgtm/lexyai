@@ -218,7 +218,7 @@ async function sha256Hex(message: string): Promise<string> {
 
 async function hmac(key: ArrayBuffer | Uint8Array, message: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
-    "raw", key instanceof Uint8Array ? key : new Uint8Array(key),
+    "raw", (key instanceof Uint8Array ? key : new Uint8Array(key)) as BufferSource,
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
   return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message));

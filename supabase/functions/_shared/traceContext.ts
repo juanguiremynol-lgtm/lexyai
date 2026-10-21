@@ -50,6 +50,7 @@ export interface TraceDetails {
     pending_alerts?: number;
     emails_sent?: number;
     emails_failed?: number;
+    emails_enqueued?: number;
   };
   /** Error summary */
   errors?: Array<{ code: string; message: string; count: number }>;

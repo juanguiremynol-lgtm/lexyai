@@ -32,7 +32,7 @@ function json(data: unknown, status = 200) {
 
 async function sha256Hex(data: Uint8Array | string): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc } = await adminClient
       .from("generated_documents")
-      .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at, poderdante_type, entity_data")
+      .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at, poderdante_type, entity_data, status")
       .eq("id", sig.document_id).single();
     if (!doc) return json({ error: "Documento no encontrado." }, 404);
 
