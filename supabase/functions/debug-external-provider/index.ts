@@ -981,7 +981,7 @@ Deno.serve(async (req) => {
         cpnu: 'CPNU_BASE_URL', samai: '',
         publicaciones: 'PUBLICACIONES_BASE_URL',
       };
-      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider]);
+      const providerBaseUrl = provider === 'samai' ? upstreamBaseUrl('samai_read') : Deno.env.get(envMap[provider as ProviderName]);
       const apiKeyInfo = await getApiKeyForProvider(provider);
       
       if (!providerBaseUrl) {
