@@ -247,6 +247,12 @@ interface WorkItem {
   authority_department: string | null;
 }
 
+function originProcessId(act: Record<string, unknown>): string | null {
+  const raw = (act.raw_data ?? {}) as Record<string, unknown>;
+  const v = act._idProceso ?? act.idProceso ?? raw._idProceso ?? raw.idProceso;
+  return v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim();
+}
+
 interface ActuacionRaw {
   [key: string]: unknown;
   instancia?: string;
@@ -3069,6 +3075,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             anotacion: act.anotacion ?? null,
             anexos: act.anexos,
             indice: act.indice,
+            _idProceso: originProcessId(act),
             documentos: normalizeActDocumentos((act as any).documentos),
           }, { provider: (act as any)._source || fetchResult.provider, repair: HISTORICAL_REPAIR_SCOPE });
           Object.assign(decision.row, persisted);
@@ -3142,6 +3149,8 @@ Deno.serve(withSyncTimeline(async (req) => {
         origen_indice: incomingOrigin.indice,
         origen_solicitud: incomingOrigin.solicitud,
         origen_radicada_en: incomingOrigin.radicada_en,
+        // Provider process provenance (CPNU idProceso) — kept verbatim when sent.
+        _idProceso: originProcessId(act),
         anexos_inventario: buildAnexosInventario({
           anexos: act.anexos,
           anotacion: act.anotacion,

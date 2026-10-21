@@ -245,6 +245,17 @@ export function resolveActIdentity(input: {
   const rank = (r: CandidateRow) => (r.hash_fingerprint === v1 ? 0 : 1);
   const fpSorted = [...byFp].sort((a, b) => rank(a) - rank(b));
 
+  // A row that already carries the incoming native id EXPLICITLY (origen_indice)
+  // wins over any legacy row whose id is only inferred: enriching the legacy
+  // row would collide with the explicit owner on the structural unique index.
+  if (incoming.indice) {
+    const owners = providerRows.filter(r => {
+      const own = clean((r.raw_data as any)?.origen_indice);
+      return own && own.replace(/^0+(?=\d)/, '') === incoming.indice
+        && compareProviderOrigins(originFromRow(r), incoming, input.provider) === 'equivalent';
+    });
+    if (owners.length === 1) return { kind: 'match', row: owners[0], relation: 'equivalent', via: byFp.includes(owners[0]) ? 'fingerprint' : 'semantic' };
+  }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
     const eq = list.find((r) => compareProviderOrigins(originFromRow(r), incoming, input.provider) === "equivalent");
     if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
