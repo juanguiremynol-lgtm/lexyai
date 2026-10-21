@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { errorResult, requireAuth, resolveWorkItem, sbForUser, supabaseProjectUrl, supabasePublishableKey, textResult } from "../shared";
 
 export default defineTool({
   name: "get_document_url",

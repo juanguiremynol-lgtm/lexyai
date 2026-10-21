@@ -44,12 +44,12 @@ function runtimeEnv(name) {
   const v = rt.Deno?.env?.get?.(name) ?? rt.process?.env?.[name];
   return v?.trim() || void 0;
 }
-function supabaseProjectUrl2() {
+function supabaseProjectUrl() {
   const url = runtimeEnv("SUPABASE_URL") ?? runtimeEnv("VITE_SUPABASE_URL");
   if (!url) throw new Error("SUPABASE_URL no configurada en el runtime MCP");
   return url;
 }
-function supabasePublishableKey2() {
+function supabasePublishableKey() {
   const direct = runtimeEnv("SUPABASE_PUBLISHABLE_KEY") ?? runtimeEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
   if (direct) return direct;
   const keyset = runtimeEnv("SUPABASE_PUBLISHABLE_KEYS");
@@ -71,7 +71,7 @@ function supabasePublishableKey2() {
 function sbForUser(ctx) {
   const token = ctx.getToken();
   if (!token) throw new Error("sbForUser requiere un token OAuth verificado");
-  return createClient(supabaseProjectUrl2(), supabasePublishableKey2(), {
+  return createClient(supabaseProjectUrl(), supabasePublishableKey(), {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false }
   });
