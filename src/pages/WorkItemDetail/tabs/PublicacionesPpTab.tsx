@@ -344,9 +344,26 @@ export function PublicacionesPpTab({ workItem }: Props) {
       (raw.tipo_documento as string | undefined) ||
       (raw.tipoPublicacion as string | undefined) ||
       null;
-    const onOpenFile =
-      docRow && hasResolvableDocument(docRow) ? () => void openStorageAttachment(docRow) : undefined;
+    // Resolve the persisted publication behind this row (local rows carry their
+    // id; API rows are matched by the same title|date key used for merging).
+    const pubId = act.id.startsWith("local-pub-")
+      ? act.id.slice("local-pub-".length)
+      : localPubs?.find((p) => mergeKey(mapLocalPubToAct(p).description, mapLocalPubToAct(p).act_date) === mergeKey(act.description, act.act_date))?.id;
+    const pub = pubId ? localPubs?.find((p) => p.id === pubId) : undefined;
+    const unaccredited = (pub?.raw_data as Record<string, any> | null | undefined)?.asociacion_no_acreditada;
+    // Only a copy whose read is evidenced counts as available (never URL/HTTP alone).
+    const verifiedCopy = pubId
+      ? recoveryDocuments.find((d) => d.publicacion_id === pubId && estadoDocumentStatus(d).available)
+      : undefined;
+    const onOpenFile = verifiedCopy
+      ? () => void openCopy(verifiedCopy)
+      : docRow && hasResolvableDocument(docRow) ? () => void openStorageAttachment(docRow) : undefined;
+    const onDownloadFile = verifiedCopy ? () => void downloadCopy(verifiedCopy) : undefined;
     return {
+      asociacion_no_acreditada: unaccredited
+        ? (typeof unaccredited.causa === "string" ? unaccredited.causa : "Asociación no acreditada por el contenido del documento.")
+        : null,
+      onDownloadFile,
       key: act.id,
       fuente: "PP",
       title: act.description || "Sin descripción",
