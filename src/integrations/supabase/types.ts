@@ -5340,6 +5340,69 @@ export type Database = {
         }
         Relationships: []
       }
+      controlled_public_repair_20261021: {
+        Row: {
+          after_canonical: Json | null
+          after_row: Json | null
+          applied_at: string | null
+          before_canonical: Json
+          before_row: Json
+          canonical_id: string
+          classification: string
+          evidence: Json
+          id: string
+          kind: string
+          prepared_at: string
+          protected_after: Json | null
+          protected_before: Json | null
+          restored_at: string | null
+          state: string
+          work_item_after: Json | null
+          work_item_before: Json | null
+          work_item_id: string
+        }
+        Insert: {
+          after_canonical?: Json | null
+          after_row?: Json | null
+          applied_at?: string | null
+          before_canonical: Json
+          before_row: Json
+          canonical_id: string
+          classification: string
+          evidence: Json
+          id: string
+          kind: string
+          prepared_at?: string
+          protected_after?: Json | null
+          protected_before?: Json | null
+          restored_at?: string | null
+          state?: string
+          work_item_after?: Json | null
+          work_item_before?: Json | null
+          work_item_id: string
+        }
+        Update: {
+          after_canonical?: Json | null
+          after_row?: Json | null
+          applied_at?: string | null
+          before_canonical?: Json
+          before_row?: Json
+          canonical_id?: string
+          classification?: string
+          evidence?: Json
+          id?: string
+          kind?: string
+          prepared_at?: string
+          protected_after?: Json | null
+          protected_before?: Json | null
+          restored_at?: string | null
+          state?: string
+          work_item_after?: Json | null
+          work_item_before?: Json | null
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       court_emails: {
         Row: {
           contributed_by: string | null
@@ -25929,6 +25992,10 @@ export type Database = {
         }
         Returns: string
       }
+      controlled_repair_protected_20261021: {
+        Args: { w: string }
+        Returns: Json
+      }
       count_anexos_nuevos:
         | {
             Args: { p_organization_id: string; p_since: string }
@@ -26656,6 +26723,10 @@ export type Database = {
       regenerate_doctrine_alerts: { Args: never; Returns: Json }
       reopen_drained_deadline: {
         Args: { p_deadline_id: string; p_reason?: string }
+        Returns: Json
+      }
+      repair_controlled_public_pair_20261021: {
+        Args: { p_id: string; p_restore?: boolean }
         Returns: Json
       }
       resolve_publicacion_anchor: {
