@@ -45,7 +45,7 @@ export function usePendingReviewSummary() {
         supabase
           .from("work_item_deadlines")
           .select(
-            "id, work_item_id, label, deadline_type, trigger_date, work_items(id, radicado, title)",
+            "id, work_item_id, label, deadline_type, trigger_date, trigger_event, bound_party_role, source_event_id, work_items(id, radicado, title)",
           )
           .eq("status", "REQUIERE_REVISION_MANUAL")
           .order("trigger_date", { ascending: false })
@@ -61,7 +61,7 @@ export function usePendingReviewSummary() {
       if (ids.length > 0) {
         const { data, error } = await supabase
           .from("deadline_review_user_state")
-          .select("deadline_id, acknowledged_at, snoozed_until")
+          .select("deadline_id, acknowledged_at, snoozed_until, event_key")
           .in("deadline_id", ids);
         if (error) throw error;
         states = (data ?? []) as DeadlineReviewState[];

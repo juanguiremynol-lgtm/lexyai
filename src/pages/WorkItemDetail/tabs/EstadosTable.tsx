@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, ExternalLink, Table2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Download, ExternalLink, FileText, ShieldAlert, Table2 } from "lucide-react";
 
 export interface EstadoRow {
   key: string;
