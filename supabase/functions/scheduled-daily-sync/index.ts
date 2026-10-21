@@ -30,6 +30,8 @@ import {
 } from "../_shared/cpnuFreshnessGate.ts";
 import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
+import { runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -348,11 +350,19 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[daily-sync] DIRECT_ITEM work_item_id=${item.id} workflow=${item.workflow_type} trigger=${triggerSource}`);
-    const result = await syncSingleItem(supabase, item, item.organization_id, undefined, true);
-    return new Response(
-      JSON.stringify({ ok: true, mode: "DIRECT_ITEM", work_item_id: item.id, result }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    try {
+      const result = await syncSingleItem(supabase, item, item.organization_id, undefined, false);
+      return new Response(JSON.stringify({ ok: true, mode: "DIRECT_ITEM", work_item_id: item.id, result }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    } catch (err) {
+      return new Response(JSON.stringify({ ok: false, mode: "DIRECT_ITEM", work_item_id: item.id, error: String(err) }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
+
+  if (!isContinuation && !dailyWindowDue(triggerSource)) {
+    return new Response(JSON.stringify({ ok: false, status: 'NOT_DUE', reason: 'Before automatic daily window' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   // ── Heartbeat: start (try/finally guarantees finish) ──
@@ -752,7 +762,7 @@ async function syncOrganization(
 
   if (isContinuation && continuationOf) {
     // Item 2: For continuations, check that the org isn't already being synced
-    const today = new Date().toISOString().slice(0, 10);
+    const today = bogotaDay();
     
     const { data: runningEntries } = await supabase
       .from("auto_sync_daily_ledger")
@@ -795,9 +805,10 @@ async function syncOrganization(
     ledgerId = newLedger.id;
   } else {
     // Acquire lock via ledger (normal run)
-    const { data: lockResult, error: lockError } = await supabase.rpc("acquire_daily_sync_lock", {
+    const { data: lockResult, error: lockError } = await supabase.rpc("acquire_daily_sync_lock_for_origin", {
       p_organization_id: orgId,
       p_run_id: runId,
+      p_origin: triggerSource,
     });
     if (lockError) throw lockError;
 
@@ -874,7 +885,7 @@ async function syncOrganization(
       status: "RUNNING",
       items_targeted: expectedTotal,
       expected_total_items: expectedTotal,
-    });
+    }, runId);
 
     // ── Fix #2 & #3: Items that failed/timed-out this round, eligible for intra-round retry ──
     interface FailedItem {
@@ -1130,7 +1141,7 @@ async function syncOrganization(
         error_summary: errorSummary.slice(0, 50),
         dead_letter_count: deadLetterCount,
         timeout_count: timeoutCount,
-      });
+      }, runId);
     } while (pageItems.length === PAGE_SIZE && !failureReason);
 
     // If budget wasn't exhausted, account for remaining skipped. A DISPATCHED
@@ -1140,26 +1151,10 @@ async function syncOrganization(
       if (itemsSkipped < 0) itemsSkipped = 0;
     }
 
-    // Determine final status. JC1(a) — a dispatched item counts as attempted
-    // and as not-failed: its verdict is sealed by the callee, not here.
-    const totalAttempted = itemsSucceeded + itemsFailed + itemsDispatched;
-    const nonFailed = itemsSucceeded + itemsDispatched;
-    let finalStatus: string;
-    if (failureReason === "BUDGET_EXHAUSTED") {
-      // Use BUDGET_OVERFLOW if this was an overflow pass
-      finalStatus = isOverflow ? "BUDGET_OVERFLOW" : "PARTIAL";
-    } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
-      finalStatus = "SUCCESS";
-    } else if (nonFailed > 0 && totalAttempted > 0) {
-      const successRate = nonFailed / totalAttempted;
-      finalStatus = successRate >= SUCCESS_THRESHOLD ? "SUCCESS" : "PARTIAL";
-    } else if (nonFailed === 0 && totalAttempted > 0) {
-      finalStatus = "FAILED";
-    } else if (expectedTotal === 0) {
-      finalStatus = "SUCCESS";
-    } else {
-      finalStatus = "FAILED";
-    }
+    // An accepted or still-running HTTP request is not successful ingestion.
+    const finalStatus = failureReason === 'BUDGET_EXHAUSTED'
+      ? (isOverflow ? 'BUDGET_OVERFLOW' : 'PARTIAL')
+      : dailyCompletion(expectedTotal, itemsSucceeded, itemsFailed, itemsDispatched, itemsSkipped);
 
 
     // ── Fix #4: Enriched metadata with skip observability ──
@@ -1204,7 +1199,7 @@ async function syncOrganization(
       dead_letter_count: deadLetterCount,
       timeout_count: timeoutCount,
       metadata: enrichedMetadata,
-    });
+    }, runId);
 
     // JC1(c) — POLLER HAND-OFF. Anything still in flight converges there; the
     // poller closes orphaned IN_PROGRESS scrapes and seals their outcome.
@@ -1243,7 +1238,7 @@ async function syncOrganization(
       failure_reason: error.message?.substring(0, 500),
       error_summary: errorSummary.slice(0, 50),
       finished_at: new Date().toISOString(),
-    });
+    }, runId);
     throw error;
   }
 }
@@ -1251,6 +1246,8 @@ async function syncOrganization(
 // ─── Item 5: Sync a single work item with timeout ───
 
 interface SyncItemResponse {
+  ok?: boolean;
+  code?: string;
   cpnu_buscar_used?: boolean;
   cpnu_buscar_deferred?: boolean;
 }
@@ -1322,6 +1319,12 @@ async function syncSingleItemWithAck(
 async function syncSingleItem(
   supabase: any, item: EligibleWorkItem, orgId: string, signal?: AbortSignal, allowBuscar: boolean = true,
 ): Promise<SyncItemResponse | null> {
+  return runDailySourceAttempt(supabase, item, () => invokeSingleItem(supabase, item, orgId, signal, allowBuscar));
+}
+
+async function invokeSingleItem(
+  supabase: any, item: EligibleWorkItem, orgId: string, signal?: AbortSignal, allowBuscar: boolean = true,
+): Promise<SyncItemResponse | null> {
   // Sync actuaciones
   const { data: syncResult, error: syncError } = await supabase.functions.invoke(
     "sync-by-work-item",
@@ -1329,7 +1332,7 @@ async function syncSingleItem(
       body: { work_item_id: item.id, _scheduled: true, allow_buscar: allowBuscar },
       // Scheduled mode in sync-by-work-item requires verified system auth; the
       // service key is not a JWT here, so present the dedicated cron secret.
-      headers: Deno.env.get("CRON_SERVICE_KEY") ? { "x-cron-key": Deno.env.get("CRON_SERVICE_KEY")! } : undefined,
+      headers: Deno.env.get("CRON_SERVICE_KEY") ? { "x-cron-key": Deno.env.get("CRON_SERVICE_KEY") ?? '' } : undefined,
     },
   );
   
@@ -1367,6 +1370,7 @@ async function syncSingleItem(
 
   // Return CPNU buscar metadata for caller to track budget
   return {
+    ...syncResult,
     cpnu_buscar_used: syncResult?.cpnu_buscar_used ?? false,
     cpnu_buscar_deferred: syncResult?.cpnu_buscar_deferred ?? false,
   };
@@ -1432,7 +1436,7 @@ async function resetItemFailures(supabase: any, workItemId: string): Promise<voi
 
 // ─── Ledger update helper ───
 
-async function updateLedger(supabase: any, ledgerId: string, fields: Record<string, any>): Promise<void> {
+async function updateLedger(supabase: any, ledgerId: string, fields: Record<string, any>, runId: string): Promise<void> {
   try {
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
@@ -1456,13 +1460,18 @@ async function updateLedger(supabase: any, ledgerId: string, fields: Record<stri
     if (fields.status === "RUNNING" && !updatePayload.started_at) {
       updatePayload.started_at = new Date().toISOString();
     }
-    if (fields.status && fields.status !== "RUNNING" && fields.status !== "PENDING") {
+    if (fields.status === "SUCCESS") {
       updatePayload.completed_at = new Date().toISOString();
+    } else if (fields.status) {
+      updatePayload.completed_at = null;
     }
 
-    await supabase.from("auto_sync_daily_ledger").update(updatePayload).eq("id", ledgerId);
+    const { data, error } = await supabase.from("auto_sync_daily_ledger").update(updatePayload).eq("id", ledgerId).eq('run_id', runId).select('id');
+    if (error) throw error;
+    if (!Array.isArray(data) || data.length !== 1) throw new Error('DAILY_LEDGER_FENCED');
   } catch (err) {
     console.warn(`[daily-sync] Ledger update error:`, err);
+    throw err;
   }
 }
 

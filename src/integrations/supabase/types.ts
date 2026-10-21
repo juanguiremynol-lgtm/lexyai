@@ -6122,6 +6122,90 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_source_attempts: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_code: string | null
+          lease_expires_at: string | null
+          lease_token: string | null
+          next_attempt_at: string
+          organization_id: string
+          result: Json
+          run_date: string
+          source: string
+          status: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_code?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          next_attempt_at?: string
+          organization_id: string
+          result?: Json
+          run_date: string
+          source: string
+          status?: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_code?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          next_attempt_at?: string
+          organization_id?: string
+          result?: Json
+          run_date?: string
+          source?: string
+          status?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_source_attempts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "daily_source_attempts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "daily_source_attempts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_source_attempts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_source_attempts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_welcome_log: {
         Row: {
           activity_count: number | null
@@ -16316,6 +16400,84 @@ export type Database = {
         }
         Relationships: []
       }
+      stage_projection_reviews: {
+        Row: {
+          created_at: string
+          decision_kind: string
+          event_date: string | null
+          event_text: string
+          id: string
+          reason: string
+          source_id: string
+          source_relation: string
+          suggested_stage: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision_kind: string
+          event_date?: string | null
+          event_text: string
+          id?: string
+          reason: string
+          source_id: string
+          source_relation: string
+          suggested_stage?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          decision_kind?: string
+          event_date?: string | null
+          event_text?: string
+          id?: string
+          reason?: string
+          source_id?: string
+          source_relation?: string
+          suggested_stage?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_projection_reviews_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "stage_projection_reviews_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "stage_projection_reviews_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stage_projection_reviews_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stage_projection_reviews_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscription_events: {
         Row: {
           created_at: string | null
@@ -25483,6 +25645,10 @@ export type Database = {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
       }
+      acquire_daily_sync_lock_for_origin: {
+        Args: { p_organization_id: string; p_origin: string; p_run_id: string }
+        Returns: Json
+      }
       act_current_copy_invalidated: {
         Args: { doc: Json; prior: Json }
         Returns: boolean
@@ -25822,6 +25988,10 @@ export type Database = {
       check_holiday_coverage_runway: { Args: never; Returns: Json }
       check_inference_rate_limit: {
         Args: { p_timezone?: string; p_work_item_id: string }
+        Returns: Json
+      }
+      claim_daily_source_attempt: {
+        Args: { _source: string; _work_item_id: string }
         Returns: Json
       }
       claim_estado_attachment_downloads: {
@@ -26305,6 +26475,19 @@ export type Database = {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
       }
+      finish_daily_source_attempt: {
+        Args: {
+          _date: string
+          _error_code: string
+          _result: Json
+          _retryable: boolean
+          _source: string
+          _success: boolean
+          _token: string
+          _work_item_id: string
+        }
+        Returns: boolean
+      }
       finish_estado_attachment_download: {
         Args: {
           p_attempt: number
@@ -26703,6 +26886,10 @@ export type Database = {
       pp_public_document_path_matches: {
         Args: { p_proof: Json; p_pub: string; p_url: string }
         Returns: boolean
+      }
+      project_stage_decision_review: {
+        Args: { _work_item_id: string }
+        Returns: string
       }
       propose_client_party_roles: {
         Args: never

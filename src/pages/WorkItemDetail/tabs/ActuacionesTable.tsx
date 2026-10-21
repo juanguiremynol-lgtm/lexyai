@@ -1,4 +1,5 @@
 import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
+import { RelatedActDocuments } from '@/components/work-items/RelatedActDocuments';
 import { ActAttachmentInventory } from '@/components/work-items/ActAttachmentInventory';
 import { samaiGrantIdentity, sourceGrantToken } from '../../../../supabase/functions/_shared/samaiGrantIdentity';
 /**
@@ -440,6 +441,7 @@ export function ActuacionesTable({ acts, renderDocs }: ActuacionesTableProps) {
                   </TableCell>
                   <TableCell className="p-3 align-top">
                     {renderDocs ? renderDocs(act) : <DefaultDocButtons act={act} />}
+                    <RelatedActDocuments act={act} acts={acts} />
                   </TableCell>
                 </TableRow>
               );

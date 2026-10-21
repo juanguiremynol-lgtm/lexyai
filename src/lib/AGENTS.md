@@ -1,2 +1,5 @@
 - act-document-presentation: a document is openable only with a dated full reading, or as a legacy own copy with no descarga_estado (labelled unread) — never fabricate availability, never hide valid legacy copies.
 - notifications use personal notification_user_state and notification_inbox; mutations confirm RPC rows and isolate caches by user/org/category — shared history is immutable to personal actions.
+- Related communication documents resolve explicit certificate, date and title against fully read, attributed documents in the same work item; never relabel them original attachments.
+- Provider ingestion summaries read source-specific work_item_sync_timeline separately from external cache summaries; counts cannot promote a failed attempt to success.
+- Stage decision reviews persist event provenance through explicit projection calls; views only read them, never update procedural stage, deadlines or finality; manual and disabled inference stay authoritative.

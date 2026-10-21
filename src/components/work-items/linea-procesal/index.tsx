@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Route } from "lucide-react";
 import { PhaseStepper, type PhaseReach } from "./PhaseStepper";
 import { AccionRequerida } from "./AccionRequerida";
+import { StageDecisionReview } from "./StageDecisionReview";
 import { TimelineFeed } from "./TimelineFeed";
 import { ExposicionDetalleStatus } from "./ExposicionDetalleStatus";
 import { ComportamientoDespacho } from "./ComportamientoDespacho";
@@ -196,6 +197,7 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         inferredPhase={events?.inferred ?? null}
       />
       <AccionRequerida workItemId={workItemId} workflowType={trackWorkflowType} cgpPhase={cgpPhase} />
+      <StageDecisionReview workItemId={workItemId} workflowType={workflowType} />
       <TerminosDeRegla
         workItemId={workItemId}
         ruleWorkflowType={trackWorkflowType}

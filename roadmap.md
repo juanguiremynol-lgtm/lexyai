@@ -1,5 +1,14 @@
 # Roadmap
 
+## Scoped completion — 2026-10-21 17:46 UTC
+- [x] Correct daily attempt completion/recovery with existing durable leases; preserve successful sources and bound retries.
+- [x] Verify six native acts and repeat only the three authorized cases today; preserve historical terms (0 inserts, 15/28/138 existing).
+- [x] Verify J19 communication/providencia relationship and production document controls; headless viewer not visually certified.
+- [x] Finish Familia/J15 attempt/snapshot presentation and eight evidence-backed stage suggestions, preserving manual overrides.
+- [x] Compare the exact 14 failed tests with the prior baseline; identical failures, none muted.
+- [x] Run focused tests, confirm publication and served bundle main-DxeC-PSG.js; report automatic next-run verification separately.
+- [ ] Observe the next automatic daily execution — blocked until its scheduled time; manual recovery is verified separately.
+
 ## Authorized public closure (2026-10-21)
 - [x] Reconcile five diagnostics and two adapter tests; preserve SQL0045, official evidence and legacy-copy compatibility.
 - [x] Confirm no active recent claims; apply corrected durable protocol 0046 and deploy 13 affected importers; Deno check passes all.

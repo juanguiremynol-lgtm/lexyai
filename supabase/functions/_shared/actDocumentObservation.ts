@@ -26,10 +26,15 @@ export const hasArchiveReading = (doc: Doc) => doc.archivo_verificacion?.lectura
 const proof = (doc: Doc) => doc.descarga_estado === 'descargado_y_leido' && !!(doc.pdf_verificacion || hasArchiveReading(doc)) && !!(doc.gcs_url || doc.urlDescarga || doc.url);
 function history(values: any[]): any[] {
   const out: any[] = [];
+  const seen = new Set<string>();
   for (const value of values) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     const copy = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'));
-    if (!out.some(v => stable(v) === stable(copy))) out.push(copy);
+    const key = stable(copy);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(copy);
+    }
   }
   return out;
 }
@@ -94,7 +99,12 @@ export function mergeAnexosObservation(existingRaw: Doc, incomingObservation: an
   const oldAt = documentObservationAt(previous), at = documentObservationAt(incomingObservation);
   const out = { ...existingRaw };
   const variants = [...(Array.isArray(existingRaw.anexos_observacion_historial) ? existingRaw.anexos_observacion_historial : [])];
-  const add = (v: any) => { if (v && !variants.some(x => stable(x) === stable(v))) variants.push(v); };
+  const seen = new Set(variants.map(stable));
+  const add = (v: any) => {
+    if (!v) return;
+    const key = stable(v);
+    if (!seen.has(key)) { seen.add(key); variants.push(v); }
+  };
   if (!previous || at != null && (oldAt == null || at > oldAt)) {
     if (previous && stable(previous) !== stable(incomingObservation)) add(previous);
     out.anexos_observacion = incomingObservation;
