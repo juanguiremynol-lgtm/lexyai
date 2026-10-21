@@ -1,12 +1,13 @@
 # Roadmap
 
 ## Authorized public closure (2026-10-21)
-- [ ] Reconcile supplied Codex patches, five diagnostics and adapter tests; preserve SQL0045 and document evidence compatibility.
-- [ ] Drain old monitor invocations, install corrected durable protocol once and deploy all affected importers.
-- [ ] Verify secure runtime/Vault credential coordination and real gateway auth before dispatcher activation.
-- [ ] Implement per-user/organization notification dismiss/snooze, isolated optimistic caches, rollback and persisted confirmation.
-- [ ] Run isolated multiuser/monitor/document tests; validate authorized real UI and scheduler persistence where possible.
-- [ ] Activate dispatcher only after dependencies pass; report exact applied deployments and blockers without declaring local tests a public closure.
+- [x] Reconcile five diagnostics and two adapter tests; preserve SQL0045, official evidence and legacy-copy compatibility.
+- [x] Confirm no active recent claims; apply corrected durable protocol 0046 and deploy 13 affected importers; Deno check passes all.
+- [x] Implement personal notification dismiss/snooze, cancellation/rollback, scoped caches, RPC confirmation; migrations 0047/0048 and isolated tests pass.
+- [x] Verify runtime cron auth using real POST validation/rejection; preview session restored and six case pages inspected; selected stored downloads pass.
+- [ ] Inject matching CRON_SERVICE_KEY and SUPABASE_URL into Vault through a secure privileged channel; no available tool writes Vault safely.
+- [ ] Apply coordination/20261020011000_public_monitor_dispatch.sql only after both Vault names and gateway auth pass; observe scheduler→persistence and idempotency. Old unauthenticated job 64 paused; jobs 66/91/92 remain enabled.
+- [ ] Confirm requested frontend publication on production; MCP unchanged (33). Public closure remains unverified until dispatcher runs.
 
 ## Legal access blocker (2026-10-19)
 - [x] Repair canonical document loading, retry and no-scroll gating; preserve current-version acceptance (11 focused tests pass; browser modal checked without registration).
