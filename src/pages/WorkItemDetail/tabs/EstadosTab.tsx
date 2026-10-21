@@ -175,6 +175,18 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     return estadosDisplayInventory(candidates);
   }, [estados, localPubs]);
 
+  // Publications the official-source check proved unrelated to this process
+  // (raw_data.asociacion_no_acreditada). Kept visible as history, never as a
+  // providencia of this expediente.
+  const unaccredited = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of localPubs ?? []) {
+      const flag = (p as any).raw_data?.asociacion_no_acreditada;
+      if (flag) m.set(`local-${p.id}`, typeof flag?.causa === "string" ? flag.causa : "Asociación no acreditada por el contenido del documento.");
+    }
+    return m;
+  }, [localPubs]);
+
   useEffect(() => { onCountChange?.(mergedEstados.length); }, [mergedEstados.length, onCountChange]);
 
   if (!radicado) {
@@ -276,6 +288,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
           rows={mergedEstados.map<EstadoRow>((estado) => ({
             key: `${estado.fuente}-${estado.id}`,
             fuente: estado.fuente,
+            asociacion_no_acreditada: unaccredited.get(String(estado.id)) ?? null,
             title:
               estado.titulo_original?.trim() ||
               estado.descripcion?.trim() ||
