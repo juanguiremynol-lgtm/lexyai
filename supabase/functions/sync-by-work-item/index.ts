@@ -248,6 +248,10 @@ interface WorkItem {
 }
 
 interface ActuacionRaw {
+  [key: string]: unknown;
+  instancia?: string;
+  fechaActuacion?: string;
+  fecha_actuacion?: string;
   fecha: string;
   actuacion: string;
   anotacion?: string;
@@ -275,6 +279,11 @@ interface FetchResult {
   actuaciones: ActuacionRaw[];
   expedienteUrl?: string;
   caseMetadata?: {
+    corte_status?: string;
+    sentencia_ref?: string;
+    tutela_code?: string;
+    ciudad?: string;
+    departamento?: string;
     despacho?: string;
     demandante?: string;
     demandado?: string;
@@ -423,7 +432,8 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
   };
   
   const primary = keyMap[primaryProvider?.key || 'CPNU'] || 'cpnu';
-  const fallback = fallbackProvider ? (keyMap[fallbackProvider.key] || null) : null;
+  const candidateFallback = fallbackProvider ? keyMap[fallbackProvider.key] : null;
+  const fallback = candidateFallback === 'cpnu' || candidateFallback === 'samai' ? candidateFallback : null;
   
   return {
     primary,
