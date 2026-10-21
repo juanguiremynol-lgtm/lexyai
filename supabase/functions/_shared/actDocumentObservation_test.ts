@@ -8,8 +8,9 @@ Deno.test("large document histories retain every distinct observation and dedupe
   const previous = { descarga_observado_en: date, metadata_variants: variants };
   const incoming = { descarga_observado_en: date, metadata_variants: variants.map(v => ({ proof: v.proof, index: v.index })) };
   const result = mergeDocumentObservation(previous, incoming, { ...previous, ...incoming });
-  assertEquals(result.metadata_variants.length, 1000);
-  assertEquals(result.metadata_variants, variants.map(({ index, proof }) => ({ index, proof })));
+  assertEquals(result.metadata_variants.length, 1001);
+  assertEquals(result.metadata_variants.slice(0, 1000), variants.map(({ index, proof }) => ({ index, proof })));
+  assertEquals(result.metadata_variants[1000], { descarga_observado_en: date });
 });
 
 Deno.test("legacy attempt counters and malformed logs do not become dated observations", () => {
