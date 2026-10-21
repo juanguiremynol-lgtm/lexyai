@@ -310,7 +310,7 @@ Deno.test('semantic fallback does not mix providers',()=>{
 const J15_V1 = "wi_91edd371_4fe7427519120f13";
 const j15Legacy = { id: "b62c5613", source: "cpnu", hash_fingerprint: J15_V1, semantic_key: "2025-05-26|ARCHIVO DEFINITIVO||00",
   description: "Archivo Definitivo - Se archiva el presente proceso digital",
-  raw_data: { indice: "6", actuacion: "Archivo Definitivo", consolidated_from: [{ id: "6ac159ec", source: "cpnu", raw_data: { indice: "106713346" } }] } };
+  raw_data: { indice: "6", actuacion: "Archivo Definitivo", consolidated_from: [{ id: "6ac159ec", source: "cpnu", raw_data: { actuacion: "Archivo Definitivo", anotacion: "Se archiva el presente proceso digital", indice: "106713346" } }] } };
 Deno.test("legacy CPNU consolidated id matches incoming native id", () => {
   const d = resolveActIdentity({ v1: J15_V1, semanticKey: "2025-05-26|ARCHIVO DEFINITIVO|2025-05-26|00", provider: "cpnu",
     incoming: extractActOrigin({ indice: "106713346" }), evidence: j15Legacy.description, rows: [j15Legacy] });
@@ -319,7 +319,7 @@ Deno.test("legacy CPNU consolidated id matches incoming native id", () => {
 Deno.test("638 retained CPNU provenance matches; positional indice alone never does", () => {
   const v1 = "wi_b4037a4d_645ff5cc4a1f3c02";
   const legacy = { id: "10f59e00", source: "cpnu", hash_fingerprint: v1, semantic_key: "x", description: "Auto decreta medida cautelar",
-    raw_data: { indice: "9", consolidated_from: [{ id: "692f5770", source: "cpnu", raw_data: { indice: "77192659" } }] } };
+    raw_data: { indice: "9", consolidated_from: [{ id: "692f5770", source: "cpnu", raw_data: { actuacion: "Auto decreta medida cautelar", indice: "77192659" } }] } };
   const inc = extractActOrigin({ indice: "77192659" });
   const m = resolveActIdentity({ v1, semanticKey: "y", provider: "cpnu", incoming: inc, evidence: legacy.description, rows: [legacy] });
   assertEquals(m.kind === "match" && m.row.id, "10f59e00");
@@ -327,12 +327,21 @@ Deno.test("638 retained CPNU provenance matches; positional indice alone never d
   assertEquals(resolveActIdentity({ v1, semanticKey: "y", provider: "cpnu", incoming: inc, evidence: legacy.description, rows: [noProv] }).kind, "insert");
   const samaiProv = { ...legacy, raw_data: { indice: "9", consolidated_from: [{ source: "samai", raw_data: { indice: "77192659" } }] } };
   assertEquals(resolveActIdentity({ v1, semanticKey: "y", provider: "cpnu", incoming: inc, evidence: legacy.description, rows: [samaiProv] }).kind, "insert");
-  const split = { ...legacy, raw_data: { indice: "9", consolidated_from: [{ source: "cpnu", raw_data: { indice: "77192659" } }, { source: "cpnu", raw_data: { indice: "1" } }] } };
+  const split = { ...legacy, raw_data: { indice: "9", consolidated_from: [{ source: "cpnu", raw_data: { actuacion: "Auto decreta medida cautelar", indice: "77192659" } }, { source: "cpnu", raw_data: { actuacion: "Auto decreta medida cautelar", indice: "1" } }] } };
   assertEquals(resolveActIdentity({ v1, semanticKey: "y", provider: "cpnu", incoming: inc, evidence: legacy.description, rows: [split] }).kind, "insert");
 });
 Deno.test("SAMAI distinct solicitudes never merge via legacy rule", () => {
   const row = { id: "s", source: "samai", hash_fingerprint: "v", semantic_key: "k", description: "Memorial solicitud No. 1111", raw_data: {} };
   const d = resolveActIdentity({ v1: "v", semanticKey: "k", provider: "samai",
     incoming: extractActOrigin({ description: "Memorial solicitud No. 2222" }), evidence: "Memorial solicitud No. 2222", rows: [row] });
+  assertEquals(d.kind, "insert");
+});
+
+Deno.test("absorbed CPNU entry with other anotación never claims the active row", () => {
+  const v1 = "wi_91edd371_x";
+  const old = { id: "old", source: "cpnu", hash_fingerprint: v1, semantic_key: "k", description: "Pronunciamiento sobre requerimiento",
+    raw_data: { indice: "12", consolidated_from: [{ source: "cpnu", raw_data: { actuacion: "Solicitud adicion y corrección", indice: "106713631" } }] } };
+  const d = resolveActIdentity({ v1, semanticKey: "k2", provider: "cpnu", incoming: extractActOrigin({ indice: "106713631" }),
+    evidence: "Solicitud adicion y corrección", rows: [old] });
   assertEquals(d.kind, "insert");
 });

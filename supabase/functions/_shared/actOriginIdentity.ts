@@ -88,7 +88,7 @@ export function originFromRow(row: {
   const storedSol = clean(rd.origen_solicitud);
   const storedRad = clean(rd.origen_radicada_en);
   return make({
-    indice: clean(rd.origen_indice) ?? consolidatedIndice(rd) ?? clean(rd.indice),
+    indice: clean(rd.origen_indice) ?? consolidatedIndice(rd, row.description) ?? clean(rd.indice),
     solicitud: fromDesc.solicitud ?? storedSol,
     radicada_en: fromDesc.radicada_en ?? storedRad,
   });
@@ -97,11 +97,21 @@ export function originFromRow(row: {
 /** Legacy consolidated rows keep the provider-native id inside
  * raw_data.consolidated_from while raw_data.indice holds a list position.
  * Only a single, unanimous id is used; disagreement yields null. */
-function consolidatedIndice(rd: Record<string, unknown>): string | null {
+function norm(v: unknown): string {
+  return String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+/** An absorbed entry may be a DIFFERENT act (other anotación, same day); its
+ * id is used only when its own text equals the active row's description. */
+function consolidatedIndice(rd: Record<string, unknown>, description?: string | null): string | null {
+  const desc = norm(description);
+  if (!desc) return null;
   const list = Array.isArray(rd.consolidated_from) ? rd.consolidated_from : [];
   const ids = new Set<string>();
   for (const e of list) {
     if (String((e as any)?.source ?? '').toLowerCase() !== 'cpnu') continue;
+    const er = (e as any)?.raw_data ?? {};
+    const act = norm(er.actuacion), an = norm(er.anotacion);
+    if (!act || (an ? `${act} - ${an}` : act) !== desc) continue;
     const v = clean((e as any)?.raw_data?.indice);
     if (v) ids.add(v.replace(/^0+(?=\d)/, ''));
   }
