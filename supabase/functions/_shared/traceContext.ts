@@ -51,6 +51,7 @@ export interface TraceDetails {
     emails_sent?: number;
     emails_failed?: number;
     emails_enqueued?: number;
+    enqueue_errors?: number;
   };
   /** Error summary */
   errors?: Array<{ code: string; message: string; count: number }>;
