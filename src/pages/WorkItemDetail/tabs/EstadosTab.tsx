@@ -302,12 +302,25 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
               const idStr = String(estado.id);
               if (!idStr.startsWith("local-")) return undefined;
               const localId = idStr.slice("local-".length);
+              const verified = (recoveryDocuments ?? []).find(
+                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
+              );
+              if (verified) return () => openVerifiedCopy(verified);
               const src = (localPubs ?? []).find((p: any) => p.id === localId);
               if (!src) return undefined;
               const { directUrl, resolvable } = resolveLocalPubUrls(src);
               if (directUrl) return undefined; // EstadosTable opens it directly
               if (resolvable) return () => openLocalPubAttachment(src);
               return undefined;
+            })(),
+            onDownloadFile: (() => {
+              const idStr = String(estado.id);
+              if (!idStr.startsWith("local-")) return undefined;
+              const localId = idStr.slice("local-".length);
+              const copy = (recoveryDocuments ?? []).find(
+                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
+              );
+              return copy ? () => downloadVerifiedCopy(copy) : undefined;
             })(),
           }))}
         />

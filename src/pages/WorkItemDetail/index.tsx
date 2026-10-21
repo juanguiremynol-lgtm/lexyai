@@ -1,3 +1,4 @@
+import { LastOccurredEventField } from "@/components/work-items/LastOccurredEventField";
 /**
  * WorkItemDetail - Unified detail page for all work items
  * 
@@ -547,12 +548,7 @@ export default function WorkItemDetail() {
                   <p className="font-medium">{formatDate(workItem.auto_admisorio_date)}</p>
                 </div>
               )}
-              {workItem.last_action_date && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Última actuación</p>
-                  <p className="font-medium">{formatDate(workItem.last_action_date)}</p>
-                </div>
-              )}
+              <LastOccurredEventField workItemId={workItem.id} />
               {workItem.last_checked_at && (
                 <div>
                   <p className="text-sm text-muted-foreground">Última revisión</p>

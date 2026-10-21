@@ -41,6 +41,8 @@ export interface EstadoRow {
   // optional: if provided, clicking the filename calls this instead of the
   // raw pdf_url — used by PP tab to route through get-estado-attachment-url.
   onOpenFile?: () => void;
+  /** Explicit download of a verified stored copy (never a raw provider link). */
+  onDownloadFile?: () => void;
 }
 
 function parseFlexibleDate(input: string): Date | null {
@@ -218,6 +220,24 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                         >
                           <ExternalLink className="h-3 w-3" /> Enlace PDF
                         </a>
+                      )}
+                      {r.onOpenFile && (
+                        <button
+                          type="button"
+                          onClick={r.onOpenFile}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Abrir
+                        </button>
+                      )}
+                      {r.onDownloadFile && (
+                        <button
+                          type="button"
+                          onClick={r.onDownloadFile}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border/60 hover:bg-muted/60 transition-colors"
+                        >
+                          <FileText className="h-3 w-3" /> Descargar
+                        </button>
                       )}
                       {!auto && !tabla && !pdf && !r.onOpenFile && (
                         <span className="text-muted-foreground/40">—</span>
