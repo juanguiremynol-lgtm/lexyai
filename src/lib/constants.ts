@@ -1,3 +1,4 @@
+import { civilDate } from './civil-date';
 // Filing status definitions with labels and colors
 export const FILING_STATUSES = {
   DRAFTED: { label: 'Borrador', color: 'drafted', order: 0 },
@@ -254,7 +255,14 @@ export function formatDateColombia(date: Date | string | null | undefined): stri
   if (!date) return '—';
   
   try {
-    const d = typeof date === 'string' ? new Date(date) : date;
+    if (typeof date === 'string') {
+      // Calendar dates keep their own day; timestamps map to the Bogotá day.
+      const day = civilDate(date);
+      if (!day) return '—';
+      const [y, m, dd] = day.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, dd, 12)).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    }
+    const d = date;
     // Check for invalid date
     if (isNaN(d.getTime())) return '—';
     

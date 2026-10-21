@@ -8,6 +8,7 @@
  * - Works with canonical work_items table
  */
 
+import { formatCivilDate } from "@/lib/civil-date";
 import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
@@ -184,11 +185,8 @@ export default function WorkItemDetail() {
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "—";
-    try {
-      return format(new Date(dateStr), "d MMM yyyy", { locale: es });
-    } catch {
-      return dateStr;
-    }
+    // Calendar dates keep their own day (no UTC→Bogotá shift).
+    return formatCivilDate(dateStr);
   };
 
   const getStatusBadge = (status: string) => {

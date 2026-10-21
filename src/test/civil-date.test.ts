@@ -25,3 +25,10 @@ describe('civil dates (Bogotá)', () => {
     expect([...rows].sort(compareCivilDesc)).toEqual(['2026-10-20', '2026-10-01', null, '0131-10-01']);
   });
 });
+
+import { formatDateColombia } from '@/lib/constants';
+describe('provider card dates', () => {
+  it('a CPNU last-action calendar date shows the same day as the timeline', () => {
+    expect(formatDateColombia('2026-10-20')).toMatch(/^20 de octubre de 2026$/);
+  });
+});
