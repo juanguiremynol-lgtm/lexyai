@@ -18,9 +18,17 @@ export function estadoDocumentStatus(document: EstadoDocumentRecovery): { availa
     && ['auto', 'estado'].includes(correspondence.document_kind)
     && correspondence.source_gcs_url === `https://storage.googleapis.com/andromeda-pp-documentos-2026/${correspondence.source_path}`
     && evidence?.queue_id === document.id && evidence?.publicacion_id === document.publicacion_id;
+  // Large multi-case packages are read only on their declared case pages; the
+  // full file is still bound by SHA. Accept exactly those pages, nothing less.
+  const declared = /declared-pages:([\d,]+)/.exec(reading?.method || '')?.[1]?.split(',').map(Number) ?? [];
+  const packageRead = evidence?.paquete?.verificado === true && declared.length > 0
+    && reading?.pagesRead === declared.length && declared.every(n => Number.isSafeInteger(n) && n > 0 && n <= reading.pages);
   const available = document.status === 'downloaded' && !!document.storage_path
-    && evidence?.state === 'verified' && reading?.pages > 0 && reading.pagesRead === reading.pages
+    && evidence?.state === 'verified' && reading?.pages > 0 && (reading.pagesRead === reading.pages || packageRead)
     && ((!!correspondence?.expected_sha256 && correspondence.expected_sha256 === reading.sha256) || boundPublicPath);
+  if (available && packageRead && reading.pagesRead !== reading.pages) {
+    return { available: true, label: 'Disponible (paquete original)', reason: `Paquete completo verificado por huella; se leyeron solo las páginas del caso (${declared.join(', ')}). No es una providencia individual.` };
+  }
   if (available) return { available: true, label: 'Disponible', reason: 'Copia obtenida, leída y vinculada a este documento.' };
   const error = document.last_error || '';
   if (evidence?.state === 'obtained_pending_correspondence' || error.includes('correspondence_unverified')) {
