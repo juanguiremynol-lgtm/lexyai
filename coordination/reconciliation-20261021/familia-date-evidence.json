@@ -1,0 +1,92 @@
+[
+  {
+    "id": "7db9964d-4868-42fa-a5ef-b0f876337fb6",
+    "canonical_id": "9e8afd41-98fe-4c55-8182-b2d61e3c1b92",
+    "kind": "PUB",
+    "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+    "classification": "copia_demostrada",
+    "evidence": {
+      "pdfs_identical": true,
+      "source": {
+        "id": "7db9964d-4868-42fa-a5ef-b0f876337fb6",
+        "source_key": "11001311001320240075200/raw/actuaciones/172006092/11001311001320240075200.pdf",
+        "sha256": "d6c44b3b6503853241b63d961e514a1c3f594ba3cb9d29f9a213d6a5435f8cf7",
+        "bytes": 147347,
+        "pages": 2,
+        "text_sha256": "6e7fd071cccb18a0c22096f6e102bf529e3af2fd19690efdcd969f0634efee30",
+        "all_pages_rendered": true
+      },
+      "canonical": {
+        "id": "9e8afd41-98fe-4c55-8182-b2d61e3c1b92",
+        "source_key": "11001311001320240075200/raw/actuaciones/172006092/11001311001320240075200.pdf",
+        "sha256": "d6c44b3b6503853241b63d961e514a1c3f594ba3cb9d29f9a213d6a5435f8cf7",
+        "bytes": 147347,
+        "pages": 2,
+        "text_sha256": "6e7fd071cccb18a0c22096f6e102bf529e3af2fd19690efdcd969f0634efee30",
+        "all_pages_rendered": true
+      },
+      "native_article": "172006092",
+      "unknown_date": "sin-fecha"
+    }
+  },
+  {
+    "id": "18f4c6c4-8993-4a5c-ae45-12e6b614053b",
+    "canonical_id": "975c5557-1942-4210-9b96-df902b4b6642",
+    "kind": "PUB",
+    "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+    "classification": "copia_demostrada",
+    "evidence": {
+      "pdfs_identical": true,
+      "source": {
+        "id": "18f4c6c4-8993-4a5c-ae45-12e6b614053b",
+        "source_key": "11001311001320240075200/raw/actuaciones/137210616/11001311001320240075200_Continúa_Trámite.pdf",
+        "sha256": "9bfcf4dfa8abe1670ae34b00d8ada5f362f347a15c43fdf0830a7d1309c63431",
+        "bytes": 322887,
+        "pages": 1,
+        "text_sha256": "4582fcc17e890a94169e88a82a7fb025575358f7f8c93911b3625c743cb62754",
+        "all_pages_rendered": true
+      },
+      "canonical": {
+        "id": "975c5557-1942-4210-9b96-df902b4b6642",
+        "source_key": "11001311001320240075200/raw/actuaciones/137210616/11001311001320240075200_Continúa_Trámite.pdf",
+        "sha256": "9bfcf4dfa8abe1670ae34b00d8ada5f362f347a15c43fdf0830a7d1309c63431",
+        "bytes": 322887,
+        "pages": 1,
+        "text_sha256": "4582fcc17e890a94169e88a82a7fb025575358f7f8c93911b3625c743cb62754",
+        "all_pages_rendered": true
+      },
+      "native_article": "137210616",
+      "unknown_date": "sin-fecha"
+    }
+  },
+  {
+    "id": "a1f7414b-a773-401e-a7d3-8e9d2812b978",
+    "canonical_id": "115d909a-4f55-4a54-9423-2014e693561c",
+    "kind": "PUB",
+    "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+    "classification": "copia_demostrada",
+    "evidence": {
+      "pdfs_identical": true,
+      "source": {
+        "id": "a1f7414b-a773-401e-a7d3-8e9d2812b978",
+        "source_key": "11001311001320240075200/raw/actuaciones/87392399/11001311001320240075200_Admite_DIV.pdf",
+        "sha256": "be6c38e37526904da1788aef41fac90205b4e7980e76da4463a6f02ff6b894ae",
+        "bytes": 326592,
+        "pages": 2,
+        "text_sha256": "7cac9356c41b9791f2b4e76fc2b4c4f7c9b1cb857d470b60946f973cc444b416",
+        "all_pages_rendered": true
+      },
+      "canonical": {
+        "id": "115d909a-4f55-4a54-9423-2014e693561c",
+        "source_key": "11001311001320240075200/raw/actuaciones/87392399/11001311001320240075200_Admite_DIV..pdf",
+        "sha256": "be6c38e37526904da1788aef41fac90205b4e7980e76da4463a6f02ff6b894ae",
+        "bytes": 326592,
+        "pages": 2,
+        "text_sha256": "7cac9356c41b9791f2b4e76fc2b4c4f7c9b1cb857d470b60946f973cc444b416",
+        "all_pages_rendered": true
+      },
+      "native_article": "87392399",
+      "unknown_date": "sin-fecha"
+    }
+  }
+]

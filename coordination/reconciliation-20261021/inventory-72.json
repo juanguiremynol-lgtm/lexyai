@@ -1,0 +1,1215 @@
+[
+  {
+    "id": "da219a62-d5bd-4352-8e3c-8d94653dc44a",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713635",
+    "status": "copia_demostrada",
+    "canonical_id": "18744ae5-809d-4d54-a98f-95ee00c445ee",
+    "evidence": [
+      "consolidated_from:aed93537-fcea-417a-a909-705a2b3d5931",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536291,
+      "consActuacion": 106713635,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-05-04T00:00:00"
+    }
+  },
+  {
+    "id": "c9a18746-9c2c-4c69-9459-73d21c2ef817",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713634",
+    "status": "copia_demostrada",
+    "canonical_id": "232d8b0f-3266-4016-be3a-e892d716d913",
+    "evidence": [
+      "consolidated_from:b315a56c-26ac-41c2-bf37-253560c8df1e",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536281,
+      "consActuacion": 106713634,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-04-20T00:00:00"
+    }
+  },
+  {
+    "id": "52474b59-9e15-4ff9-b2ee-697730ea9943",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713633",
+    "status": "copia_demostrada",
+    "canonical_id": "450de333-4ae9-4ef7-a7a9-ee45c18f29b2",
+    "evidence": [
+      "consolidated_from:19797900-e8f7-4853-a9f9-9a781ec3d313",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536271,
+      "consActuacion": 106713633,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-04-20T00:00:00"
+    }
+  },
+  {
+    "id": "541a83a4-b1e3-4eef-af4f-0888fe7279a2",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713632",
+    "status": "copia_demostrada",
+    "canonical_id": "d38bbec3-7757-4abf-a44a-8bedd3c7f57d",
+    "evidence": [
+      "consolidated_from:5c51aa80-95df-470d-ba9a-7583ae1927ba",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536261,
+      "consActuacion": 106713632,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-02-23T00:00:00"
+    }
+  },
+  {
+    "id": "689f7020-8d3e-4538-9a27-3d58c397d90d",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713631",
+    "status": "legitimo",
+    "canonical_id": "689f7020-8d3e-4538-9a27-3d58c397d90d",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3766536251,
+      "consActuacion": 106713631,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-02-23T00:00:00"
+    }
+  },
+  {
+    "id": "65fcbe6a-c9a5-4d84-a25a-87c6be034a8f",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713630",
+    "status": "copia_demostrada",
+    "canonical_id": "7d9579b1-c987-4463-868f-076a4c447d13",
+    "evidence": [
+      "consolidated_from:479210a5-9424-484e-b07a-3f10d25e5b2c",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536241,
+      "consActuacion": 106713630,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-02-17T00:00:00"
+    }
+  },
+  {
+    "id": "09b1df29-fabb-4705-8be5-1a70fb0e45af",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713629",
+    "status": "legitimo",
+    "canonical_id": "09b1df29-fabb-4705-8be5-1a70fb0e45af",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3766536231,
+      "consActuacion": 106713629,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-02-17T00:00:00"
+    }
+  },
+  {
+    "id": "3b7e43a9-6978-464a-a473-d64f5bd9973f",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713627",
+    "status": "copia_demostrada",
+    "canonical_id": "b5717148-7127-483e-8bf3-77ee352ee107",
+    "evidence": [
+      "consolidated_from:27e91684-73ca-4e8f-aab1-7d5ae188e29c",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536211,
+      "consActuacion": 106713627,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-01-20T00:00:00"
+    }
+  },
+  {
+    "id": "5aa7f328-2993-4e9c-b8f1-a22be80733b2",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713628",
+    "status": "copia_demostrada",
+    "canonical_id": "f159d388-607d-4587-ae41-44f6e8704eca",
+    "evidence": [
+      "consolidated_from:fb728d92-9485-4c90-ad91-03459201c2ef",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536221,
+      "consActuacion": 106713628,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-01-19T00:00:00"
+    }
+  },
+  {
+    "id": "a8b622a4-6b02-40f9-ae88-26a5bc15fd3c",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713626",
+    "status": "copia_demostrada",
+    "canonical_id": "78cd8ec0-12b5-46d0-877a-1eec01a79ea5",
+    "evidence": [
+      "consolidated_from:bed98fe3-286c-4bb0-9d05-4b4af309eb60",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536201,
+      "consActuacion": 106713626,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2026-01-13T00:00:00"
+    }
+  },
+  {
+    "id": "df499d90-4f94-4418-87e2-29cc385dd6c7",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713625",
+    "status": "copia_demostrada",
+    "canonical_id": "f7f3667c-bf24-495d-a30d-7a17e08a0392",
+    "evidence": [
+      "consolidated_from:928af094-9b55-41af-83d1-df3df6b2778d",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536191,
+      "consActuacion": 106713625,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-12-10T00:00:00"
+    }
+  },
+  {
+    "id": "4a5d94bc-9d4b-4b3c-8523-3522a4f5be67",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713624",
+    "status": "copia_demostrada",
+    "canonical_id": "fb6221b9-74bd-4f44-8584-b13219315827",
+    "evidence": [
+      "consolidated_from:5e389da5-ed3f-4d24-9f72-ff9f341294cd",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536181,
+      "consActuacion": 106713624,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-12-10T00:00:00"
+    }
+  },
+  {
+    "id": "eac095c3-be41-4cc1-847e-03ba74cb9f62",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713623",
+    "status": "copia_demostrada",
+    "canonical_id": "4254e00a-a0f5-4ff0-a0c1-527b3c78e927",
+    "evidence": [
+      "consolidated_from:fb332574-4c75-4e14-8c4f-d0a8b014eebb",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536171,
+      "consActuacion": 106713623,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-11-12T00:00:00"
+    }
+  },
+  {
+    "id": "194cb6c2-19d4-41f9-9f93-9b7eb4bcaa4a",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713622",
+    "status": "copia_demostrada",
+    "canonical_id": "b529ed5d-ea38-46de-a9b6-295fdd3d324c",
+    "evidence": [
+      "consolidated_from:8b03a722-4683-42b0-927a-99bab143fcd3",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536161,
+      "consActuacion": 106713622,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-11-11T00:00:00"
+    }
+  },
+  {
+    "id": "748f1134-2c02-47d0-bd95-e1d4dc0a5418",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713621",
+    "status": "copia_demostrada",
+    "canonical_id": "5935629e-ae9c-46d8-86e4-b8e1cec9d42f",
+    "evidence": [
+      "consolidated_from:4a280e11-c208-4e46-827a-d4839231f4b7",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536151,
+      "consActuacion": 106713621,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-11-06T00:00:00"
+    }
+  },
+  {
+    "id": "c1d0f1a1-8e98-4d4f-872c-2c116f438c27",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713620",
+    "status": "copia_demostrada",
+    "canonical_id": "7131cd70-56cd-49c6-ab6d-6dc0695ec9fa",
+    "evidence": [
+      "consolidated_from:3848c0be-5120-4cb3-a9e7-01b72fc56e24",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536141,
+      "consActuacion": 106713620,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-11-05T00:00:00"
+    }
+  },
+  {
+    "id": "383422b3-c668-4e75-a880-a08d9978a0a7",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713619",
+    "status": "copia_demostrada",
+    "canonical_id": "a088ccec-69b8-452d-a23c-491e2fd7a1a5",
+    "evidence": [
+      "consolidated_from:875e83c3-8048-4132-b54c-0cbbde26c5b5",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536131,
+      "consActuacion": 106713619,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-11-05T00:00:00"
+    }
+  },
+  {
+    "id": "5bbac8cb-228a-42a9-8ea9-9ad7ef6bc372",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713618",
+    "status": "copia_demostrada",
+    "canonical_id": "75d3e962-76a8-4ec1-a003-43b1c7494b1d",
+    "evidence": [
+      "consolidated_from:896fc126-bd3b-4547-b335-dd8f5954b3b3",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536121,
+      "consActuacion": 106713618,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-09-22T00:00:00"
+    }
+  },
+  {
+    "id": "379a0254-60e6-4dfa-b142-a47ab1e8c1dd",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713617",
+    "status": "legitimo",
+    "canonical_id": "379a0254-60e6-4dfa-b142-a47ab1e8c1dd",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3766536111,
+      "consActuacion": 106713617,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-09-22T00:00:00"
+    }
+  },
+  {
+    "id": "5bbe236c-959c-4e78-b0f7-cdd3df44195c",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713616",
+    "status": "copia_demostrada",
+    "canonical_id": "a2bae1e5-6ab3-4e4d-8fae-005d3717a63a",
+    "evidence": [
+      "consolidated_from:3da9f399-7cdb-4dae-8947-b9254489caf2",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536101,
+      "consActuacion": 106713616,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-08-22T00:00:00"
+    }
+  },
+  {
+    "id": "942de8c5-d9c8-4259-b796-e41e5be6c714",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713606",
+    "status": "copia_demostrada",
+    "canonical_id": "1c5e7c17-0c27-41cc-80bc-713e337790b5",
+    "evidence": [
+      "consolidated_from:00047344-285b-4e9e-b203-5e4e45224b68",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766536001,
+      "consActuacion": 106713606,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-08-22T00:00:00"
+    }
+  },
+  {
+    "id": "47e25a18-73d4-4c36-b82b-8999b2c3886f",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713594",
+    "status": "copia_demostrada",
+    "canonical_id": "38df610b-4b2f-4e6c-84c1-3a53f2950a3e",
+    "evidence": [
+      "consolidated_from:e28669dc-a687-4950-9792-646e0c27ff12",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535881,
+      "consActuacion": 106713594,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-31T00:00:00"
+    }
+  },
+  {
+    "id": "14f44ef2-ea7a-4313-bd08-5459c1b379e6",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713586",
+    "status": "copia_demostrada",
+    "canonical_id": "043fedd6-e618-4a31-a2b2-836b8fcb51ac",
+    "evidence": [
+      "consolidated_from:f4c5a05f-1fa0-4b7c-b214-e8643eca5b89",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535801,
+      "consActuacion": 106713586,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-30T00:00:00"
+    }
+  },
+  {
+    "id": "778136c1-3373-4514-8786-dfe2c9949f3d",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713573",
+    "status": "copia_demostrada",
+    "canonical_id": "2f9bfb4a-5194-4435-be4f-02f5becccd6b",
+    "evidence": [
+      "consolidated_from:b77715ec-dda4-4c0b-a72a-e3344448b416",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535671,
+      "consActuacion": 106713573,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-30T00:00:00"
+    }
+  },
+  {
+    "id": "14e06b9a-b7fc-4b2a-a0e9-774d6149febf",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713541",
+    "status": "copia_demostrada",
+    "canonical_id": "2dd7ad50-72ad-45e7-9b42-cd8ac8cc00d4",
+    "evidence": [
+      "consolidated_from:be16663c-d2f3-426a-87e4-0a6509e17e81",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535351,
+      "consActuacion": 106713541,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-10T00:00:00"
+    }
+  },
+  {
+    "id": "250f1394-bc74-461a-b28f-edc493046459",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713552",
+    "status": "copia_demostrada",
+    "canonical_id": "ed8f7d54-0c9e-478f-af15-898604568545",
+    "evidence": [
+      "archived_sibling:6c5924c1-0832-4edc-8f59-f0dd6522f9bc",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535461,
+      "consActuacion": 106713552,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-09T00:00:00"
+    }
+  },
+  {
+    "id": "d1c91ba6-9c16-4148-aa3c-05483eb1ddcc",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713529",
+    "status": "copia_demostrada",
+    "canonical_id": "cf9be76e-fb09-4b12-9b8b-e681af9f8eb1",
+    "evidence": [
+      "consolidated_from:a35ddb71-bc3d-42c5-b744-5632e8a8a3bd",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535231,
+      "consActuacion": 106713529,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-08T00:00:00"
+    }
+  },
+  {
+    "id": "484cc6f2-8f4a-42c5-aaba-090028a4b7bc",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713517",
+    "status": "copia_demostrada",
+    "canonical_id": "2863c3c4-2b79-414c-a10c-1a617c8bacdc",
+    "evidence": [
+      "consolidated_from:29efef38-310a-42d2-9cd5-09234e743939",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766535111,
+      "consActuacion": 106713517,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-07-01T00:00:00"
+    }
+  },
+  {
+    "id": "f1e0aef5-4dbc-4d58-801b-2c370f0b2773",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713503",
+    "status": "copia_demostrada",
+    "canonical_id": "9fb5ccdf-99c3-4183-b5d0-a2cba29fb780",
+    "evidence": [
+      "consolidated_from:9fed4d85-b8a3-489f-ba14-3083ab9c1554",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766534971,
+      "consActuacion": 106713503,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-25T00:00:00"
+    }
+  },
+  {
+    "id": "fd7e8338-d6ae-46ae-bcb1-cc52748f2b84",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713421",
+    "status": "copia_demostrada",
+    "canonical_id": "55235d17-c321-4697-bd87-468e6e5c21de",
+    "evidence": [
+      "consolidated_from:dcd361ba-04f9-4510-a6bc-30da9090f596",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766534151,
+      "consActuacion": 106713421,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-24T00:00:00"
+    }
+  },
+  {
+    "id": "4484e086-b7bb-4f8a-8a01-c5de017f0920",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713413",
+    "status": "copia_demostrada",
+    "canonical_id": "e7ad96bc-7650-4dda-a21d-2e393da523f9",
+    "evidence": [
+      "archived_sibling:6d947a45-197c-4c25-a526-808ffa7a274a",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766534071,
+      "consActuacion": 106713413,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-24T00:00:00"
+    }
+  },
+  {
+    "id": "d6945aed-5ede-4a57-b44c-afc494938d36",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713489",
+    "status": "legitimo",
+    "canonical_id": "d6945aed-5ede-4a57-b44c-afc494938d36",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3766534831,
+      "consActuacion": 106713489,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-20T00:00:00"
+    }
+  },
+  {
+    "id": "65d7ec3f-1b18-4311-a922-35546fe31cb0",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713470",
+    "status": "copia_demostrada",
+    "canonical_id": "f519136f-7fad-4311-a87a-28a7a7aacc4e",
+    "evidence": [
+      "consolidated_from:d85977a8-70ed-4ace-8172-9ca294a2fdb4",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766534641,
+      "consActuacion": 106713470,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-20T00:00:00"
+    }
+  },
+  {
+    "id": "c1f9fc51-9dfa-46b0-ae24-22e31d0a50af",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713394",
+    "status": "copia_demostrada",
+    "canonical_id": "fe63d8d6-317e-4ecd-a2a1-63771a88e176",
+    "evidence": [
+      "consolidated_from:c69c2f95-e2a1-47eb-a19a-d96585ffb990",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766533881,
+      "consActuacion": 106713394,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-13T00:00:00"
+    }
+  },
+  {
+    "id": "7003ea11-df07-4ace-aefb-bcf762516667",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713384",
+    "status": "copia_demostrada",
+    "canonical_id": "c0ccf5e3-8c15-493a-9abc-6358512116f5",
+    "evidence": [
+      "consolidated_from:208cb4bb-e3ec-4c98-a625-537d5bf5e810",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766533781,
+      "consActuacion": 106713384,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-03T00:00:00"
+    }
+  },
+  {
+    "id": "af48b1ac-2294-4d4f-91d9-92803dbbb559",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713359",
+    "status": "copia_demostrada",
+    "canonical_id": "99ff64fe-758e-4ec8-8c8c-a59e20c42a4c",
+    "evidence": [
+      "consolidated_from:a6816b81-16f8-4631-9397-9ce455c85eb5",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766533531,
+      "consActuacion": 106713359,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-06-03T00:00:00"
+    }
+  },
+  {
+    "id": "27fb5471-13dc-4c22-b1bd-2712584fc435",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713346",
+    "status": "copia_demostrada",
+    "canonical_id": "b62c5613-0517-46bd-8747-6330c725f96d",
+    "evidence": [
+      "consolidated_from:6ac159ec-ae01-4d3c-90c4-a118f32b4af6",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766533401,
+      "consActuacion": 106713346,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-05-26T00:00:00"
+    }
+  },
+  {
+    "id": "2234530d-c489-4dd0-895d-77db2f521998",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713325",
+    "status": "copia_demostrada",
+    "canonical_id": "46edc0f0-108a-46de-9b3b-0c03dabe4ce6",
+    "evidence": [
+      "consolidated_from:19ce8cf9-c7c4-43db-aabb-740050ab7cf4",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766533191,
+      "consActuacion": 106713325,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-04-07T00:00:00"
+    }
+  },
+  {
+    "id": "037575af-078d-4d46-aa5a-0a71319ec82c",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713304",
+    "status": "copia_demostrada",
+    "canonical_id": "06607726-b19a-4546-87a7-8d29e504aca3",
+    "evidence": [
+      "consolidated_from:93946f7b-1a62-47a4-a335-be368f044904",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766532991,
+      "consActuacion": 106713304,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-04-07T00:00:00"
+    }
+  },
+  {
+    "id": "8956d389-545e-416c-89c5-412e5a7d784c",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713286",
+    "status": "copia_demostrada",
+    "canonical_id": "144f8d34-0a98-4498-8b6f-6737192e3074",
+    "evidence": [
+      "consolidated_from:8ef6be89-777c-4950-9129-b31085f5476c",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766532821,
+      "consActuacion": 106713286,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-02-27T00:00:00"
+    }
+  },
+  {
+    "id": "baa4d7ad-c455-4362-a328-7329fc985b27",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713269",
+    "status": "copia_demostrada",
+    "canonical_id": "c59c3193-55ca-48ec-ac7d-274cb4a4991d",
+    "evidence": [
+      "consolidated_from:f08deb3c-b129-433d-bbb1-3f48615b0a90",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766532661,
+      "consActuacion": 106713269,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2025-02-27T00:00:00"
+    }
+  },
+  {
+    "id": "bcf0f19c-bea8-476f-924d-8f1364543d7a",
+    "work_item_id": "91edd371-6ce7-4427-b837-36058410ab3f",
+    "native_act": "106713251",
+    "status": "copia_demostrada",
+    "canonical_id": "151a7fdf-e3c5-4102-921b-885837d26c0d",
+    "evidence": [
+      "consolidated_from:a0141f20-1513-4e3f-8716-b6732fd7950d",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3766532481,
+      "consActuacion": 106713251,
+      "_idProceso": 3272913431,
+      "fechaActuacion": "2024-10-15T00:00:00"
+    }
+  },
+  {
+    "id": "b0601521-e42d-4a3c-b190-4ea8a2ebe94a",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "126576581",
+    "status": "legitimo",
+    "canonical_id": "b0601521-e42d-4a3c-b190-4ea8a2ebe94a",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3991034101,
+      "consActuacion": 126576581,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-10-20T00:00:00"
+    }
+  },
+  {
+    "id": "bd83e79b-4a03-4964-8e87-4e8bcd88d836",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "126576580",
+    "status": "legitimo",
+    "canonical_id": "bd83e79b-4a03-4964-8e87-4e8bcd88d836",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3991034091,
+      "consActuacion": 126576580,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-10-19T00:00:00"
+    }
+  },
+  {
+    "id": "c6805314-15f9-4ed5-af4b-4febe9e53e81",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192676",
+    "status": "copia_demostrada",
+    "canonical_id": "071befa9-324c-4218-8937-9438ede4e5a9",
+    "evidence": [
+      "consolidated_from:fb1911a4-b7d7-419f-9115-8fe11cd4bb4a",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517141,
+      "consActuacion": 77192676,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-02-03T00:00:00"
+    }
+  },
+  {
+    "id": "744a95ed-ae96-4756-8e35-682ca2d761ba",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192675",
+    "status": "copia_demostrada",
+    "canonical_id": "a33fe638-013d-4162-b1f6-b3245b92f3af",
+    "evidence": [
+      "consolidated_from:67bc632e-aa9f-4e0c-81cf-c9564f34ff81",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517131,
+      "consActuacion": 77192675,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-02-03T00:00:00"
+    }
+  },
+  {
+    "id": "709949de-cd70-47af-8f38-333c547be68c",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192674",
+    "status": "copia_demostrada",
+    "canonical_id": "0522e1a7-5b71-459c-a2c4-8f5a42025a44",
+    "evidence": [
+      "consolidated_from:b09dd985-fa71-41bd-89a2-62cac11edaf8",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517121,
+      "consActuacion": 77192674,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-01-15T00:00:00"
+    }
+  },
+  {
+    "id": "0b31779c-f59d-42c1-b958-8f50b2494f3a",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192673",
+    "status": "legitimo",
+    "canonical_id": "0b31779c-f59d-42c1-b958-8f50b2494f3a",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3469517111,
+      "consActuacion": 77192673,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-01-13T00:00:00"
+    }
+  },
+  {
+    "id": "53c04bf1-072c-4055-aaf3-017833e522a6",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192672",
+    "status": "copia_demostrada",
+    "canonical_id": "4fa24f4d-412f-4bb0-bb70-4a71ab52f933",
+    "evidence": [
+      "consolidated_from:9e4b73e2-3825-4722-86b5-d8a622fbae58",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517101,
+      "consActuacion": 77192672,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2026-01-13T00:00:00"
+    }
+  },
+  {
+    "id": "31abea51-d7cd-4356-bf4b-a8c0884ce504",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192671",
+    "status": "copia_demostrada",
+    "canonical_id": "6a3f619c-a997-4881-8593-4a8203359bf1",
+    "evidence": [
+      "consolidated_from:fd5d79d9-f8ca-4b75-b40a-6c82db44e4e1",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517091,
+      "consActuacion": 77192671,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-11-12T00:00:00"
+    }
+  },
+  {
+    "id": "85c5947e-5a7a-4878-a65a-55a31f402b75",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192670",
+    "status": "copia_demostrada",
+    "canonical_id": "e7975564-5e44-4fdd-b6fa-a96170be87e2",
+    "evidence": [
+      "consolidated_from:378ab6e8-844e-4e71-8c55-bebf93d3fd74",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517081,
+      "consActuacion": 77192670,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-11-05T00:00:00"
+    }
+  },
+  {
+    "id": "02355e22-a10d-4e25-94fc-c52ce7366e6d",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192669",
+    "status": "copia_demostrada",
+    "canonical_id": "03bfb41a-d88c-472c-ad3d-d4a146626e3c",
+    "evidence": [
+      "consolidated_from:9ba83273-c924-4622-992a-9ae7e7f882ac",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517071,
+      "consActuacion": 77192669,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-11-05T00:00:00"
+    }
+  },
+  {
+    "id": "09ff76d9-ff2f-42d6-a113-82b0072e0de9",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192668",
+    "status": "copia_demostrada",
+    "canonical_id": "6eaa4bc0-58dc-4f7e-870d-075197bcddc7",
+    "evidence": [
+      "consolidated_from:ceb2a661-094e-43dc-9923-8986450b11b9",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517061,
+      "consActuacion": 77192668,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-10-21T00:00:00"
+    }
+  },
+  {
+    "id": "f24c7958-ae54-4bbe-80a1-5babc6f28fc2",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192667",
+    "status": "copia_demostrada",
+    "canonical_id": "f9bb1edd-8f21-4a6a-82c7-7a4662cd483e",
+    "evidence": [
+      "consolidated_from:566017c0-961d-4ac4-a1e0-7c0dae5a4c60",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517051,
+      "consActuacion": 77192667,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-10-21T00:00:00"
+    }
+  },
+  {
+    "id": "765c0dbe-bc90-4451-a8a7-3054016627ba",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192666",
+    "status": "copia_demostrada",
+    "canonical_id": "00ecb37b-a0e4-410b-980d-7c3e7821897f",
+    "evidence": [
+      "consolidated_from:6e802fae-f6c3-4981-9f77-12f11b52791b",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517041,
+      "consActuacion": 77192666,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-10-02T00:00:00"
+    }
+  },
+  {
+    "id": "024d4eef-ab00-4c49-8cfe-b25528b06514",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192665",
+    "status": "copia_demostrada",
+    "canonical_id": "5d66079f-3405-4345-8ea0-e055d6407c27",
+    "evidence": [
+      "consolidated_from:d3259b82-0585-4558-ba76-394fdfe91016",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517031,
+      "consActuacion": 77192665,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-10-01T00:00:00"
+    }
+  },
+  {
+    "id": "8e6ba890-e524-4943-9a66-06effab85f8f",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192664",
+    "status": "copia_demostrada",
+    "canonical_id": "17860b8e-62f8-4e0f-aa57-fea87337a00a",
+    "evidence": [
+      "consolidated_from:8480502b-e221-4022-acd3-3a6d4f0a8232",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517021,
+      "consActuacion": 77192664,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-09-04T00:00:00"
+    }
+  },
+  {
+    "id": "61cdffdb-a5da-4a88-962a-40f8d8a3ba1f",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192663",
+    "status": "copia_demostrada",
+    "canonical_id": "edd9bd08-4650-414c-b3a3-fbc0f78e7f7e",
+    "evidence": [
+      "consolidated_from:08c6f278-b6ba-446b-884f-1dfecc16f266",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517011,
+      "consActuacion": 77192663,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-08-21T00:00:00"
+    }
+  },
+  {
+    "id": "d4510ef5-b243-4acd-8f55-04cbed67b833",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192662",
+    "status": "copia_demostrada",
+    "canonical_id": "4910ca82-d148-444d-bf25-04d53edcae57",
+    "evidence": [
+      "consolidated_from:a55d76ea-1614-4c32-82a2-3de07ec5c7f1",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469517001,
+      "consActuacion": 77192662,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-08-11T00:00:00"
+    }
+  },
+  {
+    "id": "9c64b26b-e7b8-4dc3-bb58-d04cc1cf301c",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192661",
+    "status": "copia_demostrada",
+    "canonical_id": "d40de5fe-218a-4c15-8748-4bff1f004fab",
+    "evidence": [
+      "consolidated_from:19c79606-7b61-48f8-9f4a-1eae3c64be1d",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516991,
+      "consActuacion": 77192661,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-08-11T00:00:00"
+    }
+  },
+  {
+    "id": "ea081df8-c5a3-4c9c-8e15-11674d8e9d64",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192660",
+    "status": "legitimo",
+    "canonical_id": "ea081df8-c5a3-4c9c-8e15-11674d8e9d64",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3469516981,
+      "consActuacion": 77192660,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-08-11T00:00:00"
+    }
+  },
+  {
+    "id": "e21c3dcc-2178-4f88-9c59-de778b167cf8",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192659",
+    "status": "copia_demostrada",
+    "canonical_id": "10f59e00-d569-46bc-9a00-d1c72b5c4339",
+    "evidence": [
+      "consolidated_from:692f5770-3089-4001-9d71-51e58d4a2630",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516971,
+      "consActuacion": 77192659,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-08-11T00:00:00"
+    }
+  },
+  {
+    "id": "87887b49-3460-40f4-ab41-c47e1e2744c2",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192658",
+    "status": "copia_demostrada",
+    "canonical_id": "0ac95e1d-7f5e-4730-9c17-d03531fbe04f",
+    "evidence": [
+      "consolidated_from:0ee71257-ebf1-4302-ba0b-09766e49ce25",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516961,
+      "consActuacion": 77192658,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-07-22T00:00:00"
+    }
+  },
+  {
+    "id": "d920152d-9b0a-40ae-8eb8-7aa6f797f75e",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192657",
+    "status": "copia_demostrada",
+    "canonical_id": "6e350c5e-7ac1-4ccb-9281-413a1fad66d4",
+    "evidence": [
+      "consolidated_from:3516fdc8-aa1e-4ef0-bd4d-44dfbe3f4a23",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516951,
+      "consActuacion": 77192657,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-07-09T00:00:00"
+    }
+  },
+  {
+    "id": "a3ff8d7d-fe52-4936-8b41-9b3c8811b03a",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192656",
+    "status": "copia_demostrada",
+    "canonical_id": "670c1855-51dc-41a8-92cb-0819bb1e7547",
+    "evidence": [
+      "consolidated_from:e48574d2-fe41-4d22-bff0-3c72667f4c3d",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516941,
+      "consActuacion": 77192656,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-07-09T00:00:00"
+    }
+  },
+  {
+    "id": "3d4b5204-772f-4855-83a8-29465f32d982",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192655",
+    "status": "legitimo",
+    "canonical_id": "3d4b5204-772f-4855-83a8-29465f32d982",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 3469516931,
+      "consActuacion": 77192655,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-04-28T00:00:00"
+    }
+  },
+  {
+    "id": "9e9da0c4-e0f2-4344-8fac-20a1845a8076",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192654",
+    "status": "copia_demostrada",
+    "canonical_id": "3d0cab94-6d90-4b6e-93a5-c7637c3fb4e4",
+    "evidence": [
+      "consolidated_from:786325ce-1693-4471-bf05-81a734f45ff2",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516921,
+      "consActuacion": 77192654,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-04-28T00:00:00"
+    }
+  },
+  {
+    "id": "1639c75b-1113-4c88-9934-50e28c2b46da",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192653",
+    "status": "copia_demostrada",
+    "canonical_id": "c65e1e7f-79ee-48bc-88b1-c808f277c81b",
+    "evidence": [
+      "consolidated_from:279a5c4c-c03a-49e1-b633-832f3eaae90b",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516911,
+      "consActuacion": 77192653,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-04-23T00:00:00"
+    }
+  },
+  {
+    "id": "eac98abc-e22f-4684-8ec0-2ce171eaadb4",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192652",
+    "status": "copia_demostrada",
+    "canonical_id": "7d3862e9-8202-4792-8cee-683919d2d73b",
+    "evidence": [
+      "consolidated_from:54f9caaa-9a70-4bba-ac71-85ee7f55ac04",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516901,
+      "consActuacion": 77192652,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-04-23T00:00:00"
+    }
+  },
+  {
+    "id": "94453367-e662-4693-8ee7-6fe86a0cb59a",
+    "work_item_id": "b4037a4d-0dab-422d-a65f-b7172b040fa4",
+    "native_act": "77192651",
+    "status": "copia_demostrada",
+    "canonical_id": "0d62661f-bd85-44d5-9609-ffdfb82fff74",
+    "evidence": [
+      "consolidated_from:130c4dad-099a-4ba3-a751-97e99ddc34c7",
+      "native source id + full annotation + date + same tenant/process"
+    ],
+    "official": {
+      "idRegActuacion": 3469516891,
+      "consActuacion": 77192651,
+      "_idProceso": 3250682691,
+      "fechaActuacion": "2025-04-07T00:00:00"
+    }
+  },
+  {
+    "id": "21eb972f-8fa1-4ac2-a7d6-f1f23221ea84",
+    "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+    "native_act": "8",
+    "status": "legitimo",
+    "canonical_id": "21eb972f-8fa1-4ac2-a7d6-f1f23221ea84",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 1679076541,
+      "consActuacion": 8,
+      "_idProceso": 189479201,
+      "fechaActuacion": "2025-02-24T00:00:00"
+    }
+  },
+  {
+    "id": "eabb2d7b-5736-49c3-a8fd-9839baf5a740",
+    "work_item_id": "ea6a804b-0380-4a22-b257-0ba306b8b044",
+    "native_act": "68818314",
+    "status": "legitimo",
+    "canonical_id": "eabb2d7b-5736-49c3-a8fd-9839baf5a740",
+    "evidence": [
+      "accredited CPNU native act; no older active row represents this same native identity and full content"
+    ],
+    "official": {
+      "idRegActuacion": 2811261251,
+      "consActuacion": 68818314,
+      "_idProceso": 3241026841,
+      "fechaActuacion": "2026-02-04T00:00:00"
+    }
+  }
+]
