@@ -128,33 +128,29 @@ export function useNotifications(options?: { categoryFilter?: NotificationCatego
     }, enabled: !!userId, staleTime: 10_000, refetchInterval: 30_000,
   });
   const invalidate = useCallback(() => queryClient.invalidateQueries({ queryKey: prefix }), [queryClient, prefix]);
-  type Change = { ids: string[]; action: 'read' | 'dismiss' | 'snooze'; until?: string };
+  type Change = { ids: string[]; action: 'read' | 'dismiss' | 'snooze'; until?: string; all?: boolean };
+  // "All" actions cover every row in scope, not only the loaded page.
+  const resolveAllIds = async (action: Change['action']) => {
+    const ids: string[] = [];
+    const page = 1000;
+    for (let from = 0; ; from += page) {
+      let q = scope().select('id').order('created_at', { ascending: false }).range(from, from + page - 1);
+      if (action === 'read') q = q.is('effective_read_at', null);
+      const { data, error } = await q;
+      if (error) throw error;
+      ids.push(...(data ?? []).map((r: { id: string }) => r.id));
+      if (!data || data.length < page) break;
+    }
+    return ids;
+  };
   const mutation = useMutation({
     scope: { id: `notification-actions-${userId}-${organization?.id}` },
-    mutationFn: (change: Change) => updateNotificationState(change.ids, change.action, change.until),
-    onMutate: async (change) => {
-      await queryClient.cancelQueries({ queryKey: prefix });
-      const snapshot = queryClient.getQueriesData({ queryKey: prefix });
-      const targets = new Set(change.ids);
-      queryClient.setQueriesData({ queryKey: [...prefix, 'items'] }, (old: Notification[] | undefined) =>
-        change.action === 'read' ? old?.map(n => targets.has(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n)
-          : old?.filter(n => !targets.has(n.id)));
-      // Only counts whose category includes the affected rows are changed.
-      for (const [key, value] of snapshot) {
-        if (key[3] !== 'unread' || typeof value !== 'number') continue;
-        const category = key[5];
-        const removed = notifications.filter(n => targets.has(n.id) && !n.read_at && (category === 'ALL' || category === n.category)).length;
-        queryClient.setQueryData(key, Math.max(0, value - removed));
+    mutationFn: async (change: Change) => {
+      const ids = change.all ? await resolveAllIds(change.action) : change.ids;
+      for (let i = 0; i < ids.length; i += 500) {
+        await updateNotificationState(ids.slice(i, i + 500), change.action, change.until);
       }
-      return { snapshot };
     },
-    onError: (_error, _change, context) => context?.snapshot.forEach(([key, data]) => queryClient.setQueryData(key, data)),
-    onSettled: () => invalidate(),
-  });
-  const command = (action: Change['action'], all = false) => ({
-    mutate: (id?: string) => mutation.mutate({ ids: all ? notifications.map(n => n.id) : id ? [id] : [], action }),
-    isPending: mutation.isPending,
-  });
   useEffect(() => {
     if (!userId) return;
     const channel = supabase.channel(`notifications-${userId}-${organization?.id}`)
