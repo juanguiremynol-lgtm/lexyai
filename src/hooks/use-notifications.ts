@@ -151,6 +151,30 @@ export function useNotifications(options?: { categoryFilter?: NotificationCatego
         await updateNotificationState(ids.slice(i, i + 500), change.action, change.until);
       }
     },
+    onMutate: async (change) => {
+      await queryClient.cancelQueries({ queryKey: prefix });
+      const snapshot = queryClient.getQueriesData({ queryKey: prefix });
+      const targets = new Set(change.ids);
+      queryClient.setQueriesData({ queryKey: [...prefix, 'items'] }, (old: Notification[] | undefined) =>
+        change.action === 'read' ? old?.map(n => targets.has(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n)
+          : old?.filter(n => !targets.has(n.id)));
+      // Only counts whose category includes the affected rows are changed.
+      for (const [key, value] of snapshot) {
+        if (key[3] !== 'unread' || typeof value !== 'number') continue;
+        const category = key[5];
+        if (change.all && category === categoryFilter) { queryClient.setQueryData(key, 0); continue; }
+        const removed = notifications.filter(n => targets.has(n.id) && !n.read_at && (category === 'ALL' || category === n.category)).length;
+        queryClient.setQueryData(key, Math.max(0, value - removed));
+      }
+      return { snapshot };
+    },
+    onError: (_error, _change, context) => context?.snapshot.forEach(([key, data]) => queryClient.setQueryData(key, data)),
+    onSettled: () => invalidate(),
+  });
+  const command = (action: Change['action'], all = false) => ({
+    mutate: (id?: string) => mutation.mutate({ ids: all ? notifications.map(n => n.id) : id ? [id] : [], action, all }),
+    isPending: mutation.isPending,
+  });
   useEffect(() => {
     if (!userId) return;
     const channel = supabase.channel(`notifications-${userId}-${organization?.id}`)
