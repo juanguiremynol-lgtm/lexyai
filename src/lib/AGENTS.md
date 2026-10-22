@@ -3,3 +3,4 @@
 - Related communication documents resolve explicit certificate, date and title against fully read, attributed documents in the same work item; never relabel them original attachments.
 - Provider ingestion summaries read source-specific work_item_sync_timeline separately from external cache summaries; counts cannot promote a failed attempt to success.
 - Stage decision reviews persist event provenance through explicit projection calls; views only read them, never update procedural stage, deadlines or finality; manual and disabled inference stay authoritative.
+- MCP deploy check: `auth.resourceDocumentation` in src/lib/mcp/index.ts carries a public revision marker (path segment, no query); bump it with every MCP change and confirm it in the unauthenticated `/functions/v1/mcp/.well-known/oauth-protected-resource` — the only non-secret proof the live endpoint runs the new artifact.
