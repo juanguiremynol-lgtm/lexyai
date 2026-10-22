@@ -2487,7 +2487,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.5.0",
+  version: "0.5.1",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -2509,7 +2509,10 @@ var mcp_default = defineMcp({
   ].join(" "),
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
-    acceptedAudiences: "authenticated"
+    acceptedAudiences: "authenticated",
+    // Public, non-secret revision marker served by the unauthenticated
+    // protected-resource metadata, so a deploy can be confirmed from outside.
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-5-1"
   }),
   tools: [
     get_user_context_default,
