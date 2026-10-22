@@ -67,7 +67,7 @@ export default defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai?mcp_rev=0.5.1-20261022",
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-5-1",
   }),
   tools: [
     getUserContext,
