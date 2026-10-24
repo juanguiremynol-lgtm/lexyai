@@ -2818,50 +2818,6 @@ function getDefaultStage(workflowType, cgpPhase) {
   return stages[0] || "";
 }
 
-// src/lib/externalSyncDisplay.ts
-var ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
-  "CGP",
-  "CPACA",
-  "LABORAL",
-  "PENAL_906",
-  "TUTELA",
-  "EJECUTIVO"
-];
-
-// src/lib/monitoring-reason.ts
-var PROVIDER_ELIGIBLE_WORKFLOWS = ONLINE_SYNC_ELIGIBLE_WORKFLOWS;
-var MONITORING_OFF_REASON = {
-  /** Provider-eligible workflow, but no radicado recorded yet. */
-  PENDIENTE_DE_RADICACION: "PENDIENTE_DE_RADICACION",
-  /** Workflow has no provider chain at all (PETICION, GOV_PROCEDURE, …). */
-  WORKFLOW_SIN_PROVEEDOR: "WORKFLOW_SIN_PROVEEDOR",
-  /** Item is archived / soft-deleted / non-ACTIVE lifecycle. */
-  EXPEDIENTE_NO_ACTIVO: "EXPEDIENTE_NO_ACTIVO"
-};
-function isProviderEligibleWorkflow(workflowType) {
-  if (!workflowType) return false;
-  return PROVIDER_ELIGIBLE_WORKFLOWS.includes(workflowType);
-}
-function radDigits(radicado) {
-  return (radicado || "").replace(/\D/g, "");
-}
-function hasUsableRadicado(radicado) {
-  return radDigits(radicado).length >= 21;
-}
-function resolveMonitoringOffReason(input) {
-  if (!isProviderEligibleWorkflow(input.workflowType)) {
-    return MONITORING_OFF_REASON.WORKFLOW_SIN_PROVEEDOR;
-  }
-  if (input.deletedAt) return MONITORING_OFF_REASON.EXPEDIENTE_NO_ACTIVO;
-  if (input.lifecycleState && input.lifecycleState !== "ACTIVE") {
-    return MONITORING_OFF_REASON.EXPEDIENTE_NO_ACTIVO;
-  }
-  if (!hasUsableRadicado(input.radicado)) {
-    return MONITORING_OFF_REASON.PENDIENTE_DE_RADICACION;
-  }
-  return null;
-}
-
 // src/lib/mcp/manage-helpers.ts
 function appStageOrder(workflowType, cgpPhase) {
   return getStageOrderForWorkflow(workflowType, cgpPhase ?? void 0);
@@ -2910,7 +2866,8 @@ var create_work_item_default = defineTool36({
       p_demandantes: args.demandantes ?? null,
       p_demandados: args.demandados ?? null,
       p_authority_name: args.authority_name ?? null,
-      p_monitoring_off_reason: resolveMonitoringOffReason({ workflowType: wf, radicado: args.radicado ?? null }),
+      // Creation has no explicit suspension input; the database derives automatic noneligibility.
+      p_monitoring_off_reason: null,
       p_idempotency_key: args.idempotency_key
     });
     if (error) return errorResult(rpcErrorText(error));
@@ -3355,7 +3312,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.3",
+  version: "0.6.4",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3383,7 +3340,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-3"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-4"
   }),
   tools: [
     get_user_context_default,
