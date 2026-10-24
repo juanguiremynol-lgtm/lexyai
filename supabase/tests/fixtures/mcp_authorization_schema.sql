@@ -1288,7 +1288,13 @@ $function$
 CREATE TRIGGER trg_record_lifecycle_transition AFTER UPDATE OF lifecycle_state ON work_items FOR EACH ROW EXECUTE FUNCTION record_lifecycle_transition();
 GRANT EXECUTE ON FUNCTION set_work_item_lifecycle(uuid,work_item_lifecycle_state,text,text,uuid,jsonb),grant_mcp_client_access(uuid,text),revoke_mcp_client_access(uuid) TO authenticated;
 REVOKE ALL ON FUNCTION mcp_create_work_item(text,text,text,text,uuid,text,text,text,text,text),mcp_work_item_lifecycle(uuid,text,timestamptz,text,text) FROM PUBLIC,anon,authenticated;
-CREATE TABLE work_item_email_links(id uuid,work_item_id uuid,user_id uuid,internet_message_id text,message_id text);
+
+CREATE TABLE public.mcp_feed_cursors(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),client_key uuid,work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),mode text,scan_ts timestamptz,scan_kind text,scan_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),scan_upper timestamptz,checkpoint timestamptz,created_at timestamptz DEFAULT now(),expires_at timestamptz DEFAULT now()+interval '30 days');
+CREATE TABLE public.work_item_acts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),act_date date,act_date_raw text,description text,act_type text,source text,source_reference text,raw_data jsonb,hash_fingerprint text,created_at timestamptz DEFAULT now(),organization_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),workflow_type text,phase_inferred int4,confidence_level text,keywords_matched text[],parsing_errors text[],is_retroactive bool,event_type_normalized text,event_category text,event_date date,scrape_date date,despacho text,event_summary text,source_url text,source_platform text,is_archived bool,archived_at timestamptz,archived_reason text,is_canonical bool,canonical_at timestamptz,date_source text,date_confidence text,api_fetched_at timestamptz,api_scraped_at timestamptz,sources text[],updated_at timestamptz,raw_schema_version text,archived_by uuid,is_notifiable bool,provider_instance_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),provider_case_id text,provenance jsonb,detected_at timestamptz,last_seen_at timestamptz,content_hash text,changed_at timestamptz,instancia text,fecha_registro_source date,inicia_termino date,discovery_type text,ingest_run_mode text,retro_gap_days int4,is_future_dated bool,origen_texto text,requiere_revision_manual bool,ingest_run_mode_source text,source_radicado text,recurso_consecutivo text,instancia_grado text,documentos jsonb,documentos_observados_en timestamptz);
+CREATE TABLE public.work_item_email_links(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),connection_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),message_id text,internet_message_id text,conversation_id text,direction text,subject text,sender text,recipients text[],received_at timestamptz,has_attachments bool,attachment_names text[],web_link text,matched_by text,matched_value text,confidence numeric,evidence_type text,link_status text,created_at timestamptz DEFAULT now(),updated_at timestamptz,low_content bool,evidence_meta jsonb,evidence_subtype text,memorial_subtype text,ai_classified bool,ai_classified_at timestamptz,signal_class text,candidate_rank int4,confidence_ceiling numeric,conflict_flag bool,match_outcome text);
+CREATE TABLE public.work_item_publicaciones(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),source text,title text,annotation text,pdf_url text,published_at timestamptz,hash_fingerprint text,raw_data jsonb,created_at timestamptz DEFAULT now(),fecha_fijacion timestamptz,fecha_desfijacion timestamptz,despacho text,tipo_publicacion text,is_archived bool,archived_at timestamptz,archived_reason text,is_canonical bool,canonical_at timestamptz,entry_url text,pdf_available bool,raw_json jsonb,date_source text,date_confidence text,api_fetched_at timestamptz,api_scraped_at timestamptz,sources text[],updated_at timestamptz,raw_schema_version text,archived_by uuid,is_notifiable bool,provider_instance_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),provider_case_id text,provenance jsonb,detected_at timestamptz,last_seen_at timestamptz,content_hash text,changed_at timestamptz,fecha_providencia timestamptz,discovery_type text,ingest_run_mode text,is_retroactive bool,retro_gap_days int4,is_future_dated bool,origen_texto text,requiere_revision_manual bool,pdf_storage_path text,ingest_run_mode_source text,source_radicado text,recurso_consecutivo text,instancia_grado text);
+CREATE TABLE public.work_item_sync_timeline(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),work_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),sync_run_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),provider text,operation text,function_name text,adapter_version text,deploy_sha text,status text,error_code text,error_message text,records_inserted int4,records_skipped int4,latency_ms int4,started_at timestamptz,finished_at timestamptz,metadata jsonb,created_at timestamptz DEFAULT now(),providers text[]);
+
 CREATE TABLE alert_instances(id uuid);
 CREATE TABLE detected_processes(id uuid);
 CREATE TABLE work_item_stage_suggestions(id uuid);
@@ -1550,3 +1556,317 @@ BEGIN
 END $function$
 ;
 DO $$ DECLARE p record; BEGIN FOR p IN SELECT oid::regprocedure AS sig FROM pg_proc WHERE proname IN ('mcp_move_work_item_stage','mcp_resolve_stage_suggestion','mcp_resolve_alert','mcp_set_notification_state','mcp_resolve_email_question','mcp_add_email_association','mcp_resolve_detected_process') LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated',p.sig); END LOOP; END $$;
+CREATE OR REPLACE FUNCTION public._mcp_client_key()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ SELECT COALESCE((public.mcp_caller_context()->>'oauth_client_id')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) $function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_email_group_key(p_imid text, p_mid text, p_id uuid)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$ SELECT COALESCE('imid:' || NULLIF(p_imid, ''), 'mid:' || NULLIF(p_mid, ''), 'id:' || p_id::text) $function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_feed_freshness(p_work_item_id uuid, p_page_items uuid[])
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH scope AS (
+    SELECT w.id, w.last_synced_at, w.scrape_status, w.monitoring_enabled FROM public.work_items w
+     WHERE w.deleted_at IS NULL AND (p_work_item_id IS NULL OR w.id = p_work_item_id)
+  ), shown AS (
+    SELECT s.* FROM scope s
+     WHERE s.monitoring_enabled OR s.id = p_work_item_id OR s.id = ANY (COALESCE(p_page_items, ARRAY[]::uuid[]))
+     ORDER BY (s.id = ANY (COALESCE(p_page_items, ARRAY[]::uuid[]))) DESC, s.id LIMIT 200
+  ), latest AS (
+    SELECT DISTINCT ON (t.work_item_id, t.provider, t.operation) t.work_item_id, t.provider, t.operation, t.status,
+           t.error_code, t.started_at, t.finished_at, t.records_inserted, t.records_skipped
+      FROM public.work_item_sync_timeline t JOIN scope s ON s.id = t.work_item_id
+     WHERE t.created_at > now() - interval '30 days'
+     ORDER BY t.work_item_id, t.provider, t.operation, COALESCE(t.finished_at, t.started_at, t.created_at) DESC
+  ), last_ok AS (
+    SELECT t.work_item_id, t.provider, t.operation, max(COALESCE(t.finished_at, t.started_at)) AS at
+      FROM public.work_item_sync_timeline t JOIN scope s ON s.id = t.work_item_id
+     WHERE t.status = 'success' AND t.created_at > now() - interval '90 days'
+     GROUP BY 1, 2, 3
+  )
+  SELECT jsonb_build_object(
+    'window', jsonb_build_object('latest_check', '30 days', 'last_success', '90 days'),
+    'scope', CASE WHEN p_work_item_id IS NULL THEN 'portfolio' ELSE 'work_item' END,
+    'monitored_items', (SELECT count(*) FROM scope WHERE monitoring_enabled),
+    'monitored_items_without_check', (SELECT count(*) FROM scope s WHERE s.monitoring_enabled
+                                      AND NOT EXISTS (SELECT 1 FROM latest l WHERE l.work_item_id = s.id)),
+    'items_listed', (SELECT count(*) FROM shown),
+    'items_truncated', (SELECT count(*) FROM scope s WHERE s.monitoring_enabled OR s.id = ANY (COALESCE(p_page_items, ARRAY[]::uuid[]))) > 200,
+    'by_provider', COALESCE((SELECT jsonb_agg(jsonb_build_object('provider', provider, 'operation', operation,
+        'items_checked', n, 'items_latest_success', n_ok, 'items_latest_not_success', n - n_ok,
+        'oldest_last_success_at', oldest_ok, 'newest_last_success_at', newest_ok) ORDER BY provider, operation)
+      FROM (SELECT l.provider, l.operation, count(*) n, count(*) FILTER (WHERE l.status = 'success') n_ok,
+                   min(o.at) oldest_ok, max(o.at) newest_ok
+              FROM latest l LEFT JOIN last_ok o USING (work_item_id, provider, operation)
+             GROUP BY 1, 2) g), '[]'::jsonb),
+    'items', COALESCE((SELECT jsonb_agg(jsonb_build_object('work_item_id', s.id, 'monitoring_enabled', s.monitoring_enabled,
+        'cache_summary', jsonb_build_object('last_synced_at', s.last_synced_at, 'scrape_status', s.scrape_status),
+        'sync_checks', COALESCE((SELECT jsonb_agg(jsonb_build_object('provider', l.provider, 'operation', l.operation,
+             'status', l.status, 'successful_check', l.status = 'success', 'error_code', l.error_code,
+             'started_at', l.started_at, 'finished_at', l.finished_at, 'records_inserted', l.records_inserted,
+             'records_skipped', l.records_skipped, 'last_success_at', o.at) ORDER BY l.provider, l.operation)
+           FROM latest l LEFT JOIN last_ok o USING (work_item_id, provider, operation) WHERE l.work_item_id = s.id), '[]'::jsonb))
+        ORDER BY s.id)
+      FROM shown s), '[]'::jsonb))
+$function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_feed_page(p_ts timestamp with time zone, p_kind text, p_id uuid, p_upper timestamp with time zone, p_limit integer, p_work_item_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_lim int := LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500); v_rows jsonb; v_n int; v_more boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+  WITH vis AS (
+    SELECT w.id FROM public.work_items w WHERE p_work_item_id IS NULL OR w.id = p_work_item_id
+  ), ev AS (
+    SELECT * FROM (
+      SELECT COALESCE(a.updated_at, a.created_at) AS ts, 'actuacion'::text AS kind, a.id, a.work_item_id,
+        md5(COALESCE(a.updated_at, a.created_at)::text || '|' || COALESCE(a.content_hash, '') || '|' || COALESCE(a.is_archived::text, '')) AS rev,
+        jsonb_build_object('act_date', a.act_date, 'description', left(a.description, 400), 'source', a.source,
+          'detected_at', a.detected_at, 'changed_at', a.changed_at, 'created_at', a.created_at,
+          'updated_at', a.updated_at, 'is_archived', a.is_archived, 'content_hash', a.content_hash) AS data
+        FROM public.work_item_acts a JOIN vis ON vis.id = a.work_item_id
+       WHERE (COALESCE(a.updated_at, a.created_at), 'actuacion'::text, a.id) > (p_ts, p_kind, p_id)
+         AND COALESCE(a.updated_at, a.created_at) <= p_upper
+       ORDER BY 1, 3 LIMIT v_lim + 1) x
+    UNION ALL SELECT * FROM (
+      SELECT COALESCE(p.updated_at, p.created_at), 'estado'::text, p.id, p.work_item_id,
+        md5(COALESCE(p.updated_at, p.created_at)::text || '|' || COALESCE(p.content_hash, '') || '|' || COALESCE(p.is_archived::text, '')),
+        jsonb_build_object('title', left(p.title, 300), 'fecha_fijacion', p.fecha_fijacion,
+          'fecha_desfijacion', p.fecha_desfijacion, 'tipo_publicacion', p.tipo_publicacion, 'source', p.source,
+          'detected_at', p.detected_at, 'changed_at', p.changed_at, 'created_at', p.created_at,
+          'updated_at', p.updated_at, 'is_archived', p.is_archived, 'content_hash', p.content_hash)
+        FROM public.work_item_publicaciones p JOIN vis ON vis.id = p.work_item_id
+       WHERE (COALESCE(p.updated_at, p.created_at), 'estado'::text, p.id) > (p_ts, p_kind, p_id)
+         AND COALESCE(p.updated_at, p.created_at) <= p_upper
+       ORDER BY 1, 3 LIMIT v_lim + 1) y
+    UNION ALL SELECT * FROM (
+      SELECT COALESCE(w.lifecycle_changed_at, w.created_at), 'work_item_lifecycle'::text, w.id, w.id,
+        md5(COALESCE(w.lifecycle_changed_at, w.created_at)::text || '|' || w.lifecycle_state::text),
+        jsonb_build_object('lifecycle_state', w.lifecycle_state, 'created_at', w.created_at,
+          'lifecycle_changed_at', w.lifecycle_changed_at, 'deleted_at', w.deleted_at, 'purge_after', w.purge_after)
+        FROM public.work_items w JOIN vis ON vis.id = w.id
+       WHERE (COALESCE(w.lifecycle_changed_at, w.created_at), 'work_item_lifecycle'::text, w.id) > (p_ts, p_kind, p_id)
+         AND COALESCE(w.lifecycle_changed_at, w.created_at) <= p_upper
+       ORDER BY 1, 3 LIMIT v_lim + 1) z
+  ), page AS (SELECT * FROM ev ORDER BY ts, kind, id LIMIT v_lim + 1)
+  SELECT jsonb_agg(jsonb_build_object('kind', kind, 'id', id, 'work_item_id', work_item_id, 'change_ts', ts,
+           'revision', rev, 'dedupe_key', kind || ':' || id || ':' || rev, 'data', data) ORDER BY ts, kind, id), count(*)
+    INTO v_rows, v_n FROM page;
+  v_more := COALESCE(v_n, 0) > v_lim;
+  IF v_more THEN v_rows := v_rows - v_lim; END IF;
+  RETURN jsonb_build_object('events', COALESCE(v_rows, '[]'::jsonb), 'has_more', v_more);
+END $function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_feed_step(p_client uuid, p_work_item_id uuid, p_mode text, p_ts timestamp with time zone, p_kind text, p_id uuid, p_upper timestamp with time zone, p_checkpoint timestamp with time zone, p_limit integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_upper timestamptz := COALESCE(p_upper, now()); v_page jsonb; v_last jsonb; v_new uuid; v_cp timestamptz;
+  v_wis uuid[]; v_more boolean;
+BEGIN
+  v_page := public._mcp_feed_page(p_ts, p_kind, p_id, v_upper, p_limit, p_work_item_id);
+  v_more := (v_page->>'has_more')::boolean;
+  v_last := (v_page->'events') -> (jsonb_array_length(v_page->'events') - 1);
+  DELETE FROM public.mcp_feed_cursors WHERE user_id = auth.uid() AND expires_at < now();
+  IF v_more THEN
+    v_cp := p_checkpoint;
+    INSERT INTO public.mcp_feed_cursors (user_id, client_key, work_item_id, mode, scan_ts, scan_kind, scan_id, scan_upper, checkpoint)
+    VALUES (auth.uid(), p_client, p_work_item_id, p_mode, (v_last->>'change_ts')::timestamptz, v_last->>'kind',
+            (v_last->>'id')::uuid, v_upper, p_checkpoint) RETURNING id INTO v_new;
+  ELSE
+    v_cp := GREATEST(v_upper, COALESCE(p_checkpoint, v_upper));
+    INSERT INTO public.mcp_feed_cursors (user_id, client_key, work_item_id, mode, checkpoint)
+    VALUES (auth.uid(), p_client, p_work_item_id, 'incremental', v_cp) RETURNING id INTO v_new;
+  END IF;
+  SELECT array_agg(DISTINCT (e->>'work_item_id')::uuid) INTO v_wis FROM jsonb_array_elements(v_page->'events') e;
+  RETURN jsonb_build_object('mode', p_mode, 'events', v_page->'events', 'has_more', v_more,
+    'caught_up', NOT v_more, 'next_cursor', 'c1.' || v_new::text,
+    'scan_lower_exclusive', jsonb_build_object('change_ts', p_ts, 'kind', p_kind, 'id', p_id),
+    'scan_upper_watermark', v_upper, 'checkpoint', v_cp,
+    'overlap_window_seconds', 900,
+    'freshness', public._mcp_feed_freshness(p_work_item_id, v_wis),
+    'limitations', 'Cursor opaco guardado en el servidor, ligado a usuario, cliente de IA y filtro; caduca a los 30 días (entonces usa reconcile_since=checkpoint menos 15 min; nunca se reinicia en silencio). Cada pasada tiene un tope fijo (scan_upper_watermark); al terminarla checkpoint avanza a ese tope y la siguiente pasada relee 15 minutos antes del checkpoint. Cambios seleccionados por revisión (updated_at): incluye correcciones y archivados de filas antiguas; detected_at solo para mostrar. Cada evento muestra el estado ACTUAL de la fila: revisiones intermedias entre consultas se fusionan. Las purgas definitivas no generan evento. updated_at se fija al inicio de la transacción: una transacción que confirme más de 15 minutos después de iniciar puede no aparecer; reconcilia periódicamente. Primera llamada sin cursor: últimos 3 días. Frescura: solo status=success cuenta como consulta exitosa (empty, error, skipped, rejected, pending_upstream y partial no); los intentos diarios internos no son visibles para el usuario. Sin eventos no significa que los proveedores hayan respondido.');
+END $function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_message_radicado_bases(p_meta jsonb)
+ RETURNS text[]
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(array_agg(DISTINCT left(regexp_replace(x, '[^0-9]', '', 'g'), 21))
+                  FILTER (WHERE length(regexp_replace(x, '[^0-9]', '', 'g')) >= 21), ARRAY[]::text[])
+  FROM (SELECT jsonb_array_elements_text(COALESCE(p_meta->k, '[]'::jsonb)) x
+          FROM unnest(ARRAY['body_radicados', 'subject_radicados', 'radicados']) k
+         WHERE jsonb_typeof(p_meta->k) = 'array') s
+$function$
+;
+CREATE OR REPLACE FUNCTION public._mcp_subject_radicado_bases(p_subject text)
+ RETURNS text[]
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(array_agg(DISTINCT left(d, 21)) FILTER (WHERE length(d) BETWEEN 21 AND 23), ARRAY[]::text[])
+    FROM (SELECT regexp_replace(m[1], '[^0-9]', '', 'g') AS d
+            FROM regexp_matches(COALESCE(p_subject, ''), '(\d(?:[ .\-]?\d){20,22})', 'g') AS m) s
+$function$
+;
+CREATE OR REPLACE FUNCTION public.mcp_list_email_questions(p_cursor text DEFAULT NULL::text, p_limit integer DEFAULT 20)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_uid uuid := auth.uid(); v_lim int := LEAST(GREATEST(COALESCE(p_limit, 20), 1), 50);
+  v_ts timestamptz; v_key text; v_write boolean := public.mcp_write_allowed(); v_groups jsonb; v_n int; v_last jsonb;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+  IF p_cursor IS NOT NULL AND p_cursor <> '' THEN
+    BEGIN
+      v_ts := (convert_from(decode(p_cursor, 'base64'), 'UTF8')::jsonb ->> 't')::timestamptz;
+      v_key := convert_from(decode(p_cursor, 'base64'), 'UTF8')::jsonb ->> 'k';
+    EXCEPTION WHEN others THEN v_ts := NULL; END;
+    IF v_ts IS NULL OR v_key IS NULL THEN RAISE EXCEPTION 'CURSOR_INVALID' USING ERRCODE = 'MCP22'; END IF;
+  END IF;
+  WITH pending AS (   -- RLS limits rows to what the caller may see
+    SELECT DISTINCT public._mcp_email_group_key(l.internet_message_id, l.message_id, l.id) AS gk
+      FROM public.work_item_email_links l WHERE l.link_status = 'SUGGESTED'
+  ), g AS (
+    SELECT p.gk, max(COALESCE(l.received_at, l.created_at)) AS ts
+      FROM pending p JOIN public.work_item_email_links l
+        ON public._mcp_email_group_key(l.internet_message_id, l.message_id, l.id) = p.gk
+     GROUP BY p.gk
+  ), page AS (
+    SELECT * FROM g WHERE v_ts IS NULL OR (g.ts, g.gk) < (v_ts, v_key)
+     ORDER BY g.ts DESC, g.gk DESC LIMIT v_lim + 1
+  ), links AS (
+    SELECT p.gk, p.ts, l.*, w.title AS wi_title, w.radicado AS wi_radicado, w.owner_id AS wi_owner,
+           w.deleted_at AS wi_deleted, w.lifecycle_state::text AS wi_state,
+           left(regexp_replace(COALESCE(w.radicado, ''), '[^0-9]', '', 'g'), 21) AS wi_base,
+           public._mcp_subject_radicado_bases(l.subject) AS subj_bases,
+           public._mcp_message_radicado_bases(l.evidence_meta) AS meta_bases
+      FROM page p JOIN public.work_item_email_links l
+        ON public._mcp_email_group_key(l.internet_message_id, l.message_id, l.id) = p.gk
+      LEFT JOIN public.work_items w ON w.id = l.work_item_id
+  ), grp AS (
+    SELECT gk, ts,
+      (array_agg(jsonb_build_object('subject', subject, 'sender', sender, 'received_at', received_at,
+         'direction', direction, 'has_attachments', has_attachments, 'attachment_names', attachment_names,
+         'web_link', web_link, 'internet_message_id', internet_message_id, 'message_id', message_id)
+         ORDER BY created_at, id))[1] AS source,
+      bool_or(COALESCE(conflict_flag, false)) AS any_flag,
+      jsonb_agg(jsonb_build_object(
+        'link_id', id, 'work_item_id', work_item_id, 'work_item_title', wi_title, 'radicado', wi_radicado,
+        'work_item_state', wi_state, 'link_status', link_status, 'confidence', confidence,
+        'confidence_ceiling', confidence_ceiling, 'candidate_rank', candidate_rank, 'matched_by', matched_by,
+        'matched_value', matched_value, 'signal_class', signal_class, 'evidence_type', evidence_type,
+        'evidence_subtype', evidence_subtype, 'match_outcome', match_outcome, 'conflict_flag', conflict_flag,
+        'stored_meta_radicado_bases', meta_bases,
+        'scope', CASE WHEN user_id = v_uid AND wi_owner = v_uid AND wi_deleted IS NULL THEN 'writable' ELSE 'organization_view_only' END,
+        'allowed_actions', CASE WHEN user_id = v_uid AND wi_owner = v_uid AND wi_deleted IS NULL AND v_write AND link_status = 'SUGGESTED'
+                                THEN '["confirm","dismiss_all_suggestions"]'::jsonb ELSE '[]'::jsonb END)
+        ORDER BY candidate_rank NULLS LAST, confidence DESC NULLS LAST, id) AS candidates,
+      array_agg(DISTINCT wi_base) FILTER (WHERE wi_base <> '') AS cand_bases
+    FROM links GROUP BY gk, ts
+  ), sb AS (
+    SELECT gk, array_agg(DISTINCT b) AS subj FROM links, unnest(subj_bases) b GROUP BY gk
+  ), mb AS (
+    SELECT gk, array_agg(DISTINCT b) AS meta FROM links, unnest(meta_bases) b GROUP BY gk
+  ), fin AS (
+    SELECT grp.*, COALESCE(sb.subj, ARRAY[]::text[]) AS subj, COALESCE(mb.meta, ARRAY[]::text[]) AS meta
+      FROM grp LEFT JOIN sb USING (gk) LEFT JOIN mb USING (gk)
+  )
+  SELECT jsonb_agg(jsonb_build_object(
+      'group_key', gk, 'latest_at', ts, 'source', source,
+      'raw_subject_radicado_bases', subj, 'stored_meta_radicado_bases', meta,
+      'conflict', any_flag
+                  OR (SELECT count(DISTINCT b) FROM unnest(subj || meta) b) > 1
+                  OR (cardinality(subj || meta) > 0 AND NOT COALESCE(cand_bases && (subj || meta), false)),
+      'candidates', candidates) ORDER BY ts DESC, gk DESC), count(*)
+    INTO v_groups, v_n FROM fin;
+  v_groups := COALESCE(v_groups, '[]'::jsonb);
+  IF v_n > v_lim THEN v_groups := v_groups - v_lim; END IF;
+  v_last := v_groups -> (jsonb_array_length(v_groups) - 1);
+  RETURN jsonb_build_object('questions', v_groups, 'has_more', COALESCE(v_n, 0) > v_lim,
+    'next_cursor', CASE WHEN COALESCE(v_n, 0) > v_lim THEN
+       replace(encode(convert_to(jsonb_build_object('t', v_last->>'latest_at', 'k', v_last->>'group_key')::text, 'UTF8'), 'base64'), E'\n', '') END,
+    'can_write', v_write,
+    'notes', 'Solo metadatos del correo (nunca cuerpos ni envíos). Agrupado por internet_message_id (o message_id). Una pregunta aparece mientras tenga al menos una sugerencia pendiente; se listan todos los candidatos del mensaje. scope=writable solo para vínculos propios en asuntos propios; organization_view_only nunca es gestionable. confirm (resolve_email_question) descarta las demás sugerencias del mensaje; si conflict=true usa add_email_association solo por decisión explícita del usuario. Confirmar un correo nunca cambia etapas ni da por cumplido un término. El cursor es solo posición de lectura (filas filtradas por RLS).');
+END $function$
+;
+CREATE OR REPLACE FUNCTION public.mcp_list_updates(p_cursor text, p_limit integer DEFAULT 100, p_work_item_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_uid uuid := auth.uid(); v_ck uuid; c public.mcp_feed_cursors%ROWTYPE; v_cid uuid;
+  z uuid := '00000000-0000-0000-0000-000000000000';
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+  v_ck := public._mcp_client_key();
+  IF p_cursor IS NULL OR p_cursor = '' THEN
+    RETURN public._mcp_feed_step(v_ck, p_work_item_id, 'incremental', now() - interval '3 days', '', z, NULL, NULL, p_limit);
+  END IF;
+  IF p_cursor !~ '^c1\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    RAISE EXCEPTION 'CURSOR_INVALID: cursor no reconocido (los cursores anteriores a esta versión no son válidos)' USING ERRCODE = 'MCP22'; END IF;
+  v_cid := substr(p_cursor, 4)::uuid;
+  SELECT * INTO c FROM public.mcp_feed_cursors WHERE id = v_cid AND user_id = v_uid;
+  IF NOT FOUND THEN RAISE EXCEPTION 'CURSOR_INVALID: cursor no reconocido' USING ERRCODE = 'MCP22'; END IF;
+  IF c.client_key <> v_ck THEN RAISE EXCEPTION 'CURSOR_FOREIGN: el cursor pertenece a otra conexión' USING ERRCODE = 'MCP22'; END IF;
+  IF c.work_item_id IS DISTINCT FROM p_work_item_id THEN RAISE EXCEPTION 'CURSOR_SCOPE_MISMATCH' USING ERRCODE = 'MCP22'; END IF;
+  IF c.expires_at < now() THEN
+    RAISE EXCEPTION 'CURSOR_EXPIRED: reconcilia con reconcile_since=% (checkpoint menos 15 minutos)',
+      COALESCE(c.checkpoint, c.scan_ts) - interval '15 minutes' USING ERRCODE = 'MCP09'; END IF;
+  IF c.scan_upper IS NULL THEN
+    RETURN public._mcp_feed_step(v_ck, p_work_item_id, 'incremental', c.checkpoint - interval '15 minutes', '', z, NULL, c.checkpoint, p_limit);
+  END IF;
+  RETURN public._mcp_feed_step(v_ck, p_work_item_id, c.mode, c.scan_ts, c.scan_kind, c.scan_id, c.scan_upper, c.checkpoint, p_limit);
+END $function$
+;
+CREATE OR REPLACE FUNCTION public.mcp_reconcile_updates(p_since timestamp with time zone, p_limit integer DEFAULT 100, p_work_item_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+  IF p_since IS NULL OR p_since < now() - interval '400 days' OR p_since > now() THEN
+    RAISE EXCEPTION 'RECONCILE_RANGE: reconcile_since debe estar dentro de 400 días' USING ERRCODE = 'MCP22'; END IF;
+  RETURN public._mcp_feed_step(public._mcp_client_key(), p_work_item_id, 'reconcile', p_since, '',
+    '00000000-0000-0000-0000-000000000000'::uuid, NULL, NULL, p_limit)
+    || jsonb_build_object('reconcile_scope', 'Relee el estado ACTUAL de filas cuya revisión (updated_at) es posterior a reconcile_since (máximo 400 días). No es un historial ni una instantánea completa: revisiones intermedias, purgas definitivas y filas más antiguas que el límite no aparecen.');
+END $function$
+;
+
+GRANT SELECT ON work_item_acts,work_item_publicaciones,work_item_sync_timeline,work_item_email_links TO authenticated;
+GRANT SELECT,INSERT,DELETE ON mcp_feed_cursors TO authenticated;
+ALTER TABLE mcp_feed_cursors ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own ON mcp_feed_cursors TO authenticated USING(user_id=auth.uid()) WITH CHECK(user_id=auth.uid());
+ALTER TABLE work_item_acts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY visible ON work_item_acts TO authenticated USING(EXISTS(SELECT 1 FROM work_items w WHERE w.id=work_item_id));
+ALTER TABLE work_item_publicaciones ENABLE ROW LEVEL SECURITY;
+CREATE POLICY visible ON work_item_publicaciones TO authenticated USING(EXISTS(SELECT 1 FROM work_items w WHERE w.id=work_item_id));
+ALTER TABLE work_item_email_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own ON work_item_email_links TO authenticated USING(user_id=auth.uid());
+-- Deliberately broader timeline visibility tests that the feed also joins visible matters.
+ALTER TABLE work_item_sync_timeline ENABLE ROW LEVEL SECURITY;
+CREATE POLICY timeline_visible ON work_item_sync_timeline TO authenticated USING(true);
+REVOKE ALL ON FUNCTION mcp_list_updates(text,integer,uuid),mcp_reconcile_updates(timestamptz,integer,uuid),mcp_list_email_questions(text,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION mcp_list_updates(text,integer,uuid),mcp_reconcile_updates(timestamptz,integer,uuid),mcp_list_email_questions(text,integer) TO authenticated;
