@@ -2559,6 +2559,28 @@ var get_capabilities_default = defineTool34({
 // src/lib/mcp/tools/list-workflow-stages.ts
 import { defineTool as defineTool35 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z29 } from "npm:zod@^3.25.76";
+var list_workflow_stages_default = defineTool35({
+  name: "list_workflow_stages",
+  title: "Cat\xE1logo de etapas por tipo de proceso",
+  description: "Read-only. Lists the stored stage codes for a workflow type exactly as the server validates them: the live database catalogue (with transitions) for catalog-governed workflows (PETICION, GOV_PROCEDURE), and the application vocabulary for litigation workflows. Only stages with movable=true can be targets; for CGP the matter's cgp_phase follows the target stage. Regressions are never allowed through the assistant.",
+  inputSchema: {
+    workflow_type: z29.string().trim().min(2).describe("Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO.")
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ workflow_type }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const wf = canonicalWorkflowType(workflow_type);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_workflow_stages", { p_workflow_type: wf });
+    if (error) return errorResult(error.message);
+    const r = data ?? {};
+    return textResult(`${r.stages?.length ?? 0} etapas para ${wf}.`, r);
+  }
+});
+
+// src/lib/mcp/tools/create-work-item.ts
+import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z30 } from "npm:zod@^3.25.76";
 
 // src/lib/workflow-phases.ts
 var WORKFLOW_PHASES = {
@@ -2779,60 +2801,6 @@ function getDefaultStage(workflowType, cgpPhase) {
   return stages[0] || "";
 }
 
-// src/lib/mcp/manage-helpers.ts
-function appStageOrder(workflowType, cgpPhase) {
-  return getStageOrderForWorkflow(workflowType, cgpPhase ?? void 0);
-}
-function appStages(workflowType, cgpPhase) {
-  const stages = getStagesForWorkflow(workflowType, cgpPhase ?? void 0);
-  return Object.entries(stages).sort((a, b) => a[1].order - b[1].order).map(([code, s]) => ({ code, label: s.label, order: s.order }));
-}
-async function loadWorkItemRevision(sb, id) {
-  const { data, error } = await sb.from("work_items").select("id, radicado, workflow_type, cgp_phase, stage, lifecycle_state, updated_at, deleted_at").eq("id", id).maybeSingle();
-  if (error) return { item: null, error: error.message };
-  if (!data) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
-  return { item: data, error: null };
-}
-var MANAGE_ANNOTATIONS = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false
-};
-
-// src/lib/mcp/tools/list-workflow-stages.ts
-var list_workflow_stages_default = defineTool35({
-  name: "list_workflow_stages",
-  title: "Cat\xE1logo de etapas por tipo de proceso",
-  description: "Read-only. Lists the legal stages (and catalogued transitions when they exist) for a workflow type, so stage moves can be proposed with valid codes. Regressions are never allowed through the assistant.",
-  inputSchema: {
-    workflow_type: z29.string().trim().min(2).describe("Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO."),
-    cgp_phase: z29.enum(["FILING", "PROCESS"]).optional().describe("Solo CGP: fase actual del asunto (las etapas dependen de ella).")
-  },
-  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  handler: async ({ workflow_type, cgp_phase }, ctx) => {
-    const unauth = requireAuth(ctx);
-    if (unauth) return errorResult(unauth);
-    const wf = canonicalWorkflowType(workflow_type);
-    const { data, error } = await sbForUser(ctx).rpc("mcp_list_workflow_stages", { p_workflow_type: wf });
-    if (error) return errorResult(error.message);
-    const catalog = data ?? {};
-    const governed = (catalog.stages?.length ?? 0) > 0;
-    const stages = governed ? catalog.stages ?? [] : appStages(wf, cgp_phase ?? (wf === "CGP" ? "FILING" : null));
-    return textResult(`${stages.length} etapas para ${wf}${wf === "CGP" ? ` (fase ${cgp_phase ?? "FILING"})` : ""}.`, {
-      workflow_type: wf,
-      source: governed ? "catalogo_base_de_datos" : "catalogo_aplicacion",
-      stages,
-      transitions: governed ? catalog.transitions ?? [] : [],
-      rules: "Solo avances dentro del cat\xE1logo. Retrocesos y cambios de fase CGP se hacen en la app."
-    });
-  }
-});
-
-// src/lib/mcp/tools/create-work-item.ts
-import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z30 } from "npm:zod@^3.25.76";
-
 // src/lib/externalSyncDisplay.ts
 var ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
   "CGP",
@@ -2876,6 +2844,23 @@ function resolveMonitoringOffReason(input) {
   }
   return null;
 }
+
+// src/lib/mcp/manage-helpers.ts
+function appStageOrder(workflowType, cgpPhase) {
+  return getStageOrderForWorkflow(workflowType, cgpPhase ?? void 0);
+}
+async function loadWorkItemRevision(sb, id) {
+  const { data, error } = await sb.from("work_items").select("id, radicado, workflow_type, cgp_phase, stage, lifecycle_state, updated_at, deleted_at").eq("id", id).maybeSingle();
+  if (error) return { item: null, error: error.message };
+  if (!data) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  return { item: data, error: null };
+}
+var MANAGE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+};
 
 // src/lib/mcp/tools/create-work-item.ts
 var create_work_item_default = defineTool36({

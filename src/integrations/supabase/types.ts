@@ -25770,9 +25770,20 @@ export type Database = {
         }
         Returns: Json
       }
+      _mcp_is_catalog_governed: { Args: { p_wf: string }; Returns: boolean }
       _mcp_is_trusted_backend: { Args: never; Returns: boolean }
       _mcp_message_radicado_bases: { Args: { p_meta: Json }; Returns: string[] }
       _mcp_require_first_party: { Args: never; Returns: Json }
+      _mcp_stage_vocab: {
+        Args: never
+        Returns: {
+          code: string
+          ord: number
+          phase: string
+          target_allowed: boolean
+          workflow_type: string
+        }[]
+      }
       _mcp_updates_page: {
         Args: {
           p_id: string
