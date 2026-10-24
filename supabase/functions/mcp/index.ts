@@ -1487,7 +1487,7 @@ import { z as z18 } from "npm:zod@^3.25.76";
 var add_hearing_default = defineTool19({
   name: "add_hearing",
   title: "Agendar audiencia",
-  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
     work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
     radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),

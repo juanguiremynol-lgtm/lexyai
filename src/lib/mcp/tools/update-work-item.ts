@@ -9,7 +9,7 @@ import { errorResult, requireWriteScope, resolveWorkItem, sbForUser, textResult,
  *  - `radicado` / `workflow_type` / `stage`: identity, routing and procedural
  *    stage are governed by the classification and preclusion rules in the DB.
  *    An assistant must not move a matter through its procedural life.
- *  - deletion / lifecycle_state: there is no delete path over MCP, by design.
+ *  - deletion / lifecycle_state: handled only by change_work_item_lifecycle (recoverable; no purge).
  */
 export default defineTool({
   name: "update_work_item",
