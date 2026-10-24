@@ -12049,6 +12049,120 @@ export type Database = {
           },
         ]
       }
+      mcp_action_audit: {
+        Row: {
+          action: string
+          after: Json | null
+          before: Json | null
+          created_at: string
+          id: string
+          idem_key: string | null
+          oauth_client_id: string | null
+          session_id: string | null
+          target_id: string | null
+          target_type: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: string
+          idem_key?: string | null
+          oauth_client_id?: string | null
+          session_id?: string | null
+          target_id?: string | null
+          target_type: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: string
+          idem_key?: string | null
+          oauth_client_id?: string | null
+          session_id?: string | null
+          target_id?: string | null
+          target_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_client_grants: {
+        Row: {
+          access_level: string
+          consent_granted_at: string
+          consent_id: string
+          granted_at: string
+          granted_session_id: string
+          id: string
+          oauth_client_id: string
+          revoked_at: string | null
+          revoked_reason: string | null
+          user_id: string
+        }
+        Insert: {
+          access_level: string
+          consent_granted_at: string
+          consent_id: string
+          granted_at?: string
+          granted_session_id: string
+          id?: string
+          oauth_client_id: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          user_id: string
+        }
+        Update: {
+          access_level?: string
+          consent_granted_at?: string
+          consent_id?: string
+          granted_at?: string
+          granted_session_id?: string
+          id?: string
+          oauth_client_id?: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_idempotency: {
+        Row: {
+          action: string
+          client_key: string
+          created_at: string
+          id: string
+          idem_key: string
+          request_hash: string
+          result: Json | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          client_key: string
+          created_at?: string
+          id?: string
+          idem_key: string
+          request_hash: string
+          result?: Json | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          client_key?: string
+          created_at?: string
+          id?: string
+          idem_key?: string
+          request_hash?: string
+          result?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       member_support_grants: {
         Row: {
           granted_at: string
@@ -25617,6 +25731,48 @@ export type Database = {
       }
     }
     Functions: {
+      _mcp_apply_stage: {
+        Args: {
+          p_reason: string
+          p_source: string
+          p_suggestion: string
+          p_to: string
+          p_w: Database["public"]["Tables"]["work_items"]["Row"]
+        }
+        Returns: undefined
+      }
+      _mcp_begin: {
+        Args: { p_action: string; p_key: string; p_payload: Json }
+        Returns: Json
+      }
+      _mcp_can_manage_work_item: {
+        Args: { p_org: string; p_owner: string }
+        Returns: boolean
+      }
+      _mcp_check_stage_move: {
+        Args: {
+          p_app_order: string[]
+          p_from: string
+          p_to: string
+          p_wf: string
+        }
+        Returns: string
+      }
+      _mcp_finish: {
+        Args: {
+          p_action: string
+          p_after: Json
+          p_before: Json
+          p_key: string
+          p_result: Json
+          p_target_id: string
+          p_target_type: string
+        }
+        Returns: Json
+      }
+      _mcp_message_radicado_bases: { Args: { p_meta: Json }; Returns: string[] }
+      _mcp_require_first_party: { Args: never; Returns: Json }
+      _mcp_wi_snapshot: { Args: { p_id: string }; Returns: Json }
       accept_workflow_suggestion: {
         Args: {
           _suggestion_id: string
@@ -26716,6 +26872,10 @@ export type Database = {
         }
         Returns: Json
       }
+      grant_mcp_client_access: {
+        Args: { p_access_level: string; p_oauth_client_id: string }
+        Returns: Json
+      }
       has_active_org_support_grant: {
         Args: { p_admin_id: string; p_org_id: string }
         Returns: boolean
@@ -26821,6 +26981,7 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      list_my_mcp_connections: { Args: never; Returns: Json }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]
@@ -26839,6 +27000,108 @@ export type Database = {
         Args: { p_work_item_id?: string }
         Returns: Json
       }
+      mcp_access_level: { Args: never; Returns: string }
+      mcp_add_email_association: {
+        Args: {
+          p_idempotency_key: string
+          p_link_id: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_assert_write: { Args: never; Returns: undefined }
+      mcp_caller_context: { Args: never; Returns: Json }
+      mcp_create_work_item: {
+        Args: {
+          p_authority_name: string
+          p_client_id: string
+          p_demandados: string
+          p_demandantes: string
+          p_idempotency_key: string
+          p_monitoring_off_reason: string
+          p_radicado: string
+          p_stage: string
+          p_title: string
+          p_workflow_type: string
+        }
+        Returns: Json
+      }
+      mcp_list_updates: {
+        Args: { p_cursor: string; p_limit?: number; p_work_item_id?: string }
+        Returns: Json
+      }
+      mcp_list_workflow_stages: {
+        Args: { p_workflow_type: string }
+        Returns: Json
+      }
+      mcp_move_work_item_stage: {
+        Args: {
+          p_app_stage_order: string[]
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_to_stage: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_alert: {
+        Args: {
+          p_action: string
+          p_alert_id: string
+          p_idempotency_key: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_detected_process: {
+        Args: {
+          p_decision: string
+          p_id: string
+          p_idempotency_key: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_email_question: {
+        Args: {
+          p_decision: string
+          p_idempotency_key: string
+          p_link_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_stage_suggestion: {
+        Args: {
+          p_app_stage_order: string[]
+          p_decision: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_suggestion_id: string
+        }
+        Returns: Json
+      }
+      mcp_set_notification_state: {
+        Args: {
+          p_action: string
+          p_idempotency_key: string
+          p_ids: string[]
+          p_until: string
+        }
+        Returns: Json
+      }
+      mcp_work_item_lifecycle: {
+        Args: {
+          p_action: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_write_allowed: { Args: never; Returns: boolean }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
       normalize_party_name: { Args: { p: string }; Returns: string }
       normalize_source_health_streak: {
@@ -27012,6 +27275,10 @@ export type Database = {
       }
       retain_official_publication_recovery: {
         Args: { incoming: Json; previous: Json; primary_url: string }
+        Returns: Json
+      }
+      revoke_mcp_client_access: {
+        Args: { p_oauth_client_id: string }
         Returns: Json
       }
       rpc_canon_fingerprint_probe: { Args: { p_payload: Json }; Returns: Json }

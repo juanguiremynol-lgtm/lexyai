@@ -155,15 +155,30 @@ function errorResult(text) {
 function requireAuth(ctx) {
   return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
 }
-function requireWriteScope(ctx) {
+var MANAGE_REQUIRED = "Esta conexi\xF3n de IA es de solo lectura. Para que el asistente pueda hacer cambios, el usuario debe activar \xABPermitir gestionar\xBB para esta conexi\xF3n en Andromeda \u2192 Conectar IA.";
+async function requireWriteScope(ctx) {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  const claims = ctx.getClaims?.() ?? {};
-  const raw = claims.scope ?? claims.scopes ?? claims.scp;
-  if (raw == null) return null;
-  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
-  return granted.includes("read_write") ? null : "Esta conexi\xF3n es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+  const { data, error } = await sbForUser(ctx).rpc("mcp_access_level");
+  if (error) return `No se pudo verificar el permiso de gesti\xF3n: ${error.message}`;
+  return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
+function rpcErrorText(error) {
+  const msg = error?.message ?? "Error desconocido";
+  switch (error?.code) {
+    case "MCP01":
+      return MANAGE_REQUIRED;
+    case "MCP04":
+      return `No encontrado o sin permiso: ${msg}`;
+    case "MCP09":
+      return `Conflicto (nada se modific\xF3): ${msg}`;
+    case "MCP22":
+      return `Solicitud inv\xE1lida (nada se modific\xF3): ${msg}`;
+    default:
+      return msg;
+  }
+}
+var IDEMPOTENCY_KEY_DESCRIPTION = "Clave \xFAnica (8-200 caracteres) para esta acci\xF3n concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error.";
 async function callerOrganizationId(sb, userId) {
   const { data } = await sb.from("organization_memberships").select("organization_id").eq("user_id", userId).limit(1).maybeSingle();
   return data?.organization_id ?? null;
@@ -322,9 +337,11 @@ var get_work_item_default = defineTool2({
       "id",
       "radicado",
       "workflow_type",
+      "cgp_phase",
       "stage",
       "status",
       "lifecycle_state",
+      "updated_at",
       "title",
       "description",
       "authority_name",
@@ -833,7 +850,7 @@ import { z as z11 } from "npm:zod@^3.25.76";
 var add_note_default = defineTool12({
   name: "add_note",
   title: "Agregar nota a un asunto",
-  description: "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
+  description: "Appends a timestamped note to a matter's notes field. Never deletes, reclassifies or changes the lifecycle of a matter. Requires a manage grant (see get_capabilities).",
   inputSchema: {
     radicado: z11.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z11.string().uuid().optional().describe("UUID del asunto."),
@@ -841,7 +858,7 @@ var add_note_default = defineTool12({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, deleted_at");
@@ -976,9 +993,9 @@ var list_alerts_default = defineTool14({
       entityId = resolved.item.id;
       resolucion = resolved.note ?? null;
     }
-    let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at").order("fired_at", { ascending: false }).limit(limit ?? 30);
+    let q = sb.from("alert_instances").select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at, resolution_mode, condition_class").order("fired_at", { ascending: false }).limit(limit ?? 30);
     const normalized = status?.toUpperCase();
-    if (!normalized) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
+    if (!normalized) q = q.in("status", ["PENDING", "SENT", "ACKNOWLEDGED"]);
     else if (normalized !== "ALL") q = q.eq("status", normalized);
     if (entityId) q = q.eq("entity_id", entityId);
     const { data, error } = await q;
@@ -1003,14 +1020,15 @@ var list_alerts_default = defineTool14({
         radicado: wi?.radicado ?? null,
         titulo_asunto: wi?.title ?? null,
         workflow_type: wi?.workflow_type ?? null,
-        leida: Boolean(row.read_at)
+        leida: Boolean(row.read_at),
+        allowed_actions: row.resolution_mode === "AUTO_ON_CAUSE_CLEARED" ? ["acknowledge"] : ["acknowledge", "dismiss"]
       };
     });
     const unread = alerts.filter((a) => !a.leida).length;
     return textResult(`${resolucion ? `${resolucion}
 ` : ""}${alerts.length} alertas (${unread} sin leer).`, {
       resolucion,
-      status: status ?? "PENDING+ACKNOWLEDGED",
+      status: status ?? "PENDING+SENT+ACKNOWLEDGED",
       work_item_id: entityId,
       unread,
       alerts
@@ -1471,7 +1489,7 @@ import { z as z18 } from "npm:zod@^3.25.76";
 var add_hearing_default = defineTool19({
   name: "add_hearing",
   title: "Agendar audiencia",
-  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
     work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
     radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
@@ -1481,7 +1499,7 @@ var add_hearing_default = defineTool19({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const when = new Date(date);
@@ -2033,7 +2051,7 @@ var update_work_item_default = defineTool28({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
@@ -2107,7 +2125,7 @@ var manage_deadline_default = defineTool29({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();
@@ -2194,7 +2212,7 @@ var manage_task_default = defineTool30({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();
@@ -2414,7 +2432,7 @@ var whatsapp_prepare_default = defineTool33({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();
@@ -2482,12 +2500,747 @@ var whatsapp_prepare_default = defineTool33({
   }
 });
 
+// src/lib/mcp/tools/get-capabilities.ts
+import { defineTool as defineTool34 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var MANAGE_TOOLS = [
+  "add_note",
+  "add_hearing",
+  "update_work_item",
+  "manage_deadline",
+  "manage_task",
+  "whatsapp_prepare",
+  "create_work_item",
+  "change_work_item_lifecycle",
+  "move_work_item_stage",
+  "resolve_stage_suggestion",
+  "resolve_alert",
+  "set_notification_state",
+  "resolve_email_question",
+  "add_email_association",
+  "resolve_detected_process"
+];
+var get_capabilities_default = defineTool34({
+  name: "get_capabilities",
+  title: "Permisos efectivos de esta conexi\xF3n",
+  description: "Read-only. Returns this connection's effective access level (read or manage) as decided by Andromeda's database for the verified user and OAuth client. Call before proposing any change.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async (_args, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const [{ data: level, error: e1 }, { data: caller, error: e2 }] = await Promise.all([
+      sb.rpc("mcp_access_level"),
+      sb.rpc("mcp_caller_context")
+    ]);
+    if (e1 || e2) return errorResult((e1 ?? e2)?.message ?? "Error");
+    const c = caller ?? {};
+    const canManage = level === "manage" || level === "first_party";
+    return textResult(
+      canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
+      {
+        access_level: level,
+        surface: c.surface ?? null,
+        oauth_client_id: c.oauth_client_id ?? null,
+        can_manage: canManage,
+        manage_tools: MANAGE_TOOLS,
+        never_available: [
+          "borrado definitivo (purga)",
+          "administraci\xF3n de cuentas, contrase\xF1as o roles",
+          "env\xEDo de correos o mensajes",
+          "dar por cumplido un t\xE9rmino"
+        ],
+        how_to_enable: "Andromeda \u2192 Conectar IA \u2192 Conexiones autorizadas \u2192 Permitir gestionar. Revocable en cualquier momento."
+      }
+    );
+  }
+});
+
+// src/lib/mcp/tools/list-workflow-stages.ts
+import { defineTool as defineTool35 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z29 } from "npm:zod@^3.25.76";
+
+// src/lib/workflow-phases.ts
+var WORKFLOW_PHASES = {
+  CGP: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "ADMISION", label: "Admisi\xF3n" },
+    { key: "NOTIFICACION", label: "Notificaci\xF3n" },
+    { key: "CONTESTACION", label: "Contestaci\xF3n / Excepciones" },
+    { key: "AUDIENCIAS", label: "Audiencias" },
+    { key: "SENTENCIA", label: "Sentencia" },
+    { key: "RECURSOS", label: "Recursos" }
+  ],
+  CPACA: [
+    { key: "PRECONTENCIOSO", label: "Precontencioso" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "ADMISION", label: "Admisi\xF3n" },
+    { key: "NOTIFICACION", label: "Notificaci\xF3n y traslados" },
+    { key: "CONTESTACION", label: "Contestaci\xF3n / Excepciones" },
+    { key: "AUDIENCIAS", label: "Audiencias" },
+    { key: "SENTENCIA", label: "Alegatos y sentencia" },
+    { key: "RECURSOS", label: "Recursos" }
+  ],
+  TUTELA: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "ADMISION", label: "Admisi\xF3n" },
+    { key: "SENTENCIA", label: "Fallo" },
+    { key: "RECURSOS", label: "Impugnaci\xF3n" },
+    { key: "CUMPLIMIENTO", label: "Cumplimiento" }
+  ],
+  LABORAL: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "ADMISION", label: "Admisi\xF3n" },
+    { key: "NOTIFICACION", label: "Notificaci\xF3n" },
+    { key: "CONTESTACION", label: "Contestaci\xF3n" },
+    { key: "AUDIENCIAS", label: "Audiencias" },
+    { key: "SENTENCIA", label: "Sentencia" },
+    { key: "RECURSOS", label: "Recursos" }
+  ],
+  EJECUTIVO: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n de la demanda ejecutiva" },
+    { key: "SUBSANACION", label: "Inadmisi\xF3n / Subsanaci\xF3n" },
+    { key: "MANDAMIENTO_PAGO", label: "Auto que libra mandamiento de pago" },
+    { key: "NOTIFICACION_MANDAMIENTO", label: "Notificaci\xF3n del mandamiento" },
+    { key: "EXCEPCIONES_MERITO", label: "Excepciones de m\xE9rito" },
+    { key: "TRASLADO_EXCEPCIONES", label: "Traslado de excepciones" },
+    { key: "SEGUIR_ADELANTE", label: "Seguir adelante la ejecuci\xF3n" },
+    { key: "LIQUIDACION_CREDITO", label: "Liquidaci\xF3n del cr\xE9dito y costas" },
+    { key: "AVALUO_REMATE", label: "Aval\xFAo y remate" },
+    { key: "TERMINACION_PAGO", label: "Terminaci\xF3n por pago", branch: true },
+    { key: "DESISTIMIENTO", label: "Desistimiento", branch: true }
+  ],
+  PENAL_906: [
+    { key: "INDAGACION", label: "Indagaci\xF3n" },
+    { key: "IMPUTACION", label: "Formulaci\xF3n de imputaci\xF3n" },
+    { key: "MEDIDA_ASEGURAMIENTO", label: "Medida de aseguramiento" },
+    { key: "ESCRITO_ACUSACION", label: "Escrito de acusaci\xF3n" },
+    { key: "AUDIENCIA_ACUSACION", label: "Audiencia de formulaci\xF3n de acusaci\xF3n" },
+    { key: "PREPARATORIA", label: "Audiencia preparatoria" },
+    { key: "JUICIO_ORAL", label: "Juicio oral" },
+    { key: "SENTENCIA", label: "Sentencia" },
+    { key: "RECURSOS", label: "Recursos" },
+    { key: "PRECLUSION", label: "Preclusi\xF3n", branch: true },
+    { key: "ARCHIVO", label: "Archivo", branch: true }
+  ],
+  PETICION: [
+    { key: "RADICACION", label: "Radicada" },
+    { key: "NOTIFICACION", label: "Constancia" },
+    { key: "CONTESTACION", label: "Pr\xF3rroga" },
+    { key: "SENTENCIA", label: "Respuesta" }
+  ],
+  GOV_PROCEDURE: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "CONTESTACION", label: "Tr\xE1mite" },
+    { key: "SENTENCIA", label: "Decisi\xF3n" },
+    { key: "RECURSOS", label: "Recursos" }
+  ],
+  INDETERMINADO: [],
+  GENERIC: [
+    { key: "PREPARACION", label: "Preparaci\xF3n" },
+    { key: "RADICACION", label: "Radicaci\xF3n" },
+    { key: "CONTESTACION", label: "Tr\xE1mite" },
+    { key: "SENTENCIA", label: "Decisi\xF3n" }
+  ]
+};
+
+// src/lib/workflow-constants.ts
+var JUDICIAL_WORKFLOW_TYPES = [
+  "CGP",
+  "EJECUTIVO",
+  "LABORAL",
+  "CPACA",
+  "TUTELA",
+  "PENAL_906"
+];
+var JUDICIAL_WORKFLOW_TYPE_SET = new Set(
+  JUDICIAL_WORKFLOW_TYPES
+);
+var CGP_FILING_STAGES = {
+  DRAFTED: { label: "Borrador", order: 0 },
+  SENT_TO_REPARTO: { label: "Enviado a Reparto", order: 1 },
+  ACTA_PENDING: { label: "Acta Pendiente", order: 2 },
+  ACTA_RECEIVED: { label: "Acta Recibida", order: 3 },
+  SUBSANACION: { label: "Subsanaci\xF3n", order: 4 },
+  RADICADO_PENDING: { label: "Radicado Pendiente", order: 5 },
+  RADICADO_CONFIRMED: { label: "Radicado Confirmado", order: 6 },
+  PENDING_AUTO_ADMISORIO: { label: "Pendiente Auto Admisorio", order: 7 }
+};
+var CGP_PROCESS_STAGES = {
+  AUTO_ADMISORIO: { label: "Auto Admisorio", order: 0 },
+  CUADERNO: { label: "Cuaderno de medidas", order: 1 },
+  NOTIFICACION_PERSONAL: { label: "Notificaci\xF3n Personal", order: 2 },
+  NOTIFICACION_AVISO: { label: "Notificaci\xF3n por Aviso", order: 3 },
+  EXCEPCIONES_PREVIAS: { label: "Excepciones Previas", order: 4 },
+  PRONUNCIARSE_EXCEPCIONES: { label: "Pronunciarse Excepciones", order: 5 },
+  AUDIENCIA_INICIAL: { label: "Audiencia Inicial", order: 6 },
+  AUDIENCIA_INSTRUCCION: { label: "Audiencia Instrucci\xF3n", order: 7 },
+  ALEGATOS_SENTENCIA: { label: "Alegatos y Sentencia", order: 8 },
+  APELACION: { label: "Apelaci\xF3n", order: 9 }
+};
+var PETICION_STAGES = {
+  PETICION_RADICADA: { label: "Petici\xF3n Radicada", order: 0 },
+  CONSTANCIA_RADICACION: { label: "Constancia de Radicaci\xF3n", order: 1 },
+  PRORROGA: { label: "Pr\xF3rroga", order: 2 },
+  RESPUESTA: { label: "Respuesta", order: 3 }
+};
+var TUTELA_STAGES = {
+  TUTELA_RADICADA: { label: "Tutela Radicada", order: 0 },
+  TUTELA_ADMITIDA: { label: "Tutela Admitida", order: 1 },
+  FALLO_PRIMERA_INSTANCIA: { label: "Fallo Primera Instancia", order: 2 },
+  FALLO_SEGUNDA_INSTANCIA: { label: "Fallo Segunda Instancia", order: 3 },
+  ARCHIVADO: { label: "Archivado", order: 4 }
+};
+var GOV_PROCEDURE_STAGES = {
+  INICIO_APERTURA: { label: "Inicio / Apertura", order: 0 },
+  REQUERIMIENTOS_TRASLADOS: { label: "Requerimientos / Traslados", order: 1 },
+  DESCARGOS: { label: "Descargos", order: 2 },
+  PRUEBAS: { label: "Pruebas", order: 3 },
+  ALEGATOS_INFORME: { label: "Alegatos / Informe", order: 4 },
+  DECISION_PRIMERA: { label: "Decisi\xF3n (1\xAA Instancia)", order: 5 },
+  RECURSOS: { label: "Recursos", order: 6 },
+  EJECUCION_CUMPLIMIENTO: { label: "Ejecuci\xF3n / Cumplimiento", order: 7 },
+  ARCHIVADO: { label: "Archivado", order: 8 }
+};
+var CPACA_STAGES = {
+  PRECONTENCIOSO: { label: "Precontencioso", order: 0 },
+  DEMANDA_POR_RADICAR: { label: "Demanda por Radicar", order: 1 },
+  DEMANDA_RADICADA: { label: "Demanda Radicada", order: 2 },
+  AUTO_ADMISORIO: { label: "Auto Admisorio", order: 3 },
+  TRASLADO_DEMANDA: { label: "Traslado Demanda", order: 4 },
+  TRASLADO_EXCEPCIONES: { label: "Traslado Excepciones", order: 5 },
+  AUDIENCIA_INICIAL: { label: "Audiencia Inicial", order: 6 },
+  AUDIENCIA_PRUEBAS: { label: "Audiencia Pruebas", order: 7 },
+  ALEGATOS_SENTENCIA: { label: "Alegatos y Sentencia", order: 8 },
+  RECURSOS: { label: "Recursos", order: 9 },
+  EJECUCION_CUMPLIMIENTO: { label: "Ejecuci\xF3n / Cumplimiento", order: 10 }
+};
+var LABORAL_STAGES = {
+  BORRADOR: { label: "Borrador", order: 0 },
+  RADICACION: { label: "Radicaci\xF3n", order: 1 },
+  REPARTO: { label: "Reparto", order: 2 },
+  ADMISION_PENDIENTE: { label: "Admisi\xF3n Pendiente", order: 3 },
+  AUDIENCIA_INICIAL: { label: "Audiencia Inicial", order: 4 },
+  AUDIENCIA_JUZGAMIENTO: { label: "Aud. Juzgamiento", order: 5 },
+  SENTENCIA_1A_INSTANCIA: { label: "Sentencia 1\xAA", order: 6 },
+  APELACION: { label: "Apelaci\xF3n", order: 7 },
+  EJECUCION: { label: "Ejecuci\xF3n", order: 8 },
+  ARCHIVADO: { label: "Archivado", order: 9 }
+};
+var PENAL_906_STAGES = {
+  INDAGACION: { label: "Indagaci\xF3n", order: 0 },
+  IMPUTACION: { label: "Formulaci\xF3n de imputaci\xF3n", order: 1 },
+  MEDIDA_ASEGURAMIENTO: { label: "Medida de aseguramiento", order: 2 },
+  ESCRITO_ACUSACION: { label: "Escrito de acusaci\xF3n", order: 3 },
+  AUDIENCIA_ACUSACION: { label: "Audiencia de formulaci\xF3n de acusaci\xF3n", order: 4 },
+  PREPARATORIA: { label: "Audiencia preparatoria", order: 5 },
+  JUICIO_ORAL: { label: "Juicio oral", order: 6 },
+  SENTENCIA: { label: "Sentencia", order: 7 },
+  RECURSOS: { label: "Recursos", order: 8 },
+  PRECLUSION: { label: "Preclusi\xF3n", order: 9 },
+  ARCHIVO: { label: "Archivo", order: 10 }
+};
+var EJECUTIVO_STAGES = Object.fromEntries(
+  WORKFLOW_PHASES.EJECUTIVO.map((p, i) => [p.key, { label: p.label, order: i }])
+);
+function getStagesForWorkflow(workflowType, cgpPhase) {
+  switch (workflowType) {
+    case "CGP":
+      return cgpPhase === "PROCESS" ? CGP_PROCESS_STAGES : CGP_FILING_STAGES;
+    case "PETICION":
+      return PETICION_STAGES;
+    case "TUTELA":
+      return TUTELA_STAGES;
+    case "GOV_PROCEDURE":
+      return GOV_PROCEDURE_STAGES;
+    case "CPACA":
+      return CPACA_STAGES;
+    case "LABORAL":
+      return LABORAL_STAGES;
+    case "PENAL_906":
+      return PENAL_906_STAGES;
+    case "EJECUTIVO":
+      return EJECUTIVO_STAGES;
+    default:
+      return {};
+  }
+}
+function getStageOrderForWorkflow(workflowType, cgpPhase) {
+  const stages = getStagesForWorkflow(workflowType, cgpPhase);
+  return Object.entries(stages).sort((a, b) => a[1].order - b[1].order).map(([key]) => key);
+}
+function getDefaultStage(workflowType, cgpPhase) {
+  const stages = getStageOrderForWorkflow(workflowType, cgpPhase);
+  return stages[0] || "";
+}
+
+// src/lib/mcp/manage-helpers.ts
+function appStageOrder(workflowType, cgpPhase) {
+  return getStageOrderForWorkflow(workflowType, cgpPhase ?? void 0);
+}
+function appStages(workflowType, cgpPhase) {
+  const stages = getStagesForWorkflow(workflowType, cgpPhase ?? void 0);
+  return Object.entries(stages).sort((a, b) => a[1].order - b[1].order).map(([code, s]) => ({ code, label: s.label, order: s.order }));
+}
+async function loadWorkItemRevision(sb, id) {
+  const { data, error } = await sb.from("work_items").select("id, radicado, workflow_type, cgp_phase, stage, lifecycle_state, updated_at, deleted_at").eq("id", id).maybeSingle();
+  if (error) return { item: null, error: error.message };
+  if (!data) return { item: null, error: "Asunto no encontrado (o no pertenece a tu cuenta)." };
+  return { item: data, error: null };
+}
+var MANAGE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+};
+
+// src/lib/mcp/tools/list-workflow-stages.ts
+var list_workflow_stages_default = defineTool35({
+  name: "list_workflow_stages",
+  title: "Cat\xE1logo de etapas por tipo de proceso",
+  description: "Read-only. Lists the legal stages (and catalogued transitions when they exist) for a workflow type, so stage moves can be proposed with valid codes. Regressions are never allowed through the assistant.",
+  inputSchema: {
+    workflow_type: z29.string().trim().min(2).describe("Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO."),
+    cgp_phase: z29.enum(["FILING", "PROCESS"]).optional().describe("Solo CGP: fase actual del asunto (las etapas dependen de ella).")
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ workflow_type, cgp_phase }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const wf = canonicalWorkflowType(workflow_type);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_workflow_stages", { p_workflow_type: wf });
+    if (error) return errorResult(error.message);
+    const catalog = data ?? {};
+    const governed = (catalog.stages?.length ?? 0) > 0;
+    const stages = governed ? catalog.stages ?? [] : appStages(wf, cgp_phase ?? (wf === "CGP" ? "FILING" : null));
+    return textResult(`${stages.length} etapas para ${wf}${wf === "CGP" ? ` (fase ${cgp_phase ?? "FILING"})` : ""}.`, {
+      workflow_type: wf,
+      source: governed ? "catalogo_base_de_datos" : "catalogo_aplicacion",
+      stages,
+      transitions: governed ? catalog.transitions ?? [] : [],
+      rules: "Solo avances dentro del cat\xE1logo. Retrocesos y cambios de fase CGP se hacen en la app."
+    });
+  }
+});
+
+// src/lib/mcp/tools/create-work-item.ts
+import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z30 } from "npm:zod@^3.25.76";
+
+// src/lib/externalSyncDisplay.ts
+var ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
+  "CGP",
+  "CPACA",
+  "LABORAL",
+  "PENAL_906",
+  "TUTELA",
+  "EJECUTIVO"
+];
+
+// src/lib/monitoring-reason.ts
+var PROVIDER_ELIGIBLE_WORKFLOWS = ONLINE_SYNC_ELIGIBLE_WORKFLOWS;
+var MONITORING_OFF_REASON = {
+  /** Provider-eligible workflow, but no radicado recorded yet. */
+  PENDIENTE_DE_RADICACION: "PENDIENTE_DE_RADICACION",
+  /** Workflow has no provider chain at all (PETICION, GOV_PROCEDURE, …). */
+  WORKFLOW_SIN_PROVEEDOR: "WORKFLOW_SIN_PROVEEDOR",
+  /** Item is archived / soft-deleted / non-ACTIVE lifecycle. */
+  EXPEDIENTE_NO_ACTIVO: "EXPEDIENTE_NO_ACTIVO"
+};
+function isProviderEligibleWorkflow(workflowType) {
+  if (!workflowType) return false;
+  return PROVIDER_ELIGIBLE_WORKFLOWS.includes(workflowType);
+}
+function radDigits(radicado) {
+  return (radicado || "").replace(/\D/g, "");
+}
+function hasUsableRadicado(radicado) {
+  return radDigits(radicado).length >= 21;
+}
+function resolveMonitoringOffReason(input) {
+  if (!isProviderEligibleWorkflow(input.workflowType)) {
+    return MONITORING_OFF_REASON.WORKFLOW_SIN_PROVEEDOR;
+  }
+  if (input.deletedAt) return MONITORING_OFF_REASON.EXPEDIENTE_NO_ACTIVO;
+  if (input.lifecycleState && input.lifecycleState !== "ACTIVE") {
+    return MONITORING_OFF_REASON.EXPEDIENTE_NO_ACTIVO;
+  }
+  if (!hasUsableRadicado(input.radicado)) {
+    return MONITORING_OFF_REASON.PENDIENTE_DE_RADICACION;
+  }
+  return null;
+}
+
+// src/lib/mcp/tools/create-work-item.ts
+var create_work_item_default = defineTool36({
+  name: "create_work_item",
+  title: "Crear asunto",
+  description: "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
+  inputSchema: {
+    workflow_type: z30.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
+    radicado: z30.string().trim().optional().describe("Radicado de 23 d\xEDgitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicaci\xF3n."),
+    title: z30.string().trim().max(300).optional(),
+    client_id: z30.string().uuid().optional().describe("Cliente propio del usuario."),
+    demandantes: z30.string().trim().max(1e3).optional(),
+    demandados: z30.string().trim().max(1e3).optional(),
+    authority_name: z30.string().trim().max(300).optional().describe("Despacho, si se conoce."),
+    idempotency_key: z30.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const wf = canonicalWorkflowType(args.workflow_type);
+    const stage = getDefaultStage(wf, wf === "CGP" ? "FILING" : void 0);
+    if (!stage) return errorResult(`No hay etapa inicial definida para ${wf}.`);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_create_work_item", {
+      p_workflow_type: wf,
+      p_stage: stage,
+      p_radicado: args.radicado ?? null,
+      p_title: args.title ?? null,
+      p_client_id: args.client_id ?? null,
+      p_demandantes: args.demandantes ?? null,
+      p_demandados: args.demandados ?? null,
+      p_authority_name: args.authority_name ?? null,
+      p_monitoring_off_reason: resolveMonitoringOffReason({ workflowType: wf, radicado: args.radicado ?? null }),
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data;
+    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}.`, r);
+  }
+});
+
+// src/lib/mcp/tools/change-work-item-lifecycle.ts
+import { defineTool as defineTool37 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z31 } from "npm:zod@^3.25.76";
+var change_work_item_lifecycle_default = defineTool37({
+  name: "change_work_item_lifecycle",
+  title: "Archivar, enviar a papelera o restaurar un asunto",
+  description: "Recoverable lifecycle changes only: archive (kept indefinitely, monitoring off), trash (soft delete, recoverable until recovery_deadline \u2014 10 days \u2014 then purged by retention) or restore. Permanent deletion is never available here. Requires expected_updated_at from get_work_item, the user's explicit instruction and a manage grant.",
+  inputSchema: {
+    work_item_id: z31.string().uuid(),
+    action: z31.enum(["archive", "trash", "restore"]),
+    expected_updated_at: z31.string().min(10).describe("updated_at del asunto tal como lo le\xEDste; si cambi\xF3, no se modifica nada."),
+    reason: z31.string().trim().max(500).optional(),
+    idempotency_key: z31.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_work_item_lifecycle", {
+      p_work_item_id: args.work_item_id,
+      p_action: args.action,
+      p_expected_updated_at: args.expected_updated_at,
+      p_idempotency_key: args.idempotency_key,
+      p_reason: args.reason ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data;
+    return textResult(String(r.note ?? "Hecho."), r);
+  }
+});
+
+// src/lib/mcp/tools/move-work-item-stage.ts
+import { defineTool as defineTool38 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z32 } from "npm:zod@^3.25.76";
+var move_work_item_stage_default = defineTool38({
+  name: "move_work_item_stage",
+  title: "Mover la etapa procesal de un asunto",
+  description: "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+  inputSchema: {
+    work_item_id: z32.string().uuid(),
+    to_stage: z32.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
+    expected_updated_at: z32.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
+    reason: z32.string().trim().max(500).optional(),
+    idempotency_key: z32.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const { item, error: loadErr } = await loadWorkItemRevision(sb, args.work_item_id);
+    if (!item) return errorResult(loadErr ?? "Asunto no encontrado.");
+    const { data, error } = await sb.rpc("mcp_move_work_item_stage", {
+      p_work_item_id: args.work_item_id,
+      p_to_stage: args.to_stage,
+      p_expected_updated_at: args.expected_updated_at,
+      p_app_stage_order: appStageOrder(String(item.workflow_type), item.cgp_phase),
+      p_idempotency_key: args.idempotency_key,
+      p_reason: args.reason ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Etapa actualizada.", data);
+  }
+});
+
+// src/lib/mcp/tools/list-stage-suggestions.ts
+import { defineTool as defineTool39 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z33 } from "npm:zod@^3.25.76";
+var list_stage_suggestions_default = defineTool39({
+  name: "list_stage_suggestions",
+  title: "Sugerencias de etapa pendientes",
+  description: "Read-only. Lists PENDING stage suggestions (with the evidence that produced them) for the user's matters.",
+  inputSchema: {
+    work_item_id: z33.string().uuid().optional(),
+    limit: z33.number().int().min(1).max(100).optional()
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ work_item_id, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    let q = sbForUser(ctx).from("work_item_stage_suggestions").select("id, work_item_id, suggested_stage, confidence, reason, source_type, event_date, event_text, is_regression, created_at, updated_at").eq("status", "PENDING").order("created_at", { ascending: false }).limit(limit ?? 30);
+    if (work_item_id) q = q.eq("work_item_id", work_item_id);
+    const { data, error } = await q;
+    if (error) return errorResult(error.message);
+    return textResult(`${data?.length ?? 0} sugerencias pendientes.`, { suggestions: data ?? [] });
+  }
+});
+
+// src/lib/mcp/tools/resolve-stage-suggestion.ts
+import { defineTool as defineTool40 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z34 } from "npm:zod@^3.25.76";
+var resolve_stage_suggestion_default = defineTool40({
+  name: "resolve_stage_suggestion",
+  title: "Aplicar o descartar una sugerencia de etapa",
+  description: "Applies (moves the stage) or dismisses one PENDING stage suggestion. Apply checks the matter revision and the workflow catalogue; regressions are rejected. A suggestion already resolved by someone else returns a conflict. Only on the user's explicit decision; requires a manage grant.",
+  inputSchema: {
+    suggestion_id: z34.string().uuid(),
+    decision: z34.enum(["apply", "dismiss"]),
+    expected_updated_at: z34.string().min(10).optional().describe("Obligatorio para apply: updated_at del asunto tal como lo le\xEDste."),
+    reason: z34.string().trim().max(500).optional(),
+    idempotency_key: z34.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const sb = sbForUser(ctx);
+    const { data: sug, error: sErr } = await sb.from("work_item_stage_suggestions").select("work_item_id").eq("id", args.suggestion_id).maybeSingle();
+    if (sErr) return errorResult(sErr.message);
+    if (!sug) return errorResult("Sugerencia no encontrada.");
+    const { item } = await loadWorkItemRevision(sb, String(sug.work_item_id));
+    const { data, error } = await sb.rpc("mcp_resolve_stage_suggestion", {
+      p_suggestion_id: args.suggestion_id,
+      p_decision: args.decision,
+      p_expected_updated_at: args.expected_updated_at ?? null,
+      p_app_stage_order: item ? appStageOrder(String(item.workflow_type), item.cgp_phase) : [],
+      p_idempotency_key: args.idempotency_key,
+      p_reason: args.reason ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult(args.decision === "apply" ? "Sugerencia aplicada." : "Sugerencia descartada.", data);
+  }
+});
+
+// src/lib/mcp/tools/resolve-alert.ts
+import { defineTool as defineTool41 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z35 } from "npm:zod@^3.25.76";
+var resolve_alert_default = defineTool41({
+  name: "resolve_alert",
+  title: "Marcar vista o descartar una alerta",
+  description: "Acts on an alert returned by list_alerts (never a notification ID). acknowledge marks it seen; dismiss closes it only when its allowed_actions include dismiss (alerts that clear automatically with their cause cannot be dismissed). Personal: never completes or closes a legal deadline. Requires a manage grant.",
+  inputSchema: {
+    alert_id: z35.string().uuid(),
+    action: z35.enum(["acknowledge", "dismiss"]),
+    reason: z35.string().trim().max(300).optional(),
+    idempotency_key: z35.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_resolve_alert", {
+      p_alert_id: args.alert_id,
+      p_action: args.action,
+      p_idempotency_key: args.idempotency_key,
+      p_reason: args.reason ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult(args.action === "acknowledge" ? "Alerta marcada como vista." : "Alerta descartada.", data);
+  }
+});
+
+// src/lib/mcp/tools/list-notifications.ts
+import { defineTool as defineTool42 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z36 } from "npm:zod@^3.25.76";
+var list_notifications_default = defineTool42({
+  name: "list_notifications",
+  title: "Centro de notificaciones",
+  description: "Read-only. Lists the user's notification-center items (distinct from alerts in list_alerts) with their personal read/dismissed/snoozed state.",
+  inputSchema: {
+    limit: z36.number().int().min(1).max(100).optional(),
+    include_dismissed: z36.boolean().optional()
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ limit, include_dismissed }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const sb = sbForUser(ctx);
+    const { data, error } = await sb.from("notifications").select("id, title, created_at, work_item_id, category, severity").order("created_at", { ascending: false }).limit(limit ?? 30);
+    if (error) return errorResult(error.message);
+    const rows = data ?? [];
+    const ids = rows.map((r) => String(r.id));
+    const { data: states } = ids.length ? await sb.from("notification_user_state").select("notification_id, read_at, dismissed_at, snoozed_until").in("notification_id", ids) : { data: [] };
+    const byId = /* @__PURE__ */ new Map();
+    for (const st of states ?? []) byId.set(String(st.notification_id), st);
+    const items = rows.map((r) => {
+      const s = byId.get(String(r.id));
+      return { ...r, read_at: s?.read_at ?? null, dismissed_at: s?.dismissed_at ?? null, snoozed_until: s?.snoozed_until ?? null };
+    }).filter((r) => include_dismissed || !r.dismissed_at);
+    return textResult(`${items.length} notificaciones.`, { notifications: items });
+  }
+});
+
+// src/lib/mcp/tools/set-notification-state.ts
+import { defineTool as defineTool43 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z37 } from "npm:zod@^3.25.76";
+var set_notification_state_default = defineTool43({
+  name: "set_notification_state",
+  title: "Marcar le\xEDdas, descartar o posponer notificaciones",
+  description: "Changes the user's personal state for notification-center items from list_notifications (never alert IDs \u2014 use resolve_alert). Requires a manage grant.",
+  inputSchema: {
+    notification_ids: z37.array(z37.string().uuid()).min(1).max(200),
+    action: z37.enum(["read", "dismiss", "snooze"]),
+    snooze_until: z37.string().min(10).optional().describe("Obligatorio para snooze (fecha futura ISO)."),
+    idempotency_key: z37.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_set_notification_state", {
+      p_ids: args.notification_ids,
+      p_action: args.action,
+      p_until: args.snooze_until ?? null,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Notificaciones actualizadas.", data);
+  }
+});
+
+// src/lib/mcp/tools/resolve-email-question.ts
+import { defineTool as defineTool44 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z38 } from "npm:zod@^3.25.76";
+var resolve_email_question_default = defineTool44({
+  name: "resolve_email_question",
+  title: "Responder una pregunta de asociaci\xF3n de correo",
+  description: "Resolves one pending email-association question (SUGGESTED links from list_email_links), decided per message: confirm the chosen link (all other suggestions for the same message are dismissed) or dismiss every suggestion for that message. Confirm is blocked when the email cites a different radicado \u2014 use add_email_association for a deliberate choice. Never changes a stage, never marks a deadline complete, never sends mail. Requires a manage grant.",
+  inputSchema: {
+    link_id: z38.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
+    decision: z38.enum(["confirm", "dismiss"]),
+    idempotency_key: z38.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_resolve_email_question", {
+      p_link_id: args.link_id,
+      p_decision: args.decision,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult(args.decision === "confirm" ? "Correo asociado." : "Sugerencias del correo descartadas.", data);
+  }
+});
+
+// src/lib/mcp/tools/add-email-association.ts
+import { defineTool as defineTool45 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z39 } from "npm:zod@^3.25.76";
+var add_email_association_default = defineTool45({
+  name: "add_email_association",
+  title: "Asociar deliberadamente un correo a otro asunto",
+  description: "Adds a confirmed manual association of an email (identified by one of its link IDs) to a matter the user manages, dismissing pending suggestions for that message and recording the manual override (including radicado conflicts). Existing confirmed associations are kept: this is not an exclusive move. Never changes stages or deadlines. Requires a manage grant.",
+  inputSchema: {
+    link_id: z39.string().uuid().describe("Cualquier v\xEDnculo existente del correo."),
+    work_item_id: z39.string().uuid().describe("Asunto destino."),
+    idempotency_key: z39.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_add_email_association", {
+      p_link_id: args.link_id,
+      p_work_item_id: args.work_item_id,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Asociaci\xF3n agregada.", data);
+  }
+});
+
+// src/lib/mcp/tools/resolve-detected-process.ts
+import { defineTool as defineTool46 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z40 } from "npm:zod@^3.25.76";
+var resolve_detected_process_default = defineTool46({
+  name: "resolve_detected_process",
+  title: "Resolver un proceso detectado",
+  description: "Resolves a PENDING detected process (list_detected_processes): dismiss, matched_existing (link to an existing matter with the same radicado base) or created (link to a matter created after the detection, e.g. with create_work_item). Requires a manage grant.",
+  inputSchema: {
+    detected_process_id: z40.string().uuid(),
+    decision: z40.enum(["dismiss", "matched_existing", "created"]),
+    work_item_id: z40.string().uuid().optional().describe("Obligatorio salvo para dismiss."),
+    idempotency_key: z40.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_resolve_detected_process", {
+      p_id: args.detected_process_id,
+      p_decision: args.decision,
+      p_work_item_id: args.work_item_id ?? null,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Proceso detectado resuelto.", data);
+  }
+});
+
+// src/lib/mcp/tools/list-updates.ts
+import { defineTool as defineTool47 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z41 } from "npm:zod@^3.25.76";
+var list_updates_default = defineTool47({
+  name: "list_updates",
+  title: "Novedades incrementales (actuaciones, estados y ciclo de vida)",
+  description: "Read-only resumable feed of changes: actuaciones and estados (kept separate by kind, with court dates distinct from detection/change times, including corrections and archivals) plus matter lifecycle changes. Pass next_cursor to continue; has_more says whether to page again. After catching up, the next call re-reads a 15-minute overlap window \u2014 deduplicate by dedupe_key. The cursor is bound to the user, the optional work_item_id and expires after 7 days. An empty page does NOT mean providers were checked: read `freshness`.",
+  inputSchema: {
+    cursor: z41.string().max(2e3).optional().describe("next_cursor de la llamada anterior. Sin cursor: \xFAltimos 3 d\xEDas."),
+    work_item_id: z41.string().uuid().optional(),
+    limit: z41.number().int().min(1).max(500).optional()
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ cursor, work_item_id, limit }, ctx) => {
+    const unauth = requireAuth(ctx);
+    if (unauth) return errorResult(unauth);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_updates", {
+      p_cursor: cursor ?? null,
+      p_limit: limit ?? 100,
+      p_work_item_id: work_item_id ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data;
+    return textResult(`${r.events?.length ?? 0} novedades${r.has_more ? " (hay m\xE1s: usa next_cursor)" : ""}.`, data);
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.5.1",
+  version: "0.6.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -2503,7 +3256,9 @@ var mcp_default = defineMcp({
     "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente d\xF3nde mirar o abrirle un asunto.",
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
-    "Escritura: `add_note`, `add_hearing`, `update_work_item` (campos descriptivos), `manage_deadline` y `manage_task`. Todas exigen el permiso `read_write`. Nunca existe eliminaci\xF3n, archivado, cambio de radicado, de tipo de proceso ni de etapa procesal v\xEDa MCP, y los t\xE9rminos creados aqu\xED se marcan como manuales: el asistente nunca calcula una fecha.",
+    "Permisos: `get_capabilities` dice si esta conexi\xF3n es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active \xE9l mismo en Andromeda \u2192 Conectar IA; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
+    "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
+    "Novedades: `list_updates` entrega actuaciones, estados y cambios de ciclo de vida con cursor reanudable; deduplica por `dedupe_key` y lee `freshness` antes de afirmar que no hay novedades.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
@@ -2512,7 +3267,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-5-1"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-0"
   }),
   tools: [
     get_user_context_default,
@@ -2545,6 +3300,20 @@ var mcp_default = defineMcp({
     email_integration_status_default,
     whatsapp_notices_default,
     whatsapp_prepare_default,
+    get_capabilities_default,
+    list_workflow_stages_default,
+    create_work_item_default,
+    change_work_item_lifecycle_default,
+    move_work_item_stage_default,
+    list_stage_suggestions_default,
+    resolve_stage_suggestion_default,
+    resolve_alert_default,
+    list_notifications_default,
+    set_notification_state_default,
+    resolve_email_question_default,
+    add_email_association_default,
+    resolve_detected_process_default,
+    list_updates_default,
     atenia_health_overview_default,
     atenia_provider_status_default,
     atenia_recent_incidents_default

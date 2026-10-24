@@ -6,7 +6,7 @@ export default defineTool({
   name: "add_note",
   title: "Agregar nota a un asunto",
   description:
-    "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
+    "Appends a timestamped note to a matter's notes field. Never deletes, reclassifies or changes the lifecycle of a matter. Requires a manage grant (see get_capabilities).",
   inputSchema: {
     radicado: z
       .string()
@@ -18,7 +18,7 @@ export default defineTool({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 

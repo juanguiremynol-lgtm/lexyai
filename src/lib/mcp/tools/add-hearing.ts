@@ -13,7 +13,7 @@ export default defineTool({
   name: "add_hearing",
   title: "Agendar audiencia",
   description:
-    "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+    "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("UUID del asunto."),
     radicado: z
@@ -27,7 +27,7 @@ export default defineTool({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 

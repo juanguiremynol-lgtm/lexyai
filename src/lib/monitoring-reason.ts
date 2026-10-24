@@ -10,7 +10,7 @@
  * must state the real reason.
  */
 
-import { ONLINE_SYNC_ELIGIBLE_WORKFLOWS } from "@/lib/externalSyncDisplay";
+import { ONLINE_SYNC_ELIGIBLE_WORKFLOWS } from "./externalSyncDisplay";
 
 /** Workflows for which a provider chain exists (mirror of the DB helper
  *  is_provider_monitored_workflow / provider_chain_for_workflow). */

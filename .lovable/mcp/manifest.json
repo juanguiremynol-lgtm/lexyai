@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-5-1",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-0",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -692,7 +692,7 @@
       {
         "name": "add_note",
         "title": "Agregar nota a un asunto",
-        "description": "Appends a timestamped note to a matter's notes field. This is the only write operation exposed over MCP: it never deletes, reclassifies, or changes the lifecycle of a matter.",
+        "description": "Appends a timestamped note to a matter's notes field. Never deletes, reclassifies or changes the lifecycle of a matter. Requires a manage grant (see get_capabilities).",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -729,7 +729,7 @@
       {
         "name": "add_hearing",
         "title": "Agendar audiencia",
-        "description": "Schedules a hearing (audiencia) on one of the caller's matters. Requires the read_write scope. It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+        "description": "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -1297,6 +1297,583 @@
           "required": [
             "action"
           ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_capabilities",
+        "title": "Permisos efectivos de esta conexión",
+        "description": "Read-only. Returns this connection's effective access level (read or manage) as decided by Andromeda's database for the verified user and OAuth client. Call before proposing any change.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_workflow_stages",
+        "title": "Catálogo de etapas por tipo de proceso",
+        "description": "Read-only. Lists the legal stages (and catalogued transitions when they exist) for a workflow type, so stage moves can be proposed with valid codes. Regressions are never allowed through the assistant.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "workflow_type": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO."
+            },
+            "cgp_phase": {
+              "type": "string",
+              "enum": [
+                "FILING",
+                "PROCESS"
+              ],
+              "description": "Solo CGP: fase actual del asunto (las etapas dependen de ella)."
+            }
+          },
+          "required": [
+            "workflow_type"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_work_item",
+        "title": "Crear asunto",
+        "description": "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "workflow_type": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."
+            },
+            "radicado": {
+              "type": "string",
+              "description": "Radicado de 23 dígitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicación."
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Cliente propio del usuario."
+            },
+            "demandantes": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "demandados": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "authority_name": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Despacho, si se conoce."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "workflow_type",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "change_work_item_lifecycle",
+        "title": "Archivar, enviar a papelera o restaurar un asunto",
+        "description": "Recoverable lifecycle changes only: archive (kept indefinitely, monitoring off), trash (soft delete, recoverable until recovery_deadline — 10 days — then purged by retention) or restore. Permanent deletion is never available here. Requires expected_updated_at from get_work_item, the user's explicit instruction and a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "archive",
+                "trash",
+                "restore"
+              ]
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "minLength": 10,
+              "description": "updated_at del asunto tal como lo leíste; si cambió, no se modifica nada."
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "work_item_id",
+            "action",
+            "expected_updated_at",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "move_work_item_stage",
+        "title": "Mover la etapa procesal de un asunto",
+        "description": "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "to_stage": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Código de etapa del catálogo."
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "minLength": 10,
+              "description": "updated_at del asunto tal como lo leíste."
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "work_item_id",
+            "to_stage",
+            "expected_updated_at",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_stage_suggestions",
+        "title": "Sugerencias de etapa pendientes",
+        "description": "Read-only. Lists PENDING stage suggestions (with the evidence that produced them) for the user's matters.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "resolve_stage_suggestion",
+        "title": "Aplicar o descartar una sugerencia de etapa",
+        "description": "Applies (moves the stage) or dismisses one PENDING stage suggestion. Apply checks the matter revision and the workflow catalogue; regressions are rejected. A suggestion already resolved by someone else returns a conflict. Only on the user's explicit decision; requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "suggestion_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "apply",
+                "dismiss"
+              ]
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "minLength": 10,
+              "description": "Obligatorio para apply: updated_at del asunto tal como lo leíste."
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "suggestion_id",
+            "decision",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "resolve_alert",
+        "title": "Marcar vista o descartar una alerta",
+        "description": "Acts on an alert returned by list_alerts (never a notification ID). acknowledge marks it seen; dismiss closes it only when its allowed_actions include dismiss (alerts that clear automatically with their cause cannot be dismissed). Personal: never completes or closes a legal deadline. Requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "alert_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "acknowledge",
+                "dismiss"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "alert_id",
+            "action",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_notifications",
+        "title": "Centro de notificaciones",
+        "description": "Read-only. Lists the user's notification-center items (distinct from alerts in list_alerts) with their personal read/dismissed/snoozed state.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "include_dismissed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_notification_state",
+        "title": "Marcar leídas, descartar o posponer notificaciones",
+        "description": "Changes the user's personal state for notification-center items from list_notifications (never alert IDs — use resolve_alert). Requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "notification_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "minItems": 1,
+              "maxItems": 200
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "read",
+                "dismiss",
+                "snooze"
+              ]
+            },
+            "snooze_until": {
+              "type": "string",
+              "minLength": 10,
+              "description": "Obligatorio para snooze (fecha futura ISO)."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "notification_ids",
+            "action",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "resolve_email_question",
+        "title": "Responder una pregunta de asociación de correo",
+        "description": "Resolves one pending email-association question (SUGGESTED links from list_email_links), decided per message: confirm the chosen link (all other suggestions for the same message are dismissed) or dismiss every suggestion for that message. Confirm is blocked when the email cites a different radicado — use add_email_association for a deliberate choice. Never changes a stage, never marks a deadline complete, never sends mail. Requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "link_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID del vínculo sugerido elegido."
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "confirm",
+                "dismiss"
+              ]
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "link_id",
+            "decision",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_email_association",
+        "title": "Asociar deliberadamente un correo a otro asunto",
+        "description": "Adds a confirmed manual association of an email (identified by one of its link IDs) to a matter the user manages, dismissing pending suggestions for that message and recording the manual override (including radicado conflicts). Existing confirmed associations are kept: this is not an exclusive move. Never changes stages or deadlines. Requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "link_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Cualquier vínculo existente del correo."
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Asunto destino."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "link_id",
+            "work_item_id",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "resolve_detected_process",
+        "title": "Resolver un proceso detectado",
+        "description": "Resolves a PENDING detected process (list_detected_processes): dismiss, matched_existing (link to an existing matter with the same radicado base) or created (link to a matter created after the detection, e.g. with create_work_item). Requires a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "detected_process_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "dismiss",
+                "matched_existing",
+                "created"
+              ]
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Obligatorio salvo para dismiss."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "detected_process_id",
+            "decision",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_updates",
+        "title": "Novedades incrementales (actuaciones, estados y ciclo de vida)",
+        "description": "Read-only resumable feed of changes: actuaciones and estados (kept separate by kind, with court dates distinct from detection/change times, including corrections and archivals) plus matter lifecycle changes. Pass next_cursor to continue; has_more says whether to page again. After catching up, the next call re-reads a 15-minute overlap window — deduplicate by dedupe_key. The cursor is bound to the user, the optional work_item_id and expires after 7 days. An empty page does NOT mean providers were checked: read `freshness`.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "next_cursor de la llamada anterior. Sin cursor: últimos 3 días."
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          },
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },
