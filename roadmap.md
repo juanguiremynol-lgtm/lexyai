@@ -129,7 +129,7 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
-- [ ] Creación sin radicado: dejar motivo automático a la base; probar asignación posterior con monitoreo elegible y pausa USER real conservada, sin proveedores ni cambios de horarios.
+- [x] Creación sin radicado: motivo automático SYSTEM derivado por base; continuación 18 checks PASS (cuota, pausa USER, revisión, reintento/auditoría), sin proveedores ni horarios; 0.6.4 / 50 herramientas, gates cerrados. Detalles en docs/mcp-creation-continuation-acceptance-20261024.md.
 - [x] 20:23: 0076 exige rol JWT JSON y protege emisión/aislamiento cursores con ejecutor NOLOGIN/NOBYPASSRLS; 0077 frescura de problemas paginada; 12 checks nuevos PASS. Fuente/bundle/manifest 50 herramientas / 0.6.3; gates cerrados.
 - [x] Arnés feed incorporado: 11 PASS/0 FAIL/3 SKIP; 0075 repara evidencia de fallo en página vacía; suplemento multisesión 11 PASS y etapas manuales 10 PASS. Gates/publicación cerrados; límites en docs/mcp-final-feed-acceptance-20261024.md.
 - [x] Movimientos manuales de etapa con validación de servidor, retrocesos con motivo (0072).
