@@ -470,6 +470,13 @@
       "when": 1792868647986,
       "tag": "0066_mcp_stage_vocabulary_and_creation_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792868766260,
+      "tag": "0067_mcp_write_rpc_execute_grants_restore",
+      "breakpoints": true
     }
   ]
 }
