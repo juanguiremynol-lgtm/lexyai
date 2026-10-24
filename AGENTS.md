@@ -28,3 +28,5 @@
 - Central publishers (e.g. Centros de Servicios) publish multi-providencia estado packages under their own despacho code: resolve candidates by author despacho, then municipality + articleNamesAuthorDespacho, and bind a case only to the pages located by `_shared/publisherResolution.ts` (declared `paquete.paginas_caso`) — never bind a whole package to all cases.
 - trg_preserve_official_publication_recovery: stale responses never erase official evidence.
 - Read subdir AGENTS.md.
+- MCP writes are gated by an explicit per-user, per-OAuth-client manage grant (public.mcp_client_grants, bound to the current auth.oauth_consents row/granted_at), granted only from first-party sessions; public.mcp_write_allowed() backs restrictive RLS policies and is injected into SECURITY DEFINER write RPCs — OIDC scopes and tool arguments never prove consent.
+- Every mcp_* write RPC runs _mcp_begin/_mcp_finish (idempotency per user+client+action+key with request hash, atomic audit in mcp_action_audit) — retries replay the committed result instead of re-applying.
