@@ -186,7 +186,7 @@ GRANT EXECUTE ON FUNCTION public.mcp_caller_context(), public.mcp_access_level()
 REVOKE ALL ON FUNCTION public._mcp_can_manage_work_item(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public._mcp_can_manage_work_item(uuid, uuid) TO service_role;
 CREATE TABLE public.mcp_idempotency (
-  id uuid,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   client_key uuid NOT NULL,
   action text NOT NULL,
@@ -203,7 +203,7 @@ CREATE POLICY "Own MCP idempotency readable" ON public.mcp_idempotency
   FOR SELECT TO authenticated USING (user_id = auth.uid());
 
 CREATE TABLE public.mcp_action_audit (
-  id uuid,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   oauth_client_id uuid,
   session_id uuid,
