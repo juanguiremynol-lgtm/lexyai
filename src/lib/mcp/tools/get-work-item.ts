@@ -77,7 +77,7 @@ export default defineTool({
 
     // Procedural-relevant projection: keeps the AI context window focused.
     const ITEM_FIELDS = [
-      "id", "radicado", "workflow_type", "stage", "status", "lifecycle_state",
+      "id", "radicado", "workflow_type", "cgp_phase", "stage", "status", "lifecycle_state", "updated_at",
       "title", "description",
       "authority_name", "authority_email", "authority_city", "authority_department",
       "demandantes", "demandados", "client_id",
