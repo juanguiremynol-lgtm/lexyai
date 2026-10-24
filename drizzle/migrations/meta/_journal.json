@@ -526,6 +526,13 @@
       "when": 1792872767437,
       "tag": "0074_lifecycle_restore_effective_monitoring_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792873204024,
+      "tag": "0075_mcp_empty_portfolio_freshness",
+      "breakpoints": true
     }
   ]
 }
