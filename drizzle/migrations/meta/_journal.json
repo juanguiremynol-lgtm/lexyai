@@ -442,6 +442,13 @@
       "when": 1792867079342,
       "tag": "0062_mcp_stage_order_for_code_catalog_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1792867205686,
+      "tag": "0063_mcp_action_execute_grants",
+      "breakpoints": true
     }
   ]
 }
