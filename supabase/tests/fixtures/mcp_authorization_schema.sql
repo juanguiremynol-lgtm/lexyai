@@ -11,7 +11,7 @@ CREATE TABLE auth.oauth_consents(id uuid primary key,user_id uuid,client_id uuid
 CREATE TABLE public.mcp_client_grants(user_id uuid,oauth_client_id uuid,consent_id uuid,consent_granted_at timestamptz,access_level text,revoked_at timestamptz);
 CREATE TYPE work_item_lifecycle_state AS ENUM ('ACTIVE','PAUSED','CLOSED','ARCHIVED','DELETED');
 CREATE TYPE item_status AS ENUM ('ACTIVE','INACTIVE','CLOSED','ARCHIVED');
-CREATE TABLE public.organizations(id uuid PRIMARY KEY,max_monitored_items integer);
+CREATE TABLE public.organizations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),max_monitored_items integer);
 CREATE TYPE public.workflow_type AS ENUM ('CGP','CPACA','LABORAL','PENAL_906','TUTELA','PETICION','GOV_PROCEDURE','EJECUTIVO','INDETERMINADO');
 CREATE TYPE public.cgp_phase AS ENUM ('FILING','PROCESS');
 CREATE TYPE public.cgp_phase_source AS ENUM ('AUTO','MANUAL');
@@ -675,15 +675,15 @@ GRANT EXECUTE ON FUNCTION public.mcp_assign_work_item_radicado(uuid,text,timesta
 COMMENT ON FUNCTION public.mcp_assign_work_item_radicado(uuid,text,timestamptz,text) IS 'Review gated. Assign once to owned ACTIVE empty matter only; no providers, restore, stage/workflow replacement or purge. Tests grant EXECUTE transaction-locally.';
 GRANT USAGE ON SCHEMA public TO authenticated,anon,service_role;
 
-CREATE TABLE auth.users(id uuid PRIMARY KEY,aud text,role text,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb,raw_user_meta_data jsonb,created_at timestamptz,updated_at timestamptz);
+CREATE TABLE auth.users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),aud text,role text,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb,raw_user_meta_data jsonb,created_at timestamptz,updated_at timestamptz);
 ALTER TABLE auth.oauth_clients ADD registration_type text,ADD redirect_uris text,ADD grant_types text,ADD client_name text,ADD token_endpoint_auth_method text;
 ALTER TABLE auth.oauth_consents ADD scopes text;
 ALTER TABLE organizations ADD name text;
 ALTER TABLE organizations ALTER max_monitored_items SET DEFAULT 100;
-CREATE TABLE profiles(id uuid PRIMARY KEY,organization_id uuid);
+CREATE TABLE profiles(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid);
 CREATE TABLE organization_memberships(organization_id uuid,user_id uuid,role text);
 CREATE TABLE platform_admins(user_id uuid PRIMARY KEY);
-CREATE TABLE clients(id uuid PRIMARY KEY,owner_id uuid,deleted_at timestamptz);
+CREATE TABLE clients(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid,deleted_at timestamptz);
 CREATE TABLE workflow_definitions(workflow_type text,active boolean,catalog_governed boolean);
 CREATE TABLE workflow_stages_global(workflow_type text,code text,active boolean,display_order int);
 CREATE TABLE lifecycle_pause_refusals(work_item_id uuid,attempted_state text,actor text,reason text,metadata jsonb);
