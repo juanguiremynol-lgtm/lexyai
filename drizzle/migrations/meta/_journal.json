@@ -463,6 +463,13 @@
       "when": 1792868334180,
       "tag": "0065_lifecycle_owner_only_trusted_path_ledger_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792868647986,
+      "tag": "0066_mcp_stage_vocabulary_and_creation_parity",
+      "breakpoints": true
     }
   ]
 }
