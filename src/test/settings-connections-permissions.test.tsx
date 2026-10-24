@@ -11,11 +11,11 @@ vi.mock("@/hooks/use-email-connection", () => ({
 }));
 import SettingsConnections from "@/pages/SettingsConnections";
 const client = "00000000-0000-0000-0000-000000000041";
-const read = { data: [{ oauth_client_id: client, access_level: "read", manage_granted_at: null }], error: null };
-const manage = { data: [{ oauth_client_id: client, access_level: "manage", manage_granted_at: "2026-10-24T20:00:00Z" }], error: null };
+const read = { data: [{ oauth_client_id: client, access_level: "read", manage_granted_at: null, client_name: "Synthetic assistant" }], error: null };
+const manage = { data: [{ oauth_client_id: client, access_level: "manage", manage_granted_at: "2026-10-24T20:00:00Z", client_name: "Synthetic assistant" }], error: null };
 beforeEach(() => {
   vi.resetAllMocks();
-  listGrants.mockResolvedValue({ data: [{ client: { client_id: client, name: "Synthetic assistant" }, scopes: ["openid"] }], error: null });
+  listGrants.mockResolvedValue({ data: [{ client: { id: client, name: "Synthetic assistant" }, scopes: ["openid"] }], error: null });
 });
 afterEach(cleanup);
 describe("SettingsConnections rendered permission boundaries", () => {
@@ -33,7 +33,7 @@ describe("SettingsConnections rendered permission boundaries", () => {
     await screen.findByText("Solo lectura");
     expect((screen.getByRole("button", { name: "Permitir gestionar" }) as HTMLButtonElement).disabled).toBe(false);
   });
-  it.each([{ data: null }, { data: [] }])("unknown/missing permission response $data does not enable management", async ({ data }) => {
+  it.each([{ data: null }, { data: [{ invalid: true }] }])("unknown/missing permission response $data does not enable management", async ({ data }) => {
     rpc.mockResolvedValue({ data, error: null });
     render(<SettingsConnections />);
     await waitFor(() => expect(screen.queryByText("Cargando conexiones…")).toBeNull());
@@ -44,8 +44,10 @@ describe("SettingsConnections rendered permission boundaries", () => {
     let resolve: (value: typeof read) => void = () => undefined;
     rpc.mockImplementation(() => new Promise<typeof read>((done) => { resolve = done; }));
     render(<SettingsConnections />);
+    expect(screen.queryByRole("button", { name: "Permitir gestionar" })).toBeNull();
+    await act(async () => resolve(read));
     const control = await screen.findByRole("button", { name: "Permitir gestionar" });
-    expect((control as HTMLButtonElement).disabled).toBe(true);
+    expect((control as HTMLButtonElement).disabled).toBe(false);
     const disclosures = screen.getByText("Al permitir gestionar tu cartera").parentElement;
     expect(disclosures?.textContent).toContain("Crear asuntos y asignar un radicado");
     expect(disclosures?.textContent).toContain("Resolver sugerencias, alertas, tareas, términos y preguntas");
@@ -69,6 +71,19 @@ describe("SettingsConnections rendered permission boundaries", () => {
     await screen.findByText("Solo lectura");
     expect(rpc).toHaveBeenNthCalledWith(5, "revoke_mcp_client_access", { p_oauth_client_id: client });
     expect(rpc).toHaveBeenNthCalledWith(6, "list_my_mcp_connections");
+  });
+  it.each(["failure", "malformed", "throw"])("canonical connections stay manageable when SDK enrichment is %s", async kind => {
+    rpc.mockResolvedValue(read);
+    if (kind === "throw") listGrants.mockRejectedValue(new Error("SDK unavailable"));
+    else listGrants.mockResolvedValue(kind === "failure" ? { data: null, error: { message: "SDK unavailable" } } : { data: {}, error: null });
+    render(<SettingsConnections />); await screen.findByText("Solo lectura");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Permitir gestionar" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByText("Synthetic assistant")).toBeTruthy();
+  });
+  it("does not render SDK-only connections absent from canonical list", async () => {
+    rpc.mockResolvedValue({ data: [], error: null }); render(<SettingsConnections />);
+    await waitFor(() => expect(screen.queryByText("Cargando conexiones…")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Permitir gestionar" })).toBeNull();
   });
   it("failed readback clears saved level and disables changes", async () => {
     rpc.mockResolvedValueOnce(read).mockResolvedValueOnce({ data: { ok: true }, error: null }).mockResolvedValueOnce({ data: null, error: { message: "readback failed" } });
