@@ -21,9 +21,10 @@ describe("MCP operational action contracts", () => {
   });
   it("propagates state-query errors without returning an empty successful list", async () => {
     rpc.mockResolvedValue({ data: null, error: { message: "personal state unavailable" } });
-    const result = await notifications.handler({}, ctx);
+    const result = await notifications.handler({ limit: undefined, include_dismissed: undefined, cursor: undefined }, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("personal state unavailable");
+    const block = result.content[0];
+    expect(block?.type === "text" ? block.text : "").toContain("personal state unavailable");
   });
   it("normalizes exactly 23 digits as a string with the leading zero preserved", async () => {
     rpc.mockResolvedValueOnce({ data: "manage", error: null }).mockResolvedValueOnce({ data: { synced: false, synchronization: "scheduled_pending" }, error: null });
