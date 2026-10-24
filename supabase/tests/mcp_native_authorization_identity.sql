@@ -38,6 +38,7 @@ SET LOCAL ROLE authenticated;
 DO $$ BEGIN
  BEGIN PERFORM public.mcp_native_authorization_identity('pending'); RAISE EXCEPTION 'deleted client accepted'; EXCEPTION WHEN SQLSTATE 'MCP04' THEN NULL; END;
 END $$;
+RESET ROLE;
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM auth.oauth_authorizations WHERE authorization_id='unbound' AND user_id IS NOT NULL) THEN RAISE EXCEPTION 'adopted unbound owner'; END IF;
  IF has_function_privilege('anon','public.mcp_native_authorization_identity(text)','EXECUTE') THEN RAISE EXCEPTION 'anon can resolve'; END IF;
