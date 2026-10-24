@@ -890,7 +890,7 @@
       {
         "name": "update_work_item",
         "title": "Editar datos de un asunto",
-        "description": "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+        "description": "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -957,7 +957,13 @@
             },
             "monitoring_enabled": {
               "type": "boolean",
-              "description": "Activar o desactivar el monitoreo automático."
+              "description": "Pausar (false) o reanudar (true) el monitoreo automático. Usa la suspensión explícita del usuario (auditada); no se revierte sola."
+            },
+            "monitoring_off_reason": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 500,
+              "description": "Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."
             },
             "email_linking_enabled": {
               "type": "boolean",
@@ -1461,7 +1467,7 @@
       {
         "name": "move_work_item_stage",
         "title": "Mover la etapa procesal de un asunto",
-        "description": "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+        "description": "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -1487,7 +1493,8 @@
             },
             "reason": {
               "type": "string",
-              "maxLength": 500
+              "maxLength": 500,
+              "description": "Motivo del usuario; obligatorio (mín. 5 caracteres) para retrocesos o cambios de fase."
             },
             "idempotency_key": {
               "type": "string",

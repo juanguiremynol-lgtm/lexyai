@@ -2032,7 +2032,7 @@ import { z as z23 } from "npm:zod@^3.25.76";
 var update_work_item_default = defineTool28({
   name: "update_work_item",
   title: "Editar datos de un asunto",
-  description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+  description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
   inputSchema: {
     radicado: z23.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z23.string().uuid().optional().describe("UUID del asunto."),
@@ -2046,7 +2046,8 @@ var update_work_item_default = defineTool28({
     expediente_url: z23.string().trim().url().max(2e3).optional(),
     client_id: z23.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
     is_flagged: z23.boolean().optional().describe("Marcar/desmarcar como destacado."),
-    monitoring_enabled: z23.boolean().optional().describe("Activar o desactivar el monitoreo autom\xE1tico."),
+    monitoring_enabled: z23.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
+    monitoring_off_reason: z23.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -2068,7 +2069,6 @@ var update_work_item_default = defineTool28({
       "expediente_url",
       "client_id",
       "is_flagged",
-      "monitoring_enabled",
       "email_linking_enabled"
     ];
     const patch = {};
@@ -2076,16 +2076,31 @@ var update_work_item_default = defineTool28({
       const v = args[key];
       if (v !== void 0) patch[key] = v;
     }
-    if (Object.keys(patch).length === 0) {
+    const monitoringChange = args.monitoring_enabled;
+    if (monitoringChange === false && !args.monitoring_off_reason) {
+      return errorResult("Para pausar el monitoreo indica monitoring_off_reason con el motivo que dio el usuario.");
+    }
+    if (Object.keys(patch).length === 0 && monitoringChange === void 0) {
       return errorResult("No indicaste ning\xFAn campo para cambiar.");
+    }
+    if (monitoringChange !== void 0) {
+      const { error: monErr } = monitoringChange ? await sb.rpc("resume_work_item_monitoring", { p_work_item_id: item.id }) : await sb.rpc("suspend_work_item_monitoring", {
+        p_work_item_id: item.id,
+        p_reason: args.monitoring_off_reason
+      });
+      if (monErr) return errorResult(monErr.message);
     }
     if (patch.client_id) {
       const { data: client } = await sb.from("clients").select("id, name").is("deleted_at", null).eq("id", patch.client_id).maybeSingle();
       if (!client) return errorResult("Ese cliente no existe o no pertenece a tu cuenta.");
     }
-    patch.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    const { data, error } = await sb.from("work_items").update(patch).eq("id", item.id).select("id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, email_linking_enabled, expediente_url").maybeSingle();
+    const selectCols = "id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, monitoring_disabled_by, monitoring_disabled_reason, email_linking_enabled, expediente_url";
+    const hasFieldPatch = Object.keys(patch).length > 0;
+    if (hasFieldPatch) patch.updated_at = (/* @__PURE__ */ new Date()).toISOString();
+    const { data, error } = hasFieldPatch ? await sb.from("work_items").update(patch).eq("id", item.id).select(selectCols).maybeSingle() : await sb.from("work_items").select(selectCols).eq("id", item.id).maybeSingle();
     if (error) return errorResult(error.message);
+    if (!data) return errorResult("No se pudo leer el asunto tras el cambio (sin permiso o no existe).");
+    if (monitoringChange !== void 0) patch.monitoring_enabled = monitoringChange;
     return textResult(
       `${resolved.note ? `${resolved.note}
 ` : ""}Asunto ${item.radicado ?? item.id} actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`,
@@ -2548,7 +2563,7 @@ var get_capabilities_default = defineTool34({
           "borrado definitivo (purga)",
           "administraci\xF3n de cuentas, contrase\xF1as o roles",
           "env\xEDo de correos o mensajes",
-          "dar por cumplido un t\xE9rmino"
+          "dar por cumplido un t\xE9rmino al descartar un correo, alerta o notificaci\xF3n (solo manage_deadline con instrucci\xF3n expl\xEDcita del usuario cierra un t\xE9rmino)"
         ],
         how_to_enable: "Andromeda \u2192 Conectar IA \u2192 Conexiones autorizadas \u2192 Permitir gestionar. Revocable en cualquier momento."
       }
@@ -2939,12 +2954,12 @@ import { z as z32 } from "npm:zod@^3.25.76";
 var move_work_item_stage_default = defineTool38({
   name: "move_work_item_stage",
   title: "Mover la etapa procesal de un asunto",
-  description: "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+  description: "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
   inputSchema: {
     work_item_id: z32.string().uuid(),
     to_stage: z32.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
     expected_updated_at: z32.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
-    reason: z32.string().trim().max(500).optional(),
+    reason: z32.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
     idempotency_key: z32.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },

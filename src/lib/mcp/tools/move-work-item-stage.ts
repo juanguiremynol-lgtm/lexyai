@@ -7,12 +7,12 @@ export default defineTool({
   name: "move_work_item_stage",
   title: "Mover la etapa procesal de un asunto",
   description:
-    "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+    "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
   inputSchema: {
     work_item_id: z.string().uuid(),
     to_stage: z.string().trim().min(1).describe("Código de etapa del catálogo."),
     expected_updated_at: z.string().min(10).describe("updated_at del asunto tal como lo leíste."),
-    reason: z.string().trim().max(500).optional(),
+    reason: z.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (mín. 5 caracteres) para retrocesos o cambios de fase."),
     idempotency_key: z.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION),
   },
   annotations: { ...MANAGE_ANNOTATIONS },

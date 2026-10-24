@@ -40,7 +40,7 @@ export default defineTool({
           "borrado definitivo (purga)",
           "administración de cuentas, contraseñas o roles",
           "envío de correos o mensajes",
-          "dar por cumplido un término",
+          "dar por cumplido un término al descartar un correo, alerta o notificación (solo manage_deadline con instrucción explícita del usuario cierra un término)",
         ],
         how_to_enable: "Andromeda → Conectar IA → Conexiones autorizadas → Permitir gestionar. Revocable en cualquier momento.",
       },

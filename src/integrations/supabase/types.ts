@@ -25798,6 +25798,10 @@ export type Database = {
         Args: { p_org: string; p_owner: string }
         Returns: boolean
       }
+      _mcp_check_manual_stage_move: {
+        Args: { p_from: string; p_reason: string; p_to: string; p_wf: string }
+        Returns: Json
+      }
       _mcp_check_stage_move: {
         Args: {
           p_app_order: string[]
@@ -25808,6 +25812,10 @@ export type Database = {
         Returns: string
       }
       _mcp_client_key: { Args: never; Returns: string }
+      _mcp_email_group_key: {
+        Args: { p_id: string; p_imid: string; p_mid: string }
+        Returns: string
+      }
       _mcp_feed_freshness: {
         Args: { p_page_items: string[]; p_work_item_id: string }
         Returns: Json
@@ -27134,6 +27142,10 @@ export type Database = {
           p_title: string
           p_workflow_type: string
         }
+        Returns: Json
+      }
+      mcp_list_email_questions: {
+        Args: { p_cursor?: string; p_limit?: number }
         Returns: Json
       }
       mcp_list_updates: {
