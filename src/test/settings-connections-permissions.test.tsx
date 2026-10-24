@@ -37,7 +37,7 @@ describe("SettingsConnections rendered permission boundaries", () => {
     rpc.mockResolvedValue({ data, error: null });
     render(<SettingsConnections />);
     await waitFor(() => expect(screen.queryByText("Cargando conexiones…")).toBeNull());
-    expect((screen.getByRole("button", { name: "Permitir gestionar" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Permitir gestionar" })).toBeNull();
     expect(screen.queryByText("Solo lectura")).toBeNull();
   });
   it("disables changes during refresh and retains scope and retention disclosure before opt-in", async () => {
