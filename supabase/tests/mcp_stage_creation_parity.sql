@@ -1,0 +1,8 @@
+-- DB-backed acceptance test for MCP creation/stage parity (0066/0067).
+-- Synthetic user/sessions/org only; always rolls back by raising TEST_RESULTS. Run as the database owner.
+-- Covers: CGP FILING/MANUAL defaults, non-CGP NULL phase, status from lifecycle trigger, radicado
+-- normalization, active and trash duplicates, live catalogue default for PETICION, CGP move markers
+-- (MANUAL_USER, by/at, phase PROCESS/MANUAL, stage audit), server-side order (client order ignored),
+-- regression and legacy-target rejection, CPACA without catalogue rows, org-admin denial, governed move.
+-- The exact body that passed (fails=0) on 2026-10-24 is kept in the chat record; keep this file in sync
+-- when changing public._mcp_check_stage_move, _mcp_apply_stage or mcp_create_work_item.
