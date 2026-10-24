@@ -137,7 +137,7 @@ export default function OAuthConsent() {
           {!identity && !error && <p role="status" className="text-sm text-muted-foreground">Cargando solicitud…</p>}
           {identity && <>
             <p className="text-sm">Elige qué permites a <strong>{identity.client_name}</strong>. Solo podrá acceder a los datos que tu cuenta puede ver.</p>
-            <RadioGroup aria-label="Permiso de la conexión" value={permission} onValueChange={value => setPermission(value as ConnectionPermission)} disabled={busy || approved}>
+            <RadioGroup aria-label="Permiso de la conexión" value={permission} onValueChange={value => setPermission(value as ConnectionPermission)} disabled={busy}>
               <div className="flex items-start gap-3 rounded-md border p-4"><RadioGroupItem id="permission-read" value="read" /><Label htmlFor="permission-read" className="space-y-1 cursor-pointer"><span className="block font-semibold">Solo consultar</span><span className="block text-sm font-normal text-muted-foreground">Consultar asuntos, actuaciones, estados, clientes, términos, audiencias y tareas. Sin cambios.</span></Label></div>
               <div className="flex items-start gap-3 rounded-md border border-primary/50 p-4"><RadioGroupItem id="permission-manage" value="manage" disabled={!canManage} /><Label htmlFor="permission-manage" className="space-y-1 cursor-pointer"><span className="block font-semibold">Consultar y gestionar</span><span className="block text-sm font-normal text-muted-foreground">Hacer cambios en tus asuntos propios cuando tú se lo pidas.</span></Label></div>
             </RadioGroup>
