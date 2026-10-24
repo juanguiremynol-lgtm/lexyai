@@ -223,3 +223,15 @@ BEGIN
 
   RAISE EXCEPTION 'TEST_RESULTS fails=% %', fails, E'\n' || log;
 END $test$;
+
+-- 0064: unverified session is read-only; feed is revision-based and RLS-scoped.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', json_build_object('sub','00000000-0000-0000-0000-0000000000aa','role','authenticated','session_id','00000000-0000-0000-0000-0000000000bb')::text, true);
+SELECT CASE WHEN public.mcp_access_level() = 'read' AND NOT public.mcp_write_allowed() AND NOT public._mcp_is_trusted_backend()
+            THEN 'PASS unverified_session_read_only' ELSE 'FAIL unverified_session_read_only' END;
+SELECT CASE WHEN jsonb_array_length(public.mcp_list_updates(NULL, 5, NULL)->'events') = 0
+            THEN 'PASS foreign_user_sees_no_updates' ELSE 'FAIL foreign_user_sees_no_updates' END;
+SELECT CASE WHEN public.mcp_reconcile_updates(now() - interval '30 days', 5, NULL)->>'mode' = 'reconcile'
+            THEN 'PASS reconcile_mode' ELSE 'FAIL reconcile_mode' END;
+ROLLBACK;

@@ -30,3 +30,4 @@
 - Read subdir AGENTS.md.
 - MCP writes are gated by an explicit per-user, per-OAuth-client manage grant (public.mcp_client_grants, bound to the current auth.oauth_consents row/granted_at), granted only from first-party sessions; public.mcp_write_allowed() backs restrictive RLS policies and is injected into SECURITY DEFINER write RPCs — OIDC scopes and tool arguments never prove consent.
 - Every mcp_* write RPC runs _mcp_begin/_mcp_finish (idempotency per user+client+action+key with request hash, atomic audit in mcp_action_audit) — retries replay the committed result instead of re-applying.
+- MCP list_updates selects changes by row revision (updated_at), dedupes by kind:id:revision and reads freshness only from RLS-visible work_item_sync_timeline (success-only counts) — detected_at is immutable and cannot reveal corrections.
