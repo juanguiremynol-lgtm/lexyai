@@ -27189,6 +27189,10 @@ export type Database = {
         Returns: Json
       }
       mcp_mutation_availability: { Args: never; Returns: Json }
+      mcp_native_authorization_identity: {
+        Args: { p_authorization_id: string }
+        Returns: Json
+      }
       mcp_reconcile_updates: {
         Args: { p_limit?: number; p_since: string; p_work_item_id?: string }
         Returns: Json
