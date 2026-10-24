@@ -8,7 +8,8 @@ DECLARE
   s_native uuid := gen_random_uuid(); s_oauth uuid := gen_random_uuid(); s_b uuid := gen_random_uuid();
   consent uuid := gen_random_uuid();
   log text := ''; fails int := 0; r jsonb; r2 jsonb; wi uuid; wi_upd timestamptz; v text; n int;
-  nat jsonb; oau jsonb; bnat jsonb;
+  nat jsonb; oau jsonb; bnat jsonb; wi2 uuid;
+  al1 uuid := gen_random_uuid(); al2 uuid := gen_random_uuid(); l1 uuid := gen_random_uuid(); l2 uuid := gen_random_uuid();
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   VALUES (a, 'authenticated', 'authenticated', 'mcp-test-a-' || a || '@example.invalid', now(), '{}', '{}', now(), now()),
@@ -44,11 +45,13 @@ BEGIN
 
   -- 3. Read-only OAuth: direct REST write and RPC write blocked (zero mutation)
   PERFORM set_config('request.jwt.claims', nat::text, true); SET LOCAL ROLE authenticated;
-  r := public.mcp_create_work_item('CGP', 'BORRADOR', NULL, 'Prueba MCP aislada', NULL, NULL, NULL, NULL, 'PENDIENTE_DE_RADICACION', 'create-key-0001');
+  r := public.mcp_create_work_item('CGP', 'DRAFTED', NULL, 'Prueba MCP aislada', NULL, NULL, NULL, NULL, 'PENDIENTE_DE_RADICACION', 'create-key-0001');
   RESET ROLE;
   wi := (r->'work_item'->>'id')::uuid;
   IF wi IS NULL THEN fails := fails + 1; log := log || 'FAIL native create ' || r::text || E'\n'; ELSE log := log || E'ok first-party create via RPC\n'; END IF;
   SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
+  PERFORM set_config('request.jwt.claims', nat::text, true); SET LOCAL ROLE authenticated;
+  wi2 := (public.mcp_create_work_item('CGP', 'DRAFTED', NULL, 'Prueba MCP aislada 2', NULL, NULL, NULL, NULL, 'PENDIENTE_DE_RADICACION', 'create-key-0002')->'work_item'->>'id')::uuid; RESET ROLE;
 
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
   UPDATE public.work_items SET title = 'hacked' WHERE id = wi; GET DIAGNOSTICS n = ROW_COUNT; RESET ROLE;
@@ -130,6 +133,70 @@ BEGIN
   ELSE log := log || 'ok restore ACTIVE, deleted_at cleared, monitoring_enabled=' || (r->'work_item'->>'monitoring_enabled') || E'\n'; END IF;
 
   -- 8. Revocation and reconnect do not resurrect manage
+
+  -- 7b. Stage moves (application-order workflow), stale + regression
+  SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
+  PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+  r := public.mcp_move_work_item_stage(wi, 'SENT_TO_REPARTO', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-001'); RESET ROLE;
+  IF r->'work_item'->>'stage' <> 'SENT_TO_REPARTO' THEN fails := fails + 1; log := log || 'FAIL stage move ' || r::text || E'\n'; ELSE log := log || E'ok stage move committed\n'; END IF;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_move_work_item_stage(wi, 'ACTA_PENDING', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-002'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL stale stage move accepted\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok stale stage move rejected\n'; END;
+  SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_move_work_item_stage(wi, 'DRAFTED', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-003'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL regression accepted\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok regression rejected\n'; END;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_move_work_item_stage(wi, 'NO_EXISTE', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-004'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL invalid stage accepted\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok invalid stage rejected\n'; END;
+
+  -- 7c. Alerts vs notifications
+  INSERT INTO public.alert_instances (id, owner_id, entity_type, entity_id, severity, status, title, alert_type, resolution_mode, fired_at)
+  VALUES (al1, a, 'WORK_ITEM', wi, 'INFO', 'SENT', 'auto', 'SYSTEM_UNTYPED', 'AUTO_ON_CAUSE_CLEARED', now()),
+         (al2, a, 'WORK_ITEM', wi, 'INFO', 'PENDING', 'snooz', 'SYSTEM_UNTYPED', 'SNOOZABLE', now());
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_resolve_alert(al1, 'dismiss', 'alert-key-001'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL auto-cleared alert dismissed\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok AUTO_ON_CAUSE_CLEARED dismiss rejected\n'; END;
+  PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+  r := public.mcp_resolve_alert(al1, 'acknowledge', 'alert-key-002');
+  r2 := public.mcp_resolve_alert(al2, 'dismiss', 'alert-key-003'); RESET ROLE;
+  IF r->'alert'->>'status' <> 'ACKNOWLEDGED' OR r2->'alert'->>'status' <> 'DISMISSED' THEN fails := fails + 1; log := log || E'FAIL alert actions\n'; ELSE log := log || E'ok alert acknowledge (SENT) + dismiss (SNOOZABLE)\n'; END IF;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_set_notification_state(ARRAY[al2], 'read', NULL, 'notif-key-001'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL alert id accepted by notification action\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok alert id rejected by notification action\n'; END;
+
+  -- 7d. Email question: confirm one, siblings dismissed; contradictory second decision rejected; stage untouched
+  SELECT stage INTO v FROM public.work_items WHERE id = wi;
+  INSERT INTO public.work_item_email_links (id, user_id, work_item_id, message_id, internet_message_id, direction, matched_by, confidence, link_status)
+  VALUES (l1, a, wi, 'msg-test-1', '<imid-test-1>', 'received', 'PARTE', 0.6, 'SUGGESTED'),
+         (l2, a, wi2, 'msg-test-1', '<imid-test-1>', 'received', 'PARTE', 0.6, 'SUGGESTED');
+  PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+  r := public.mcp_resolve_email_question(l1, 'confirm', 'email-key-001'); RESET ROLE;
+  IF (SELECT link_status FROM public.work_item_email_links WHERE id = l1) <> 'CONFIRMED'
+     OR (SELECT link_status FROM public.work_item_email_links WHERE id = l2) <> 'DISMISSED' THEN
+    fails := fails + 1; log := log || E'FAIL email confirm/sibling\n'; ELSE log := log || E'ok email confirm + sibling dismissed\n'; END IF;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_resolve_email_question(l2, 'confirm', 'email-key-002'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL contradictory email resolution accepted\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok contradictory email resolution rejected\n'; END;
+  IF (SELECT stage FROM public.work_items WHERE id = wi) <> v THEN fails := fails + 1; log := log || E'FAIL email changed stage\n'; ELSE log := log || E'ok email confirmation left stage unchanged\n'; END IF;
+  BEGIN
+    PERFORM set_config('request.jwt.claims', bnat::text, true); SET LOCAL ROLE authenticated;
+    PERFORM public.mcp_resolve_email_question(l1, 'dismiss', 'email-key-b01'); RESET ROLE;
+    fails := fails + 1; log := log || E'FAIL cross-owner email\n';
+  EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok cross-owner email denied\n'; END;
+
   PERFORM set_config('request.jwt.claims', nat::text, true); SET LOCAL ROLE authenticated;
   PERFORM public.revoke_mcp_client_access(cl); RESET ROLE;
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
