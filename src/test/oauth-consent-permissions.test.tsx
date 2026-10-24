@@ -13,15 +13,17 @@ let failSave = false;
 let failRead = false;
 let wrong = false;
 let scope = "openid email profile";
+let clientName: string | null | undefined = "Fixture AI";
 const mount = () => render(<MemoryRouter initialEntries={["/.lovable/oauth/consent?authorization_id=request"]}><OAuthConsent /></MemoryRouter>);
 beforeEach(() => {
   vi.resetAllMocks(); level = "read"; failSave = false; failRead = false; wrong = false; scope = "openid email profile";
+  clientName = "Fixture AI";
   m.getUser.mockResolvedValue({ data: { user: { id: "owner", email: "fixture@example.invalid" } }, error: null });
   m.details.mockResolvedValue({ data: { authorization_id: "request", client: { id: client, name: "Fixture AI" }, user: { id: "owner" }, scope: "openid email profile" }, error: null });
   m.approve.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null });
   m.deny.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?error=access_denied" }, error: null });
   m.rpc.mockImplementation(async (name: string) => {
-    if (name === "mcp_native_authorization_identity") return { data: { client: { id: client, name: "Fixture AI" }, scope }, error: null };
+    if (name === "mcp_native_authorization_identity") return { data: { client: { id: client, name: clientName }, scope }, error: null };
     if (name === "list_my_mcp_connections") return { data: [{ oauth_client_id: wrong ? "wrong" : client, access_level: level }], error: failRead ? { message: "failure" } : null };
     if (failSave) return { data: null, error: { message: "failure" } };
     level = name === "grant_mcp_client_access" ? "manage" : "read";
@@ -32,6 +34,25 @@ afterEach(cleanup);
 async function ready() { await screen.findByRole("button", { name: "Conectar con solo lectura" }); }
 async function manage() { fireEvent.click(screen.getByRole("radio", { name: /Consultar y gestionar/ })); fireEvent.click(screen.getByRole("button", { name: "Conectar y permitir gestión" })); }
 describe("native consent permission ordering", () => {
+  it.each([undefined, null, "", "   "])("valid unnamed client (%s) supports initial and reconnect decisions", async name => {
+    clientName = name;
+    mount(); await ready();
+    await manage(); await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1));
+    expect(m.rpc).toHaveBeenCalledWith("grant_mcp_client_access", { p_oauth_client_id: client, p_access_level: "manage" });
+    cleanup(); m.follow.mockClear(); m.approve.mockClear();
+    m.details.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null });
+    mount(); await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Conectar con solo lectura" }));
+    await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1));
+    expect(m.approve).not.toHaveBeenCalled(); expect(level).toBe("read");
+    expect(m.rpc).toHaveBeenCalledWith("revoke_mcp_client_access", { p_oauth_client_id: client });
+  });
+  it.each([undefined, "not-a-uuid"])("unnamed client cannot replace invalid identity (%s)", async id => {
+    m.rpc.mockResolvedValue({ data: { client: { id, name: null }, scope }, error: null });
+    mount(); await screen.findByRole("alert");
+    expect(screen.queryByRole("radio")).toBeNull(); expect(m.approve).not.toHaveBeenCalled(); expect(m.follow).not.toHaveBeenCalled();
+    expect(m.rpc.mock.calls.every(([name]) => name === "mcp_native_authorization_identity")).toBe(true);
+  });
   it("defaults to read and revokes earlier management before callback", async () => { level = "manage"; mount(); await ready(); fireEvent.click(screen.getByRole("button", { name: "Conectar con solo lectura" })); await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1)); expect(level).toBe("read"); expect(m.approve).toHaveBeenCalledWith("request", { skipBrowserRedirect: true }); expect(m.rpc).toHaveBeenCalledWith("revoke_mcp_client_access", { p_oauth_client_id: client }); });
   it("saves only explicit management and verifies it", async () => { mount(); await ready(); await manage(); await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1)); expect(level).toBe("manage"); expect(m.rpc).toHaveBeenCalledWith("grant_mcp_client_access", { p_oauth_client_id: client, p_access_level: "manage" }); });
   it("shows choice for redirect-only consent and never reapproves", async () => { m.details.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null }); mount(); await ready(); expect(m.follow).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole("button", { name: "Conectar con solo lectura" })); await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1)); expect(m.approve).not.toHaveBeenCalled(); });
