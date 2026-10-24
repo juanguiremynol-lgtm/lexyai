@@ -3332,12 +3332,30 @@ var assign_work_item_radicado_default = defineTool49({
   }
 });
 
+// src/lib/mcp/tools/list-freshness-issues.ts
+import { defineTool as defineTool50 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z44 } from "npm:zod@^3.25.76";
+var list_freshness_issues_default = defineTool50({
+  name: "list_freshness_issues",
+  title: "Asuntos con consultas fallidas o sin consulta reciente",
+  description: "Read-only RLS-scoped keyset page of identifiable matters with latest provider/operation failure or monitored matters without a recent check. Includes IDs, current attempts and per-provider last success. Pass next_after as after until has_more=false; position is not authorization. Current rows, 30-day checks and 90-day successes, no provider calls.",
+  inputSchema: { after: z44.string().uuid().optional(), limit: z44.number().int().min(1).max(200).optional(), work_item_id: z44.string().uuid().optional() },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ after, limit, work_item_id }, ctx) => {
+    const denied = requireAuth(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_freshness_issues", { p_after: after ?? null, p_limit: limit ?? 50, p_work_item_id: work_item_id ?? null });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Consultas fallidas o pendientes de comprobar.", data);
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.2",
+  version: "0.6.3",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3356,7 +3374,7 @@ var mcp_default = defineMcp({
     "Permisos: `get_capabilities` dice si esta conexi\xF3n es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active \xE9l mismo en Andromeda \u2192 Conectar IA; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
     "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
     "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. Las nueve RPC nuevas y esta asignaci\xF3n mantienen EXECUTE bloqueado hasta revisi\xF3n. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
-    "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
+    "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
@@ -3365,7 +3383,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-2"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-3"
   }),
   tools: [
     get_user_context_default,
@@ -3412,6 +3430,7 @@ var mcp_default = defineMcp({
     add_email_association_default,
     resolve_detected_process_default,
     list_updates_default,
+    list_freshness_issues_default,
     list_email_questions_default,
     assign_work_item_radicado_default,
     atenia_health_overview_default,
