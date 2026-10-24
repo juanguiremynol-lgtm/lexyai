@@ -125,10 +125,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Pruebas DB aisladas: mcp_management_authz.sql, lifecycle_authz.sql, mcp_stage_creation_parity.sql (0066 vocabulario de etapas + paridad de creación; 0067 permisos de ejecución restaurados).
 - [x] Revisión independiente 2026-10-24 (0068–0070): sesión no verificada/caducada/borrada/cliente borrado sin autoridad; atajos directos (monitoreo, etapa del sistema, decisiones de términos) cerrados a dueño+gestión o backend de confianza; notificaciones con visibilidad explícita; asunto del correo cuenta como radicado; creación con recordatorios y sincronización inicial duradera; feed con cursor en servidor, tope fijo y checkpoint monótono. supabase/tests/mcp_release_blockers.sql: 49 checks, 0 fallos.
 - [ ] Reabrir las once RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — root revisa evidencia final y sus suites hosted antes de aplicar SQL explícito.
-- [ ] Publicar y confirmar marcador mcp-rev-0-6-5 — root controla publicación tras revisión; no autorizado en esta ronda.
+- [ ] Desplegar/publicar y confirmar marcador mcp-rev-0-6-6 — requiere autorización separada de root tras probar el delta atómico; no autorizado en esta ronda.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
+- [x] Cierre solicitado 20:50: evidencia hosted de root registrada (AUTH 61/61, CURSOR 26/26, FEED 21 PASS/0 FAIL/2 SKIP explícitos, OPERATIONS 40/40; limpieza cero usuarios sintéticos/grants); textos públicos sin bloqueos de desarrollo permanentes. Candidato documental 0.6.6 / 50 herramientas; once RPC siguen gated.
 - [x] Revisión adicional 20:43: 0079 actualización atómica/capacidades runtime/desempate por ID; 13 checks nuevos y 34 Vitest PASS; 0.6.5 / 50 herramientas, once gates cerrados.
 - [x] Cierre 20:39: 0078 privilegios no-row revocados/verificados; concurrencia local 15 PASS y panel renderizado 6 PASS; evidencia/prerrequisitos en docs/mcp-release-readiness-20261024.md; diez gates/publicación cerrados.
 - [x] Creación sin radicado: motivo automático SYSTEM derivado por base; continuación 18 checks PASS (cuota, pausa USER, revisión, reintento/auditoría), sin proveedores ni horarios; 0.6.4 / 50 herramientas, gates cerrados. Detalles en docs/mcp-creation-continuation-acceptance-20261024.md.
@@ -148,4 +149,4 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Panel renderizado: 6 pruebas sintéticas verifican carga/error/desconocido, controles, grant/revoke y alcance/retención; sin impersonación. No se afirma equivalencia productiva de fixtures locales.
 - [x] authorization-acceptance.sql adaptado/ejecutado localmente: 68 checks, JSON PASS normal antes de ROLLBACK, diez gates restaurados; firmas/errores exactos y NULL-safe.
 - [x] 0074 restauración usa monitoreo efectivo antes de cuota: PETICION/GOV/sin radicado/suspendidos restauran al límite; suite fuentes/restauración 33 checks PASS. ConnectAI y ruta de permisos comprobados sin sesión.
-- [ ] Liberación final: root confirma sus pruebas hosted FEED/OPERATIONS, aplica SQL explícito y publica; smoke externo posterior. Implementación local acotada pasa; once gates siguen cerrados.
+- [ ] Liberación final: root termina revisión/prueba del delta atómico 0079 y autoriza por separado SQL explícito, despliegue/publicación y smoke externo posterior. Evidencia hosted baseline recibida; once gates siguen cerrados.

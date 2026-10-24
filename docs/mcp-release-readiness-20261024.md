@@ -2,15 +2,30 @@
 
 ## Candidate and authorization
 
-Candidate: **0.6.5 / 50 tools**, same endpoint and project identity. Implementation migrations **0059–0079**, including 0078 non-row privilege revocation and 0079 atomic updates/runtime capabilities/freshness ties. No new MCP tool. No services enabled: existing Cloud backend and OAuth integration retained. No publication or release grant script execution.
+Candidate: **0.6.6 / 50 tools**, documentation/UI closure over atomic-update candidate 0.6.5, same endpoint and project identity. Implementation migrations **0059–0079**, including 0078 non-row privilege revocation and 0079 atomic updates/runtime capabilities/freshness ties; no additional migration or MCP tool. Public revision marker: **mcp-rev-0-6-6**. No services enabled: existing Cloud backend and OAuth integration retained. No deployment, publication or release grant script execution.
 
 0078 revokes TRUNCATE, REFERENCES and TRIGGER from PUBLIC, anon, authenticated and mcp_feed_executor. Hosted read-only privilege inspection confirms all three absent for anon/authenticated/executor. Authenticated SELECT/DELETE remain, INSERT remains denied; executor INSERT remains. Existing anonymous SELECT/DELETE grants were not widened or changed; RLS still denies unauthenticated cursor access.
 
-All **eleven** new mutation RPCs remain gated from authenticated/anon (ten existing plus internal `mcp_update_work_item`). Root alone reviews and applies `supabase/release/mcp_write_rpcs_enable.sql`, then publishes when verified. Root reports **hosted AUTH 61/61 PASS** with synthetic fixtures rolled back and no records/grants left; that is independent owner-provided evidence, not this agent's remote test run. Root's final hosted FEED/OPERATIONS results remain theirs to confirm.
+All **eleven** new mutation RPCs remain gated from authenticated/anon (ten existing plus internal `mcp_update_work_item`). Root separately reviews/tests the atomic-update delta before explicitly authorizing enablement; edge deployment and publication require separate root authorization. No grant or hosted write was performed during this closure. The ten baseline gates in root's evidence below are distinct from the additional internal atomic-update RPC.
 
 0079 validates metadata/client before changes, composes metadata plus canonical pause/resume in one transaction, checks owner/manage, and audits atomically with optional idempotency key. Existing optional input semantics remain: omitted fields are unchanged; omitted key receives a generated key returned in the result (reuse an explicit key for reliable client retries). Returned monitoring state is committed state, not requested state. Runtime capability discovery is invoker-scoped: verified app authority plus actual function/table privileges, with per-tool availability and distinct SESSION_UNVERIFIED guidance for `none`. Execution availability is necessary, not a promise that every row/action passes RLS or business validation.
 
 The withdrawn creation-quota concern was not changed: no extra creation quota mechanism or provider schedule change was added. Freshness uses timestamp DESC, id DESC consistently with issue pages.
+
+## Root-provided hosted evidence — 20:50 UTC, 2026-10-24
+
+Root independently reports execution against the hosted actual schema with rollback-only suites. These results are **root-provided evidence, not this agent's hosted run**, and do not certify the separately pending atomic-update delta.
+
+| Hosted suite | Root-reported result |
+|---|---|
+| AUTH | 61/61 PASS |
+| CURSOR | 26/26 PASS |
+| FEED | 21 PASS, 0 FAIL, 2 explicit-limit SKIPs |
+| OPERATIONS | 40/40 PASS |
+
+Root reports real enrollment/reminders/queues, automatic SYSTEM create → assign, genuine USER pause, actual capacity-50 restore/create behavior, email group confirmation/conflicts, backward manual stage/revision and notification pagination covered by OPERATIONS. Cleanup verified **zero synthetic auth.users and zero mcp_client_grants**; **ten baseline gates closed** and **all 0078 cursor excess privileges absent**. The two feed SKIPs remain explicit limits, not passes; their individual details were not supplied in this message.
+
+Public connection disclosures describe available actions, explicit per-client opt-in from the user's own Andromeda session, revocation and ten-day recovery, not a permanent development-review blockade. `get_capabilities` still derives actual execution availability and app authority at runtime; no gate logic changed.
 
 ## Final local evidence
 
@@ -54,4 +69,4 @@ Feed represents current revisions, not durable history. A 15-minute overlap boun
 
 No providers, messages, schedules, Vault, real portfolio writes or automatic manage grants were touched. Synchronization remains scheduled pending, not immediate hydration.
 
-No code blocker was observed in the passing scoped local tests. Release remains **held for root's final hosted FEED/OPERATIONS review, explicit grant SQL, publication and subsequent external-client smoke**. Those are review/release steps, not a request to redesign or expand the implementation.
+No code blocker was observed in the passing scoped local tests. Baseline hosted evidence is now recorded; release authorization still awaits **root's final atomic-update delta review/test**, followed by explicit grant SQL and separately authorized edge deployment/publication, then external-client smoke. This is the current release checkpoint, not a permanent product restriction or a request to redesign or expand the implementation.

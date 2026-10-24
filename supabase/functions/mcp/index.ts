@@ -2556,7 +2556,7 @@ var get_capabilities_default = defineTool34({
     const available = MANAGE_TOOLS.filter((name) => hasGrant && a.tools?.[name]?.available === true);
     const canManage = available.length > 0;
     return textResult(
-      !verified ? "La sesi\xF3n de esta conexi\xF3n no pudo verificarse. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda." : canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : hasGrant ? "El permiso de gesti\xF3n est\xE1 confirmado, pero no hay acciones de escritura disponibles para esta conexi\xF3n." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
+      !verified ? "La sesi\xF3n de esta conexi\xF3n no pudo verificarse. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda." : canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : hasGrant ? "El permiso de gesti\xF3n est\xE1 confirmado, pero no hay acciones de escritura disponibles para esta conexi\xF3n." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB desde su sesi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones; puede revocarlo en cualquier momento.",
       {
         access_level: level,
         surface: c.surface ?? null,
@@ -3319,7 +3319,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.5",
+  version: "0.6.6",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3335,7 +3335,7 @@ var mcp_default = defineMcp({
     "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente d\xF3nde mirar o abrirle un asunto.",
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
-    "Permisos: `get_capabilities` dice si esta conexi\xF3n es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active \xE9l mismo en Andromeda \u2192 Conectar IA; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
+    "Permisos: `get_capabilities` verifica la sesi\xF3n, el permiso y la disponibilidad efectiva de cada acci\xF3n. Gestionar exige que el usuario lo active \xE9l mismo desde su sesi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones, y puede revocarlo en cualquier momento; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
     "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
     "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. `get_capabilities` verifica disponibilidad de ejecuci\xF3n y permiso de gesti\xF3n en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
@@ -3347,7 +3347,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-5"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-6"
   }),
   tools: [
     get_user_context_default,
