@@ -44,7 +44,7 @@ BEGIN
 
   -- 3. Read-only OAuth: direct REST write and RPC write blocked (zero mutation)
   PERFORM set_config('request.jwt.claims', nat::text, true); SET LOCAL ROLE authenticated;
-  r := public.mcp_create_work_item('CGP', NULL, NULL, 'Prueba MCP aislada', NULL, NULL, NULL, NULL, 'PENDIENTE_DE_RADICACION', 'create-key-0001');
+  r := public.mcp_create_work_item('CGP', 'BORRADOR', NULL, 'Prueba MCP aislada', NULL, NULL, NULL, NULL, 'PENDIENTE_DE_RADICACION', 'create-key-0001');
   RESET ROLE;
   wi := (r->'work_item'->>'id')::uuid;
   IF wi IS NULL THEN fails := fails + 1; log := log || 'FAIL native create ' || r::text || E'\n'; ELSE log := log || E'ok first-party create via RPC\n'; END IF;
