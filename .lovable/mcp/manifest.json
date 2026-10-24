@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-2",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-3",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -1880,6 +1880,38 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 500
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_freshness_issues",
+        "title": "Asuntos con consultas fallidas o sin consulta reciente",
+        "description": "Read-only RLS-scoped keyset page of identifiable matters with latest provider/operation failure or monitored matters without a recent check. Includes IDs, current attempts and per-provider last success. Pass next_after as after until has_more=false; position is not authorization. Current rows, 30-day checks and 90-day successes, no provider calls.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
             }
           },
           "additionalProperties": false,

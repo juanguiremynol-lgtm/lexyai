@@ -48,6 +48,7 @@ import resolveDetectedProcess from "./tools/resolve-detected-process";
 import listUpdates from "./tools/list-updates";
 import listEmailQuestions from "./tools/list-email-questions";
 import assignWorkItemRadicado from "./tools/assign-work-item-radicado";
+import listFreshnessIssues from "./tools/list-freshness-issues";
 
 // Build issuer from the project ref (Vite inlines this at build time, so it
 // stays import-safe). mcp-js requires the direct supabase.co host, never a
@@ -58,7 +59,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.2",
+  version: "0.6.3",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
@@ -77,7 +78,7 @@ export default defineMcp({
     "Permisos: `get_capabilities` dice si esta conexión es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active él mismo en Andromeda → Conectar IA; ningún argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
     "Escritura (solo con instrucción explícita del usuario y permiso de gestión): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 días, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administración de cuentas ni envío de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple términos.",
     "Continuación de creación: `assign_work_item_radicado` asigna exactamente 23 dígitos solo a un asunto propio ACTIVE sin radicado, con revisión e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronización programada pendiente. Las nueve RPC nuevas y esta asignación mantienen EXECUTE bloqueado hasta revisión. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
-    "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisión; deduplica por dedupe_key y consulta freshness. reconcile_since relee filas actuales hasta 400 días, no historial completo ni purgas; commits tardíos de más de 15 minutos pueden perderse.",
+    "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisión; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; continúa su página con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 días, no historial completo ni purgas; commits tardíos de más de 15 minutos pueden perderse.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo explícitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador.",
   ].join(" "),
@@ -86,7 +87,7 @@ export default defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-2",
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-3",
   }),
   tools: [
     getUserContext,
@@ -133,6 +134,7 @@ export default defineMcp({
     addEmailAssociation,
     resolveDetectedProcess,
     listUpdates,
+    listFreshnessIssues,
     listEmailQuestions,
     assignWorkItemRadicado,
     ateniaHealthOverview,
