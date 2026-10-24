@@ -421,6 +421,13 @@
       "when": 1792866200341,
       "tag": "0059_secure_work_item_lifecycle_entrypoints",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792866750971,
+      "tag": "0060_mcp_client_grants_and_write_gate",
+      "breakpoints": true
     }
   ]
 }
