@@ -11,6 +11,12 @@ DECLARE
   nat jsonb; oau jsonb; bnat jsonb; wi2 uuid;
   al1 uuid := gen_random_uuid(); al2 uuid := gen_random_uuid(); l1 uuid := gen_random_uuid(); l2 uuid := gen_random_uuid();
 BEGIN
+  -- Gated RPCs: transaction-local grants, discarded by the final rollback.
+  GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text),
+    public.mcp_move_work_item_stage(uuid, text, timestamptz, text[], text, text),
+    public.mcp_resolve_alert(uuid, text, text, text), public.mcp_resolve_email_question(uuid, text, text),
+    public.mcp_set_notification_state(uuid[], text, timestamptz, text),
+    public.mcp_work_item_lifecycle(uuid, text, timestamptz, text, text) TO authenticated;
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   VALUES (a, 'authenticated', 'authenticated', 'mcp-test-a-' || a || '@example.invalid', now(), '{}', '{}', now(), now()),
          (b, 'authenticated', 'authenticated', 'mcp-test-b-' || b || '@example.invalid', now(), '{}', '{}', now(), now());
@@ -31,10 +37,10 @@ BEGIN
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
   IF v <> 'read' THEN fails := fails + 1; log := log || 'FAIL oauth default=' || v || E'\n'; ELSE log := log || E'ok oauth default=read (no backfill)\n'; END IF;
-  -- claim without client but session belongs to OAuth client -> still oauth
+  -- 0071: OAuth session with a missing client claim is invalid (fail-closed), never native.
   PERFORM set_config('request.jwt.claims', (oau - 'client_id')::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
-  IF v <> 'read' THEN fails := fails + 1; log := log || 'FAIL oauth w/o client claim=' || v || E'\n'; ELSE log := log || E'ok oauth session resolved without client claim\n'; END IF;
+  IF v <> 'none' THEN fails := fails + 1; log := log || 'FAIL oauth w/o client claim=' || v || E'\n'; ELSE log := log || E'ok oauth session without client claim -> none\n'; END IF;
 
   -- 2. OAuth cannot self-escalate
   BEGIN
@@ -134,14 +140,14 @@ BEGIN
 
   -- 8. Revocation and reconnect do not resurrect manage
 
-  -- 7b. Stage moves (application-order workflow), stale + regression
+  -- 7b. Stage moves (canonical CGP vocabulary since 0066; client order ignored), stale + regression
   SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
-  r := public.mcp_move_work_item_stage(wi, 'SENT_TO_REPARTO', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-001'); RESET ROLE;
-  IF r->'work_item'->>'stage' <> 'SENT_TO_REPARTO' THEN fails := fails + 1; log := log || 'FAIL stage move ' || r::text || E'\n'; ELSE log := log || E'ok stage move committed\n'; END IF;
+  r := public.mcp_move_work_item_stage(wi, 'ADMISION', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-001'); RESET ROLE;
+  IF r->'work_item'->>'stage' <> 'ADMISION' THEN fails := fails + 1; log := log || 'FAIL stage move ' || r::text || E'\n'; ELSE log := log || E'ok stage move committed\n'; END IF;
   BEGIN
     PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
-    PERFORM public.mcp_move_work_item_stage(wi, 'ACTA_PENDING', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-002'); RESET ROLE;
+    PERFORM public.mcp_move_work_item_stage(wi, 'ADMISION', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-002'); RESET ROLE;
     fails := fails + 1; log := log || E'FAIL stale stage move accepted\n';
   EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok stale stage move rejected\n'; END;
   SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
@@ -228,8 +234,8 @@ END $test$;
 BEGIN;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', json_build_object('sub','00000000-0000-0000-0000-0000000000aa','role','authenticated','session_id','00000000-0000-0000-0000-0000000000bb')::text, true);
-SELECT CASE WHEN public.mcp_access_level() = 'read' AND NOT public.mcp_write_allowed() AND NOT public._mcp_is_trusted_backend()
-            THEN 'PASS unverified_session_read_only' ELSE 'FAIL unverified_session_read_only' END;
+SELECT CASE WHEN public.mcp_access_level() = 'none' AND NOT public.mcp_write_allowed() AND NOT public._mcp_is_trusted_backend()
+            THEN 'PASS unverified_session_no_access' ELSE 'FAIL unverified_session_no_access' END;
 SELECT CASE WHEN jsonb_array_length(public.mcp_list_updates(NULL, 5, NULL)->'events') = 0
             THEN 'PASS foreign_user_sees_no_updates' ELSE 'FAIL foreign_user_sees_no_updates' END;
 SELECT CASE WHEN public.mcp_reconcile_updates(now() - interval '30 days', 5, NULL)->>'mode' = 'reconcile'

@@ -2,7 +2,7 @@
 -- Synthetic users/sessions/OAuth client only; ALWAYS rolls back by raising TEST_RESULTS at the end.
 -- The nine MCP write RPCs are gated (EXECUTE revoked); this test grants EXECUTE to authenticated
 -- transaction-locally, so the grant disappears with the rollback. Run as the database owner.
--- Passed with fails=0 on 2026-10-24 (after migrations 0068-0070).
+-- Passed with fails=0 on 2026-10-24 (after migrations 0068-0071).
 DO $test$
 DECLARE
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
@@ -29,6 +29,8 @@ BEGIN
   INSERT INTO auth.sessions (id, user_id, not_after, oauth_client_id) VALUES
     (sa, a, NULL, NULL), (sb, b, NULL, NULL), (sexp, a, now() - interval '1 minute', NULL),
     (so, a, NULL, oc), (sdel, a, NULL, ocdel);
+  -- 0071: an OAuth session is only verified while its consent is active.
+  INSERT INTO auth.oauth_consents (id, user_id, client_id, scopes, granted_at) VALUES (gen_random_uuid(), a, oc, 'openid email', now());
   ca := jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', sa);
   cb := jsonb_build_object('sub', b, 'role', 'authenticated', 'session_id', sb);
 
