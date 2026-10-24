@@ -25750,8 +25750,13 @@ export type Database = {
         Returns: boolean
       }
       _mcp_check_stage_move: {
-        Args: { p_from: string; p_to: string; p_wf: string }
-        Returns: undefined
+        Args: {
+          p_app_order: string[]
+          p_from: string
+          p_to: string
+          p_wf: string
+        }
+        Returns: string
       }
       _mcp_finish: {
         Args: {
@@ -27031,6 +27036,7 @@ export type Database = {
       }
       mcp_move_work_item_stage: {
         Args: {
+          p_app_stage_order: string[]
           p_expected_updated_at: string
           p_idempotency_key: string
           p_reason?: string
@@ -27067,6 +27073,7 @@ export type Database = {
       }
       mcp_resolve_stage_suggestion: {
         Args: {
+          p_app_stage_order: string[]
           p_decision: string
           p_expected_updated_at: string
           p_idempotency_key: string

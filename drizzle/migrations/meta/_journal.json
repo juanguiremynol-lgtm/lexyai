@@ -435,6 +435,13 @@
       "when": 1792866892806,
       "tag": "0061_mcp_operational_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792867079342,
+      "tag": "0062_mcp_stage_order_for_code_catalog_workflows",
+      "breakpoints": true
     }
   ]
 }
