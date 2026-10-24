@@ -12130,6 +12130,51 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_feed_cursors: {
+        Row: {
+          checkpoint: string | null
+          client_key: string
+          created_at: string
+          expires_at: string
+          id: string
+          mode: string
+          scan_id: string | null
+          scan_kind: string | null
+          scan_ts: string | null
+          scan_upper: string | null
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          checkpoint?: string | null
+          client_key: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          mode: string
+          scan_id?: string | null
+          scan_kind?: string | null
+          scan_ts?: string | null
+          scan_upper?: string | null
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          checkpoint?: string | null
+          client_key?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          mode?: string
+          scan_id?: string | null
+          scan_kind?: string | null
+          scan_ts?: string | null
+          scan_upper?: string | null
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       mcp_idempotency: {
         Row: {
           action: string
@@ -25731,6 +25776,10 @@ export type Database = {
       }
     }
     Functions: {
+      _assert_owner_direct_write: {
+        Args: { p_allow_trusted: boolean; p_owner: string }
+        Returns: undefined
+      }
       _mcp_apply_stage: {
         Args: {
           p_reason: string
@@ -25758,6 +25807,36 @@ export type Database = {
         }
         Returns: string
       }
+      _mcp_client_key: { Args: never; Returns: string }
+      _mcp_feed_freshness: {
+        Args: { p_page_items: string[]; p_work_item_id: string }
+        Returns: Json
+      }
+      _mcp_feed_page: {
+        Args: {
+          p_id: string
+          p_kind: string
+          p_limit: number
+          p_ts: string
+          p_upper: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      _mcp_feed_step: {
+        Args: {
+          p_checkpoint: string
+          p_client: string
+          p_id: string
+          p_kind: string
+          p_limit: number
+          p_mode: string
+          p_ts: string
+          p_upper: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       _mcp_finish: {
         Args: {
           p_action: string
@@ -25784,6 +25863,10 @@ export type Database = {
           workflow_type: string
         }[]
       }
+      _mcp_subject_radicado_bases: {
+        Args: { p_subject: string }
+        Returns: string[]
+      }
       _mcp_updates_page: {
         Args: {
           p_id: string
@@ -25796,6 +25879,10 @@ export type Database = {
         Returns: Json
       }
       _mcp_wi_snapshot: { Args: { p_id: string }; Returns: Json }
+      _notification_ids_visible_to_caller: {
+        Args: { p_ids: string[] }
+        Returns: string[]
+      }
       accept_workflow_suggestion: {
         Args: {
           _suggestion_id: string
