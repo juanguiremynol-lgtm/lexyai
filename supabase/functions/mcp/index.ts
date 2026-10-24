@@ -2563,7 +2563,7 @@ var get_capabilities_default = defineTool34({
           "borrado definitivo (purga)",
           "administraci\xF3n de cuentas, contrase\xF1as o roles",
           "env\xEDo de correos o mensajes",
-          "dar por cumplido un t\xE9rmino"
+          "dar por cumplido un t\xE9rmino al descartar un correo, alerta o notificaci\xF3n (solo manage_deadline con instrucci\xF3n expl\xEDcita del usuario cierra un t\xE9rmino)"
         ],
         how_to_enable: "Andromeda \u2192 Conectar IA \u2192 Conexiones autorizadas \u2192 Permitir gestionar. Revocable en cualquier momento."
       }
@@ -2954,12 +2954,12 @@ import { z as z32 } from "npm:zod@^3.25.76";
 var move_work_item_stage_default = defineTool38({
   name: "move_work_item_stage",
   title: "Mover la etapa procesal de un asunto",
-  description: "Moves an active matter forward to another stage of its workflow catalogue (see list_workflow_stages). Regressions, unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
+  description: "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
   inputSchema: {
     work_item_id: z32.string().uuid(),
     to_stage: z32.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
     expected_updated_at: z32.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
-    reason: z32.string().trim().max(500).optional(),
+    reason: z32.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
     idempotency_key: z32.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },

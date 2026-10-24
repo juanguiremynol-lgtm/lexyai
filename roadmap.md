@@ -127,3 +127,13 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Reabrir las 9 RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — espera aprobación de root; antes re-ejecutar las 3 pruebas DB previas con permisos locales de transacción.
 - [ ] Publicar y confirmar marcador mcp-rev-0-6-1 — espera revisión del propietario.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
+
+## MCP aceptación final (2026-10-24)
+- [x] Movimientos manuales de etapa con validación de servidor, retrocesos con motivo (0072).
+- [x] Consulta global de preguntas de correo en la base (mcp_list_email_questions, 0072).
+- [x] Frescura por proveedor/operación para todos los asuntos monitoreados visibles; reconciliación documentada como parcial (0072).
+- [x] update_work_item usa suspensión/reanudación explícita; get_capabilities corregido.
+- [ ] Herramienta list_email_questions en el conector + regenerar bundle/manifest.
+- [ ] Corregir public/.well-known/mcp.json al inventario real.
+- [ ] Panel de permisos: estado desconocido/error, acciones visibles antes de activar.
+- [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
