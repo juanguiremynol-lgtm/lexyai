@@ -2532,7 +2532,8 @@ var MANAGE_TOOLS = [
   "set_notification_state",
   "resolve_email_question",
   "add_email_association",
-  "resolve_detected_process"
+  "resolve_detected_process",
+  "assign_work_item_radicado"
 ];
 var get_capabilities_default = defineTool34({
   name: "get_capabilities",
@@ -2559,6 +2560,7 @@ var get_capabilities_default = defineTool34({
         oauth_client_id: c.oauth_client_id ?? null,
         can_manage: canManage,
         manage_tools: MANAGE_TOOLS,
+        release_gate: "Las nueve RPC nuevas de gesti\xF3n y assign_work_item_radicado mantienen EXECUTE bloqueado hasta revisi\xF3n; un grant de gesti\xF3n no elimina ese bloqueo.",
         never_available: [
           "borrado definitivo (purga)",
           "administraci\xF3n de cuentas, contrase\xF1as o roles",
@@ -3075,28 +3077,23 @@ import { z as z36 } from "npm:zod@^3.25.76";
 var list_notifications_default = defineTool42({
   name: "list_notifications",
   title: "Centro de notificaciones",
-  description: "Read-only. Lists the user's notification-center items (distinct from alerts in list_alerts) with their personal read/dismissed/snoozed state.",
+  description: "Read-only. Lists notification-center items (not alert_instances) with only the caller's personal state. Filters dismissed rows before stable created_at/id cursor pagination, so newest dismissed items never hide older unread items. State-query errors fail the entire call. Return next_cursor/has_more; cursor is a read position, not authorization. State changes during traversal may require a fresh first page.",
   inputSchema: {
     limit: z36.number().int().min(1).max(100).optional(),
-    include_dismissed: z36.boolean().optional()
+    include_dismissed: z36.boolean().optional(),
+    cursor: z36.string().max(2e3).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  handler: async ({ limit, include_dismissed }, ctx) => {
+  handler: async ({ limit, include_dismissed, cursor }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    const { data, error } = await sb.from("notifications").select("id, title, created_at, work_item_id, category, severity").order("created_at", { ascending: false }).limit(limit ?? 30);
-    if (error) return errorResult(error.message);
-    const rows = data ?? [];
-    const ids = rows.map((r) => String(r.id));
-    const { data: states } = ids.length ? await sb.from("notification_user_state").select("notification_id, read_at, dismissed_at, snoozed_until").in("notification_id", ids) : { data: [] };
-    const byId = /* @__PURE__ */ new Map();
-    for (const st of states ?? []) byId.set(String(st.notification_id), st);
-    const items = rows.map((r) => {
-      const s = byId.get(String(r.id));
-      return { ...r, read_at: s?.read_at ?? null, dismissed_at: s?.dismissed_at ?? null, snoozed_until: s?.snoozed_until ?? null };
-    }).filter((r) => include_dismissed || !r.dismissed_at);
-    return textResult(`${items.length} notificaciones.`, { notifications: items });
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_notifications", {
+      p_limit: limit ?? 30,
+      p_include_dismissed: include_dismissed ?? false,
+      p_cursor: cursor ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Notificaciones con estado personal.", data);
   }
 });
 
@@ -3134,7 +3131,7 @@ import { z as z38 } from "npm:zod@^3.25.76";
 var resolve_email_question_default = defineTool44({
   name: "resolve_email_question",
   title: "Responder una pregunta de asociaci\xF3n de correo",
-  description: "Resolves one pending email-association question (SUGGESTED links from list_email_links), decided per message: confirm the chosen link (all other suggestions for the same message are dismissed) or dismiss every suggestion for that message. Confirm is blocked when the email cites a different radicado \u2014 use add_email_association for a deliberate choice. Never changes a stage, never marks a deadline complete, never sends mail. Requires a manage grant.",
+  description: "Resolves one pending email-association question (discover globally with list_email_questions, or per matter with list_email_links), decided per message: confirm the chosen link (other suggestions dismissed) or dismiss every suggestion. Confirm is blocked on radicado conflicts; use add_email_association for a deliberate choice. Never changes a stage, completes a deadline or sends mail. Requires manage permission.",
   inputSchema: {
     link_id: z38.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
     decision: z38.enum(["confirm", "dismiss"]),
@@ -3217,7 +3214,7 @@ var list_updates_default = defineTool47({
   description: "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados and new matters appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. next_cursor is an opaque server-stored token bound to the user, the AI connection and the work_item_id filter (expires after 30 days; an expired cursor returns CURSOR_EXPIRED with the reconcile_since to use \u2014 it is never silently reset). Each pass has a fixed upper watermark; when has_more=false the durable checkpoint advances to that watermark and the next pass re-reads 15 minutes before it: deduplicate by dedupe_key (kind:id:revision), never by id alone. Each event shows the row's CURRENT state (intermediate revisions between polls collapse); permanent purges emit no event; a transaction committing more than 15 minutes after it started may be missed, so periodically run reconcile_since. Without cursor: last 3 days. `freshness` is always present (portfolio or work item scope, 30-day window) from per-provider sync checks on visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
   inputSchema: {
     cursor: z41.string().max(200).optional().describe("next_cursor de la llamada anterior (c1.<id>). Sin cursor: \xFAltimos 3 d\xEDas."),
-    reconcile_since: z41.string().datetime().optional().describe("Reconciliaci\xF3n completa desde esta fecha ISO (m\xE1x. 400 d\xEDas); contin\xFAa con next_cursor. Ignora cursor."),
+    reconcile_since: z41.string().datetime().optional().describe("Relectura de filas actuales revisadas desde esta fecha ISO (m\xE1x. 400 d\xEDas), no historial ni instant\xE1nea completa; contin\xFAa con next_cursor. Ignora cursor."),
     work_item_id: z41.string().uuid().optional(),
     limit: z41.number().int().min(1).max(500).optional()
   },
@@ -3233,12 +3230,114 @@ var list_updates_default = defineTool47({
   }
 });
 
+// src/lib/mcp/tools/list-email-questions.ts
+import { defineTool as defineTool48 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z42 } from "npm:zod@^3.25.76";
+var list_email_questions_default = defineTool48({
+  name: "list_email_questions",
+  title: "Preguntas pendientes de asociaci\xF3n de correo",
+  description: "Read-only global pending inbox questions, grouped by internet_message_id (fallback message_id), with all RLS-visible candidate siblings, source metadata, radicado conflicts and allowed actions. Separates owned writable links from organization-view-only links. Bounded cursor pagination; no message bodies or mail sending. Use resolve_email_question only for explicit user decisions.",
+  inputSchema: { cursor: z42.string().max(2e3).optional(), limit: z42.number().int().min(1).max(50).optional() },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ cursor, limit }, ctx) => {
+    const denied = requireAuth(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_email_questions", { p_cursor: cursor ?? null, p_limit: limit ?? 20 });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Preguntas pendientes de correo.", data);
+  }
+});
+
+// src/lib/mcp/tools/assign-work-item-radicado.ts
+import { defineTool as defineTool49 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z43 } from "npm:zod@^3.25.76";
+
+// src/lib/radicado-utils.ts
+function normalizeRadicadoInput(input) {
+  if (!input) return "";
+  return input.replace(/\D/g, "");
+}
+function normalizeRadicado(input) {
+  if (!input || input.trim().length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: "EMPTY_INPUT",
+        message: "El radicado no puede estar vac\xEDo"
+      }
+    };
+  }
+  const cleaned = normalizeRadicadoInput(input);
+  if (cleaned.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_FORMAT",
+        message: "El radicado no contiene d\xEDgitos v\xE1lidos",
+        inputLength: 0
+      }
+    };
+  }
+  if (cleaned.length < 23) {
+    return {
+      ok: false,
+      error: {
+        code: "TOO_SHORT",
+        message: `El radicado tiene ${cleaned.length} d\xEDgitos, se requieren 23`,
+        inputLength: cleaned.length
+      }
+    };
+  }
+  if (cleaned.length > 23) {
+    return {
+      ok: false,
+      error: {
+        code: "TOO_LONG",
+        message: `El radicado tiene ${cleaned.length} d\xEDgitos, m\xE1ximo 23`,
+        inputLength: cleaned.length
+      }
+    };
+  }
+  return {
+    ok: true,
+    radicado23: cleaned
+  };
+}
+
+// src/lib/mcp/tools/assign-work-item-radicado.ts
+var assign_work_item_radicado_default = defineTool49({
+  name: "assign_work_item_radicado",
+  title: "Asignar radicado a un asunto sin radicaci\xF3n",
+  description: "Assigns a normalized exactly 23-digit string once to an ACTIVE owned matter with empty radicado, preserving leading zeros, stage, workflow and history. Requires explicit user instruction, manage permission, expected revision and idempotency key. Rejects existing identity, archived/deleted matters, duplicates including trash and monitored plan cap. Saved with scheduled synchronization pending; never calls providers, restores a matter or purges it. User EXECUTE remains review-gated.",
+  inputSchema: {
+    work_item_id: z43.string().uuid(),
+    radicado: z43.string().min(1).max(200).describe("23 d\xEDgitos, con o sin separadores. No admite bases parciales ni n\xFAmeros."),
+    expected_updated_at: z43.string().datetime({ offset: true }).describe("Revisi\xF3n exacta de get_work_item; una revisi\xF3n antigua se rechaza."),
+    idempotency_key: z43.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const normalized = normalizeRadicado(args.radicado);
+    if (!normalized.ok || !normalized.radicado23) return errorResult(normalized.error?.message ?? "El radicado debe tener exactamente 23 d\xEDgitos.");
+    const { data, error } = await sbForUser(ctx).rpc("mcp_assign_work_item_radicado", {
+      p_work_item_id: args.work_item_id,
+      p_radicado: normalized.radicado23,
+      p_expected_updated_at: args.expected_updated_at,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Radicado guardado; sincronizaci\xF3n programada pendiente.", data);
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.1",
+  version: "0.6.2",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3246,7 +3345,7 @@ var mcp_default = defineMcp({
     "Radicados: cualquier par\xE1metro `radicado` acepta la forma con guiones, con espacios, la base de 21 d\xEDgitos, 22 d\xEDgitos sin el cero inicial o base+instancia. Si la base coincide con varias instancias se resuelve la activa y se informa en el campo `resolucion`.",
     "Detalle por expediente: `list_actuaciones` (actuaciones) y `list_publicaciones` (estados electr\xF3nicos).",
     "Documentos: `get_document_url` devuelve un enlace temporal al PDF de una publicaci\xF3n; nunca genera documentos nuevos. `list_act_attachments` (solo exige act_id) da el inventario de anexos de una actuaci\xF3n: estado expl\xEDcito con causa, archivos recuperados y pendientes; una cabecera PDF no acredita lectura completa ni correspondencia documental. Solo declarar disponible con descarga completa, lectura y asociaci\xF3n comprobadas; el hash da trazabilidad. Sin evidencia = desconocido, nunca 'sin anexos'. Distingue ACTUACI\xD3N de ESTADO y conserva sus relaciones sin fusionarlos. Para cautelares distingue solicitud, traslado, negativa y decreto; no infieras concesi\xF3n por palabras aisladas. Comprueba autor, contexto y parte resolutiva del PDF y conserva p\xE1gina y cita. Indica si solo tienes metadatos o falta el documento. Eval\xFAa tareas y t\xE9rminos aparte de la clase del evento.",
-    "Correo: `list_email_links` muestra los correos vinculados a un expediente (solo metadatos, nunca el cuerpo) y `list_detected_processes` la cola de radicados hallados en el buz\xF3n que a\xFAn no existen como expediente.",
+    "Correo: `list_email_questions` descubre preguntas pendientes agrupadas por mensaje, con candidatos, conflictos y acciones permitidas; `list_email_links` consulta un expediente. Solo metadatos, nunca cuerpos ni env\xEDos. `list_detected_processes` consulta radicados del buz\xF3n a\xFAn sin expediente.",
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
@@ -3256,7 +3355,8 @@ var mcp_default = defineMcp({
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
     "Permisos: `get_capabilities` dice si esta conexi\xF3n es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active \xE9l mismo en Andromeda \u2192 Conectar IA; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
     "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
-    "Novedades: `list_updates` entrega actuaciones, estados y cambios de ciclo de vida con cursor reanudable; deduplica por `dedupe_key` y lee `freshness` antes de afirmar que no hay novedades.",
+    "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. Las nueve RPC nuevas y esta asignaci\xF3n mantienen EXECUTE bloqueado hasta revisi\xF3n. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
+    "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
@@ -3265,7 +3365,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-1"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-2"
   }),
   tools: [
     get_user_context_default,
@@ -3312,6 +3412,8 @@ var mcp_default = defineMcp({
     add_email_association_default,
     resolve_detected_process_default,
     list_updates_default,
+    list_email_questions_default,
+    assign_work_item_radicado_default,
     atenia_health_overview_default,
     atenia_provider_status_default,
     atenia_recent_incidents_default
