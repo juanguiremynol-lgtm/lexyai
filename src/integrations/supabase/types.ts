@@ -27128,6 +27128,15 @@ export type Database = {
         Returns: Json
       }
       mcp_assert_write: { Args: never; Returns: undefined }
+      mcp_assign_work_item_radicado: {
+        Args: {
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_radicado: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       mcp_caller_context: { Args: never; Returns: Json }
       mcp_create_work_item: {
         Args: {
@@ -27146,6 +27155,14 @@ export type Database = {
       }
       mcp_list_email_questions: {
         Args: { p_cursor?: string; p_limit?: number }
+        Returns: Json
+      }
+      mcp_list_notifications: {
+        Args: {
+          p_cursor?: string
+          p_include_dismissed?: boolean
+          p_limit?: number
+        }
         Returns: Json
       }
       mcp_list_updates: {

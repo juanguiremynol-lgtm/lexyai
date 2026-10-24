@@ -7,7 +7,7 @@ export default defineTool({
   name: "resolve_email_question",
   title: "Responder una pregunta de asociación de correo",
   description:
-    "Resolves one pending email-association question (SUGGESTED links from list_email_links), decided per message: confirm the chosen link (all other suggestions for the same message are dismissed) or dismiss every suggestion for that message. Confirm is blocked when the email cites a different radicado — use add_email_association for a deliberate choice. Never changes a stage, never marks a deadline complete, never sends mail. Requires a manage grant.",
+    "Resolves one pending email-association question (discover globally with list_email_questions, or per matter with list_email_links), decided per message: confirm the chosen link (other suggestions dismissed) or dismiss every suggestion. Confirm is blocked on radicado conflicts; use add_email_association for a deliberate choice. Never changes a stage, completes a deadline or sends mail. Requires manage permission.",
   inputSchema: {
     link_id: z.string().uuid().describe("ID del vínculo sugerido elegido."),
     decision: z.enum(["confirm", "dismiss"]),

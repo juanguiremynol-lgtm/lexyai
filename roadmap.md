@@ -125,7 +125,7 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Pruebas DB aisladas: mcp_management_authz.sql, lifecycle_authz.sql, mcp_stage_creation_parity.sql (0066 vocabulario de etapas + paridad de creación; 0067 permisos de ejecución restaurados).
 - [x] Revisión independiente 2026-10-24 (0068–0070): sesión no verificada/caducada/borrada/cliente borrado sin autoridad; atajos directos (monitoreo, etapa del sistema, decisiones de términos) cerrados a dueño+gestión o backend de confianza; notificaciones con visibilidad explícita; asunto del correo cuenta como radicado; creación con recordatorios y sincronización inicial duradera; feed con cursor en servidor, tope fijo y checkpoint monótono. supabase/tests/mcp_release_blockers.sql: 49 checks, 0 fallos.
 - [ ] Reabrir las 9 RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — espera aprobación de root; antes re-ejecutar las 3 pruebas DB previas con permisos locales de transacción.
-- [ ] Publicar y confirmar marcador mcp-rev-0-6-1 — espera revisión del propietario.
+- [ ] Publicar y confirmar marcador mcp-rev-0-6-2 — espera revisión del propietario; no autorizado en esta ronda.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
@@ -133,7 +133,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Consulta global de preguntas de correo en la base (mcp_list_email_questions, 0072).
 - [x] Frescura por proveedor/operación para todos los asuntos monitoreados visibles; reconciliación documentada como parcial (0072).
 - [x] update_work_item usa suspensión/reanudación explícita; get_capabilities corregido.
-- [ ] Herramienta list_email_questions en el conector + regenerar bundle/manifest.
-- [ ] Corregir public/.well-known/mcp.json al inventario real.
-- [ ] Panel de permisos: estado desconocido/error, acciones visibles antes de activar.
+- [x] Herramienta list_email_questions registrada; bundle regenerado y manifest de 49 herramientas, 0.6.2 (no publicación).
+- [x] Corregir public/.well-known/mcp.json al inventario real (49 / 0.6.2, sin scopes de gestión inventados).
+- [x] Panel de permisos: borrar niveles obsoletos, mostrar desconocido/error y deshabilitar grants; acciones y retención visibles antes de activar. Falta prueba autenticada.
 - [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
+- [x] Notificaciones: 0073 filtra estado personal antes de paginar, cursor estable y errores visibles; pendientes antiguos/aislamiento probados en fixtures locales.
+- [x] assign_work_item_radicado: 0073 solo propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados/sincronización pendiente; EXECUTE permanece bloqueado.
+- [x] Pruebas operativas locales: 55 checks PostgreSQL rollback + 19 Vitest, artefacto y build OK; límites en docs/mcp-acceptance-20261024.md.
+- [ ] Verificar panel en sesión autenticada y suite completa/enrollment real — falta entorno equivalente sin usar registros reales ni fabricar sesión.

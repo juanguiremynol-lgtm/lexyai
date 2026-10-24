@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-1",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-2",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -1640,7 +1640,7 @@
       {
         "name": "list_notifications",
         "title": "Centro de notificaciones",
-        "description": "Read-only. Lists the user's notification-center items (distinct from alerts in list_alerts) with their personal read/dismissed/snoozed state.",
+        "description": "Read-only. Lists notification-center items (not alert_instances) with only the caller's personal state. Filters dismissed rows before stable created_at/id cursor pagination, so newest dismissed items never hide older unread items. State-query errors fail the entire call. Return next_cursor/has_more; cursor is a read position, not authorization. State changes during traversal may require a fresh first page.",
         "annotations": {
           "readOnlyHint": true,
           "destructiveHint": false,
@@ -1657,6 +1657,10 @@
             },
             "include_dismissed": {
               "type": "boolean"
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 2000
             }
           },
           "additionalProperties": false,
@@ -1719,7 +1723,7 @@
       {
         "name": "resolve_email_question",
         "title": "Responder una pregunta de asociación de correo",
-        "description": "Resolves one pending email-association question (SUGGESTED links from list_email_links), decided per message: confirm the chosen link (all other suggestions for the same message are dismissed) or dismiss every suggestion for that message. Confirm is blocked when the email cites a different radicado — use add_email_association for a deliberate choice. Never changes a stage, never marks a deadline complete, never sends mail. Requires a manage grant.",
+        "description": "Resolves one pending email-association question (discover globally with list_email_questions, or per matter with list_email_links), decided per message: confirm the chosen link (other suggestions dismissed) or dismiss every suggestion. Confirm is blocked on radicado conflicts; use add_email_association for a deliberate choice. Never changes a stage, completes a deadline or sends mail. Requires manage permission.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -1866,7 +1870,7 @@
             "reconcile_since": {
               "type": "string",
               "format": "date-time",
-              "description": "Reconciliación completa desde esta fecha ISO (máx. 400 días); continúa con next_cursor. Ignora cursor."
+              "description": "Relectura de filas actuales revisadas desde esta fecha ISO (máx. 400 días), no historial ni instantánea completa; continúa con next_cursor. Ignora cursor."
             },
             "work_item_id": {
               "type": "string",
@@ -1878,6 +1882,80 @@
               "maximum": 500
             }
           },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_email_questions",
+        "title": "Preguntas pendientes de asociación de correo",
+        "description": "Read-only global pending inbox questions, grouped by internet_message_id (fallback message_id), with all RLS-visible candidate siblings, source metadata, radicado conflicts and allowed actions. Separates owned writable links from organization-view-only links. Bounded cursor pagination; no message bodies or mail sending. Use resolve_email_question only for explicit user decisions.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "assign_work_item_radicado",
+        "title": "Asignar radicado a un asunto sin radicación",
+        "description": "Assigns a normalized exactly 23-digit string once to an ACTIVE owned matter with empty radicado, preserving leading zeros, stage, workflow and history. Requires explicit user instruction, manage permission, expected revision and idempotency key. Rejects existing identity, archived/deleted matters, duplicates including trash and monitored plan cap. Saved with scheduled synchronization pending; never calls providers, restores a matter or purges it. User EXECUTE remains review-gated.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "radicado": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "23 dígitos, con o sin separadores. No admite bases parciales ni números."
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Revisión exacta de get_work_item; una revisión antigua se rechaza."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "work_item_id",
+            "radicado",
+            "expected_updated_at",
+            "idempotency_key"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },

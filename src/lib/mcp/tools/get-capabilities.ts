@@ -6,6 +6,7 @@ const MANAGE_TOOLS = [
   "create_work_item", "change_work_item_lifecycle", "move_work_item_stage", "resolve_stage_suggestion",
   "resolve_alert", "set_notification_state", "resolve_email_question", "add_email_association",
   "resolve_detected_process",
+  "assign_work_item_radicado",
 ];
 
 export default defineTool({
@@ -36,6 +37,7 @@ export default defineTool({
         oauth_client_id: c.oauth_client_id ?? null,
         can_manage: canManage,
         manage_tools: MANAGE_TOOLS,
+        release_gate: "Las nueve RPC nuevas de gestión y assign_work_item_radicado mantienen EXECUTE bloqueado hasta revisión; un grant de gestión no elimina ese bloqueo.",
         never_available: [
           "borrado definitivo (purga)",
           "administración de cuentas, contraseñas o roles",

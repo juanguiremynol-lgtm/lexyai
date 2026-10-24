@@ -1,40 +1,25 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { errorResult, requireAuth, rpcErrorText, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "list_notifications",
   title: "Centro de notificaciones",
   description:
-    "Read-only. Lists the user's notification-center items (distinct from alerts in list_alerts) with their personal read/dismissed/snoozed state.",
+    "Read-only. Lists notification-center items (not alert_instances) with only the caller's personal state. Filters dismissed rows before stable created_at/id cursor pagination, so newest dismissed items never hide older unread items. State-query errors fail the entire call. Return next_cursor/has_more; cursor is a read position, not authorization. State changes during traversal may require a fresh first page.",
   inputSchema: {
     limit: z.number().int().min(1).max(100).optional(),
     include_dismissed: z.boolean().optional(),
+    cursor: z.string().max(2000).optional(),
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  handler: async ({ limit, include_dismissed }, ctx) => {
+  handler: async ({ limit, include_dismissed, cursor }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    const { data, error } = await sb
-      .from("notifications")
-      .select("id, title, created_at, work_item_id, category, severity")
-      .order("created_at", { ascending: false })
-      .limit(limit ?? 30);
-    if (error) return errorResult(error.message);
-    const rows = (data ?? []) as Array<Record<string, unknown>>;
-    const ids = rows.map((r) => String(r.id));
-    const { data: states } = ids.length
-      ? await sb.from("notification_user_state").select("notification_id, read_at, dismissed_at, snoozed_until").in("notification_id", ids)
-      : { data: [] as Array<Record<string, unknown>> };
-    const byId = new Map<string, Record<string, unknown>>();
-    for (const st of (states ?? []) as Array<Record<string, unknown>>) byId.set(String(st.notification_id), st);
-    const items = rows
-      .map((r) => {
-        const s = byId.get(String(r.id));
-        return { ...r, read_at: s?.read_at ?? null, dismissed_at: s?.dismissed_at ?? null, snoozed_until: s?.snoozed_until ?? null };
-      })
-      .filter((r) => include_dismissed || !r.dismissed_at);
-    return textResult(`${items.length} notificaciones.`, { notifications: items });
+    const { data, error } = await sbForUser(ctx).rpc("mcp_list_notifications", {
+      p_limit: limit ?? 30, p_include_dismissed: include_dismissed ?? false, p_cursor: cursor ?? null,
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Notificaciones con estado personal.", data as Record<string, unknown>);
   },
 });
