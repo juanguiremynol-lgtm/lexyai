@@ -1003,7 +1003,8 @@ var list_alerts_default = defineTool14({
         radicado: wi?.radicado ?? null,
         titulo_asunto: wi?.title ?? null,
         workflow_type: wi?.workflow_type ?? null,
-        leida: Boolean(row.read_at)
+        leida: Boolean(row.read_at),
+        allowed_actions: row.resolution_mode === "AUTO_ON_CAUSE_CLEARED" ? ["acknowledge"] : ["acknowledge", "dismiss"]
       };
     });
     const unread = alerts.filter((a) => !a.leida).length;
