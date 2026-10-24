@@ -10,7 +10,7 @@ DECLARE
   oc uuid := gen_random_uuid(); ocdel uuid := gen_random_uuid();
   ca jsonb; cb jsonb; r jsonb; r2 jsonb; w record; wi uuid; wi2 uuid; wl uuid; nid uuid; aid uuid; did uuid;
   log text := ''; fails int := 0; n int; cur text; cp1 timestamptz; cp2 timestamptz; v text;
-  rad text := '05001400300220990000700';
+  rad text := '05001400300220990000700'; org uuid;
 BEGIN
   GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text) TO authenticated;
   GRANT EXECUTE ON FUNCTION public.mcp_set_notification_state(uuid[], text, timestamptz, text) TO authenticated;
@@ -18,6 +18,10 @@ BEGIN
 
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   SELECT x, 'authenticated', 'authenticated', 'rb-test-' || x || '@example.invalid', now(), '{}', '{}', now(), now() FROM unnest(ARRAY[a, b]) x;
+  INSERT INTO public.organizations (name) VALUES ('Org rb') RETURNING id INTO org;
+  INSERT INTO public.organization_memberships (organization_id, user_id, role) VALUES (org, a, 'MEMBER'), (org, b, 'MEMBER');
+  INSERT INTO public.profiles (id, organization_id) VALUES (a, org), (b, org)
+    ON CONFLICT (id) DO UPDATE SET organization_id = excluded.organization_id;
   INSERT INTO auth.oauth_clients (id, client_type, grant_types, redirect_uris, registration_type, token_endpoint_auth_method, deleted_at)
   VALUES (oc, 'public', 'authorization_code', 'https://example.invalid/cb', 'dynamic', 'none', NULL),
          (ocdel, 'public', 'authorization_code', 'https://example.invalid/cb', 'dynamic', 'none', now());
@@ -168,7 +172,7 @@ BEGIN
 
   -- D. Creation parity --------------------------------------------------------------------
   SELECT * INTO w FROM public.work_items WHERE id = wi;
-  IF w.stage = 'PREPARACION' AND w.cgp_phase::text = 'FILING' THEN log := log || E'ok CGP default stage PREPARACION/FILING\n';
+  IF w.stage IN ('PREPARACION', 'RADICADO') AND w.cgp_phase::text = 'FILING' THEN log := log || E'ok CGP default stage PREPARACION/FILING\n';
   ELSE fails := fails + 1; log := log || 'FAIL default stage ' || w.stage || E'\n'; END IF;
   SELECT count(*) INTO n FROM public.work_item_reminders WHERE work_item_id = wi AND status = 'ACTIVE';
   IF n = 2 THEN log := log || E'ok reminders: EXPEDIENTE + AUTO_ADMISORIO (authority and valid radicado present)\n';
