@@ -11,7 +11,6 @@ DECLARE
   ca jsonb; cb jsonb; r jsonb; r2 jsonb; w record; wi uuid; wi2 uuid; wl uuid; nid uuid; aid uuid; did uuid;
   log text := ''; fails int := 0; n int; cur text; cp1 timestamptz; cp2 timestamptz; v text;
   rad text := '05001400300220990000700';
-  PROCEDURE_DUMMY int;
 BEGIN
   GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text) TO authenticated;
   GRANT EXECUTE ON FUNCTION public.mcp_set_notification_state(uuid[], text, timestamptz, text) TO authenticated;
@@ -33,15 +32,6 @@ BEGIN
   v := public.mcp_access_level(); RESET ROLE;
   IF v = 'first_party' THEN log := log || E'ok native session = first_party\n'; ELSE fails := fails + 1; log := log || 'FAIL native ' || v || E'\n'; END IF;
 
-  FOR r IN SELECT * FROM (VALUES
-      (jsonb_build_object('sub', a, 'role', 'authenticated'), 'missing session'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', gen_random_uuid()), 'deleted session'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', 'not-a-uuid'), 'malformed session'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', sexp), 'expired session'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', sb), 'other user session'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', sa, 'client_id', oc), 'client mismatch'),
-      (jsonb_build_object('sub', a, 'role', 'authenticated', 'session_id', sdel, 'client_id', ocdel), 'deleted oauth client')
-    ) t(c, label) LOOP NULL; END LOOP;  -- placeholder to keep plpgsql happy with record r
   DECLARE t record; BEGIN
     FOR t IN SELECT * FROM (VALUES
       (jsonb_build_object('sub', a, 'role', 'authenticated'), 'missing session'),
