@@ -1,5 +1,22 @@
 # MCP acceptance status — 2026-10-24
 
+## Additional acceptance at 20:17 UTC
+
+- Applied `0074_lifecycle_restore_effective_monitoring_quota.sql`: the canonical
+  lifecycle computes provider/radicado/suspension eligibility before the early
+  quota trigger. Installed body and all ten closed EXECUTE gates verified.
+- Adapted independent `authorization-acceptance.sql`, with normal JSON verdict
+  before rollback: 68 checks / 0 failures; exact signatures/error contracts and
+  positive paths, NULL-safe comparisons, all gates restored transactionally.
+- Separate source/restore suite: 33 checks / 0 failures; previous operational
+  suite 55 / 0 and Vitest 19 / 0 re-run. Precise scope and limitations are in
+  `supabase/tests/AUTHORIZATION_ACCEPTANCE.md`.
+- ConnectAI no longer claims notes/hearings-only or no closure/deletion; owner
+  permission route `/app/settings/connections` checked in public browser view.
+- Ready for further independent review, **not release-ready**: full production-
+  equivalent legacy suites and multi-session feed/concurrency tests remain.
+  No services enabled, publication, provider calls, real records or grant enablement.
+
 - Added migration `0073_mcp_notification_pagination_assign_radicado.sql`.
   Live definitions and EXECUTE privileges checked after applying it.
 - `list_notifications` now calls an invoker RPC joining only the caller's state,
@@ -28,9 +45,10 @@
 ## Remaining acceptance blockers
 
 The legacy SQL suites still need strict expected-error and NULL-safe assertions
-and normal PASS/ROLLBACK flow, then full reruns. Additional feed tests (late
-commit, pagination mutations, cursor expiry/version/filter and provider freshness)
-and 0072 email grouping tests remain unverified. Permission-panel behavior needs
+and normal PASS/ROLLBACK flow, then full reruns. Multi-session feed tests (late
+commit, concurrent contradictions and pagination mutations) remain unverified;
+cursor expiry/version/filter, provider freshness and email grouping now have
+focused synthetic coverage only, not full production-policy coverage. Permission-panel behavior needs
 an authenticated browser test. These are not passing acceptance claims.
 
 The incremental feed reads current revisions, not intermediate history; hard

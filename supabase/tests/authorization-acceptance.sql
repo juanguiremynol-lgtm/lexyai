@@ -271,15 +271,15 @@ BEGIN
     wi,wi_revision,run_key||'-owner-denial');
   PERFORM pg_temp._mcp_expect('same-org ADMIN cannot manage another owner item',bnat,archive_sql,NULL,'MCP04','^NOT_FOUND:');
   PERFORM pg_temp._mcp_expect('same-org ADMIN cannot use direct lifecycle',bnat,direct_archive_sql,NULL,'42501',
-    '^(NOT_FOUND:|work_item .* not found|not authorized|No autorizado|NO_AUTORIZADO)');
+    '^work_item [0-9a-f-]+ not found$');
   UPDATE public.organization_memberships SET role='OWNER' WHERE organization_id=org_a AND user_id=b;
   PERFORM pg_temp._mcp_expect('same-org OWNER cannot manage another owner item',bnat,archive_sql,NULL,'MCP04','^NOT_FOUND:');
   PERFORM pg_temp._mcp_expect('cross-org OWNER cannot manage customer item',cnat,archive_sql,NULL,'MCP04','^NOT_FOUND:');
   PERFORM pg_temp._mcp_expect('cross-org OWNER cannot use direct lifecycle',cnat,direct_archive_sql,NULL,'42501',
-    '^(NOT_FOUND:|work_item .* not found|not authorized|No autorizado|NO_AUTORIZADO)');
+    '^work_item [0-9a-f-]+ not found$');
   INSERT INTO public.platform_admins(user_id) VALUES (c);
   PERFORM pg_temp._mcp_expect('platform admin does not gain customer write access',cnat,direct_archive_sql,NULL,'42501',
-    '^(NOT_FOUND:|work_item .* not found|not authorized|No autorizado|NO_AUTORIZADO)');
+    '^work_item [0-9a-f-]+ not found$');
   PERFORM pg_temp._mcp_check('cross-owner calls left target active',
     (SELECT lifecycle_state::text FROM public.work_items WHERE id=wi) IS NOT DISTINCT FROM 'ACTIVE');
 
