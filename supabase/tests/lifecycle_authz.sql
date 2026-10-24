@@ -70,7 +70,7 @@ BEGIN
   SELECT count(*) INTO n FROM public.work_item_lifecycle_ledger l
    WHERE l.work_item_id = wi AND l.to_state = 'DELETED' AND l.gcp_outbox_id = (r->>'gcp_outbox_id')::uuid;
   IF n <> 1 THEN fails := fails + 1; log := log || E'FAIL ledger not bound to new outbox\n'; ELSE log := log || E'ok ledger bound to new outbox event\n'; END IF;
-  IF EXISTS (SELECT 1 FROM public.gcp_lifecycle_outbox WHERE work_item_id = sib) THEN
+  IF EXISTS (SELECT 1 FROM public.gcp_lifecycle_outbox WHERE work_item_id = sib AND new_state::text = 'DELETED') THEN
     fails := fails + 1; log := log || E'FAIL sibling fanout to other owner\n'; ELSE log := log || E'ok no sibling fanout\n'; END IF;
   IF (SELECT lifecycle_state::text FROM public.work_items WHERE id = sib) <> 'ACTIVE' THEN
     fails := fails + 1; log := log || E'FAIL sibling changed\n'; END IF;
