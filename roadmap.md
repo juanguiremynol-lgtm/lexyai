@@ -137,3 +137,5 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Corregir public/.well-known/mcp.json al inventario real.
 - [ ] Panel de permisos: estado desconocido/error, acciones visibles antes de activar.
 - [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
+- [ ] Notificaciones: filtrar estado personal antes de paginar, cursor estable y errores visibles; probar pendientes antiguos y aislamiento.
+- [ ] Creación sin radicado: assign_work_item_radicado solo en asunto propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados y sincronización programada; mantener EXECUTE bloqueado hasta revisión.
