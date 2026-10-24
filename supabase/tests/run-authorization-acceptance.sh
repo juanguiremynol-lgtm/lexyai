@@ -17,6 +17,7 @@ psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizz
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizzle/migrations/0077_mcp_paginated_freshness_issues.sql >"$root/freshness-page.log"
 python3 supabase/tests/run_authorization_acceptance.py
 python3 supabase/tests/mcp_source_acceptance.py
+python3 supabase/tests/mcp_creation_continuation_acceptance.py
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f supabase/tests/fixtures/mcp_feed_attachment_schema.sql >"$root/feed-schema.log"
 python3 supabase/tests/run_feed_acceptance.py
 python3 supabase/tests/mcp_feed_multisession.py
