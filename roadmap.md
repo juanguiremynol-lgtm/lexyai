@@ -124,11 +124,12 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Fase 4: herramientas (0061–0063; 47 en total); feed por revisión + frescura + reconciliación (0064).
 - [x] Pruebas DB aisladas: mcp_management_authz.sql, lifecycle_authz.sql, mcp_stage_creation_parity.sql (0066 vocabulario de etapas + paridad de creación; 0067 permisos de ejecución restaurados).
 - [x] Revisión independiente 2026-10-24 (0068–0070): sesión no verificada/caducada/borrada/cliente borrado sin autoridad; atajos directos (monitoreo, etapa del sistema, decisiones de términos) cerrados a dueño+gestión o backend de confianza; notificaciones con visibilidad explícita; asunto del correo cuenta como radicado; creación con recordatorios y sincronización inicial duradera; feed con cursor en servidor, tope fijo y checkpoint monótono. supabase/tests/mcp_release_blockers.sql: 49 checks, 0 fallos.
-- [ ] Reabrir las 9 RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — espera aprobación de root; antes re-ejecutar las 3 pruebas DB previas con permisos locales de transacción.
-- [ ] Publicar y confirmar marcador mcp-rev-0-6-2 — espera revisión del propietario; no autorizado en esta ronda.
+- [ ] Reabrir las diez RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — root revisa evidencia final y sus suites hosted antes de aplicar SQL explícito.
+- [ ] Publicar y confirmar marcador mcp-rev-0-6-4 — root controla publicación tras revisión; no autorizado en esta ronda.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
+- [x] Cierre 20:39: 0078 privilegios no-row revocados/verificados; concurrencia local 15 PASS y panel renderizado 6 PASS; evidencia/prerrequisitos en docs/mcp-release-readiness-20261024.md; diez gates/publicación cerrados.
 - [x] Creación sin radicado: motivo automático SYSTEM derivado por base; continuación 18 checks PASS (cuota, pausa USER, revisión, reintento/auditoría), sin proveedores ni horarios; 0.6.4 / 50 herramientas, gates cerrados. Detalles en docs/mcp-creation-continuation-acceptance-20261024.md.
 - [x] 20:23: 0076 exige rol JWT JSON y protege emisión/aislamiento cursores con ejecutor NOLOGIN/NOBYPASSRLS; 0077 frescura de problemas paginada; 12 checks nuevos PASS. Fuente/bundle/manifest 50 herramientas / 0.6.3; gates cerrados.
 - [x] Arnés feed incorporado: 11 PASS/0 FAIL/3 SKIP; 0075 repara evidencia de fallo en página vacía; suplemento multisesión 11 PASS y etapas manuales 10 PASS. Gates/publicación cerrados; límites en docs/mcp-final-feed-acceptance-20261024.md.
@@ -139,11 +140,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Herramienta list_email_questions registrada; bundle regenerado y manifest de 49 herramientas, 0.6.2 (no publicación).
 - [x] Corregir public/.well-known/mcp.json al inventario real (49 / 0.6.2, sin scopes de gestión inventados).
 - [x] Panel de permisos: borrar niveles obsoletos, mostrar desconocido/error y deshabilitar grants; acciones y retención visibles antes de activar. Falta prueba autenticada.
-- [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
+- [x] Aceptación final usa suites estrictas con BEGIN/veredicto/ROLLBACK y suplementos de feed; suites legacy históricas no se presentan como evidencia final. Root reporta AUTH hosted 61/61 PASS.
 - [x] Notificaciones: 0073 filtra estado personal antes de paginar, cursor estable y errores visibles; pendientes antiguos/aislamiento probados en fixtures locales.
 - [x] assign_work_item_radicado: 0073 solo propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados/sincronización pendiente; EXECUTE permanece bloqueado.
 - [x] Pruebas operativas locales: 55 checks PostgreSQL rollback + 19 Vitest, artefacto y build OK; límites en docs/mcp-acceptance-20261024.md.
-- [ ] Verificar panel en sesión autenticada y suite completa/enrollment real — falta entorno equivalente sin usar registros reales ni fabricar sesión.
+- [x] Panel renderizado: 6 pruebas sintéticas verifican carga/error/desconocido, controles, grant/revoke y alcance/retención; sin impersonación. No se afirma equivalencia productiva de fixtures locales.
 - [x] authorization-acceptance.sql adaptado/ejecutado localmente: 68 checks, JSON PASS normal antes de ROLLBACK, diez gates restaurados; firmas/errores exactos y NULL-safe.
 - [x] 0074 restauración usa monitoreo efectivo antes de cuota: PETICION/GOV/sin radicado/suspendidos restauran al límite; suite fuentes/restauración 33 checks PASS. ConnectAI y ruta de permisos comprobados sin sesión.
-- [ ] Certificación restante: suites legacy completas con esquema/RLS equivalente y pruebas multisesión/feed — no certificadas por fixtures focalizados; no habilitar ni publicar.
+- [ ] Liberación final: root confirma sus pruebas hosted FEED/OPERATIONS, aplica SQL explícito y publica; smoke externo posterior. Implementación local acotada pasa; diez gates siguen cerrados.
