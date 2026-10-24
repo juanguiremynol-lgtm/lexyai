@@ -11,6 +11,12 @@ DECLARE
   nat jsonb; oau jsonb; bnat jsonb; wi2 uuid;
   al1 uuid := gen_random_uuid(); al2 uuid := gen_random_uuid(); l1 uuid := gen_random_uuid(); l2 uuid := gen_random_uuid();
 BEGIN
+  -- Gated RPCs: transaction-local grants, discarded by the final rollback.
+  GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text),
+    public.mcp_move_work_item_stage(uuid, text, timestamptz, text[], text, text),
+    public.mcp_resolve_alert(uuid, text, text, text), public.mcp_resolve_email_question(uuid, text, text),
+    public.mcp_set_notification_state(uuid[], text, timestamptz, text),
+    public.mcp_work_item_lifecycle(uuid, text, timestamptz, text, text) TO authenticated;
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   VALUES (a, 'authenticated', 'authenticated', 'mcp-test-a-' || a || '@example.invalid', now(), '{}', '{}', now(), now()),
          (b, 'authenticated', 'authenticated', 'mcp-test-b-' || b || '@example.invalid', now(), '{}', '{}', now(), now());
@@ -228,7 +234,7 @@ END $test$;
 BEGIN;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', json_build_object('sub','00000000-0000-0000-0000-0000000000aa','role','authenticated','session_id','00000000-0000-0000-0000-0000000000bb')::text, true);
-SELECT CASE WHEN public.mcp_access_level() = 'read' AND NOT public.mcp_write_allowed() AND NOT public._mcp_is_trusted_backend()
+SELECT CASE WHEN public.mcp_access_level() = 'none' AND NOT public.mcp_write_allowed() AND NOT public._mcp_is_trusted_backend()
             THEN 'PASS unverified_session_read_only' ELSE 'FAIL unverified_session_read_only' END;
 SELECT CASE WHEN jsonb_array_length(public.mcp_list_updates(NULL, 5, NULL)->'events') = 0
             THEN 'PASS foreign_user_sees_no_updates' ELSE 'FAIL foreign_user_sees_no_updates' END;
