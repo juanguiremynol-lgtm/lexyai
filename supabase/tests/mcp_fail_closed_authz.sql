@@ -102,7 +102,7 @@ BEGIN
   v := public.mcp_access_level(); RESET ROLE;
   IF v = 'read' THEN log := log || E'ok 5 replaced consent generation -> read\n'; ELSE fails := fails + 1; log := log || 'FAIL 5 generation ' || v || E'\n'; END IF;
   -- 5. revoked consent => none (and assert_write denies)
-  UPDATE auth.oauth_consents SET revoked_at = now() WHERE id = consent;
+  UPDATE auth.oauth_consents SET revoked_at = gt + interval '2 seconds' WHERE id = consent;
   PERFORM set_config('request.jwt.claims', oauth::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
   IF v = 'none' THEN log := log || E'ok 5 revoked consent -> none\n'; ELSE fails := fails + 1; log := log || 'FAIL 5 revoked consent ' || v || E'\n'; END IF;
