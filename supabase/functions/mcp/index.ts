@@ -3214,21 +3214,19 @@ import { z as z41 } from "npm:zod@^3.25.76";
 var list_updates_default = defineTool47({
   name: "list_updates",
   title: "Novedades incrementales (actuaciones, estados y ciclo de vida)",
-  description: "Read-only resumable feed of changes: actuaciones and estados (kept separate by kind, with court dates distinct from detection/change times, including corrections and archivals) plus matter lifecycle changes. Pass next_cursor to continue; has_more says whether to page again. After catching up, the next call re-reads a 15-minute overlap window \u2014 deduplicate by dedupe_key. The cursor is bound to the user, the optional work_item_id and expires after 7 days. An empty page does NOT mean providers were checked: read `freshness`.",
+  description: "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. Pass next_cursor to continue; has_more says whether to page again. After catching up the next call re-reads a 15-minute overlap: deduplicate by dedupe_key (kind:id:revision), never by id alone. Because revision timestamps are set at transaction start, a very late commit could be missed: periodically pass reconcile_since for a full re-read. Cursor is bound to the user and optional work_item_id and expires after 7 days. `freshness` reports per-provider sync checks for visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
   inputSchema: {
     cursor: z41.string().max(2e3).optional().describe("next_cursor de la llamada anterior. Sin cursor: \xFAltimos 3 d\xEDas."),
+    reconcile_since: z41.string().datetime().optional().describe("Reconciliaci\xF3n completa desde esta fecha ISO (m\xE1x. 400 d\xEDas). Ignora cursor."),
     work_item_id: z41.string().uuid().optional(),
     limit: z41.number().int().min(1).max(500).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  handler: async ({ cursor, work_item_id, limit }, ctx) => {
+  handler: async ({ cursor, reconcile_since, work_item_id, limit }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const { data, error } = await sbForUser(ctx).rpc("mcp_list_updates", {
-      p_cursor: cursor ?? null,
-      p_limit: limit ?? 100,
-      p_work_item_id: work_item_id ?? null
-    });
+    const sb = sbForUser(ctx);
+    const { data, error } = reconcile_since ? await sb.rpc("mcp_reconcile_updates", { p_since: reconcile_since, p_limit: limit ?? 100, p_work_item_id: work_item_id ?? null }) : await sb.rpc("mcp_list_updates", { p_cursor: cursor ?? null, p_limit: limit ?? 100, p_work_item_id: work_item_id ?? null });
     if (error) return errorResult(rpcErrorText(error));
     const r = data;
     return textResult(`${r.events?.length ?? 0} novedades${r.has_more ? " (hay m\xE1s: usa next_cursor)" : ""}.`, data);
