@@ -140,11 +140,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Herramienta list_email_questions registrada; bundle regenerado y manifest de 49 herramientas, 0.6.2 (no publicación).
 - [x] Corregir public/.well-known/mcp.json al inventario real (49 / 0.6.2, sin scopes de gestión inventados).
 - [x] Panel de permisos: borrar niveles obsoletos, mostrar desconocido/error y deshabilitar grants; acciones y retención visibles antes de activar. Falta prueba autenticada.
-- [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
+- [x] Aceptación final usa suites estrictas con BEGIN/veredicto/ROLLBACK y suplementos de feed; suites legacy históricas no se presentan como evidencia final. Root reporta AUTH hosted 61/61 PASS.
 - [x] Notificaciones: 0073 filtra estado personal antes de paginar, cursor estable y errores visibles; pendientes antiguos/aislamiento probados en fixtures locales.
 - [x] assign_work_item_radicado: 0073 solo propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados/sincronización pendiente; EXECUTE permanece bloqueado.
 - [x] Pruebas operativas locales: 55 checks PostgreSQL rollback + 19 Vitest, artefacto y build OK; límites en docs/mcp-acceptance-20261024.md.
-- [ ] Verificar panel en sesión autenticada y suite completa/enrollment real — falta entorno equivalente sin usar registros reales ni fabricar sesión.
+- [x] Panel renderizado: 6 pruebas sintéticas verifican carga/error/desconocido, controles, grant/revoke y alcance/retención; sin impersonación. No se afirma equivalencia productiva de fixtures locales.
 - [x] authorization-acceptance.sql adaptado/ejecutado localmente: 68 checks, JSON PASS normal antes de ROLLBACK, diez gates restaurados; firmas/errores exactos y NULL-safe.
 - [x] 0074 restauración usa monitoreo efectivo antes de cuota: PETICION/GOV/sin radicado/suspendidos restauran al límite; suite fuentes/restauración 33 checks PASS. ConnectAI y ruta de permisos comprobados sin sesión.
-- [ ] Certificación restante: suites legacy completas con esquema/RLS equivalente y pruebas multisesión/feed — no certificadas por fixtures focalizados; no habilitar ni publicar.
+- [ ] Liberación final: root confirma sus pruebas hosted FEED/OPERATIONS, aplica SQL explícito y publica; smoke externo posterior. Implementación local acotada pasa; diez gates siguen cerrados.
