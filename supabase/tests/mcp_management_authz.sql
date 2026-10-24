@@ -140,14 +140,14 @@ BEGIN
 
   -- 8. Revocation and reconnect do not resurrect manage
 
-  -- 7b. Stage moves (application-order workflow), stale + regression
+  -- 7b. Stage moves (canonical CGP vocabulary since 0066; client order ignored), stale + regression
   SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
-  r := public.mcp_move_work_item_stage(wi, 'SENT_TO_REPARTO', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-001'); RESET ROLE;
-  IF r->'work_item'->>'stage' <> 'SENT_TO_REPARTO' THEN fails := fails + 1; log := log || 'FAIL stage move ' || r::text || E'\n'; ELSE log := log || E'ok stage move committed\n'; END IF;
+  r := public.mcp_move_work_item_stage(wi, 'ADMISION', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-001'); RESET ROLE;
+  IF r->'work_item'->>'stage' <> 'ADMISION' THEN fails := fails + 1; log := log || 'FAIL stage move ' || r::text || E'\n'; ELSE log := log || E'ok stage move committed\n'; END IF;
   BEGIN
     PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
-    PERFORM public.mcp_move_work_item_stage(wi, 'ACTA_PENDING', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-002'); RESET ROLE;
+    PERFORM public.mcp_move_work_item_stage(wi, 'ADMISION', wi_upd, ARRAY['DRAFTED','SENT_TO_REPARTO','ACTA_PENDING'], 'stage-key-002'); RESET ROLE;
     fails := fails + 1; log := log || E'FAIL stale stage move accepted\n';
   EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok stale stage move rejected\n'; END;
   SELECT updated_at INTO wi_upd FROM public.work_items WHERE id = wi;
