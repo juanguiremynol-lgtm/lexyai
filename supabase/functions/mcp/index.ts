@@ -2556,7 +2556,7 @@ var get_capabilities_default = defineTool34({
     const available = MANAGE_TOOLS.filter((name) => hasGrant && a.tools?.[name]?.available === true);
     const canManage = available.length > 0;
     return textResult(
-      !verified ? "La sesi\xF3n de esta conexi\xF3n no pudo verificarse. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda." : canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
+      !verified ? "La sesi\xF3n de esta conexi\xF3n no pudo verificarse. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda." : canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : hasGrant ? "El permiso de gesti\xF3n est\xE1 confirmado, pero no hay acciones de escritura disponibles para esta conexi\xF3n." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
       {
         access_level: level,
         surface: c.surface ?? null,

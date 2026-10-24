@@ -38,6 +38,8 @@ export default defineTool({
         ? "La sesión de esta conexión no pudo verificarse. Vuelve a conectar el asistente e inicia sesión en Andromeda."
         : canManage
         ? "Esta conexión puede gestionar la cartera del usuario (siempre con su instrucción explícita)."
+        : hasGrant
+        ? "El permiso de gestión está confirmado, pero no hay acciones de escritura disponibles para esta conexión."
         : "Esta conexión es de solo lectura. Para gestionar, el usuario debe activar «Permitir gestionar» en Andromeda → Conectar IA.",
       {
         access_level: level,

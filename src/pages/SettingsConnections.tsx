@@ -421,7 +421,7 @@ export default function SettingsConnections() {
               <li>Archivar, restaurar o enviar a papelera con recuperación durante diez días.</li>
               <li>La purga permanente no está disponible directamente; la eliminación programada sigue el plazo de retención.</li>
             </ul>
-            <p className="text-muted-foreground">Las acciones nuevas siguen bloqueadas hasta su revisión. Activar el permiso no elimina ese bloqueo.</p>
+            <p className="text-muted-foreground">Cada acción exige permiso vigente y disponibilidad de ejecución. Activar el permiso no autoriza envíos ni purga directa.</p>
           </div>
           {loading && <p className="text-sm text-muted-foreground">Cargando conexiones…</p>}
           {!loading && error && <p className="text-sm text-destructive">{error}</p>}

@@ -27,7 +27,8 @@ describe("final MCP discrepancies", () => {
   it("returns actual false monitoring after resume of an unmonitorable matter", async () => {
     rpc.mockResolvedValue({ error: null, data: { work_item: { monitoring_enabled: false }, idempotency_key: "saved-key" } });
     const result = await update.handler({ ...updateArgs, client_id: undefined, monitoring_enabled: true }, ctx);
-    expect(result.structuredContent?.cambios.monitoring_enabled).toBe(false);
+    const changes = result.structuredContent?.cambios as Record<string, unknown> | undefined;
+    expect(changes?.monitoring_enabled).toBe(false);
   });
   it("rejects a missing pause reason before the atomic mutation", async () => {
     expect((await update.handler({ ...updateArgs, monitoring_off_reason: undefined }, ctx)).isError).toBe(true);
