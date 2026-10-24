@@ -22,7 +22,7 @@ const STEPS = [
   },
   {
     title: "Autoriza con tu cuenta",
-    body: "Se abrirá la pantalla de consentimiento de Andromeda. Revisa los permisos y pulsa Autorizar. Listo: tu asistente ya ve tu cartera.",
+    body: "Se abrirá la pantalla de consentimiento de Andromeda. Elige «Solo consultar» o «Consultar y gestionar» y confirma. Al volver a conectar también puedes elegir.",
   },
 ];
 
@@ -94,7 +94,7 @@ export default function ConnectAI() {
           {[
             { icon: ShieldCheck, title: "Tu identidad y permisos", body: "Cada conexión consulta solo lo que tu cuenta puede ver. Gestionar asuntos exige ser su propietario y tener permiso vigente." },
             { icon: Lock, title: "Gestión autorizada", body: "Con permiso explícito y según las acciones disponibles para tu conexión, puede crear y editar asuntos, mover etapas, cerrar, archivar, enviar a papelera y restaurar por instrucción tuya. La recuperación dura diez días; no hay purga directa ni envíos." },
-            { icon: Sparkles, title: "Revocable", body: "Solo tú puedes activar o revocar «Permitir gestionar» para cada herramienta desde tu sesión en Andromeda, en Configuración → Conexiones. La eliminación programada sigue el plazo de retención." },
+            { icon: Sparkles, title: "Revocable", body: "Elige el permiso al conectar. Solo tú puedes cambiarlo o revocarlo después desde tu sesión en Andromeda, en Configuración → Conexiones de IA. La eliminación programada sigue el plazo de retención." },
           ].map(({ icon: Icon, title, body }) => (
             <div key={title} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
               <Icon className="mb-2 h-5 w-5 text-[#0ea5e9]" aria-hidden />
@@ -105,7 +105,7 @@ export default function ConnectAI() {
         </section>
 
         <footer className="text-center text-sm text-[#a0b4d0]">
-          ¿Ya tienes cuenta? <Link to="/app/settings/connections" className="underline">Gestiona tus conexiones</Link>.
+          ¿Ya tienes cuenta? <Link to="/app/settings/connections#ai-connections" className="underline">Gestiona tus conexiones</Link>.
         </footer>
       </div>
     </main>

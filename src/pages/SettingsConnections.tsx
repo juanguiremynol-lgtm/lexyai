@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { connectionHealth, useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
+import { saveConnectionPermission, managementScopeAllowed } from "@/lib/mcp-consent";
 import { presentFailure } from "@/lib/email-connection-failures";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
@@ -347,16 +348,15 @@ export default function SettingsConnections() {
   };
 
   const setAccess = async (clientId: string, name: string, manage: boolean) => {
-    if (loading || permissionError || !levels[clientId]) return;
+    if (loading || permissionError || !levels[clientId] || changingLevel || revoking) return;
     setChangingLevel(clientId);
     try {
-      const { error } = manage
-        ? await supabase.rpc("grant_mcp_client_access", { p_oauth_client_id: clientId, p_access_level: "manage" })
-        : await supabase.rpc("revoke_mcp_client_access", { p_oauth_client_id: clientId });
-      if (error) throw new Error(error.message);
-      toast.success(manage ? `${name} ahora puede gestionar tu cartera` : `${name} vuelve a solo lectura`);
+      await saveConnectionPermission(clientId, manage ? "manage" : "read");
       await load();
+      toast.success(manage ? `${name} ahora puede gestionar tu cartera` : `${name} vuelve a solo lectura`);
     } catch (e) {
+      setLevels({});
+      setPermissionError("No se pudo confirmar el permiso. Actualiza la lista antes de cambiarlo.");
       toast.error(e instanceof Error ? e.message : "No se pudo cambiar el permiso.");
     } finally {
       setChangingLevel(null);
@@ -382,22 +382,21 @@ export default function SettingsConnections() {
         </p>
       </header>
 
-      <OutlookConnectionCard />
-
-      <OutlookSendHistoryCard />
-
+      <section id="ai-connections" aria-label="Conexiones de IA" className="space-y-6 scroll-mt-6">
+      <h2 className="text-xl font-semibold">Conexiones de IA</h2>
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <CardHeader className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle className="text-base">Nueva conexión</CardTitle>
+            <CardTitle className="text-base">Conectar una herramienta de IA</CardTitle>
             <CardDescription>Copia la dirección y pégala en tu asistente (Claude, ChatGPT, Cursor…).</CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={copy}>
+          <Button size="sm" variant="outline" className="text-foreground" onClick={copy}>
             {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
             Copiar URL
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Al conectar o volver a conectar, elige «Solo consultar» o «Consultar y gestionar» en Andromeda. Aquí puedes cambiar el permiso o revocar el acceso.</p>
           <code className="block break-all rounded-md bg-muted px-3 py-2 text-sm">{MCP_URL}</code>
         </CardContent>
       </Card>
@@ -462,7 +461,8 @@ export default function SettingsConnections() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!clientId || loading || !!permissionError || !levels[clientId] || changingLevel === clientId}
+                  className="text-foreground"
+                  disabled={!clientId || loading || !!permissionError || !levels[clientId] || !!changingLevel || !!revoking || (levels[clientId]?.access_level !== "manage" && !managementScopeAllowed((grant.scopes ?? []).join(" ")))}
                   onClick={() => void setAccess(clientId, name, levels[clientId]?.access_level !== "manage")}
                 >
                   {changingLevel === clientId
@@ -474,7 +474,7 @@ export default function SettingsConnections() {
                 <Button
                   size="sm"
                   variant="destructive"
-                  disabled={!clientId || revoking === clientId}
+                  disabled={!clientId || loading || !!error || !!permissionError || !levels[clientId] || !!revoking || !!changingLevel}
                   onClick={() => void revoke(clientId, name)}
                 >
                   <ShieldOff className="mr-2 h-4 w-4" />
@@ -486,6 +486,9 @@ export default function SettingsConnections() {
           })}
         </CardContent>
       </Card>
+      </section>
+      <OutlookConnectionCard />
+      <OutlookSendHistoryCard />
     </div>
   );
 }

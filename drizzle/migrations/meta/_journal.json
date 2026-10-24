@@ -561,6 +561,13 @@
       "when": 1792874701508,
       "tag": "0079_mcp_atomic_update_capabilities_freshness_ties",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792877589897,
+      "tag": "0080_mcp_native_authorization_identity",
+      "breakpoints": true
     }
   ]
 }

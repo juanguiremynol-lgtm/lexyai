@@ -1,5 +1,10 @@
 # Roadmap
 
+## Native MCP permission choice (2026-10-24 21:31 UTC)
+- [x] Implement trusted native authorization resolver and retryable consent choice; preserve released eleven execution grants and MCP 0.6.6/50 tools.
+- [x] Expose AI connections from settings/navigation and align connection instructions.
+- [x] Run rendered security/permission tests, rollback-only resolver tests and desktop/mobile fixture checks; no real opt-ins, portfolio mutations or publish.
+
 ## Scoped completion — 2026-10-21 17:46 UTC
 - [x] Correct daily attempt completion/recovery with existing durable leases; preserve successful sources and bound retries.
 - [x] Verify six native acts and repeat only the three authorized cases today; preserve historical terms (0 inserts, 15/28/138 existing).

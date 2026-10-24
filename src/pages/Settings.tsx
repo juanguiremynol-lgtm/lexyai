@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,6 +153,8 @@ export default function Settings() {
           Gestiona tu perfil y preferencias
         </p>
       </div>
+
+      <Button asChild variant="outline"><Link to="/app/settings/connections#ai-connections"><Bot className="mr-2 h-4 w-4" />Conexiones de IA</Link></Button>
 
       <Tabs defaultValue={tabFromUrl || (isAdmin ? "admin" : "subscription")} className="space-y-6">
         <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto whitespace-nowrap lg:flex-wrap">
