@@ -11,13 +11,13 @@ const SCOPE_LABELS: Record<string, { label: string; detail: string }> = {
   email: { label: "Tu correo electrónico", detail: "Mostrar la cuenta conectada en la herramienta." },
   profile: { label: "Tu perfil básico", detail: "Tu nombre y el nombre de tu firma." },
   read: { label: "Consultar tu cartera", detail: "Expedientes, actuaciones, estados, términos, audiencias y clientes." },
-  read_write: { label: "Agregar notas y audiencias", detail: "Solo puede crear notas y agendar audiencias. Nunca elimina ni reclasifica." },
+  read_write: { label: "Escritura (no se activa aquí)", detail: "Los cambios solo se habilitan después, desde Andromeda → Conectar IA, si tú lo decides." },
 };
 
 const CAPABILITIES = [
   { icon: FileText, text: "Leer tus expedientes, actuaciones y estados electrónicos" },
   { icon: CalendarClock, text: "Consultar términos, audiencias y tareas pendientes" },
-  { icon: PencilLine, text: "Agregar notas o agendar audiencias (solo con permiso de escritura)" },
+  { icon: PencilLine, text: "Gestionar tu cartera (crear, archivar, mover etapas, resolver alertas y correos) solo si después lo activas tú en Andromeda → Conectar IA. Al aprobar aquí la conexión queda en solo lectura." },
 ];
 
 // Typed wrapper for the beta supabase.auth.oauth namespace (used by the

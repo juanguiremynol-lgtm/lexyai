@@ -21,7 +21,7 @@ const SCOPE_LABELS: Record<string, string> = {
   email: "Correo",
   profile: "Perfil",
   read: "Lectura de la cartera",
-  read_write: "Notas y audiencias",
+  read_write: "Escritura",
 };
 
 type Grant = {
@@ -279,8 +279,12 @@ function OutlookSendHistoryCard() {
   );
 }
 
+type McpConnection = { oauth_client_id: string; access_level: "read" | "manage"; manage_granted_at: string | null };
+
 export default function SettingsConnections() {
   const [grants, setGrants] = useState<Grant[]>([]);
+  const [levels, setLevels] = useState<Record<string, McpConnection>>({});
+  const [changingLevel, setChangingLevel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -303,6 +307,12 @@ export default function SettingsConnections() {
         return;
       }
       setGrants(Array.isArray(data) ? data : []);
+      const { data: conns, error: connErr } = await supabase.rpc("list_my_mcp_connections");
+      if (!connErr && Array.isArray(conns)) {
+        const map: Record<string, McpConnection> = {};
+        for (const c of conns as unknown as McpConnection[]) map[c.oauth_client_id] = c;
+        setLevels(map);
+      }
     } catch (e) {
       setGrants([]);
       setError(e instanceof Error ? e.message : "No se pudieron cargar las conexiones.");
@@ -328,6 +338,22 @@ export default function SettingsConnections() {
       toast.error(e instanceof Error ? e.message : "No se pudo revocar el acceso.");
     } finally {
       setRevoking(null);
+    }
+  };
+
+  const setAccess = async (clientId: string, name: string, manage: boolean) => {
+    setChangingLevel(clientId);
+    try {
+      const { error } = manage
+        ? await supabase.rpc("grant_mcp_client_access", { p_oauth_client_id: clientId, p_access_level: "manage" })
+        : await supabase.rpc("revoke_mcp_client_access", { p_oauth_client_id: clientId });
+      if (error) throw new Error(error.message);
+      toast.success(manage ? `${name} ahora puede gestionar tu cartera` : `${name} vuelve a solo lectura`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo cambiar el permiso.");
+    } finally {
+      setChangingLevel(null);
     }
   };
 
@@ -403,6 +429,29 @@ export default function SettingsConnections() {
                     ))}
                   </div>
                 </div>
+                <div className="flex flex-col items-end gap-2">
+                <div className="text-right">
+                  <Badge variant={levels[clientId]?.access_level === "manage" ? "default" : "outline"}>
+                    {levels[clientId]?.access_level === "manage" ? "Puede gestionar" : "Solo lectura"}
+                  </Badge>
+                  <p className="mt-1 max-w-[16rem] text-xs text-muted-foreground">
+                    {levels[clientId]?.access_level === "manage"
+                      ? "Puede crear, archivar o enviar a papelera (recuperable 10 días), mover etapas y resolver alertas, correos y procesos detectados cuando tú se lo pidas. Nunca borra definitivamente ni envía correos."
+                      : "Solo consulta tu cartera. Activa la gestión si quieres que haga cambios cuando se lo pidas."}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!clientId || changingLevel === clientId}
+                  onClick={() => void setAccess(clientId, name, levels[clientId]?.access_level !== "manage")}
+                >
+                  {changingLevel === clientId
+                    ? "Guardando…"
+                    : levels[clientId]?.access_level === "manage"
+                      ? "Volver a solo lectura"
+                      : "Permitir gestionar"}
+                </Button>
                 <Button
                   size="sm"
                   variant="destructive"
@@ -412,6 +461,7 @@ export default function SettingsConnections() {
                   <ShieldOff className="mr-2 h-4 w-4" />
                   {revoking === clientId ? "Revocando…" : "Revocar acceso"}
                 </Button>
+                </div>
               </div>
             );
           })}
