@@ -31,10 +31,10 @@ BEGIN
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
   IF v <> 'read' THEN fails := fails + 1; log := log || 'FAIL oauth default=' || v || E'\n'; ELSE log := log || E'ok oauth default=read (no backfill)\n'; END IF;
-  -- claim without client but session belongs to OAuth client -> still oauth
+  -- 0071: OAuth session with a missing client claim is invalid (fail-closed), never native.
   PERFORM set_config('request.jwt.claims', (oau - 'client_id')::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
-  IF v <> 'read' THEN fails := fails + 1; log := log || 'FAIL oauth w/o client claim=' || v || E'\n'; ELSE log := log || E'ok oauth session resolved without client claim\n'; END IF;
+  IF v <> 'none' THEN fails := fails + 1; log := log || 'FAIL oauth w/o client claim=' || v || E'\n'; ELSE log := log || E'ok oauth session without client claim -> none\n'; END IF;
 
   -- 2. OAuth cannot self-escalate
   BEGIN
