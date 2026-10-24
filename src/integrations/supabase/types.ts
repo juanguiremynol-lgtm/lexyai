@@ -25770,8 +25770,20 @@ export type Database = {
         }
         Returns: Json
       }
+      _mcp_is_trusted_backend: { Args: never; Returns: boolean }
       _mcp_message_radicado_bases: { Args: { p_meta: Json }; Returns: string[] }
       _mcp_require_first_party: { Args: never; Returns: Json }
+      _mcp_updates_page: {
+        Args: {
+          p_id: string
+          p_kind: string
+          p_limit: number
+          p_mode: string
+          p_ts: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       _mcp_wi_snapshot: { Args: { p_id: string }; Returns: Json }
       accept_workflow_suggestion: {
         Args: {
@@ -27043,6 +27055,10 @@ export type Database = {
           p_to_stage: string
           p_work_item_id: string
         }
+        Returns: Json
+      }
+      mcp_reconcile_updates: {
+        Args: { p_limit?: number; p_since: string; p_work_item_id?: string }
         Returns: Json
       }
       mcp_resolve_alert: {
