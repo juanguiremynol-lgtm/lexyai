@@ -60,6 +60,7 @@ const navItems = [
 
 const settingsItems = [
   { title: "Configuración", url: "/app/settings", icon: Settings },
+  { title: "Conexiones de IA", url: "/app/settings/connections#ai-connections", icon: Link2 },
 ];
 
 type NavItem = {
@@ -170,7 +171,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {settingsItems.map((item) => {
-                const isActive = location.pathname === item.url;
+                const isActive = location.pathname === item.url.split("#")[0];
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
