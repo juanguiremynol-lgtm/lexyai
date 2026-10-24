@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-0",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-1",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -1841,7 +1841,7 @@
       {
         "name": "list_updates",
         "title": "Novedades incrementales (actuaciones, estados y ciclo de vida)",
-        "description": "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. Pass next_cursor to continue; has_more says whether to page again. After catching up the next call re-reads a 15-minute overlap: deduplicate by dedupe_key (kind:id:revision), never by id alone. Because revision timestamps are set at transaction start, a very late commit could be missed: periodically pass reconcile_since for a full re-read. Cursor is bound to the user and optional work_item_id and expires after 7 days. `freshness` reports per-provider sync checks for visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
+        "description": "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados and new matters appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. next_cursor is an opaque server-stored token bound to the user, the AI connection and the work_item_id filter (expires after 30 days; an expired cursor returns CURSOR_EXPIRED with the reconcile_since to use — it is never silently reset). Each pass has a fixed upper watermark; when has_more=false the durable checkpoint advances to that watermark and the next pass re-reads 15 minutes before it: deduplicate by dedupe_key (kind:id:revision), never by id alone. Each event shows the row's CURRENT state (intermediate revisions between polls collapse); permanent purges emit no event; a transaction committing more than 15 minutes after it started may be missed, so periodically run reconcile_since. Without cursor: last 3 days. `freshness` is always present (portfolio or work item scope, 30-day window) from per-provider sync checks on visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
         "annotations": {
           "readOnlyHint": true,
           "destructiveHint": false,
@@ -1853,13 +1853,13 @@
           "properties": {
             "cursor": {
               "type": "string",
-              "maxLength": 2000,
-              "description": "next_cursor de la llamada anterior. Sin cursor: últimos 3 días."
+              "maxLength": 200,
+              "description": "next_cursor de la llamada anterior (c1.<id>). Sin cursor: últimos 3 días."
             },
             "reconcile_since": {
               "type": "string",
               "format": "date-time",
-              "description": "Reconciliación completa desde esta fecha ISO (máx. 400 días). Ignora cursor."
+              "description": "Reconciliación completa desde esta fecha ISO (máx. 400 días); continúa con next_cursor. Ignora cursor."
             },
             "work_item_id": {
               "type": "string",
