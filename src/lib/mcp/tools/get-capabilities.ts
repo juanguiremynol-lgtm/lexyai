@@ -20,31 +20,45 @@ export default defineTool({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const [{ data: level, error: e1 }, { data: caller, error: e2 }] = await Promise.all([
+    const [{ data: level, error: e1 }, { data: caller, error: e2 }, { data: availability, error: e3 }] = await Promise.all([
       sb.rpc("mcp_access_level"),
       sb.rpc("mcp_caller_context"),
+      sb.rpc("mcp_mutation_availability"),
     ]);
-    if (e1 || e2) return errorResult((e1 ?? e2)?.message ?? "Error");
+    if (e1 || e2 || e3) return errorResult("No se pudo verificar la disponibilidad de esta conexión. Vuelve a conectarla o reintenta la consulta.");
     const c = (caller ?? {}) as Record<string, unknown>;
-    const canManage = level === "manage" || level === "first_party";
+    const a = availability as { verified?: boolean; tools?: Record<string, { available?: boolean; execution_available?: boolean }> } | null;
+    if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");
+    const verified = level !== "none" && c.authenticated === true;
+    const hasGrant = verified && (level === "manage" || level === "first_party");
+    const available = MANAGE_TOOLS.filter((name) => hasGrant && a.tools?.[name]?.available === true);
+    const canManage = available.length > 0;
     return textResult(
-      canManage
+      !verified
+        ? "La sesión de esta conexión no pudo verificarse. Vuelve a conectar el asistente e inicia sesión en Andromeda."
+        : canManage
         ? "Esta conexión puede gestionar la cartera del usuario (siempre con su instrucción explícita)."
+        : hasGrant
+        ? "El permiso de gestión está confirmado, pero no hay acciones de escritura disponibles para esta conexión."
         : "Esta conexión es de solo lectura. Para gestionar, el usuario debe activar «Permitir gestionar» en Andromeda → Conectar IA.",
       {
         access_level: level,
         surface: c.surface ?? null,
         oauth_client_id: c.oauth_client_id ?? null,
         can_manage: canManage,
-        manage_tools: MANAGE_TOOLS,
-        release_gate: "Las nueve RPC nuevas de gestión y assign_work_item_radicado mantienen EXECUTE bloqueado hasta revisión; un grant de gestión no elimina ese bloqueo.",
+        has_manage_grant: hasGrant,
+        manage_tools: available,
+        tool_availability: a.tools,
+        access_verified: verified,
+        reason: !verified ? "SESSION_UNVERIFIED" : hasGrant && !canManage ? "EXECUTION_UNAVAILABLE" : !hasGrant ? "READ_ONLY" : null,
+        unavailable_manage_tools: MANAGE_TOOLS.filter((name) => !available.includes(name)),
         never_available: [
           "borrado definitivo (purga)",
           "administración de cuentas, contraseñas o roles",
           "envío de correos o mensajes",
           "dar por cumplido un término al descartar un correo, alerta o notificación (solo manage_deadline con instrucción explícita del usuario cierra un término)",
         ],
-        how_to_enable: "Andromeda → Conectar IA → Conexiones autorizadas → Permitir gestionar. Revocable en cualquier momento.",
+        how_to_enable: !verified ? "Reconecta el asistente e inicia sesión en Andromeda; no compartas credenciales ni tokens." : "Andromeda → Configuración → Conexiones (/app/settings/connections) → Permitir gestionar. Revocable en cualquier momento; la ejecución también debe estar disponible.",
       },
     );
   },

@@ -27188,6 +27188,7 @@ export type Database = {
         }
         Returns: Json
       }
+      mcp_mutation_availability: { Args: never; Returns: Json }
       mcp_reconcile_updates: {
         Args: { p_limit?: number; p_since: string; p_work_item_id?: string }
         Returns: Json
@@ -27235,6 +27236,16 @@ export type Database = {
           p_idempotency_key: string
           p_ids: string[]
           p_until: string
+        }
+        Returns: Json
+      }
+      mcp_update_work_item: {
+        Args: {
+          p_idempotency_key?: string
+          p_monitoring_enabled?: boolean
+          p_monitoring_off_reason?: string
+          p_patch: Json
+          p_work_item_id: string
         }
         Returns: Json
       }

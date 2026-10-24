@@ -16,6 +16,18 @@ psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizz
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizzle/migrations/0076_mcp_protected_cursor_execution.sql >"$root/cursor-repair.log"
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizzle/migrations/0077_mcp_paginated_freshness_issues.sql >"$root/freshness-page.log"
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizzle/migrations/0078_mcp_cursor_nonrow_privilege_revoke.sql >"$root/least-privilege.log"
+psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 <<'SQL' >"$root/monitoring-helpers.log"
+CREATE FUNCTION public._assert_owner_direct_write(p_owner uuid,p_allow_trusted boolean DEFAULT true) RETURNS void LANGUAGE plpgsql AS $$ BEGIN PERFORM public.mcp_assert_write(); IF p_owner IS DISTINCT FROM auth.uid() THEN RAISE EXCEPTION 'NO_AUTORIZADO' USING ERRCODE='42501'; END IF; END $$;
+SQL
+python3 - <<'PY' | psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 >"$root/canonical-monitoring.log"
+from pathlib import Path
+s=Path('drizzle/migrations/0068_mcp_release_blocker_hardening.sql').read_text()
+a=s.index('CREATE OR REPLACE FUNCTION public.suspend_work_item_monitoring(')
+b=s.index('CREATE OR REPLACE FUNCTION public.apply_system_computed_stage(',a)
+print(s[a:b])
+PY
+psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f drizzle/migrations/0079_mcp_atomic_update_capabilities_freshness_ties.sql >"$root/atomic-update.log"
+python3 supabase/tests/mcp_atomic_update_acceptance.py
 python3 supabase/tests/run_authorization_acceptance.py
 python3 supabase/tests/mcp_source_acceptance.py
 python3 supabase/tests/mcp_creation_continuation_acceptance.py

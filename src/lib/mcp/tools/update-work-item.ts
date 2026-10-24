@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { errorResult, requireWriteScope, resolveWorkItem, sbForUser, textResult, workItemTitle } from "../shared";
+import { errorResult, IDEMPOTENCY_KEY_DESCRIPTION, requireWriteScope, resolveWorkItem, rpcErrorText, sbForUser, textResult, workItemTitle } from "../shared";
 
 /**
  * Editable surface of a matter over MCP.
@@ -41,6 +41,7 @@ export default defineTool({
       .optional()
       .describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z.boolean().optional().describe("Activar o desactivar la vinculación de correos."),
+    idempotency_key: z.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -70,38 +71,19 @@ export default defineTool({
       return errorResult("No indicaste ningún campo para cambiar.");
     }
 
-    // Monitoring uses the canonical explicit user suspension/resume RPCs (owner + manage gate,
-    // reason preserved, audited). A plain column write would be reset by DB invariants.
-    if (monitoringChange !== undefined) {
-      const { error: monErr } = monitoringChange
-        ? await sb.rpc("resume_work_item_monitoring", { p_work_item_id: item.id as string })
-        : await sb.rpc("suspend_work_item_monitoring", {
-            p_work_item_id: item.id as string,
-            p_reason: args.monitoring_off_reason as string,
-          });
-      if (monErr) return errorResult(monErr.message);
-    }
-
-    if (patch.client_id) {
-      const { data: client } = await sb
-        .from("clients")
-        .select("id, name")
-        .is("deleted_at", null)
-        .eq("id", patch.client_id as string)
-        .maybeSingle();
-      if (!client) return errorResult("Ese cliente no existe o no pertenece a tu cuenta.");
-    }
-
-    const selectCols =
-      "id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, monitoring_disabled_by, monitoring_disabled_reason, email_linking_enabled, expediente_url";
-    const hasFieldPatch = Object.keys(patch).length > 0;
-    if (hasFieldPatch) patch.updated_at = new Date().toISOString();
-    const { data, error } = hasFieldPatch
-      ? await sb.from("work_items").update(patch).eq("id", item.id as string).select(selectCols).maybeSingle()
-      : await sb.from("work_items").select(selectCols).eq("id", item.id as string).maybeSingle();
-    if (error) return errorResult(error.message);
-    if (!data) return errorResult("No se pudo leer el asunto tras el cambio (sin permiso o no existe).");
-    if (monitoringChange !== undefined) patch.monitoring_enabled = monitoringChange;
+    // One transaction validates the client before changes and retains canonical monitoring RPCs.
+    const { data: result, error } = await sb.rpc("mcp_update_work_item", {
+      p_work_item_id: item.id as string,
+      p_patch: patch,
+      p_monitoring_enabled: monitoringChange ?? null,
+      p_monitoring_off_reason: args.monitoring_off_reason ?? null,
+      p_idempotency_key: args.idempotency_key ?? null,
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const committed = result as Record<string, unknown> | null;
+    const data = committed?.work_item as Record<string, unknown> | undefined;
+    if (!data) return errorResult("No se pudo confirmar el asunto tras el cambio.");
+    if (monitoringChange !== undefined) patch.monitoring_enabled = data.monitoring_enabled;
 
     return textResult(
       `${resolved.note ? `${resolved.note}\n` : ""}Asunto ${item.radicado ?? item.id} actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`,
@@ -109,6 +91,8 @@ export default defineTool({
         work_item: data,
         titulo: workItemTitle((data ?? item) as Record<string, unknown>),
         cambios: patch,
+        idempotency_key: committed?.idempotency_key ?? null,
+        replayed: committed?.replayed ?? false,
         nota: "Radicado, tipo de proceso y etapa procesal no se modifican por esta vía.",
       },
     );

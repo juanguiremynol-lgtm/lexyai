@@ -2048,7 +2048,8 @@ var update_work_item_default = defineTool28({
     is_flagged: z23.boolean().optional().describe("Marcar/desmarcar como destacado."),
     monitoring_enabled: z23.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
     monitoring_off_reason: z23.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
-    email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos.")
+    email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos."),
+    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2083,24 +2084,18 @@ var update_work_item_default = defineTool28({
     if (Object.keys(patch).length === 0 && monitoringChange === void 0) {
       return errorResult("No indicaste ning\xFAn campo para cambiar.");
     }
-    if (monitoringChange !== void 0) {
-      const { error: monErr } = monitoringChange ? await sb.rpc("resume_work_item_monitoring", { p_work_item_id: item.id }) : await sb.rpc("suspend_work_item_monitoring", {
-        p_work_item_id: item.id,
-        p_reason: args.monitoring_off_reason
-      });
-      if (monErr) return errorResult(monErr.message);
-    }
-    if (patch.client_id) {
-      const { data: client } = await sb.from("clients").select("id, name").is("deleted_at", null).eq("id", patch.client_id).maybeSingle();
-      if (!client) return errorResult("Ese cliente no existe o no pertenece a tu cuenta.");
-    }
-    const selectCols = "id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, monitoring_disabled_by, monitoring_disabled_reason, email_linking_enabled, expediente_url";
-    const hasFieldPatch = Object.keys(patch).length > 0;
-    if (hasFieldPatch) patch.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    const { data, error } = hasFieldPatch ? await sb.from("work_items").update(patch).eq("id", item.id).select(selectCols).maybeSingle() : await sb.from("work_items").select(selectCols).eq("id", item.id).maybeSingle();
-    if (error) return errorResult(error.message);
-    if (!data) return errorResult("No se pudo leer el asunto tras el cambio (sin permiso o no existe).");
-    if (monitoringChange !== void 0) patch.monitoring_enabled = monitoringChange;
+    const { data: result, error } = await sb.rpc("mcp_update_work_item", {
+      p_work_item_id: item.id,
+      p_patch: patch,
+      p_monitoring_enabled: monitoringChange ?? null,
+      p_monitoring_off_reason: args.monitoring_off_reason ?? null,
+      p_idempotency_key: args.idempotency_key ?? null
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const committed = result;
+    const data = committed?.work_item;
+    if (!data) return errorResult("No se pudo confirmar el asunto tras el cambio.");
+    if (monitoringChange !== void 0) patch.monitoring_enabled = data.monitoring_enabled;
     return textResult(
       `${resolved.note ? `${resolved.note}
 ` : ""}Asunto ${item.radicado ?? item.id} actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`,
@@ -2108,6 +2103,8 @@ var update_work_item_default = defineTool28({
         work_item: data,
         titulo: workItemTitle(data ?? item),
         cambios: patch,
+        idempotency_key: committed?.idempotency_key ?? null,
+        replayed: committed?.replayed ?? false,
         nota: "Radicado, tipo de proceso y etapa procesal no se modifican por esta v\xEDa."
       }
     );
@@ -2545,29 +2542,39 @@ var get_capabilities_default = defineTool34({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const [{ data: level, error: e1 }, { data: caller, error: e2 }] = await Promise.all([
+    const [{ data: level, error: e1 }, { data: caller, error: e2 }, { data: availability, error: e3 }] = await Promise.all([
       sb.rpc("mcp_access_level"),
-      sb.rpc("mcp_caller_context")
+      sb.rpc("mcp_caller_context"),
+      sb.rpc("mcp_mutation_availability")
     ]);
-    if (e1 || e2) return errorResult((e1 ?? e2)?.message ?? "Error");
+    if (e1 || e2 || e3) return errorResult("No se pudo verificar la disponibilidad de esta conexi\xF3n. Vuelve a conectarla o reintenta la consulta.");
     const c = caller ?? {};
-    const canManage = level === "manage" || level === "first_party";
+    const a = availability;
+    if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");
+    const verified = level !== "none" && c.authenticated === true;
+    const hasGrant = verified && (level === "manage" || level === "first_party");
+    const available = MANAGE_TOOLS.filter((name) => hasGrant && a.tools?.[name]?.available === true);
+    const canManage = available.length > 0;
     return textResult(
-      canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
+      !verified ? "La sesi\xF3n de esta conexi\xF3n no pudo verificarse. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda." : canManage ? "Esta conexi\xF3n puede gestionar la cartera del usuario (siempre con su instrucci\xF3n expl\xEDcita)." : hasGrant ? "El permiso de gesti\xF3n est\xE1 confirmado, pero no hay acciones de escritura disponibles para esta conexi\xF3n." : "Esta conexi\xF3n es de solo lectura. Para gestionar, el usuario debe activar \xABPermitir gestionar\xBB en Andromeda \u2192 Conectar IA.",
       {
         access_level: level,
         surface: c.surface ?? null,
         oauth_client_id: c.oauth_client_id ?? null,
         can_manage: canManage,
-        manage_tools: MANAGE_TOOLS,
-        release_gate: "Las nueve RPC nuevas de gesti\xF3n y assign_work_item_radicado mantienen EXECUTE bloqueado hasta revisi\xF3n; un grant de gesti\xF3n no elimina ese bloqueo.",
+        has_manage_grant: hasGrant,
+        manage_tools: available,
+        tool_availability: a.tools,
+        access_verified: verified,
+        reason: !verified ? "SESSION_UNVERIFIED" : hasGrant && !canManage ? "EXECUTION_UNAVAILABLE" : !hasGrant ? "READ_ONLY" : null,
+        unavailable_manage_tools: MANAGE_TOOLS.filter((name) => !available.includes(name)),
         never_available: [
           "borrado definitivo (purga)",
           "administraci\xF3n de cuentas, contrase\xF1as o roles",
           "env\xEDo de correos o mensajes",
           "dar por cumplido un t\xE9rmino al descartar un correo, alerta o notificaci\xF3n (solo manage_deadline con instrucci\xF3n expl\xEDcita del usuario cierra un t\xE9rmino)"
         ],
-        how_to_enable: "Andromeda \u2192 Conectar IA \u2192 Conexiones autorizadas \u2192 Permitir gestionar. Revocable en cualquier momento."
+        how_to_enable: !verified ? "Reconecta el asistente e inicia sesi\xF3n en Andromeda; no compartas credenciales ni tokens." : "Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones (/app/settings/connections) \u2192 Permitir gestionar. Revocable en cualquier momento; la ejecuci\xF3n tambi\xE9n debe estar disponible."
       }
     );
   }
@@ -3312,7 +3319,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.4",
+  version: "0.6.5",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3330,7 +3337,7 @@ var mcp_default = defineMcp({
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
     "Permisos: `get_capabilities` dice si esta conexi\xF3n es de solo lectura o puede gestionar. Gestionar exige que el usuario lo active \xE9l mismo en Andromeda \u2192 Conectar IA; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
     "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
-    "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. Las nueve RPC nuevas y esta asignaci\xF3n mantienen EXECUTE bloqueado hasta revisi\xF3n. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
+    "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. `get_capabilities` verifica disponibilidad de ejecuci\xF3n y permiso de gesti\xF3n en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
     "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
@@ -3340,7 +3347,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-4"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-5"
   }),
   tools: [
     get_user_context_default,

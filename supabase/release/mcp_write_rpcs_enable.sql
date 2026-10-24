@@ -1,7 +1,8 @@
 -- RELEASE STEP (gated, NOT a migration): nine existing new MCP writes plus radicado assignment.
+-- 0079 adds the internal atomic-update mutation; all ELEVEN remain gated until root review.
 -- DO NOT RUN AUTOMATICALLY: root reviews, independently verifies, then explicitly applies this file.
 -- Preconditions (all must hold before root applies this through the migration tool):
---   1. Review the final 0059-0077 implementation plus additive 0078 privilege cleanup; candidate 0.6.4 / 50 tools.
+--   1. Review final 0059-0079; candidate 0.6.5 / 50 tools, atomic update internal RPC included.
 --   2. Final local suites pass (see docs/mcp-release-readiness-20261024.md), including real overlapping
 --      creation/email/stage transactions, cursor isolation and rendered permission states.
 --      Local schemas are reduced fixtures, NOT full production-policy/enrollment equivalence.
@@ -20,3 +21,4 @@ GRANT EXECUTE ON FUNCTION public.mcp_resolve_email_question(uuid, text, text) TO
 GRANT EXECUTE ON FUNCTION public.mcp_add_email_association(uuid, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_resolve_detected_process(uuid, text, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_assign_work_item_radicado(uuid, text, timestamptz, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mcp_update_work_item(uuid, jsonb, boolean, text, text) TO authenticated;

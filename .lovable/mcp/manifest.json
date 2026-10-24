@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-4",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-5",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.4",
+      "version": "0.6.5",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -968,6 +968,12 @@
             "email_linking_enabled": {
               "type": "boolean",
               "description": "Activar o desactivar la vinculación de correos."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
             }
           },
           "additionalProperties": false,
