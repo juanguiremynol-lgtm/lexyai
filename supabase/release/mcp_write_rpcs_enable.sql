@@ -1,12 +1,15 @@
 -- RELEASE STEP (gated, NOT a migration): nine existing new MCP writes plus radicado assignment.
--- DO NOT RUN: 0072/0073 acceptance and full legacy suites still require independent review.
+-- DO NOT RUN AUTOMATICALLY: root reviews, independently verifies, then explicitly applies this file.
 -- Preconditions (all must hold before root applies this through the migration tool):
---   1. Migrations 0068-0071 are applied and reviewed (0071 = fail-closed caller/consent/owner helpers).
---   2. Rollback-only suites report fails=0 with transaction-local GRANTs only:
---      mcp_fail_closed_authz.sql (29 checks), mcp_release_blockers.sql (49), lifecycle_authz.sql (13),
---      mcp_management_authz.sql (34), mcp_stage_creation_parity.sql (12). Last run: 2026-10-24 after 0071, all fails=0.
+--   1. Review the final 0059-0077 implementation plus additive 0078 privilege cleanup; candidate 0.6.4 / 50 tools.
+--   2. Final local suites pass (see docs/mcp-release-readiness-20261024.md), including real overlapping
+--      creation/email/stage transactions, cursor isolation and rendered permission states.
+--      Local schemas are reduced fixtures, NOT full production-policy/enrollment equivalence.
+--      Root reports hosted AUTH 61/61 PASS, fixtures/grants cleaned; hosted FEED/OPERATIONS review
+--      is independent. Confirm their final results before enablement. No catch-all denial counts as PASS.
 --   3. Root explicitly approves enabling writes.
 -- anon/PUBLIC stay revoked; every RPC still enforces the per-user, per-OAuth-client manage grant internally.
+-- Publication and authenticated external-client smoke are separate root-controlled steps after review.
 GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_work_item_lifecycle(uuid, text, timestamptz, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_move_work_item_stage(uuid, text, timestamptz, text[], text, text) TO authenticated;

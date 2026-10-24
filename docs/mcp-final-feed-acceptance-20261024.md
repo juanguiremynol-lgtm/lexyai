@@ -59,6 +59,8 @@ are local substitutes, not proof of the whole production queue/trigger family.
 
 ## Remaining issues blocking release
 
+**Historical checkpoint:** the final scoped pass adds overlapping mutation and rendered permission tests, plus 0078 least-privilege cleanup. See [mcp-release-readiness-20261024.md](mcp-release-readiness-20261024.md) for current evidence and root-controlled release prerequisites. The feed bounds below remain unchanged.
+
 - Older broad SQL suites still contain catch-all negative PASS paths and unconditional
   TEST_RESULTS exceptions. They have NOT been rerun/certified as final acceptance.
   Focused new suites do not substitute for full direct-writer/support/RLS coverage.

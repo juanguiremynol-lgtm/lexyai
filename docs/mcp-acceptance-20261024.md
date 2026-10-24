@@ -1,5 +1,7 @@
 # MCP acceptance status — 2026-10-24
 
+**Historical checkpoint.** Current candidate, final evidence and release prerequisites are in [mcp-release-readiness-20261024.md](mcp-release-readiness-20261024.md); unresolved lists below describe the earlier checkpoint, not the final scoped review.
+
 ## Additional acceptance at 20:17 UTC
 
 - Applied `0074_lifecycle_restore_effective_monitoring_quota.sql`: the canonical

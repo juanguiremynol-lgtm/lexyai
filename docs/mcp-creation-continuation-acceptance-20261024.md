@@ -17,6 +17,8 @@
 
 ## Release status
 
+This is the creation-specific checkpoint. Current combined evidence and release prerequisites supersede its earlier pending list: [mcp-release-readiness-20261024.md](mcp-release-readiness-20261024.md).
+
 Not authorized to publish or enable mutations. No services were enabled; the existing Cloud backend remains unchanged. The manifest is not evidence of a hosted revision update.
 
 Provider retries remain scheduled: do not promise immediate hydration. No schedules, workers, reminders, cron or Vault were changed. The owner reports process-retry-queue hourly UTC 05–13 plus 18:00; this turn did not independently inspect that schedule.

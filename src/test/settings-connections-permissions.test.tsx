@@ -33,7 +33,7 @@ describe("SettingsConnections rendered permission boundaries", () => {
     await screen.findByText("Solo lectura");
     expect((screen.getByRole("button", { name: "Permitir gestionar" }) as HTMLButtonElement).disabled).toBe(false);
   });
-  it.each([null, []])("unknown/missing permission response %s does not enable management", async (data) => {
+  it.each([{ data: null }, { data: [] }])("unknown/missing permission response $data does not enable management", async ({ data }) => {
     rpc.mockResolvedValue({ data, error: null });
     render(<SettingsConnections />);
     await waitFor(() => expect(screen.queryByText("Cargando conexiones…")).toBeNull());
