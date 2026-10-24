@@ -157,9 +157,9 @@ BEGIN
   EXCEPTION WHEN others THEN RESET ROLE; log := log || E'ok invalid stage rejected\n'; END;
 
   -- 7c. Alerts vs notifications
-  INSERT INTO public.alert_instances (id, owner_id, entity_type, entity_id, severity, status, title, alert_type, resolution_mode, fired_at)
-  VALUES (al1, a, 'WORK_ITEM', wi, 'INFO', 'SENT', 'auto', 'SYSTEM_UNTYPED', 'AUTO_ON_CAUSE_CLEARED', now()),
-         (al2, a, 'WORK_ITEM', wi, 'INFO', 'PENDING', 'snooz', 'SYSTEM_UNTYPED', 'SNOOZABLE', now());
+  INSERT INTO public.alert_instances (id, owner_id, entity_type, entity_id, severity, status, title, message, alert_type, resolution_mode, fired_at, fingerprint)
+  VALUES (al1, a, 'WORK_ITEM', wi, 'WARNING', 'SENT', 'auto', 'm', 'MONITOREO_SIN_PROVEEDOR', 'AUTO_ON_CAUSE_CLEARED', now(), 'mcp_test_1_' || al1),
+         (al2, a, 'WORK_ITEM', wi2, 'WARNING', 'PENDING', 'snooz', 'm', 'MONITOREO_SIN_INGESTA', 'SNOOZABLE', now(), 'mcp_test_2_' || al2);
   BEGIN
     PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
     PERFORM public.mcp_resolve_alert(al1, 'dismiss', 'alert-key-001'); RESET ROLE;
@@ -205,7 +205,8 @@ BEGIN
   PERFORM set_config('request.jwt.claims', nat::text, true); SET LOCAL ROLE authenticated;
   PERFORM public.grant_mcp_client_access(cl, 'manage'); RESET ROLE;
   UPDATE auth.oauth_consents SET revoked_at = now() WHERE id = consent;
-  INSERT INTO auth.oauth_consents (user_id, client_id, scopes, granted_at) VALUES (a, cl, 'openid', now() + interval '1 second');
+  -- auth.oauth_consents is unique per (user, client): reconnect updates the row in place.
+  UPDATE auth.oauth_consents SET revoked_at = NULL, granted_at = now() + interval '1 second' WHERE id = consent;
   PERFORM set_config('request.jwt.claims', oau::text, true); SET LOCAL ROLE authenticated;
   v := public.mcp_access_level(); RESET ROLE;
   IF v <> 'read' THEN fails := fails + 1; log := log || E'FAIL reconnect resurrected manage\n'; ELSE log := log || E'ok reconnect after consent revocation -> read\n'; END IF;
