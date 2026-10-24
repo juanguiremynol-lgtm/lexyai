@@ -2833,8 +2833,17 @@ var list_workflow_stages_default = defineTool35({
 import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z30 } from "npm:zod@^3.25.76";
 
+// src/lib/externalSyncDisplay.ts
+var ONLINE_SYNC_ELIGIBLE_WORKFLOWS = [
+  "CGP",
+  "CPACA",
+  "LABORAL",
+  "PENAL_906",
+  "TUTELA",
+  "EJECUTIVO"
+];
+
 // src/lib/monitoring-reason.ts
-import { ONLINE_SYNC_ELIGIBLE_WORKFLOWS } from "npm:@/lib/externalSyncDisplay";
 var PROVIDER_ELIGIBLE_WORKFLOWS = ONLINE_SYNC_ELIGIBLE_WORKFLOWS;
 var MONITORING_OFF_REASON = {
   /** Provider-eligible workflow, but no radicado recorded yet. */
