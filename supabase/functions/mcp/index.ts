@@ -155,14 +155,13 @@ function errorResult(text) {
 function requireAuth(ctx) {
   return ctx.isAuthenticated() ? null : "No autenticado. Vuelve a conectar la herramienta con tu cuenta de Andromeda.";
 }
-function requireWriteScope(ctx) {
+var MANAGE_REQUIRED = "Esta conexi\xF3n de IA es de solo lectura. Para que el asistente pueda hacer cambios, el usuario debe activar \xABPermitir gestionar\xBB para esta conexi\xF3n en Andromeda \u2192 Conectar IA.";
+async function requireWriteScope(ctx) {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  const claims = ctx.getClaims?.() ?? {};
-  const raw = claims.scope ?? claims.scopes ?? claims.scp;
-  if (raw == null) return null;
-  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
-  return granted.includes("read_write") ? null : "Esta conexi\xF3n es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+  const { data, error } = await sbForUser(ctx).rpc("mcp_access_level");
+  if (error) return `No se pudo verificar el permiso de gesti\xF3n: ${error.message}`;
+  return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
 async function callerOrganizationId(sb, userId) {
   const { data } = await sb.from("organization_memberships").select("organization_id").eq("user_id", userId).limit(1).maybeSingle();
@@ -841,7 +840,7 @@ var add_note_default = defineTool12({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id, radicado }, "id, radicado, deleted_at");
@@ -1482,7 +1481,7 @@ var add_hearing_default = defineTool19({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const when = new Date(date);
@@ -2034,7 +2033,7 @@ var update_work_item_default = defineTool28({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
@@ -2108,7 +2107,7 @@ var manage_deadline_default = defineTool29({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();
@@ -2195,7 +2194,7 @@ var manage_task_default = defineTool30({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();
@@ -2415,7 +2414,7 @@ var whatsapp_prepare_default = defineTool33({
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
-    const denied = requireWriteScope(ctx);
+    const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const userId = ctx.getUserId?.();

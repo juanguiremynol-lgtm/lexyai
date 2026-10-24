@@ -167,26 +167,42 @@ export function requireAuth(ctx: ToolContext): string | null {
 }
 
 /**
- * Write-scope guard for the two mutating tools (`add_note`, `add_hearing`).
+ * Write guard for every mutating MCP tool.
  *
- * Supabase-issued OAuth access tokens do not carry an OAuth `scope` claim, so a
- * token without any scope claim is treated as a full-access user token (the
- * connection was approved by the user on the consent screen). When a scope
- * claim IS present, `read_write` must be among the granted scopes — this makes
- * read-only tokens genuinely read-only as soon as the authorization server
- * starts emitting scopes.
+ * Fail-closed: OAuth scopes emitted by the authorization server are OIDC only
+ * and never prove management consent. Write access requires an explicit
+ * per-user, per-OAuth-client "manage" grant that the user activates from a
+ * first-party Andromeda session (Conectar IA). The database derives the
+ * caller's session and OAuth client itself (public.mcp_access_level) and
+ * enforces the same gate on every write path, so this check is a fast,
+ * user-friendly pre-flight — not the only barrier.
  */
-export function requireWriteScope(ctx: ToolContext): string | null {
+export const MANAGE_REQUIRED =
+  "Esta conexión de IA es de solo lectura. Para que el asistente pueda hacer cambios, el usuario debe activar «Permitir gestionar» para esta conexión en Andromeda → Conectar IA.";
+
+export async function requireWriteScope(ctx: ToolContext): Promise<string | null> {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  const claims = (ctx.getClaims?.() ?? {}) as Record<string, unknown>;
-  const raw = claims.scope ?? claims.scopes ?? claims.scp;
-  if (raw == null) return null; // no scope claim → user token, full access
-  const granted = Array.isArray(raw) ? raw.map(String) : String(raw).split(/[\s,]+/);
-  return granted.includes("read_write")
-    ? null
-    : "Esta conexión es de solo lectura. Autoriza el permiso `read_write` para escribir en Andromeda.";
+  const { data, error } = await sbForUser(ctx).rpc("mcp_access_level");
+  if (error) return `No se pudo verificar el permiso de gestión: ${error.message}`;
+  return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
+
+/** Maps database errors from the mcp_* RPCs to caller-visible text. */
+export function rpcErrorText(error: { message?: string; code?: string } | null | undefined): string {
+  const msg = error?.message ?? "Error desconocido";
+  switch (error?.code) {
+    case "MCP01": return MANAGE_REQUIRED;
+    case "MCP04": return `No encontrado o sin permiso: ${msg}`;
+    case "MCP09": return `Conflicto (nada se modificó): ${msg}`;
+    case "MCP22": return `Solicitud inválida (nada se modificó): ${msg}`;
+    default: return msg;
+  }
+}
+
+/** Shared description for the idempotency_key argument of every write tool. */
+export const IDEMPOTENCY_KEY_DESCRIPTION =
+  "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error.";
 
 /** Organization of the caller (used to stamp inserted rows). */
 export async function callerOrganizationId(sb: SupabaseClient, userId: string): Promise<string | null> {
