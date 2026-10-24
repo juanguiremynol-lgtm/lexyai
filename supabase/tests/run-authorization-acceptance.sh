@@ -13,3 +13,4 @@ setpriv --reuid=1000 --regid=1000 --clear-groups pg_ctl -D "$root/pg" -l "$root/
 export PGSSLMODE=disable
 psql -X -h 127.0.0.1 -p 55442 -U lovable -d postgres -v ON_ERROR_STOP=1 -f supabase/tests/fixtures/mcp_authorization_schema.sql >"$root/schema.log"
 python3 supabase/tests/run_authorization_acceptance.py
+python3 supabase/tests/mcp_source_acceptance.py
