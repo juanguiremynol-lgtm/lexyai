@@ -93,8 +93,8 @@ export default function ConnectAI() {
         <section className="grid gap-4 sm:grid-cols-3">
           {[
             { icon: ShieldCheck, title: "Tu identidad y permisos", body: "Cada conexión consulta solo lo que tu cuenta puede ver. Gestionar asuntos exige ser su propietario y tener permiso vigente." },
-            { icon: Lock, title: "Gestión autorizada", body: "Con permiso explícito, puede crear y editar asuntos, mover etapas, cerrar, archivar, enviar a papelera y restaurar por instrucción tuya. La recuperación dura diez días; no hay purga directa ni envíos. Las acciones nuevas siguen bloqueadas hasta revisión." },
-            { icon: Sparkles, title: "Revocable", body: "Activa o revoca «Permitir gestionar» desde Ajustes → Conexiones. La eliminación programada sigue el plazo de retención." },
+            { icon: Lock, title: "Gestión autorizada", body: "Con permiso explícito y según las acciones disponibles para tu conexión, puede crear y editar asuntos, mover etapas, cerrar, archivar, enviar a papelera y restaurar por instrucción tuya. La recuperación dura diez días; no hay purga directa ni envíos." },
+            { icon: Sparkles, title: "Revocable", body: "Solo tú puedes activar o revocar «Permitir gestionar» para cada herramienta desde tu sesión en Andromeda, en Configuración → Conexiones. La eliminación programada sigue el plazo de retención." },
           ].map(({ icon: Icon, title, body }) => (
             <div key={title} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
               <Icon className="mb-2 h-5 w-5 text-[#0ea5e9]" aria-hidden />

@@ -421,7 +421,7 @@ export default function SettingsConnections() {
               <li>Archivar, restaurar o enviar a papelera con recuperación durante diez días.</li>
               <li>La purga permanente no está disponible directamente; la eliminación programada sigue el plazo de retención.</li>
             </ul>
-            <p className="text-muted-foreground">Cada acción exige permiso vigente y disponibilidad de ejecución. Activar el permiso no autoriza envíos ni purga directa.</p>
+            <p className="text-muted-foreground">Solo tú puedes activar «Permitir gestionar» para cada herramienta desde tu sesión en Andromeda y revocarlo aquí en cualquier momento. Cada acción exige permiso vigente y disponibilidad de ejecución; no autoriza envíos ni purga directa.</p>
           </div>
           {loading && <p className="text-sm text-muted-foreground">Cargando conexiones…</p>}
           {!loading && error && <p className="text-sm text-destructive">{error}</p>}
@@ -455,7 +455,7 @@ export default function SettingsConnections() {
                     {!levels[clientId] || permissionError
                       ? "Actualiza la lista para confirmar el permiso antes de cambiarlo."
                       : levels[clientId]?.access_level === "manage"
-                      ? "Gestiona solo asuntos propios cuando tú se lo pidas, sujeto a los bloqueos de revisión. Nunca envía correos ni permite purga directa."
+                      ? "Gestiona solo asuntos propios cuando tú se lo pidas y la acción esté disponible. Nunca envía correos ni permite purga directa."
                       : "Solo consulta tu cartera. Activa la gestión si quieres que haga cambios cuando se lo pidas."}
                   </p>
                 </div>

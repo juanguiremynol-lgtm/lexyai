@@ -40,7 +40,7 @@ export default defineTool({
         ? "Esta conexión puede gestionar la cartera del usuario (siempre con su instrucción explícita)."
         : hasGrant
         ? "El permiso de gestión está confirmado, pero no hay acciones de escritura disponibles para esta conexión."
-        : "Esta conexión es de solo lectura. Para gestionar, el usuario debe activar «Permitir gestionar» en Andromeda → Conectar IA.",
+        : "Esta conexión es de solo lectura. Para gestionar, el usuario debe activar «Permitir gestionar» desde su sesión en Andromeda → Configuración → Conexiones; puede revocarlo en cualquier momento.",
       {
         access_level: level,
         surface: c.surface ?? null,

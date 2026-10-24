@@ -2,12 +2,16 @@
 -- 0079 adds the internal atomic-update mutation; all ELEVEN remain gated until root review.
 -- DO NOT RUN AUTOMATICALLY: root reviews, independently verifies, then explicitly applies this file.
 -- Preconditions (all must hold before root applies this through the migration tool):
---   1. Review final 0059-0079; candidate 0.6.5 / 50 tools, atomic update internal RPC included.
+--   1. Review final 0059-0079; candidate 0.6.6 / 50 tools (documentation-only closure over 0.6.5),
+--      atomic update internal RPC included.
 --   2. Final local suites pass (see docs/mcp-release-readiness-20261024.md), including real overlapping
 --      creation/email/stage transactions, cursor isolation and rendered permission states.
 --      Local schemas are reduced fixtures, NOT full production-policy/enrollment equivalence.
---      Root reports hosted AUTH 61/61 PASS, fixtures/grants cleaned; hosted FEED/OPERATIONS review
---      is independent. Confirm their final results before enablement. No catch-all denial counts as PASS.
+--      Root-provided hosted actual-schema rollback evidence: AUTH 61/61, CURSOR 26/26,
+--      FEED 21 PASS / 0 FAIL / 2 explicit-limit SKIPs, OPERATIONS 40/40; zero synthetic
+--      auth.users/mcp_client_grants after cleanup, ten baseline gates closed, 0078 excess privileges absent.
+--      This is not the agent's remote run. Root separately reviews/tests the 0079 atomic-update delta
+--      before enablement of all eleven RPCs. No catch-all denial counts as PASS.
 --   3. Root explicitly approves enabling writes.
 -- anon/PUBLIC stay revoked; every RPC still enforces the per-user, per-OAuth-client manage grant internally.
 -- Publication and authenticated external-client smoke are separate root-controlled steps after review.
