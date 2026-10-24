@@ -27157,6 +27157,10 @@ export type Database = {
         Args: { p_cursor?: string; p_limit?: number }
         Returns: Json
       }
+      mcp_list_freshness_issues: {
+        Args: { p_after?: string; p_limit?: number; p_work_item_id?: string }
+        Returns: Json
+      }
       mcp_list_notifications: {
         Args: {
           p_cursor?: string
