@@ -141,3 +141,5 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] assign_work_item_radicado: 0073 solo propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados/sincronización pendiente; EXECUTE permanece bloqueado.
 - [x] Pruebas operativas locales: 55 checks PostgreSQL rollback + 19 Vitest, artefacto y build OK; límites en docs/mcp-acceptance-20261024.md.
 - [ ] Verificar panel en sesión autenticada y suite completa/enrollment real — falta entorno equivalente sin usar registros reales ni fabricar sesión.
+- [ ] Integrar y ejecutar authorization-acceptance.sql con firmas canónicas y resultado JSON normal antes de ROLLBACK; ninguna denegación genérica cuenta como PASS.
+- [ ] Corregir restauración a cuota completa según monitoreo efectivo (proveedor/radicado/suspensión) y probar no-monitoreables/suspendidos; actualizar alcance público de ConnectAI.
