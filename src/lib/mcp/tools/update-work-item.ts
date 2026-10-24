@@ -15,7 +15,7 @@ export default defineTool({
   name: "update_work_item",
   title: "Editar datos de un asunto",
   description:
-    "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+    "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
   inputSchema: {
     radicado: z.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z.string().uuid().optional().describe("UUID del asunto."),
@@ -102,11 +102,6 @@ export default defineTool({
     if (error) return errorResult(error.message);
     if (!data) return errorResult("No se pudo leer el asunto tras el cambio (sin permiso o no existe).");
     if (monitoringChange !== undefined) patch.monitoring_enabled = monitoringChange;
-    /* replaced select below */
-    const _unused = {
-      select: ("id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, email_linking_enabled, expediente_url")
-      .maybeSingle();
-    if (error) return errorResult(error.message);
 
     return textResult(
       `${resolved.note ? `${resolved.note}\n` : ""}Asunto ${item.radicado ?? item.id} actualizado (${Object.keys(patch).filter((k) => k !== "updated_at").join(", ")}).`,
