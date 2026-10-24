@@ -5,6 +5,7 @@ vi.mock("@lovable.dev/mcp-js", () => ({ defineTool: (definition: unknown) => def
 import notifications from "@/lib/mcp/tools/list-notifications";
 import assign from "@/lib/mcp/tools/assign-work-item-radicado";
 import questions from "@/lib/mcp/tools/list-email-questions";
+import create from "@/lib/mcp/tools/create-work-item";
 const ctx = { isAuthenticated: () => true, getToken: () => "synthetic-local-token" } as never;
 const args = { work_item_id: "00000000-0000-0000-0000-000000000001", radicado: "05001-40-03-002-2025-01054-00", expected_updated_at: "2026-10-24T19:59:00Z", idempotency_key: "assign-test-001" };
 beforeEach(() => {
@@ -12,6 +13,14 @@ beforeEach(() => {
   vi.stubGlobal("Deno", { env: { get: (key: string) => ({ SUPABASE_URL: "https://local.invalid", SUPABASE_ANON_KEY: "synthetic-key" } as Record<string, string>)[key] } });
 });
 describe("MCP operational action contracts", () => {
+  it("leaves missing-radicado noneligibility to the database instead of requesting a USER pause", async () => {
+    rpc.mockResolvedValueOnce({ data: "manage", error: null }).mockResolvedValueOnce({ data: { ok: true }, error: null });
+    await create.handler({ workflow_type: "CGP", idempotency_key: "create-no-radicado-001" }, ctx);
+    expect(rpc).toHaveBeenLastCalledWith("mcp_create_work_item", expect.objectContaining({
+      p_workflow_type: "CGP", p_radicado: null, p_monitoring_off_reason: null,
+      p_idempotency_key: "create-no-radicado-001",
+    }));
+  });
   it("forwards notification pagination to state-filtered RPC and retains continuation", async () => {
     const data = { notifications: [{ id: "older-unread", read_at: null }], next_cursor: "next", has_more: true };
     rpc.mockResolvedValue({ data, error: null });

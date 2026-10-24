@@ -2,7 +2,6 @@ import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { canonicalWorkflowType, errorResult, IDEMPOTENCY_KEY_DESCRIPTION, requireWriteScope, rpcErrorText, sbForUser, textResult } from "../shared";
 import { getDefaultStage, type WorkflowType } from "../../workflow-constants";
-import { resolveMonitoringOffReason } from "../../monitoring-reason";
 import { MANAGE_ANNOTATIONS } from "../manage-helpers";
 
 export default defineTool({
@@ -36,7 +35,8 @@ export default defineTool({
       p_demandantes: args.demandantes ?? null,
       p_demandados: args.demandados ?? null,
       p_authority_name: args.authority_name ?? null,
-      p_monitoring_off_reason: resolveMonitoringOffReason({ workflowType: wf, radicado: args.radicado ?? null }),
+      // Creation has no explicit suspension input; the database derives automatic noneligibility.
+      p_monitoring_off_reason: null,
       p_idempotency_key: args.idempotency_key,
     });
     if (error) return errorResult(rpcErrorText(error));
