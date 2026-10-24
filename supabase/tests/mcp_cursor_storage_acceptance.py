@@ -21,6 +21,12 @@ def denied(sql,args,state,prefix):
         q.execute('ROLLBACK TO SAVEPOINT bad');raise AssertionError('unexpected success')
 try:
     q.execute('BEGIN')
+    for role in ('anon', 'authenticated', 'mcp_feed_executor'):
+        for privilege in ('TRUNCATE', 'REFERENCES', 'TRIGGER'):
+            q.execute("SELECT has_table_privilege(%s,'public.mcp_feed_cursors',%s)", (role, privilege))
+            check(q.fetchone()[0] is False, f'{role} retains {privilege}')
+    q.execute("SELECT has_table_privilege('authenticated','public.mcp_feed_cursors','SELECT'),has_table_privilege('authenticated','public.mcp_feed_cursors','DELETE'),has_table_privilege('authenticated','public.mcp_feed_cursors','INSERT'),has_table_privilege('mcp_feed_executor','public.mcp_feed_cursors','INSERT')")
+    check(q.fetchone() == (True, True, False, True), 'row privileges changed')
     u,s,a,b,sa,sb,org=[str(uuid.uuid4()) for _ in range(7)]
     q.execute('INSERT INTO auth.sessions(id,user_id) VALUES(%s,%s)',(s,u))
     for client,sid in [(a,sa),(b,sb)]:
