@@ -129,7 +129,7 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
-- [ ] Incorporar arnés feed-acceptance.sql, reparar frescura vacía y probar contratos finales/cursor/multisesión; mantener gates y publicación bloqueados.
+- [x] Arnés feed incorporado: 11 PASS/0 FAIL/3 SKIP; 0075 repara evidencia de fallo en página vacía; suplemento multisesión 11 PASS y etapas manuales 10 PASS. Gates/publicación cerrados; límites en docs/mcp-final-feed-acceptance-20261024.md.
 - [x] Movimientos manuales de etapa con validación de servidor, retrocesos con motivo (0072).
 - [x] Consulta global de preguntas de correo en la base (mcp_list_email_questions, 0072).
 - [x] Frescura por proveedor/operación para todos los asuntos monitoreados visibles; reconciliación documentada como parcial (0072).
