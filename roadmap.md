@@ -133,9 +133,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Consulta global de preguntas de correo en la base (mcp_list_email_questions, 0072).
 - [x] Frescura por proveedor/operación para todos los asuntos monitoreados visibles; reconciliación documentada como parcial (0072).
 - [x] update_work_item usa suspensión/reanudación explícita; get_capabilities corregido.
-- [ ] Herramienta list_email_questions en el conector + regenerar bundle/manifest.
-- [ ] Corregir public/.well-known/mcp.json al inventario real.
-- [ ] Panel de permisos: estado desconocido/error, acciones visibles antes de activar.
+- [x] Herramienta list_email_questions registrada; bundle regenerado y manifest de 49 herramientas, 0.6.2 (no publicación).
+- [x] Corregir public/.well-known/mcp.json al inventario real (49 / 0.6.2, sin scopes de gestión inventados).
+- [x] Panel de permisos: borrar niveles obsoletos, mostrar desconocido/error y deshabilitar grants; acciones y retención visibles antes de activar. Falta prueba autenticada.
 - [ ] Reescribir pruebas SQL con BEGIN/ROLLBACK, SQLSTATE esperado y pruebas de feed adicionales.
-- [ ] Notificaciones: filtrar estado personal antes de paginar, cursor estable y errores visibles; probar pendientes antiguos y aislamiento.
-- [ ] Creación sin radicado: assign_work_item_radicado solo en asunto propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados y sincronización programada; mantener EXECUTE bloqueado hasta revisión.
+- [x] Notificaciones: 0073 filtra estado personal antes de paginar, cursor estable y errores visibles; pendientes antiguos/aislamiento probados en fixtures locales.
+- [x] assign_work_item_radicado: 0073 solo propio ACTIVE vacío, revisión/idempotencia/auditoría, límites/duplicados/sincronización pendiente; EXECUTE permanece bloqueado.
+- [x] Pruebas operativas locales: 55 checks PostgreSQL rollback + 19 Vitest, artefacto y build OK; límites en docs/mcp-acceptance-20261024.md.
+- [ ] Verificar panel en sesión autenticada y suite completa/enrollment real — falta entorno equivalente sin usar registros reales ni fabricar sesión.
