@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Copy, Check, Plug, ShieldOff, RefreshCw, Mail, ShieldCheck, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { connectionHealth, useEmailConnection, useOutlookSendAuditLog } from "@/hooks/use-email-connection";
+import { saveConnectionPermission, managementScopeAllowed } from "@/lib/mcp-consent";
 import { presentFailure } from "@/lib/email-connection-failures";
 
 const MCP_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/mcp`;
@@ -350,13 +351,12 @@ export default function SettingsConnections() {
     if (loading || permissionError || !levels[clientId] || changingLevel || revoking) return;
     setChangingLevel(clientId);
     try {
-      const { error } = manage
-        ? await supabase.rpc("grant_mcp_client_access", { p_oauth_client_id: clientId, p_access_level: "manage" })
-        : await supabase.rpc("revoke_mcp_client_access", { p_oauth_client_id: clientId });
-      if (error) throw new Error(error.message);
-      toast.success(manage ? `${name} ahora puede gestionar tu cartera` : `${name} vuelve a solo lectura`);
+      await saveConnectionPermission(clientId, manage ? "manage" : "read");
       await load();
+      toast.success(manage ? `${name} ahora puede gestionar tu cartera` : `${name} vuelve a solo lectura`);
     } catch (e) {
+      setLevels({});
+      setPermissionError("No se pudo confirmar el permiso. Actualiza la lista antes de cambiarlo.");
       toast.error(e instanceof Error ? e.message : "No se pudo cambiar el permiso.");
     } finally {
       setChangingLevel(null);
@@ -461,7 +461,7 @@ export default function SettingsConnections() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!clientId || loading || !!permissionError || !levels[clientId] || !!changingLevel || !!revoking}
+                  disabled={!clientId || loading || !!permissionError || !levels[clientId] || !!changingLevel || !!revoking || (levels[clientId]?.access_level !== "manage" && !managementScopeAllowed((grant.scopes ?? []).join(" ")))}
                   onClick={() => void setAccess(clientId, name, levels[clientId]?.access_level !== "manage")}
                 >
                   {changingLevel === clientId

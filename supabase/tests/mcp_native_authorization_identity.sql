@@ -1,5 +1,6 @@
 -- Local synthetic schema, transaction-only. Never seeds managed auth tables remotely.
 BEGIN;
+CREATE OR REPLACE FUNCTION public._mcp_require_first_party() RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$ DECLARE c jsonb := public.mcp_caller_context(); BEGIN IF NOT (c->>'authenticated')::boolean THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE='42501'; END IF; IF c->>'surface' <> 'first_party' THEN RAISE EXCEPTION 'MCP_FIRST_PARTY_REQUIRED' USING ERRCODE='MCP01'; END IF; RETURN c; END $$;
 ALTER TABLE auth.oauth_clients ADD COLUMN client_name text;
 CREATE TABLE auth.oauth_authorizations(authorization_id text,client_id uuid,user_id uuid,scope text,expires_at timestamptz,status text);
 \ir ../../drizzle/migrations/0080_mcp_native_authorization_identity.sql
