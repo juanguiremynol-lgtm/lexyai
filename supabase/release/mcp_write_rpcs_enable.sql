@@ -1,10 +1,10 @@
 -- RELEASE STEP (gated, NOT a migration): re-open the nine MCP write RPCs after independent review.
 -- Preconditions (all must hold before root applies this through the migration tool):
---   1. Migrations 0068-0070 are applied and reviewed.
---   2. supabase/tests/mcp_release_blockers.sql reports fails=0 (it grants EXECUTE transaction-locally only).
---   3. supabase/tests/lifecycle_authz.sql, mcp_management_authz.sql and mcp_stage_creation_parity.sql
---      are re-run with the same transaction-local GRANT preamble and report fails=0.
---   4. Root explicitly approves enabling writes.
+--   1. Migrations 0068-0071 are applied and reviewed (0071 = fail-closed caller/consent/owner helpers).
+--   2. Rollback-only suites report fails=0 with transaction-local GRANTs only:
+--      mcp_fail_closed_authz.sql (29 checks), mcp_release_blockers.sql (49), lifecycle_authz.sql (13),
+--      mcp_management_authz.sql (34), mcp_stage_creation_parity.sql (12). Last run: 2026-10-24 after 0071, all fails=0.
+--   3. Root explicitly approves enabling writes.
 -- anon/PUBLIC stay revoked; every RPC still enforces the per-user, per-OAuth-client manage grant internally.
 GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_work_item_lifecycle(uuid, text, timestamptz, text, text) TO authenticated;
