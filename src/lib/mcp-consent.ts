@@ -16,11 +16,11 @@ export function managementScopeAllowed(scope: string): boolean {
 export async function authorizationIdentity(id: string): Promise<AuthorizationIdentity> {
   const { data, error } = await supabase.rpc("mcp_native_authorization_identity", { p_authorization_id: id });
   if (error) throw new Error("No se pudo verificar esta solicitud. Puede haber vencido; vuelve a conectar desde tu asistente.");
-  const value = data as unknown as { client?: { id?: string; name?: string }; scope?: string } | null;
-  if (!value || typeof value.client?.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.client.id) || typeof value.client.name !== "string" || !value.client.name.trim() || (value.scope != null && typeof value.scope !== "string")) {
+  const value = data as unknown as { client?: { id?: string; name?: string | null }; scope?: string } | null;
+  if (!value || typeof value.client?.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.client.id) || (value.client.name != null && typeof value.client.name !== "string") || (value.scope != null && typeof value.scope !== "string")) {
     throw new Error("No se pudo identificar la herramienta que solicita acceso.");
   }
-  return { client_id: value.client.id, client_name: value.client.name, scope: value.scope ?? "" };
+  return { client_id: value.client.id, client_name: value.client.name?.trim() || "Aplicación de IA", scope: value.scope ?? "" };
 }
 export async function saveConnectionPermission(clientId: string, permission: ConnectionPermission) {
   const { error } = permission === "manage"
