@@ -414,6 +414,13 @@
       "when": 1792605850740,
       "tag": "0058_stage_decision_anchor_classification",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792866200341,
+      "tag": "0059_secure_work_item_lifecycle_entrypoints",
+      "breakpoints": true
     }
   ]
 }
