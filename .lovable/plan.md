@@ -1,54 +1,74 @@
-# Ampliar el conector MCP de Andromeda: gestión de cartera por usuario
+# Conector MCP de Andromeda: gestión de cartera por usuario (alcance corregido)
 
-## Resultado de la auditoría (solo lectura)
+Sustituye al borrador rechazado. Se trabaja sobre la fuente, el proyecto y el servidor que ya existen. Las 33 herramientas actuales siguen siendo compatibles. Las cuentas, contraseñas y roles de la plataforma quedan fuera. «Verificar correo» significa resolver las preguntas pendientes de vinculación de correos, nunca la verificación del correo de inicio de sesión.
 
-**Fuente canónica y despliegue**
-- Fuente: `src/lib/mcp/index.ts` (`defineMcp`, v0.5.1) y una herramienta por archivo en `src/lib/mcp/tools/` (33 hoy). Utilidades: `src/lib/mcp/shared.ts` (`sbForUser`, `requireAuth`, `requireWriteScope`, `resolveWorkItem`).
-- `supabase/functions/mcp/index.ts` se genera con `mcpPlugin()` (`vite.config.ts`, `scripts/build-mcp.mjs`). Nunca se edita a mano.
-- Comprobaciones: `check:mcp:source` (`tsconfig.mcp.json`) y `check:mcp:artifact` (`scripts/check-mcp-artifact.ts`), además de `app_mcp_server--extract_mcp_manifest`. Hoy solo existe la prueba `src/test/mcp-runtime-env.test.ts`.
-- Despliegue: el conector se publica solo al publicar la app. Hay que cambiar el marcador `resourceDocumentation` en cada versión y confirmarlo en `/functions/v1/mcp/.well-known/oauth-protected-resource`. Las migraciones se aplican con la herramienta de migraciones y quedan activas de inmediato, porque vista previa y producción comparten una sola base de datos.
-- Inicio de sesión: OAuth emitido por el propio backend, con `requireOAuthClientClaim`. Los tokens no traen `scope`, así que `requireWriteScope` concede escritura a cualquier token aprobado. RLS se aplica con el token del usuario.
+## Fase 0: verificar antes de cambiar (solo lectura)
+- Revisar los permisos de ejecución, los dueños y el cuerpo de `set_work_item_lifecycle`, `purge_work_item_acts_and_pubs(uuid)` y `purge_work_item_related_data(uuid)`, y quién los usa: tareas internas, funciones de servidor e interfaz.
+- Revisar los triggers BEFORE y AFTER de `work_items`, en especial los AFTER UPDATE OF deleted_at, y el reparto hacia la cola GCP entre expedientes hermanos.
+- Revisar las políticas de `work_item_stage_suggestions`, el guardia de preclusión y la configuración manual o de inferencia de etapas.
+- Revisar `auth.oauth_consents` y los clientes registrados, solo esquema y conteos.
+- Revisar la cola actual `work_item_email_links` (sugerido, confirmado, descartado), cómo convive con `message_links` y qué pantalla usa cada una.
+- Revisar qué pantallas usan `notifications`/`notification_user_state` y cuáles `alert_instances`.
+- Revisar el flujo real de creación de asuntos: normalización del radicado, límites del plan, duplicados, valores por defecto, catálogo de etapas e inscripción en proveedores.
 
-**Rutas existentes que se reutilizarán (no se duplica lógica)**
-- Archivar/eliminar recuperable: RPC `set_work_item_lifecycle` (SECURITY DEFINER). Cambia estado, `deleted_at` y `purge_after` (+10 días), desactiva monitoreo, cancela trabajos, escribe `audit_logs` y encola `gcp_lifecycle_outbox`. El servicio `src/lib/services/work-item-delete-service.ts` añade autorización de dueño/admin, retención legal, `work_item_soft_deletes` y `atenia_ai_actions`.
-- Borrado definitivo: solo la función `delete-work-items` (clave de servicio). `work_items` no tiene política DELETE para usuarios. La política del proyecto prohíbe a los usuarios borrar de forma definitiva fuera de la papelera.
-- Restaurar: `src/hooks/use-restore-work-items.ts`.
-- Etapas: `src/hooks/useStageSuggestion.ts` actualiza `work_item_stage_suggestions` y `work_items` directamente. `work_item_stage_suggestions` UPDATE solo lo permite a «org admins»; falta verificar el caso de un abogado SOLO. Además existen `accept_workflow_suggestion` y `apply_system_computed_stage` (tipo de proceso / sistema), y el guardia de preclusión en BD.
-- Avisos: `set_notification_user_state(_ids, _action, _until)`, un estado personal que no altera el historial compartido.
-- Correos: `message_links`, con políticas propias del dueño para crear, actualizar y borrar. La interfaz inserta `MANUALLY_LINKED` y marca `inbound_messages.processing_status='LINKED'` (`src/components/email/EmailLinkDialog.tsx`).
-- Procesos detectados: `detected_processes` con estados PENDING/DISMISSED/CREATED (`src/hooks/use-detected-processes.ts`).
-- Lecturas incrementales: hoy `get_actuaciones_hoy` y `get_estados_hoy` (día de Bogotá) y `list_actuaciones` / `list_publicaciones`. No existe un cursor estable por `detected_at`.
+## Fase 1: cerrar las entradas inseguras ya existentes (migración aditiva)
+- Quitar a PUBLIC, anon y authenticated el permiso de ejecutar las dos funciones de purga y la de ciclo de vida. Conservar `service_role`.
+- Crear una entrada para usuarios que derive el actor de `auth.uid()`, compruebe la propiedad o el rol de admin de un plan empresarial y rechace actores suplantados.
+- Limitar al mismo dueño u organización el reparto hacia la cola GCP.
+- Si el cambio de `deleted_at` lo hace solo el trigger BEFORE, los triggers AFTER no se disparan. Por eso, en la misma transacción se ejecutan de forma explícita la limpieza de notificaciones y alertas y la auditoría.
+- Reencaminar la interfaz, `src/lib/services/work-item-delete-service.ts` y `src/lib/lifecycle.ts`, hacia la entrada segura.
+- No se tocan datos reales de cartera en ninguna prueba.
 
-## Alcance mínimo coherente (nuevas herramientas, mismo servidor)
+## Fase 2: permisos de lectura y gestión por usuario y cliente OAuth
+- Tabla nueva `mcp_client_grants` con user_id, oauth_client_id, nivel (`read` | `manage`), fechas de concesión y revocación, y quién lo concedió. RLS: el dueño la lee.
+- Conceder o revocar solo mediante RPC con una sesión propia de la app. Se rechazan los tokens que traen `client_id`, para que el agente no pueda darse permisos a sí mismo. Se valida que exista un consentimiento OAuth del usuario para ese cliente.
+- Sin concesión, el permiso es solo de lectura; no se asigna gestión a los consentimientos existentes. Si el token trae un permiso más estrecho, prevalece ese.
+- `requireWriteScope` pasa a `requireManageGrant(ctx)`, que consulta el permiso en la base de datos con el usuario y el `client_id` verificados. La base de datos vuelve a comprobarlo en cada RPC de escritura.
+- Interfaz:
+  - la pantalla de consentimiento (`/.lovable/oauth/consent`) explica la diferencia entre lectura y gestión y permite elegir;
+  - en `ConnectAI` aparece la gestión de conexiones, con revocar y cambiar el nivel;
+  - una herramienta de solo lectura, `get_capabilities`, muestra el permiso efectivo.
 
-1. **Permiso explícito por acción.** Nuevo `requireConfirm(args.confirm)`: toda acción que cambie estado exige `confirm: true`, y el asistente debe pedirlo al usuario. El borrado definitivo exige además repetir el radicado exacto. Se mantienen `requireWriteScope` y RLS.
-2. **`create_work_item`**: radicado, tipo de proceso, cliente y partes. Inserta con el token del usuario (política existente) y `source='MANUAL'`. No calcula términos ni etapa.
-3. **`archive_work_item` / `restore_work_item`**: usan `set_work_item_lifecycle` (ARCHIVED, DELETED recuperable, ACTIVE), con la misma comprobación de retención y el registro en `work_item_soft_deletes` / `atenia_ai_actions`. Esa lógica se traslada a un módulo puro compartido por la interfaz y el conector.
-4. **`purge_work_item`** (eliminación definitiva): solo para asuntos que ya están en la papelera, con doble confirmación, mediante la función existente `delete-work-items`. **Bloqueante de política:** contradice la regla del proyecto «sin borrado definitivo para usuarios fuera de la papelera». Requiere decisión del propietario; por defecto no se incluye.
-5. **`move_stage`**: cambio manual de etapa con procedencia `MANUAL_USER`, respetando el guardia de preclusión, que puede rechazar el cambio. No cambia tipo de proceso ni radicado.
-6. **`list_stage_suggestions` / `resolve_stage_suggestion`**: aceptar, rechazar o posponer, reutilizando la lógica de `useStageSuggestion.ts` en un servicio compartido. La aceptación queda como decisión del usuario, nunca como firmeza.
-7. **`dismiss_alert`**: leído, descartado o pospuesto mediante `set_notification_user_state`. No resuelve términos.
-8. **`resolve_email_link`**: confirmar, rechazar o reasignar un vínculo correo-asunto en `message_links`, sin leer cuerpos.
-9. **`resolve_detected_process`**: descartar, o vincular a un asunto existente o recién creado.
-10. **`list_updates_since`**: actuaciones y estados con `detected_at > cursor`, en listas separadas (actos ≠ estados), con su procedencia y un cursor de salida.
-11. **Auditoría:** cada escritura vía conector deja `actor='MCP'` y `client_id` OAuth en `audit_logs` / `atenia_ai_actions`, mediante un RPC SECURITY DEFINER `log_mcp_action` (migración nueva). La inserción en `audit_logs` hoy es solo del servicio.
-12. Se actualizan las instrucciones de `defineMcp`, la versión 0.6.0 y el marcador de revisión. Se añade una regla en `src/lib/AGENTS.md`.
+## Fase 3: base común para escrituras
+- Tabla `mcp_idempotency` con llave formada por usuario, cliente, acción y clave, más el hash de la solicitud. Si se repite, devuelve el mismo resultado ya guardado. Si se reutiliza la clave con datos distintos, devuelve conflicto.
+- Cada mutación es un RPC SECURITY DEFINER que, en una sola transacción:
+  - comprueba el permiso;
+  - comprueba la revisión esperada;
+  - aplica el cambio;
+  - escribe la auditoría (actor y cliente tomados del contexto verificado, antes y después, sin secretos);
+  - guarda el resultado de idempotencia.
+- Cero filas afectadas o un error nunca cuentan como éxito.
 
-**Fuera de alcance:** cuentas, roles, seguridad de plataforma, verificación de correo de inicio de sesión, herramientas `atenia_*` de escritura, recálculo de plazos y cambios en proveedores.
+## Fase 4: herramientas nuevas (una por archivo en `src/lib/mcp/tools/`)
+- `list_workflow_stages`: catálogo de etapas y transiciones válidas por tipo de proceso.
+- `create_work_item`: reutiliza el flujo real de creación (radicado, límites, duplicados, cliente propio, valores por defecto e inscripción). No inventa origen ni etapa.
+- `archive_work_item`, `trash_work_item` y `restore_work_item`:
+  - mantienen la retención de 10 días;
+  - devuelven la fecha límite para recuperar el asunto;
+  - respetan la retención legal.
+- La purga definitiva no estará disponible por el conector.
+- `move_stage`: exige revisión esperada, validación exacta del tipo de proceso y guardia de preclusión. Conserva la configuración manual o de inferencia.
+- `list_stage_suggestions` y `resolve_stage_suggestion`: ambas exigen revisión esperada, y la decisión del usuario nunca equivale a ejecutoria.
+- `resolve_alert` (`alert_instances`) y `set_notification_state` (`notifications`) llevan tipos separados. Descartar un aviso personal nunca cierra un término.
+- `resolve_email_link`: confirmar, rechazar o reasignar en la cola actual, indicando la cola de forma explícita. Valida que el correo y el asunto pertenezcan al usuario, mantiene un único vínculo activo y registra la procedencia manual. Vincular un correo nunca aprueba una etapa.
+- `resolve_detected_process`: CREATED, MATCHED_EXISTING o DISMISSED, de forma atómica.
+- `list_updates_since`:
+  - **Cursor:** compuesto por (detected_at, id), con desempate estable, firmado y limitado al usuario, con caducidad explícita.
+  - **Solape:** reconcilia una ventana acotada hacia atrás y deduplica, para no perder confirmaciones que llegan tarde.
+  - **Respuesta:** actuaciones y estados por separado, con fecha judicial y fecha de detección distintas, `has_more`, frescura por fuente, y correcciones y archivados.
+  - **Límite documentado:** no recibir cambios no prueba que el proveedor respondiera bien.
+- Metadatos: corregir las instrucciones antiguas (afirman que no hay ciclo de vida y que solo add_note escribe), las anotaciones y `public/.well-known/mcp.json`. Versión 0.6.0 y nuevo marcador `resourceDocumentation`. Regenerar solo con `scripts/build-mcp.mjs`.
+- Añadir reglas en `src/lib/AGENTS.md`.
 
-## Pruebas de aceptación (`src/test/mcp-*.test.ts`)
-- Sin `confirm: true`, ninguna escritura llega a la BD.
-- Archivar y restaurar recuperan el asunto. Eliminar deja `purge_after` a +10 días. La retención legal bloquea.
-- Un asunto de otro usuario devuelve «no encontrado» (RLS), sin filtrar datos.
-- `move_stage`: el guardia de preclusión rechaza un retroceso, y se conserva la etapa manual.
-- `resolve_stage_suggestion` no altera términos.
-- `dismiss_alert` es idempotente y afecta solo al usuario.
-- Reasignar un correo deja un único vínculo activo.
-- `list_updates_since` no repite elementos entre dos llamadas y separa actos de estados.
-- Se generan las 33 herramientas actuales más las nuevas. Pasan la comprobación de fuente y la de artefacto.
-- Tras publicar, el marcador queda visible en el endpoint público. Las llamadas `tools/call` reales desde ChatGPT siguen bloqueadas por la renovación OAuth pendiente.
+## Pruebas de aceptación
+- **Accesos denegados:** sin sesión, otro dueño, solo lectura o permiso revocado reciben rechazo. Un token OAuth no puede escalar sus propios permisos. Un fallo no deja ninguna mutación.
+- **Reintentos y concurrencia:** reintentar tras una respuesta perdida aplica el cambio una sola vez. Resoluciones contradictorias concurrentes no se pisan. Una etapa inválida o desactualizada es rechazada.
+- **Avisos y correos:** se mantiene la paridad entre notificaciones y alertas. Vincular un correo no cambia la etapa.
+- **Ciclo de vida:** archivar, enviar a la papelera y restaurar respetan la retención y ejecutan la limpieza.
+- **Novedades:** más de una página de resultados, timestamps iguales, confirmaciones tardías, correcciones, y cursor falsificado o ajeno.
+- **Comprobaciones:** `check:mcp:source`, `check:mcp:artifact`, las pruebas de la app afectadas, la extracción del manifiesto y, al final, una prueba real contra el servidor MCP publicado.
 
-## Bloqueos y decisiones
-- **Borrado definitivo vía conector:** necesita aprobación explícita del propietario contra la regla actual.
-- **Política de sugerencias de etapa:** confirmar en BD si un usuario SOLO puede actualizarlas. Si no puede, hace falta un RPC acotado al dueño.
-- **Prueba real extremo a extremo:** depende de que ChatGPT complete una autorización nueva. La anterior seguía con un token de renovación inválido.
+## Despliegue
+- Las migraciones afectan de inmediato la base compartida, por eso solo se hacen cambios aditivos y las restricciones de permisos se verifican antes de aplicarlas.
+- El conector se publica junto con la app, solo después de verificarlo, y se confirma el marcador público.
+- Sin limpieza de datos, sin llamadas a proveedores y sin envíos de correos.
