@@ -25731,6 +25731,16 @@ export type Database = {
       }
     }
     Functions: {
+      _mcp_apply_stage: {
+        Args: {
+          p_reason: string
+          p_source: string
+          p_suggestion: string
+          p_to: string
+          p_w: Database["public"]["Tables"]["work_items"]["Row"]
+        }
+        Returns: undefined
+      }
       _mcp_begin: {
         Args: { p_action: string; p_key: string; p_payload: Json }
         Returns: Json
@@ -25738,6 +25748,10 @@ export type Database = {
       _mcp_can_manage_work_item: {
         Args: { p_org: string; p_owner: string }
         Returns: boolean
+      }
+      _mcp_check_stage_move: {
+        Args: { p_from: string; p_to: string; p_wf: string }
+        Returns: undefined
       }
       _mcp_finish: {
         Args: {
@@ -25751,7 +25765,9 @@ export type Database = {
         }
         Returns: Json
       }
+      _mcp_message_radicado_bases: { Args: { p_meta: Json }; Returns: string[] }
       _mcp_require_first_party: { Args: never; Returns: Json }
+      _mcp_wi_snapshot: { Args: { p_id: string }; Returns: Json }
       accept_workflow_suggestion: {
         Args: {
           _suggestion_id: string
@@ -26980,8 +26996,104 @@ export type Database = {
         Returns: Json
       }
       mcp_access_level: { Args: never; Returns: string }
+      mcp_add_email_association: {
+        Args: {
+          p_idempotency_key: string
+          p_link_id: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       mcp_assert_write: { Args: never; Returns: undefined }
       mcp_caller_context: { Args: never; Returns: Json }
+      mcp_create_work_item: {
+        Args: {
+          p_authority_name: string
+          p_client_id: string
+          p_demandados: string
+          p_demandantes: string
+          p_idempotency_key: string
+          p_monitoring_off_reason: string
+          p_radicado: string
+          p_stage: string
+          p_title: string
+          p_workflow_type: string
+        }
+        Returns: Json
+      }
+      mcp_list_updates: {
+        Args: { p_cursor: string; p_limit?: number; p_work_item_id?: string }
+        Returns: Json
+      }
+      mcp_list_workflow_stages: {
+        Args: { p_workflow_type: string }
+        Returns: Json
+      }
+      mcp_move_work_item_stage: {
+        Args: {
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_to_stage: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_alert: {
+        Args: {
+          p_action: string
+          p_alert_id: string
+          p_idempotency_key: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_detected_process: {
+        Args: {
+          p_decision: string
+          p_id: string
+          p_idempotency_key: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_email_question: {
+        Args: {
+          p_decision: string
+          p_idempotency_key: string
+          p_link_id: string
+        }
+        Returns: Json
+      }
+      mcp_resolve_stage_suggestion: {
+        Args: {
+          p_decision: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_suggestion_id: string
+        }
+        Returns: Json
+      }
+      mcp_set_notification_state: {
+        Args: {
+          p_action: string
+          p_idempotency_key: string
+          p_ids: string[]
+          p_until: string
+        }
+        Returns: Json
+      }
+      mcp_work_item_lifecycle: {
+        Args: {
+          p_action: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason?: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
       mcp_write_allowed: { Args: never; Returns: boolean }
       normalize_alert_source: { Args: { raw: string }; Returns: string }
       normalize_party_name: { Args: { p: string }; Returns: string }

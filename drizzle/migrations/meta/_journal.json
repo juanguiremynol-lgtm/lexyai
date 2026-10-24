@@ -428,6 +428,13 @@
       "when": 1792866750971,
       "tag": "0060_mcp_client_grants_and_write_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792866892806,
+      "tag": "0061_mcp_operational_actions",
+      "breakpoints": true
     }
   ]
 }
