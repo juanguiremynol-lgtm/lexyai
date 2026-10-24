@@ -44,3 +44,5 @@
 - Feed list/reconcile execute as NOLOGIN/NOBYPASSRLS mcp_feed_executor inheriting authenticated RLS, never postgres; step/data queries remain invoker, cursor INSERT is executor-only and SELECT/DELETE bind verified user+client; non-row TRUNCATE/REFERENCES/TRIGGER privileges stay revoked — clients cannot mint checkpoints, bypass RLS or access sibling connections.
 - MCP caller requires authenticated role in both parsed JSON JWT and auth.role(); legacy scalar claims cannot promote a missing JSON role — fail closed despite stale request GUCs.
 - Freshness issue discovery is an invoker RPC with independent UUID keyset pagination, embedded first page and per-source evidence — issue identities remain discoverable beyond capped event-page detail.
+
+- Native AI consent resolves authorization identity through mcp_native_authorization_identity (live first-party session, owner, expiry and active client); approve without redirect, save/revoke then verify the exact client before following an in-memory callback — reconnects and retries must never bypass the explicit permission choice.
