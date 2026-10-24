@@ -29,7 +29,17 @@ export default defineTool({
     expediente_url: z.string().trim().url().max(2000).optional(),
     client_id: z.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
     is_flagged: z.boolean().optional().describe("Marcar/desmarcar como destacado."),
-    monitoring_enabled: z.boolean().optional().describe("Activar o desactivar el monitoreo automático."),
+    monitoring_enabled: z
+      .boolean()
+      .optional()
+      .describe("Pausar (false) o reanudar (true) el monitoreo automático. Usa la suspensión explícita del usuario (auditada); no se revierte sola."),
+    monitoring_off_reason: z
+      .string()
+      .trim()
+      .min(3)
+      .max(500)
+      .optional()
+      .describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z.boolean().optional().describe("Activar o desactivar la vinculación de correos."),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -44,8 +54,7 @@ export default defineTool({
 
     const EDITABLE = [
       "title", "description", "demandantes", "demandados", "authority_name", "authority_email",
-      "authority_city", "expediente_url", "client_id", "is_flagged", "monitoring_enabled",
-      "email_linking_enabled",
+      "authority_city", "expediente_url", "client_id", "is_flagged", "email_linking_enabled",
     ] as const;
 
     const patch: Record<string, unknown> = {};
@@ -53,8 +62,24 @@ export default defineTool({
       const v = (args as Record<string, unknown>)[key];
       if (v !== undefined) patch[key] = v;
     }
-    if (Object.keys(patch).length === 0) {
+    const monitoringChange = args.monitoring_enabled;
+    if (monitoringChange === false && !args.monitoring_off_reason) {
+      return errorResult("Para pausar el monitoreo indica monitoring_off_reason con el motivo que dio el usuario.");
+    }
+    if (Object.keys(patch).length === 0 && monitoringChange === undefined) {
       return errorResult("No indicaste ningún campo para cambiar.");
+    }
+
+    // Monitoring uses the canonical explicit user suspension/resume RPCs (owner + manage gate,
+    // reason preserved, audited). A plain column write would be reset by DB invariants.
+    if (monitoringChange !== undefined) {
+      const { error: monErr } = monitoringChange
+        ? await sb.rpc("resume_work_item_monitoring", { p_work_item_id: item.id as string })
+        : await sb.rpc("suspend_work_item_monitoring", {
+            p_work_item_id: item.id as string,
+            p_reason: args.monitoring_off_reason as string,
+          });
+      if (monErr) return errorResult(monErr.message);
     }
 
     if (patch.client_id) {
@@ -67,12 +92,19 @@ export default defineTool({
       if (!client) return errorResult("Ese cliente no existe o no pertenece a tu cuenta.");
     }
 
-    patch.updated_at = new Date().toISOString();
-    const { data, error } = await sb
-      .from("work_items")
-      .update(patch)
-      .eq("id", item.id as string)
-      .select("id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, email_linking_enabled, expediente_url")
+    const selectCols =
+      "id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, monitoring_disabled_by, monitoring_disabled_reason, email_linking_enabled, expediente_url";
+    const hasFieldPatch = Object.keys(patch).length > 0;
+    if (hasFieldPatch) patch.updated_at = new Date().toISOString();
+    const { data, error } = hasFieldPatch
+      ? await sb.from("work_items").update(patch).eq("id", item.id as string).select(selectCols).maybeSingle()
+      : await sb.from("work_items").select(selectCols).eq("id", item.id as string).maybeSingle();
+    if (error) return errorResult(error.message);
+    if (!data) return errorResult("No se pudo leer el asunto tras el cambio (sin permiso o no existe).");
+    if (monitoringChange !== undefined) patch.monitoring_enabled = monitoringChange;
+    /* replaced select below */
+    const _unused = {
+      select: ("id, radicado, title, demandantes, demandados, authority_name, authority_email, authority_city, client_id, is_flagged, monitoring_enabled, email_linking_enabled, expediente_url")
       .maybeSingle();
     if (error) return errorResult(error.message);
 
