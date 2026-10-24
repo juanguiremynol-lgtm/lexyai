@@ -3090,7 +3090,8 @@ var list_notifications_default = defineTool42({
     const rows = data ?? [];
     const ids = rows.map((r) => String(r.id));
     const { data: states } = ids.length ? await sb.from("notification_user_state").select("notification_id, read_at, dismissed_at, snoozed_until").in("notification_id", ids) : { data: [] };
-    const byId = new Map((states ?? []).map((s) => [String(s.notification_id), s]));
+    const byId = /* @__PURE__ */ new Map();
+    for (const st of states ?? []) byId.set(String(st.notification_id), st);
     const items = rows.map((r) => {
       const s = byId.get(String(r.id));
       return { ...r, read_at: s?.read_at ?? null, dismissed_at: s?.dismissed_at ?? null, snoozed_until: s?.snoozed_until ?? null };

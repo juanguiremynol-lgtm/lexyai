@@ -27,7 +27,8 @@ export default defineTool({
     const { data: states } = ids.length
       ? await sb.from("notification_user_state").select("notification_id, read_at, dismissed_at, snoozed_until").in("notification_id", ids)
       : { data: [] as Array<Record<string, unknown>> };
-    const byId = new Map((states ?? []).map((s) => [String((s as Record<string, unknown>).notification_id), s as Record<string, unknown>]));
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const st of (states ?? []) as Array<Record<string, unknown>>) byId.set(String(st.notification_id), st);
     const items = rows
       .map((r) => {
         const s = byId.get(String(r.id));
