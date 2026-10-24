@@ -1,4 +1,4 @@
--- PREPARATORY ACCEPTANCE HARNESS -- NOT EXECUTED.
+-- Adapted independent acceptance harness: canonical 0074 API, synthetic fixtures only.
 -- Run only after reviewing the final migrations, preferably in an isolated
 -- restored database, as the database owner. Run the WHOLE file in ONE session.
 -- Every persistent-table change and temporary GRANT is inside BEGIN/ROLLBACK.
@@ -27,13 +27,16 @@ SELECT p.oid, p.oid::regprocedure::text AS signature,
  WHERE n.nspname = 'public' AND p.proname IN (
    'mcp_create_work_item', 'mcp_work_item_lifecycle', 'mcp_move_work_item_stage',
    'mcp_resolve_stage_suggestion', 'mcp_resolve_alert', 'mcp_set_notification_state',
-   'mcp_resolve_email_question', 'mcp_add_email_association', 'mcp_resolve_detected_process');
+   'mcp_resolve_email_question', 'mcp_add_email_association', 'mcp_resolve_detected_process',
+   'mcp_assign_work_item_radicado');
 
 -- Only this transaction sees these GRANTs; ROLLBACK restores the release gate.
 -- No private helpers are exposed to authenticated and no persistent role is created.
 GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text,text,text,text,uuid,text,text,text,text,text)
   TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_work_item_lifecycle(uuid,text,timestamptz,text,text)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mcp_assign_work_item_radicado(uuid,text,timestamptz,text)
   TO authenticated;
 
 CREATE FUNCTION pg_temp._mcp_check(p_name text, p_passed boolean, p_detail text DEFAULT NULL)
@@ -104,6 +107,7 @@ DECLARE
   oauth_a uuid := gen_random_uuid(); oauth_a2 uuid := gen_random_uuid(); deleted_sid uuid := gen_random_uuid();
   consent uuid := gen_random_uuid(); new_consent uuid := gen_random_uuid();
   wi uuid := gen_random_uuid();
+  assign_wi uuid := gen_random_uuid(); assign_revision timestamptz;
   wi_revision timestamptz;
   nat jsonb; bnat jsonb; cnat jsonb; oau jsonb; oau2 jsonb;
   bad jsonb; scenario record;
@@ -127,7 +131,8 @@ BEGIN
     AND has_function_privilege('authenticated',
       'public.set_work_item_lifecycle(uuid,public.work_item_lifecycle_state,text,text,uuid,jsonb)', 'EXECUTE')
     AND has_function_privilege('authenticated', 'public.grant_mcp_client_access(uuid,text)', 'EXECUTE')
-    AND has_function_privilege('authenticated', 'public.revoke_mcp_client_access(uuid)', 'EXECUTE'));
+    AND has_function_privilege('authenticated', 'public.revoke_mcp_client_access(uuid)', 'EXECUTE')
+    AND has_function_privilege('authenticated', 'public.mcp_assign_work_item_radicado(uuid,text,timestamptz,text)', 'EXECUTE'));
 
   -- Canonical synthetic auth fixture pattern from mcp_management_authz.sql.
   INSERT INTO auth.users
@@ -321,9 +326,41 @@ BEGIN
   PERFORM pg_temp._mcp_expect('replacement-consent grant enables management',oau,
     'SELECT to_jsonb(public.mcp_access_level())','"manage"');
 
-  PERFORM pg_temp._mcp_check('only the two deliberate temporary action grants changed',
+  -- An explicitly suspended synthetic item prevents any provider enrollment;
+  -- this identifier is test-only, never a real portfolio record or external call.
+  INSERT INTO public.work_items(id,owner_id,organization_id,workflow_type,stage,status,source,title,
+    monitoring_disabled_by,monitoring_disabled_reason,email_linking_enabled)
+  VALUES(assign_wi,a,org_a,'CGP','DRAFTED','ACTIVE','MANUAL','MCP assign acceptance',
+    'USER','ACCEPTANCE_TEST_NO_PROVIDER',false);
+  SELECT updated_at INTO assign_revision FROM public.work_items WHERE id=assign_wi;
+  PERFORM pg_temp._mcp_expect('assignment rejects wrong length',nat,
+    format('SELECT public.mcp_assign_work_item_radicado(%L::uuid,''123'',%L::timestamptz,%L)',assign_wi,assign_revision,run_key||'-assign-invalid'),
+    NULL,'MCP22','^el radicado debe tener exactamente 23 dígitos');
+  PERFORM pg_temp._mcp_expect('assignment rejects known stale revision',nat,
+    format('SELECT public.mcp_assign_work_item_radicado(%L::uuid,''05001400300220990000100'',%L::timestamptz,%L)',assign_wi,assign_revision-interval '1 second',run_key||'-assign-stale'),
+    NULL,'MCP09','^STALE_REVISION:');
+  PERFORM pg_temp._mcp_expect('same-org owner cannot assign another owner identity',bnat,
+    format('SELECT public.mcp_assign_work_item_radicado(%L::uuid,''05001400300220990000100'',%L::timestamptz,%L)',assign_wi,assign_revision,run_key||'-assign-other'),
+    NULL,'MCP04','^NOT_FOUND:');
+  PERFORM pg_temp._mcp_expect('owner assignment saved but not synchronized',nat,
+    format('SELECT jsonb_build_object(''radicado'',r->''work_item''->>''radicado'',''synced'',r->''synced'',''state'',r->''synchronization'') FROM (SELECT public.mcp_assign_work_item_radicado(%L::uuid,''05001-40-03-002-2099-00001-00'',%L::timestamptz,%L) r) q',assign_wi,assign_revision,run_key||'-assign'),
+    '{"radicado":"05001400300220990000100","synced":false,"state":"scheduled_pending"}');
+  PERFORM pg_temp._mcp_expect('assignment same-key retry replays exactly once',nat,
+    format('SELECT to_jsonb((public.mcp_assign_work_item_radicado(%L::uuid,''05001-40-03-002-2099-00001-00'',%L::timestamptz,%L)->>''replayed'')::boolean)',assign_wi,assign_revision,run_key||'-assign'),'true');
+  PERFORM pg_temp._mcp_check('assignment preserves explicit suspension and identity audit',
+    (SELECT monitoring_enabled IS FALSE AND monitoring_disabled_reason IS NOT DISTINCT FROM 'ACCEPTANCE_TEST_NO_PROVIDER'
+      AND stage IS NOT DISTINCT FROM 'DRAFTED' AND workflow_type::text IS NOT DISTINCT FROM 'CGP' FROM public.work_items WHERE id=assign_wi)
+    AND (SELECT count(*) FROM public.mcp_action_audit WHERE user_id=a AND action='assign_work_item_radicado' AND idem_key=run_key||'-assign')=1);
+
+  PERFORM pg_temp._mcp_check('exactly the three deliberate temporary action grants are open',
+    (SELECT count(*) FROM pg_temp._mcp_gate_before WHERE signature IN (
+      'mcp_create_work_item(text,text,text,text,uuid,text,text,text,text,text)',
+      'mcp_work_item_lifecycle(uuid,text,timestamp with time zone,text,text)',
+      'mcp_assign_work_item_radicado(uuid,text,timestamp with time zone,text)')
+      AND NOT authenticated_execute AND has_function_privilege('authenticated',oid,'EXECUTE'))=3);
+  PERFORM pg_temp._mcp_check('only the three deliberate temporary action grants changed',
     NOT EXISTS (SELECT 1 FROM pg_temp._mcp_gate_before g JOIN pg_proc p ON p.oid=g.oid
-      WHERE p.proname NOT IN ('mcp_create_work_item','mcp_work_item_lifecycle')
+      WHERE p.proname NOT IN ('mcp_create_work_item','mcp_work_item_lifecycle','mcp_assign_work_item_radicado')
         AND has_function_privilege('authenticated',g.oid,'EXECUTE') IS DISTINCT FROM g.authenticated_execute));
 
 EXCEPTION WHEN others THEN
