@@ -1,12 +1,15 @@
 -- DB-backed acceptance test for MCP creation/stage parity (0066/0067).
 -- Synthetic user/sessions/org only; always rolls back by raising TEST_RESULTS. Run as the database owner.
--- Passed with fails=0 on 2026-10-24.
+-- Passed with fails=0 on 2026-10-24 (re-run after 0071).
 DO $test$
 DECLARE
   u uuid := gen_random_uuid(); adm uuid := gen_random_uuid(); s uuid := gen_random_uuid(); sa uuid := gen_random_uuid(); org uuid;
   nat jsonb; r jsonb; cgp uuid; lab uuid; pet uuid; cpa uuid; w record; log text := ''; fails int := 0; n int;
   rad text := '05001400300220990000100';
 BEGIN
+  -- Gated RPCs: transaction-local grants, discarded by the final rollback.
+  GRANT EXECUTE ON FUNCTION public.mcp_create_work_item(text, text, text, text, uuid, text, text, text, text, text) TO authenticated;
+  GRANT EXECUTE ON FUNCTION public.mcp_move_work_item_stage(uuid, text, timestamptz, text[], text, text) TO authenticated;
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   SELECT x, 'authenticated', 'authenticated', 'st-test-' || x || '@example.invalid', now(), '{}', '{}', now(), now() FROM unnest(ARRAY[u, adm]) x;
   INSERT INTO auth.sessions (id, user_id) VALUES (s, u), (sa, adm);
