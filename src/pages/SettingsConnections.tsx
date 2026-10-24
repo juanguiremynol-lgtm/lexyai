@@ -390,7 +390,7 @@ export default function SettingsConnections() {
             <CardTitle className="text-base">Conectar una herramienta de IA</CardTitle>
             <CardDescription>Copia la dirección y pégala en tu asistente (Claude, ChatGPT, Cursor…).</CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={copy}>
+          <Button size="sm" variant="outline" className="text-foreground" onClick={copy}>
             {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
             Copiar URL
           </Button>
@@ -461,6 +461,7 @@ export default function SettingsConnections() {
                 <Button
                   size="sm"
                   variant="outline"
+                  className="text-foreground"
                   disabled={!clientId || loading || !!permissionError || !levels[clientId] || !!changingLevel || !!revoking || (levels[clientId]?.access_level !== "manage" && !managementScopeAllowed((grant.scopes ?? []).join(" ")))}
                   onClick={() => void setAccess(clientId, name, levels[clientId]?.access_level !== "manage")}
                 >

@@ -70,6 +70,15 @@ describe("SettingsConnections rendered permission boundaries", () => {
     expect(rpc).toHaveBeenNthCalledWith(5, "revoke_mcp_client_access", { p_oauth_client_id: client });
     expect(rpc).toHaveBeenNthCalledWith(6, "list_my_mcp_connections");
   });
+  it("failed readback clears saved level and disables changes", async () => {
+    rpc.mockResolvedValueOnce(read).mockResolvedValueOnce({ data: { ok: true }, error: null }).mockResolvedValueOnce({ data: null, error: { message: "readback failed" } });
+    render(<SettingsConnections />);
+    await screen.findByText("Solo lectura");
+    fireEvent.click(screen.getByRole("button", { name: "Permitir gestionar" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Puede gestionar")).toBeNull();
+    expect((screen.getByRole("button", { name: "Permitir gestionar" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("does not claim management when the first-party-only grant is refused", async () => {
     rpc.mockResolvedValueOnce(read).mockResolvedValueOnce({ data: null, error: { message: "MCP_FIRST_PARTY_REQUIRED" } });
     render(<SettingsConnections />);
