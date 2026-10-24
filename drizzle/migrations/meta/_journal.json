@@ -498,6 +498,13 @@
       "when": 1792870010236,
       "tag": "0070_mcp_trusted_backend_role_guc_and_feed_creation_events",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792870445087,
+      "tag": "0071_mcp_fail_closed_caller_consent_owner",
+      "breakpoints": true
     }
   ]
 }
