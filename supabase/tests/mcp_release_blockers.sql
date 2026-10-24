@@ -2,6 +2,7 @@
 -- Synthetic users/sessions/OAuth client only; ALWAYS rolls back by raising TEST_RESULTS at the end.
 -- The nine MCP write RPCs are gated (EXECUTE revoked); this test grants EXECUTE to authenticated
 -- transaction-locally, so the grant disappears with the rollback. Run as the database owner.
+-- Passed with fails=0 on 2026-10-24 (after migrations 0068-0070).
 DO $test$
 DECLARE
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
@@ -134,7 +135,9 @@ BEGIN
 
   -- C. Notifications / alerts: explicit visibility, no cross-user existence leak -------------
   INSERT INTO public.notifications (audience_scope, category, title, user_id) VALUES ('USER', 'SYSTEM', 'rb', a) RETURNING id INTO nid;
-  INSERT INTO public.alert_instances (owner_id, entity_type, entity_id, title, message) VALUES (a, 'WORK_ITEM', wi, 'rb', 'rb') RETURNING id INTO aid;
+  INSERT INTO public.alert_instances (owner_id, entity_type, entity_id, title, message, alert_type, fingerprint)
+  VALUES (a, 'WORK_ITEM', wi, 'rb', 'rb', 'SUGERENCIA_PENDIENTE', 'rb_' || gen_random_uuid()) RETURNING id INTO aid;
+  IF aid IS NULL THEN fails := fails + 1; log := log || E'FAIL fixture alert suppressed\n'; END IF;
   BEGIN PERFORM set_config('request.jwt.claims', cb::text, true); SET LOCAL ROLE authenticated;
     PERFORM public.mcp_set_notification_state(ARRAY[nid], 'read', NULL, 'rb-notif-b-0001'); RESET ROLE;
     fails := fails + 1; log := log || E'FAIL cross-user notification state via MCP\n';
