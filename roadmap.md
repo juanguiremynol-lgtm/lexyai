@@ -125,7 +125,7 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Pruebas DB aisladas: mcp_management_authz.sql, lifecycle_authz.sql, mcp_stage_creation_parity.sql (0066 vocabulario de etapas + paridad de creación; 0067 permisos de ejecución restaurados).
 - [x] Revisión independiente 2026-10-24 (0068–0070): sesión no verificada/caducada/borrada/cliente borrado sin autoridad; atajos directos (monitoreo, etapa del sistema, decisiones de términos) cerrados a dueño+gestión o backend de confianza; notificaciones con visibilidad explícita; asunto del correo cuenta como radicado; creación con recordatorios y sincronización inicial duradera; feed con cursor en servidor, tope fijo y checkpoint monótono. supabase/tests/mcp_release_blockers.sql: 49 checks, 0 fallos.
 - [ ] Reabrir las 9 RPC de escritura (supabase/release/mcp_write_rpcs_enable.sql) — espera aprobación de root; antes re-ejecutar las 3 pruebas DB previas con permisos locales de transacción.
-- [ ] Publicar y confirmar marcador mcp-rev-0-6-1 — espera revisión del propietario.
+- [ ] Publicar y confirmar marcador mcp-rev-0-6-2 — espera revisión del propietario; no autorizado en esta ronda.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
 
 ## MCP aceptación final (2026-10-24)
