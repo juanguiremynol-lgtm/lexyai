@@ -8,6 +8,7 @@ import json
 import psycopg2
 
 c = psycopg2.connect(host="127.0.0.1", port=55441, user="lovable", dbname="postgres", sslmode="disable")
+c.set_client_encoding("UTF8")
 q = c.cursor()
 uid = "00000000-0000-0000-0000-000000000001"
 other = "00000000-0000-0000-0000-000000000002"
