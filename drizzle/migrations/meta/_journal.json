@@ -484,6 +484,13 @@
       "when": 1792869595899,
       "tag": "0068_mcp_release_blocker_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792869879750,
+      "tag": "0069_mcp_create_reminders_org_scoped",
+      "breakpoints": true
     }
   ]
 }
