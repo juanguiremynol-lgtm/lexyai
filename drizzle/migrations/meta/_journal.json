@@ -512,6 +512,13 @@
       "when": 1792871197685,
       "tag": "0072_mcp_manual_stage_email_questions_freshness",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792872131163,
+      "tag": "0073_mcp_notification_pagination_assign_radicado",
+      "breakpoints": true
     }
   ]
 }
