@@ -91,7 +91,7 @@ try:
     maintenance()
     q.execute("UPDATE mcp_feed_cursors SET expires_at=now()-interval '1 day' WHERE id=%s",(cursor[3:],))
     owner()
-    denied("SELECT mcp_list_updates(%s,2,%s)",(cursor,active),"MCP22","CURSOR_EXPIRED")
+    denied("SELECT mcp_list_updates(%s,2,%s)",(cursor,active),"MCP09","CURSOR_EXPIRED")
     # Freshness: distinct per-provider successes and latest failures even with no events.
     maintenance()
     for provider,op,status,age in [('cpnu','acts','success',4),('publicaciones','estados','success',3),('cpnu','acts','error',1)]:
