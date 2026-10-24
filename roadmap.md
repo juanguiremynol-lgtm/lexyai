@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Native MCP permission choice (2026-10-24 21:31 UTC)
-- [ ] Normalize optional trusted client display name only; test unnamed initial/reconnect and invalid IDs, record root-reported hosted 20/20 rollback evidence.
+- [x] Normalize optional trusted client display name only; 36 focused rendered tests PASS, root-reported hosted 20/20 rollback evidence recorded; MCP signatures unchanged, no publish.
 - [x] Integrate independent addendum: StrictMode-safe one-shot authorization lookup, hardened resolver and canonical connection rows; 30 rendered tests and 12 local rollback checks PASS, MCP signatures unchanged; root owns hosted acceptance/publication.
 - [x] Implement trusted native authorization resolver and retryable consent choice; preserve released eleven execution grants and MCP 0.6.6/50 tools.
 - [x] Expose AI connections from settings/navigation and align connection instructions.

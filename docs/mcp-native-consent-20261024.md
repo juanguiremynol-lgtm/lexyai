@@ -25,3 +25,9 @@ Root reviews and publishes frontend. Live external OAuth approval with real acco
 - Targeted validation: 30 rendered tests PASS (19 consent / 11 settings); 12 local synthetic PostgreSQL checks PASS with ROLLBACK (including NULL owner, uniform errors, anonymous EXECUTE denial and fixed search path). Browser fixture checks desktop/mobile PASS, no overflow; automatic app build OK. MCP source/artifact/release SQL SHA256 unchanged, version 0.6.6 / 50 tools unchanged.
 - Changed files: src/pages/OAuthConsent.tsx, src/lib/mcp-consent.ts, src/pages/SettingsConnections.tsx, both focused permission test files, drizzle/migrations/0081_mcp_native_authorization_resolver_hardening.sql and generated migration metadata/types, supabase/tests/mcp_native_authorization_identity.sql, AGENTS.md, roadmap.md and this document.
 - Hosted actual-schema negative acceptance remains unverified here; root review/publication remains the release boundary. No real-account opt-in or portfolio change performed.
+
+## Final display-name closure
+- Optional trusted client names (absent/null/empty/whitespace) normalize to «Aplicación de IA» in the frontend helper only. UUID, scope, native-session and ownership checks are unchanged; no SQL or callback changes.
+- Focused rendered tests: 36 PASS (25 consent / 11 settings), including unnamed initial/reconnect permission decisions and missing/invalid UUID rejection. MCP source/artifact/release SQL signatures unchanged; no version churn or publishing.
+- Root-reported evidence, not executed by this agent: actual hosted resolver harness 20/20 PASS with rollback; postrun fixture users/clients zero, all eleven published execution gates unchanged. Independent root review reports identity ordering, permission verification, cancellation and navigation passing. Final review/publication remains root-owned.
+- This closure changes only src/lib/mcp-consent.ts, src/test/oauth-consent-permissions.test.tsx, roadmap.md and this evidence document.
