@@ -15,7 +15,10 @@ beforeEach(() => {
 describe("MCP operational action contracts", () => {
   it("leaves missing-radicado noneligibility to the database instead of requesting a USER pause", async () => {
     rpc.mockResolvedValueOnce({ data: "manage", error: null }).mockResolvedValueOnce({ data: { ok: true }, error: null });
-    await create.handler({ workflow_type: "CGP", idempotency_key: "create-no-radicado-001" }, ctx);
+    await create.handler({ workflow_type: "CGP", idempotency_key: "create-no-radicado-001",
+      radicado: undefined, title: undefined, client_id: undefined, demandantes: undefined,
+      demandados: undefined, authority_name: undefined,
+    }, ctx);
     expect(rpc).toHaveBeenLastCalledWith("mcp_create_work_item", expect.objectContaining({
       p_workflow_type: "CGP", p_radicado: null, p_monitoring_off_reason: null,
       p_idempotency_key: "create-no-radicado-001",
