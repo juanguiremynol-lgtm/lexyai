@@ -1,4 +1,5 @@
--- RELEASE STEP (gated, NOT a migration): re-open the nine MCP write RPCs after independent review.
+-- RELEASE STEP (gated, NOT a migration): nine existing new MCP writes plus radicado assignment.
+-- DO NOT RUN: 0072/0073 acceptance and full legacy suites still require independent review.
 -- Preconditions (all must hold before root applies this through the migration tool):
 --   1. Migrations 0068-0071 are applied and reviewed (0071 = fail-closed caller/consent/owner helpers).
 --   2. Rollback-only suites report fails=0 with transaction-local GRANTs only:
@@ -15,3 +16,4 @@ GRANT EXECUTE ON FUNCTION public.mcp_set_notification_state(uuid[], text, timest
 GRANT EXECUTE ON FUNCTION public.mcp_resolve_email_question(uuid, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_add_email_association(uuid, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_resolve_detected_process(uuid, text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mcp_assign_work_item_radicado(uuid, text, timestamptz, text) TO authenticated;

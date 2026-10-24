@@ -1,7 +1,7 @@
 {
   "name": "Andromeda - Gestión de Expedientes",
-  "description": "Servidor MCP de Andromeda: consulta expedientes judiciales colombianos, actuaciones, estados electrónicos, términos procesales, audiencias, tareas, alertas y clientes del abogado autenticado. Escritura limitada a notas y agendamiento de audiencias.",
-  "version": "0.3.0",
+  "description": "49 herramientas de Andromeda: cartera propia, actuaciones y estados separados, términos, notificaciones paginadas, preguntas de correo y novedades por revisión. Gestión con permiso explícito y revocable por usuario y cliente OAuth; nueve RPC nuevas y asignación inicial de radicado mantienen bloqueo de ejecución hasta revisión. Sin envíos ni purga permanente directa.",
+  "version": "0.6.2",
   "documentation": "https://andromeda.legal/connect-ai",
   "servers": [
     {
@@ -22,7 +22,7 @@
     "registration_endpoint": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1/oauth/register",
     "protected_resource_metadata": "https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/mcp/.well-known/oauth-protected-resource",
     "dynamic_client_registration": true,
-    "scopes_supported": ["openid", "email", "profile", "read", "read_write"]
+    "management_authorization": "Permiso de la app ligado a usuario, cliente OAuth y generación de consentimiento; los scopes OIDC no autorizan escritura. Un scope estrecho andromeda:read conserva solo lectura."
   },
   "contact": "https://andromeda.legal"
 }

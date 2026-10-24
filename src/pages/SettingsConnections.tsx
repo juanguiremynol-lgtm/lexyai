@@ -20,8 +20,6 @@ const SCOPE_LABELS: Record<string, string> = {
   openid: "Identidad",
   email: "Correo",
   profile: "Perfil",
-  read: "Lectura de la cartera",
-  read_write: "Escritura",
 };
 
 type Grant = {
@@ -284,6 +282,7 @@ type McpConnection = { oauth_client_id: string; access_level: "read" | "manage";
 export default function SettingsConnections() {
   const [grants, setGrants] = useState<Grant[]>([]);
   const [levels, setLevels] = useState<Record<string, McpConnection>>({});
+  const [permissionError, setPermissionError] = useState<string | null>(null);
   const [changingLevel, setChangingLevel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -293,6 +292,8 @@ export default function SettingsConnections() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLevels({});
+    setPermissionError(null);
     try {
       const api = oauthApi();
       if (!api?.listGrants) {
@@ -308,7 +309,9 @@ export default function SettingsConnections() {
       }
       setGrants(Array.isArray(data) ? data : []);
       const { data: conns, error: connErr } = await supabase.rpc("list_my_mcp_connections");
-      if (!connErr && Array.isArray(conns)) {
+      if (connErr || !Array.isArray(conns)) {
+        setPermissionError(connErr?.message ?? "No se pudo confirmar el permiso de las conexiones.");
+      } else {
         const map: Record<string, McpConnection> = {};
         for (const c of conns as unknown as McpConnection[]) map[c.oauth_client_id] = c;
         setLevels(map);
@@ -329,7 +332,9 @@ export default function SettingsConnections() {
     setRevoking(clientId);
     const previous = grants;
     try {
-      const { error } = await (oauthApi()!.revokeGrant({ clientId }));
+      const api = oauthApi();
+      if (!api) throw new Error("No se pudo verificar la sesión.");
+      const { error } = await api.revokeGrant({ clientId });
       if (error) throw new Error(error.message);
       toast.success(`Acceso revocado a ${name}`);
       await load();
@@ -342,6 +347,7 @@ export default function SettingsConnections() {
   };
 
   const setAccess = async (clientId: string, name: string, manage: boolean) => {
+    if (loading || permissionError || !levels[clientId]) return;
     setChangingLevel(clientId);
     try {
       const { error } = manage
@@ -407,8 +413,19 @@ export default function SettingsConnections() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2 text-sm">
+            <p className="font-medium">Al permitir gestionar tu cartera</p>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              <li>Crear asuntos y asignar un radicado solo si aún no tienen uno; editar datos y mover etapas por instrucción tuya.</li>
+              <li>Resolver sugerencias, alertas, tareas, términos y preguntas de asociación de correos; nunca enviar mensajes.</li>
+              <li>Archivar, restaurar o enviar a papelera con recuperación durante diez días.</li>
+              <li>La purga permanente no está disponible directamente; la eliminación programada sigue el plazo de retención.</li>
+            </ul>
+            <p className="text-muted-foreground">Las acciones nuevas siguen bloqueadas hasta su revisión. Activar el permiso no elimina ese bloqueo.</p>
+          </div>
           {loading && <p className="text-sm text-muted-foreground">Cargando conexiones…</p>}
           {!loading && error && <p className="text-sm text-destructive">{error}</p>}
+          {!loading && permissionError && <p role="alert" className="text-sm text-destructive">Permiso desconocido: {permissionError}</p>}
           {!loading && !error && grants.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Todavía no has autorizado ninguna herramienta. Usa la dirección de arriba para conectar la primera.
@@ -432,18 +449,20 @@ export default function SettingsConnections() {
                 <div className="flex flex-col items-end gap-2">
                 <div className="text-right">
                   <Badge variant={levels[clientId]?.access_level === "manage" ? "default" : "outline"}>
-                    {levels[clientId]?.access_level === "manage" ? "Puede gestionar" : "Solo lectura"}
+                    {loading ? "Verificando permiso…" : !levels[clientId] || permissionError ? "Permiso desconocido" : levels[clientId].access_level === "manage" ? "Puede gestionar" : "Solo lectura"}
                   </Badge>
                   <p className="mt-1 max-w-[16rem] text-xs text-muted-foreground">
-                    {levels[clientId]?.access_level === "manage"
-                      ? "Puede crear, archivar o enviar a papelera (recuperable 10 días), mover etapas y resolver alertas, correos y procesos detectados cuando tú se lo pidas. Nunca borra definitivamente ni envía correos."
+                    {!levels[clientId] || permissionError
+                      ? "Actualiza la lista para confirmar el permiso antes de cambiarlo."
+                      : levels[clientId]?.access_level === "manage"
+                      ? "Gestiona solo asuntos propios cuando tú se lo pidas, sujeto a los bloqueos de revisión. Nunca envía correos ni permite purga directa."
                       : "Solo consulta tu cartera. Activa la gestión si quieres que haga cambios cuando se lo pidas."}
                   </p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!clientId || changingLevel === clientId}
+                  disabled={!clientId || loading || !!permissionError || !levels[clientId] || changingLevel === clientId}
                   onClick={() => void setAccess(clientId, name, levels[clientId]?.access_level !== "manage")}
                 >
                   {changingLevel === clientId
