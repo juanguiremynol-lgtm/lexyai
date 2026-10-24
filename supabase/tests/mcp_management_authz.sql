@@ -9,7 +9,6 @@ DECLARE
   consent uuid := gen_random_uuid();
   log text := ''; fails int := 0; r jsonb; r2 jsonb; wi uuid; wi_upd timestamptz; v text; n int;
   nat jsonb; oau jsonb; bnat jsonb;
-  PROCEDURE_DUMMY int;
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   VALUES (a, 'authenticated', 'authenticated', 'mcp-test-a-' || a || '@example.invalid', now(), '{}', '{}', now(), now()),
