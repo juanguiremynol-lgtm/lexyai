@@ -568,6 +568,13 @@
       "when": 1792877589897,
       "tag": "0080_mcp_native_authorization_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792878136976,
+      "tag": "0081_mcp_native_authorization_resolver_hardening",
+      "breakpoints": true
     }
   ]
 }
