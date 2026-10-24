@@ -688,7 +688,7 @@ CREATE TABLE workflow_definitions(workflow_type text,active boolean,catalog_gove
 CREATE TABLE workflow_stages_global(workflow_type text,code text,active boolean,display_order int);
 CREATE TABLE lifecycle_pause_refusals(work_item_id uuid,attempted_state text,actor text,reason text,metadata jsonb);
 CREATE TABLE work_item_stage_audit(work_item_id uuid,organization_id uuid,actor_user_id uuid,previous_stage text,new_stage text,change_source text,reason text,metadata jsonb);
-CREATE TABLE gcp_lifecycle_outbox(id uuid,work_item_id uuid,radicado text,workflow_type text,prev_state text,new_state text,reason text,actor text,actor_user_id uuid,metadata jsonb,occurred_at timestamptz);
+CREATE TABLE gcp_lifecycle_outbox(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),work_item_id uuid,radicado text,workflow_type text,prev_state text,new_state text,reason text,actor text,actor_user_id uuid,metadata jsonb,occurred_at timestamptz);
 CREATE TABLE work_item_lifecycle_ledger(work_item_id uuid,radicado text,workflow_type text,from_state text,to_state text,actor text,actor_user_id uuid,reason text,occurred_at timestamptz,record_origin text,emitted_to_gcp boolean,gcp_outbox_id uuid,metadata jsonb);
 CREATE TYPE reminder_type AS ENUM ('ACTA_REPARTO_PENDING','RADICADO_PENDING','EXPEDIENTE_PENDING','AUTO_ADMISORIO_PENDING');
 CREATE TABLE work_item_reminders(organization_id uuid,owner_id uuid,work_item_id uuid,reminder_type reminder_type,cadence_business_days int,next_run_at timestamptz,status text,created_by uuid);
