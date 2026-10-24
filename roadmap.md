@@ -122,6 +122,6 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Fase 2: permisos read/manage por usuario + cliente OAuth (0060; 0064 sesión no verificada = solo lectura).
 - [x] Fase 3: idempotencia + revisión esperada + auditoría atómica (0060/0061).
 - [x] Fase 4: herramientas (0061–0063; 47 en total); feed por revisión + frescura + reconciliación (0064).
-- [x] Pruebas DB aisladas: supabase/tests/mcp_management_authz.sql, supabase/tests/lifecycle_authz.sql.
+- [x] Pruebas DB aisladas: mcp_management_authz.sql, lifecycle_authz.sql, mcp_stage_creation_parity.sql (0066 vocabulario de etapas + paridad de creación; 0067 permisos de ejecución restaurados).
 - [ ] Publicar y confirmar marcador mcp-rev-0-6-0 — espera revisión del propietario.
 - [ ] Prueba real desde ChatGPT tras publicar (activar «Permitir gestionar») — espera publicación.
