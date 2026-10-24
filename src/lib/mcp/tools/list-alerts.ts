@@ -34,12 +34,12 @@ export default defineTool({
 
     let q = sb
       .from("alert_instances")
-      .select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at")
+      .select("id, alert_type, severity, status, title, message, entity_type, entity_id, fired_at, acknowledged_at, read_at, resolution_mode, condition_class")
       .order("fired_at", { ascending: false })
       .limit(limit ?? 30);
 
     const normalized = status?.toUpperCase();
-    if (!normalized) q = q.in("status", ["PENDING", "ACKNOWLEDGED"]);
+    if (!normalized) q = q.in("status", ["PENDING", "SENT", "ACKNOWLEDGED"]);
     else if (normalized !== "ALL") q = q.eq("status", normalized);
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -79,7 +79,7 @@ export default defineTool({
     const unread = alerts.filter((a) => !a.leida).length;
     return textResult(`${resolucion ? `${resolucion}\n` : ""}${alerts.length} alertas (${unread} sin leer).`, {
       resolucion,
-      status: status ?? "PENDING+ACKNOWLEDGED",
+      status: status ?? "PENDING+SENT+ACKNOWLEDGED",
       work_item_id: entityId,
       unread,
       alerts,
