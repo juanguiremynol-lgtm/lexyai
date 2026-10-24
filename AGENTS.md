@@ -45,4 +45,4 @@
 - MCP caller requires authenticated role in both parsed JSON JWT and auth.role(); legacy scalar claims cannot promote a missing JSON role — fail closed despite stale request GUCs.
 - Freshness issue discovery is an invoker RPC with independent UUID keyset pagination, embedded first page and per-source evidence — issue identities remain discoverable beyond capped event-page detail.
 
-- Native AI consent resolves authorization identity through mcp_native_authorization_identity (live first-party session, owner, expiry and active client); approve without redirect, save/revoke then verify the exact client before following an in-memory callback — reconnects and retries must never bypass the explicit permission choice.
+- Native AI consent deduplicates official GET by authorization/user before the native resolver (GET binds ownership and may autoapprove); retain callbacks only in memory, approve without redirect, save/revoke then verify the exact client. Settings rows come from the canonical native RPC; SDK enrichment is optional — reconnects, StrictMode and retries must not repeat authorization or hide connections.

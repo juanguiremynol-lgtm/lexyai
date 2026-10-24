@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { StrictMode } from "react";
 import { MemoryRouter } from "react-router-dom";
 const m = vi.hoisted(() => ({ rpc: vi.fn(), getUser: vi.fn(), details: vi.fn(), approve: vi.fn(), deny: vi.fn(), follow: vi.fn(), authChange: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: m.rpc, auth: { getUser: m.getUser, onAuthStateChange: (f: unknown) => { m.authChange(f); return { data: { subscription: { unsubscribe: vi.fn() } } }; }, oauth: { getAuthorizationDetails: m.details, approveAuthorization: m.approve, denyAuthorization: m.deny } } } }));
@@ -20,7 +21,7 @@ beforeEach(() => {
   m.approve.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null });
   m.deny.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?error=access_denied" }, error: null });
   m.rpc.mockImplementation(async (name: string) => {
-    if (name === "mcp_native_authorization_identity") return { data: { client_id: client, client_name: "Fixture AI", scope }, error: null };
+    if (name === "mcp_native_authorization_identity") return { data: { client: { id: client, name: "Fixture AI" }, scope }, error: null };
     if (name === "list_my_mcp_connections") return { data: [{ oauth_client_id: wrong ? "wrong" : client, access_level: level }], error: failRead ? { message: "failure" } : null };
     if (failSave) return { data: null, error: { message: "failure" } };
     level = name === "grant_mcp_client_access" ? "manage" : "read";
@@ -44,5 +45,26 @@ describe("native consent permission ordering", () => {
   it("narrow read scopes cannot select management", async () => { scope = "openid andromeda:read"; mount(); await ready(); expect(screen.getByRole("radio", { name: /Consultar y gestionar/ }).getAttribute("disabled")).not.toBeNull(); });
   it("missing client identity disables all decisions", async () => { m.rpc.mockResolvedValue({ data: {}, error: null }); mount(); await screen.findByRole("alert"); expect(screen.queryByRole("radio")).toBeNull(); });
   it("resets pending callback on account change", async () => { failSave = true; mount(); await ready(); await manage(); await screen.findByRole("alert"); m.getUser.mockResolvedValue({ data: { user: { id: "second", email: "second@example.invalid" } }, error: null }); m.details.mockResolvedValue({ data: { client: { id: client }, user: { id: "second" } }, error: null }); act(() => m.authChange.mock.calls[0][0]("SIGNED_IN", { user: { id: "second" } })); await screen.findByText("Cuenta verificada: second@example.invalid"); await ready(); expect(screen.getByRole("radio", { name: /Solo consultar/ }).getAttribute("aria-checked")).toBe("true"); expect(m.follow).not.toHaveBeenCalled(); });
+  it("StrictMode reconnect GET autoapproval is one-shot through retry and choice changes", async () => {
+    m.details.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null });
+    failSave = true;
+    render(<StrictMode><MemoryRouter initialEntries={["/.lovable/oauth/consent?authorization_id=request"]}><OAuthConsent /></MemoryRouter></StrictMode>);
+    await ready(); await manage(); await screen.findByRole("alert");
+    expect(m.details).toHaveBeenCalledTimes(1); expect(m.approve).not.toHaveBeenCalled();
+    failSave = false; fireEvent.click(screen.getByRole("button", { name: "Continuar solo lectura" }));
+    await waitFor(() => expect(m.follow).toHaveBeenCalledTimes(1));
+    expect(m.details).toHaveBeenCalledTimes(1); expect(m.approve).not.toHaveBeenCalled();
+    expect(m.details.mock.invocationCallOrder[0]).toBeLessThan(m.rpc.mock.invocationCallOrder[0]);
+  });
+  it.each(["denied", "expired"])("fails closed for %s resolver after official GET", async () => {
+    m.details.mockResolvedValue({ data: { redirect_url: "https://client.invalid/callback?code=fixture" }, error: null });
+    m.rpc.mockResolvedValue({ data: null, error: { code: "MCP04", message: "AUTHORIZATION_UNAVAILABLE" } });
+    mount(); await screen.findByRole("alert"); expect(m.follow).not.toHaveBeenCalled(); expect(m.approve).not.toHaveBeenCalled(); expect(screen.queryByRole("radio")).toBeNull();
+  });
+  it("read plus manage scopes permits explicit choice but not an automatic grant", async () => {
+    scope = "openid andromeda:read andromeda:manage"; mount(); await ready();
+    expect(screen.getByRole("radio", { name: /Consultar y gestionar/ }).hasAttribute("disabled")).toBe(false);
+    expect(m.rpc.mock.calls.every(([name]) => name === "mcp_native_authorization_identity")).toBe(true);
+  });
   it("cancel never grants", async () => { mount(); await ready(); fireEvent.click(screen.getByRole("button", { name: "Cancelar" })); await waitFor(() => expect(m.deny).toHaveBeenCalledTimes(1)); expect(m.approve).not.toHaveBeenCalled(); expect(m.rpc.mock.calls.every(([name]) => name === "mcp_native_authorization_identity")).toBe(true); });
 });

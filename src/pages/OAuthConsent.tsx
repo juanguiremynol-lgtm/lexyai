@@ -30,6 +30,8 @@ export default function OAuthConsent() {
   const locked = useRef(false);
   const owner = useRef<string | null>(null);
   const callback = useRef<string | null>(null);
+  // An effect restart must reuse GET's autoapproval result, never issue GET twice.
+  const lookups = useRef(new Map<string, Promise<{ trusted: AuthorizationIdentity; result: Awaited<ReturnType<OAuthApi["getAuthorizationDetails"]>> }>>());
 
   useEffect(() => {
     const generation = ++epoch.current;
@@ -43,6 +45,7 @@ export default function OAuthConsent() {
       if (owner.current && session?.user.id !== owner.current) {
         epoch.current++;
         callback.current = null;
+        lookups.current.clear();
         setReload(value => value + 1);
       }
     });
@@ -58,16 +61,26 @@ export default function OAuthConsent() {
         }
         owner.current = data.user.id;
         setAccount(data.user.email ?? "Cuenta verificada");
-        const result = await oauth().getAuthorizationDetails(authorizationId);
+        const key = `${data.user.id}:${authorizationId}`;
+        let lookup = lookups.current.get(key);
+        if (!lookup) {
+          if (!valid()) return;
+          lookup = (async () => {
+            // Official GET binds the nullable owner and may already approve.
+            const result = await oauth().getAuthorizationDetails(authorizationId);
+            if (result.error || !result.data) throw new Error("No se pudo cargar la solicitud. Puede haber vencido; vuelve a conectar desde tu asistente.");
+            const trusted = await authorizationIdentity(authorizationId);
+            return { result, trusted };
+          })();
+          lookups.current.set(key, lookup);
+        }
+        const { result, trusted } = await lookup;
         if (!valid()) return;
-        if (result.error || !result.data) throw new Error("No se pudo cargar la solicitud. Puede haber vencido; vuelve a conectar desde tu asistente.");
-        const trusted = await authorizationIdentity(authorizationId);
-        if (!valid()) return;
-        const sdkClient = result.data.client?.id ?? result.data.client?.client_id;
-        if ((result.data.client && sdkClient !== trusted.client_id) || (result.data.user && result.data.user.id !== owner.current)) throw new Error("La solicitud no coincide con la cuenta o herramienta verificada.");
+        const sdkClient = result.data?.client?.id ?? result.data?.client?.client_id;
+        if ((result.data?.client && sdkClient !== trusted.client_id) || (result.data?.user && result.data.user.id !== owner.current)) throw new Error("La solicitud no coincide con la cuenta o herramienta verificada.");
         setIdentity(trusted);
         // Previously authorized requests still show the choice before any callback.
-        if (result.data.redirect_url) {
+        if (result.data?.redirect_url) {
           callback.current = result.data.redirect_url;
           setApproved(true);
         }

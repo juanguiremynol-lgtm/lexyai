@@ -17,3 +17,11 @@ Baseline: 2b90c64e32f879fe4b984cbd1edd8ae637041fc4. MCP stays 0.6.6 / 50 tools; 
 
 ## Review boundary
 Root reviews and publishes frontend. Live external OAuth approval with real accounts deliberately not exercised. Root may run the resolver negatives against hosted actual schema with rollback-only fixtures. No private tokens/codes logged or stored.
+
+## Independent review addendum
+- Official GET precedes the native resolver and is deduplicated in component memory by authorization ID + verified native user across StrictMode restarts. Redirect-only autoapproval still shows the permission choice. Permission retry/choice changes never repeat GET or approval; changing account clears retained state.
+- Migration 0081 hardens only the read resolver: pg_catalog search path, fully qualified auth relations, bound owner required (NULL never adopted), pending/approved and strict expiry/active-client checks, uniform MCP04 AUTHORIZATION_UNAVAILABLE. Returns only client {id,name} and requested scope. No released writer privileges changed.
+- Settings renders canonical list_my_mcp_connections identities, dates and permission badges; SDK listGrants is optional scopes/last-use enrichment. Failure, malformed response or missing SDK does not hide canonical rows. Unknown canonical permissions remain disabled; SDK revokeGrant still handles full disconnect.
+- Targeted validation: 30 rendered tests PASS (19 consent / 11 settings); 12 local synthetic PostgreSQL checks PASS with ROLLBACK (including NULL owner, uniform errors, anonymous EXECUTE denial and fixed search path). Browser fixture checks desktop/mobile PASS, no overflow; automatic app build OK. MCP source/artifact/release SQL SHA256 unchanged, version 0.6.6 / 50 tools unchanged.
+- Changed files: src/pages/OAuthConsent.tsx, src/lib/mcp-consent.ts, src/pages/SettingsConnections.tsx, both focused permission test files, drizzle/migrations/0081_mcp_native_authorization_resolver_hardening.sql and generated migration metadata/types, supabase/tests/mcp_native_authorization_identity.sql, AGENTS.md, roadmap.md and this document.
+- Hosted actual-schema negative acceptance remains unverified here; root review/publication remains the release boundary. No real-account opt-in or portfolio change performed.

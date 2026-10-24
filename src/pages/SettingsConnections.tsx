@@ -278,7 +278,7 @@ function OutlookSendHistoryCard() {
   );
 }
 
-type McpConnection = { oauth_client_id: string; access_level: "read" | "manage"; manage_granted_at: string | null };
+type McpConnection = { oauth_client_id: string; client_name?: string; authorized_at?: string; access_level: "read" | "manage"; manage_granted_at: string | null };
 
 export default function SettingsConnections() {
   const [grants, setGrants] = useState<Grant[]>([]);
@@ -296,30 +296,31 @@ export default function SettingsConnections() {
     setLevels({});
     setPermissionError(null);
     try {
-      const api = oauthApi();
-      if (!api?.listGrants) {
-        setGrants([]);
-        setError("Tu sesión no expone el listado de conexiones. Vuelve a iniciar sesión.");
-        return;
-      }
-      const { data, error } = await api.listGrants();
-      if (error) {
-        setGrants([]);
-        setError(error.message);
-        return;
-      }
-      setGrants(Array.isArray(data) ? data : []);
       const { data: conns, error: connErr } = await supabase.rpc("list_my_mcp_connections");
-      if (connErr || !Array.isArray(conns)) {
+      if (connErr || !Array.isArray(conns) || conns.some(c => !c || typeof c !== "object" || !("oauth_client_id" in c) || typeof c.oauth_client_id !== "string" || !("access_level" in c) || !["read", "manage"].includes(String(c.access_level)))) {
         setPermissionError(connErr?.message ?? "No se pudo confirmar el permiso de las conexiones.");
+        return;
       } else {
+        const canonical = conns as unknown as McpConnection[];
         const map: Record<string, McpConnection> = {};
-        for (const c of conns as unknown as McpConnection[]) map[c.oauth_client_id] = c;
+        for (const c of canonical) map[c.oauth_client_id] = c;
         setLevels(map);
+        const rows: Grant[] = canonical.map(c => ({ client: { id: c.oauth_client_id, name: c.client_name ?? "Herramienta de IA" }, granted_at: c.authorized_at }));
+        setGrants(rows);
+        // SDK metadata is optional: its absence never hides native active consents.
+        try {
+          const api = oauthApi();
+          const enrichment = api?.listGrants ? await api.listGrants() : null;
+          if (!enrichment?.error && Array.isArray(enrichment?.data)) {
+            setGrants(rows.map(row => {
+              const extra = enrichment.data?.find(g => (g.client?.id ?? g.client?.client_id) === row.client?.id);
+              return { ...row, last_used_at: extra?.last_used_at, scopes: Array.isArray(extra?.scopes) ? extra.scopes.filter(s => typeof s === "string") : [] };
+            }));
+          }
+        } catch { /* Optional enrichment cannot invalidate authoritative rows. */ }
       }
     } catch (e) {
-      setGrants([]);
-      setError(e instanceof Error ? e.message : "No se pudieron cargar las conexiones.");
+      setPermissionError(e instanceof Error ? e.message : "No se pudieron confirmar las conexiones.");
     } finally {
       setLoading(false);
     }
