@@ -1,7 +1,7 @@
 {
   "name": "Andromeda - Gestión de Expedientes",
-  "description": "50 herramientas de Andromeda: cartera propia, actuaciones y estados separados, términos, notificaciones paginadas, preguntas de correo, novedades por revisión y asuntos con consultas fallidas paginados. Gestión con permiso explícito y revocable por usuario y cliente OAuth; nueve RPC nuevas y asignación inicial de radicado mantienen bloqueo de ejecución hasta revisión. Sin envíos ni purga permanente directa.",
-  "version": "0.6.4",
+  "description": "50 herramientas de Andromeda: cartera propia, actuaciones y estados separados, términos, notificaciones paginadas, preguntas de correo, novedades por revisión y asuntos con consultas fallidas paginados. Gestión con permiso explícito y revocable por usuario y cliente OAuth; disponibilidad efectiva verificada en get_capabilities. Sin envíos ni purga permanente directa.",
+  "version": "0.6.5",
   "documentation": "https://andromeda.legal/connect-ai",
   "servers": [
     {
