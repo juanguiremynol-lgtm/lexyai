@@ -2,19 +2,19 @@
 
 ## Candidate and authorization
 
-Candidate: **0.6.6 / 50 tools**, documentation/UI closure over atomic-update candidate 0.6.5, same endpoint and project identity. Implementation migrations **0059–0079**, including 0078 non-row privilege revocation and 0079 atomic updates/runtime capabilities/freshness ties; no additional migration or MCP tool. Public revision marker: **mcp-rev-0-6-6**. No services enabled: existing Cloud backend and OAuth integration retained. No deployment, publication or release grant script execution.
+Exact final candidate: **0.6.5 / 50 tools**, including documentation/UI closure as requested by root at 20:56 UTC (supersedes the documentation-only 0.6.6 label). Same endpoint, Andromeda identity and OAuth configuration. Implementation migrations **0059–0079**, including 0078 non-row privilege revocation and 0079 atomic updates/runtime capabilities/freshness ties; no additional migration or MCP tool. Public revision marker: **mcp-rev-0-6-5**. No services newly enabled: existing Cloud backend and OAuth integration retained. No deployment, publication or release grant script execution by this agent.
 
 0078 revokes TRUNCATE, REFERENCES and TRIGGER from PUBLIC, anon, authenticated and mcp_feed_executor. Hosted read-only privilege inspection confirms all three absent for anon/authenticated/executor. Authenticated SELECT/DELETE remain, INSERT remains denied; executor INSERT remains. Existing anonymous SELECT/DELETE grants were not widened or changed; RLS still denies unauthenticated cursor access.
 
-All **eleven** new mutation RPCs remain gated from authenticated/anon (ten existing plus internal `mcp_update_work_item`). Root separately reviews/tests the atomic-update delta before explicitly authorizing enablement; edge deployment and publication require separate root authorization. No grant or hosted write was performed during this closure. The ten baseline gates in root's evidence below are distinct from the additional internal atomic-update RPC.
+All **eleven** new mutation RPCs remain gated from authenticated/anon (ten existing plus internal `mcp_update_work_item`). Root completed final delta verification and authorized MCP release at 20:56 UTC; root retains explicit application of the reviewed grant SQL and frontend publication. No grant or hosted write was performed during this closure. There is no pending human approval for MCP release; the deployment mechanism is the concrete limitation described below.
 
 0079 validates metadata/client before changes, composes metadata plus canonical pause/resume in one transaction, checks owner/manage, and audits atomically with optional idempotency key. Existing optional input semantics remain: omitted fields are unchanged; omitted key receives a generated key returned in the result (reuse an explicit key for reliable client retries). Returned monitoring state is committed state, not requested state. Runtime capability discovery is invoker-scoped: verified app authority plus actual function/table privileges, with per-tool availability and distinct SESSION_UNVERIFIED guidance for `none`. Execution availability is necessary, not a promise that every row/action passes RLS or business validation.
 
 The withdrawn creation-quota concern was not changed: no extra creation quota mechanism or provider schedule change was added. Freshness uses timestamp DESC, id DESC consistently with issue pages.
 
-## Root-provided hosted evidence — 20:50 UTC, 2026-10-24
+## Root-provided hosted evidence — 20:50 and final 20:56 UTC, 2026-10-24
 
-Root independently reports execution against the hosted actual schema with rollback-only suites. These results are **root-provided evidence, not this agent's hosted run**, and do not certify the separately pending atomic-update delta.
+Root independently reports execution against the hosted actual schema with rollback-only suites. These results are **root-provided evidence, not this agent's hosted run**. Final delta verification is complete according to root's 20:56 report.
 
 | Hosted suite | Root-reported result |
 |---|---|
@@ -22,8 +22,10 @@ Root independently reports execution against the hosted actual schema with rollb
 | CURSOR | 26/26 PASS |
 | FEED | 21 PASS, 0 FAIL, 2 explicit-limit SKIPs |
 | OPERATIONS | 40/40 PASS |
+| Atomic update final delta | 20/20 PASS |
+| Freshness ties final delta | 6/6 PASS |
 
-Root reports real enrollment/reminders/queues, automatic SYSTEM create → assign, genuine USER pause, actual capacity-50 restore/create behavior, email group confirmation/conflicts, backward manual stage/revision and notification pagination covered by OPERATIONS. Cleanup verified **zero synthetic auth.users and zero mcp_client_grants**; **ten baseline gates closed** and **all 0078 cursor excess privileges absent**. The two feed SKIPs remain explicit limits, not passes; their individual details were not supplied in this message.
+Root reports real enrollment/reminders/queues, automatic SYSTEM create → assign, genuine USER pause, actual capacity-50 restore/create behavior, email group confirmation/conflicts, backward manual stage/revision and notification pagination covered by OPERATIONS. Final cleanup verified **zero synthetic auth.users and zero mcp_client_grants**; **all eleven action gates closed** and **all 0078 cursor excess privileges absent**. Root reviewed the adapter, specific live SQL and eleven release signatures; independent review found no access blocker. The two previously reported feed SKIPs remain explicit limits, not passes; their individual details were not supplied.
 
 Public connection disclosures describe available actions, explicit per-client opt-in from the user's own Andromeda session, revocation and ten-day recovery, not a permanent development-review blockade. `get_capabilities` still derives actual execution availability and app authority at runtime; no gate logic changed.
 
@@ -69,4 +71,4 @@ Feed represents current revisions, not durable history. A 15-minute overlap boun
 
 No providers, messages, schedules, Vault, real portfolio writes or automatic manage grants were touched. Synchronization remains scheduled pending, not immediate hydration.
 
-No code blocker was observed in the passing scoped local tests. Baseline hosted evidence is now recorded; release authorization still awaits **root's final atomic-update delta review/test**, followed by explicit grant SQL and separately authorized edge deployment/publication, then external-client smoke. This is the current release checkpoint, not a permanent product restriction or a request to redesign or expand the implementation.
+Root's final delta review/test and MCP release authorization are complete. Concrete deployment blocker: this project's managed MCP is excluded from development edge deployments and activates only through app publish. A direct MCP-only deployment is not supported; the requested frontend-publication boundary is preserved rather than bypassed. A public unauthenticated read during this closure still returned **mcp-rev-0-6-4**, not the candidate marker. Root's existing-app publication activates the generated candidate; verify **mcp-rev-0-6-5** afterward. Root retains application of the eleven-signature grant SQL and subsequent external-client smoke. This is a deployment limitation, not an access blocker or missing human approval.
