@@ -2943,27 +2943,18 @@ Deno.serve(withSyncTimeline(async (req) => {
         // CANONICAL work_item_hearings table (what the UI reads via
         // useWorkItemHearingsV2). The legacy `hearings` table is deprecated.
         try {
-          const { extractHearingFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
-          const candidate = extractHearingFromAct({
+          const { extractHearingsFromAct, isSuspensionAct } = await import("../_shared/hearingExtractor.ts");
+          const candidates = extractHearingsFromAct({
             act_type: persisted.raw_data?.actuacion || persisted.description?.split(' - ')[0] || null,
             description: String(persisted.raw_data?.anotacion || persisted.description || ''),
           });
-          if (candidate) {
+          for (const candidate of candidates) {
             const isFuture = new Date(candidate.starts_at_iso) > new Date();
             const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
             // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
-            const status = isFuture ? 'scheduled' : 'held';
-            // Cancel prior scheduled hearings for this WI when a new date arrives
-            if (candidate.action === 'reschedule' || isFuture) {
-              const { error: cancelError } = await supabase
-                .from('work_item_hearings')
-                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                .eq('work_item_id', work_item_id)
-                .eq('status', 'scheduled')
-                .eq('auto_detected', true)
-                .neq('scheduled_at', candidate.starts_at_iso);
-              if (cancelError) throw new Error(cancelError.message);
-            }
+            // A past scheduled date does not prove celebration. Nor does a new
+            // future session identify an older hearing to cancel or postpone.
+            const status = isFuture ? 'scheduled' : 'planned';
             const { data: existingH, error: lookupError } = await supabase
               .from('work_item_hearings')
               .select('id')
@@ -2987,14 +2978,9 @@ Deno.serve(withSyncTimeline(async (req) => {
               if (insertError) throw new Error(insertError.message);
 
             }
-          } else if (isSuspensionAct(persisted.description, String(persisted.raw_data?.anotacion || ''))) {
-            const { error: suspendError } = await supabase
-              .from('work_item_hearings')
-              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-              .eq('work_item_id', work_item_id)
-              .eq('status', 'scheduled')
-              .eq('auto_detected', true);
-            if (suspendError) throw new Error(suspendError.message);
+          }
+          if (!candidates.length && isSuspensionAct(persisted.description, String(persisted.raw_data?.anotacion || ''))) {
+            result.errors.push(`Hearing suspension requires an explicit target: ${persisted.id}`);
           }
         } catch (hErr) {
           result.errors.push(`Persisted act hearing effect failed: ${(hErr as Error).message}`);
@@ -3439,44 +3425,48 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Run one idempotent sweep over already-persisted acts for this WI so the
     // canonical hearings table converges regardless of provider health.
     try {
-      const { extractHearingFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
-      const { data: _dbActs } = await supabase
+      const { extractHearingsFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
+      const { data: _dbActs, error: _readError } = await supabase
         .from('work_item_acts')
         .select('id, act_type, description')
         .eq('work_item_id', work_item_id)
         .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
         .limit(500);
+      if (_readError) throw new Error(_readError.message);
       let _bfInserted = 0;
       for (const _a of (_dbActs || [])) {
         if (failedEnrichmentIds.has(_a.id)) continue;
-        const _c = _bfExtract({ act_type: _a.act_type || null, description: _a.description || null });
-        if (!_c) continue;
-        const { data: _exists } = await supabase
+        for (const _c of _bfExtract({ act_type: _a.act_type || null, description: _a.description || null })) {
+        const { data: _exists, error: _lookupError } = await supabase
           .from('work_item_hearings')
           .select('id')
           .eq('work_item_id', work_item_id)
           .eq('scheduled_at', _c.starts_at_iso)
           .maybeSingle();
+        if (_lookupError) throw new Error(_lookupError.message);
         if (_exists) continue;
         const _isFut = new Date(_c.starts_at_iso) > new Date();
-        await supabase.from('work_item_hearings').insert({
+        const { error: _insertError } = await supabase.from('work_item_hearings').insert({
           organization_id: workItem.organization_id,
           work_item_id,
           custom_name: _c.title,
           scheduled_at: _c.starts_at_iso,
           auto_detected: true,
-          status: _isFut ? 'scheduled' : 'held',
+          status: _isFut ? 'scheduled' : 'planned',
           source_act_id: _a.id,
           extraction_method: 'act_regex_v2',
           time_inferred: _c.time_inferred,
           discovery_type: _isFut ? 'NOVEDAD' : 'HISTORICO_DETECTADO',
         });
+        if (_insertError) throw new Error(_insertError.message);
         _bfInserted++;
+        }
       }
       if (_bfInserted > 0) {
         console.log(`[sync-by-work-item] 🎯 Hearing backfill sweep inserted ${_bfInserted} hearing(s) from work_item_acts for WI ${work_item_id}`);
       }
     } catch (_bfErr) {
+      result.errors.push(`Hearing backfill failed: ${(_bfErr as Error).message}`);
       console.warn('[sync-by-work-item] hearing backfill sweep error:', (_bfErr as Error).message);
     }
 
