@@ -17,6 +17,8 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { z } from "npm:zod@3.25.76";
 import {
   classifyRemisionText,
   extractDestinoDespacho,
@@ -41,17 +43,19 @@ interface ActRow {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok && gate.response) return gate.response;
+
+  const input = z.object({ work_item_id: z.string().uuid().optional(), dry_run: z.boolean().optional() }).strict()
+    .safeParse(await req.json().catch(() => ({})));
+  if (!input.success) return json({ ok: false, error: "INVALID_INPUT" }, 400);
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
 
-  let body: { work_item_id?: string; dry_run?: boolean } = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
+  const body = input.data;
   const dryRun = body.dry_run === true;
 
   // PostgREST caps a page at 1000 rows: paginate explicitly or the scan lies

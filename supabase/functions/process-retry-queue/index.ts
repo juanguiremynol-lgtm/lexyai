@@ -1,7 +1,7 @@
 /**
  * process-retry-queue Edge Function
  * 
- * Runs every 2 minutes via pg_cron. Picks up due retry tasks from sync_retry_queue
+ * Runs hourly UTC 05–13 and at 18:00. Picks up due retry tasks from sync_retry_queue
  * and re-invokes the appropriate sync function.
  * 
  * Uses syncPolicy.ts for:
@@ -11,6 +11,8 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { dispatchRetry } from "../_shared/retryDispatch.ts";
 import {
   shouldCountAsSuccess,
   retryJitterMs,
@@ -32,6 +34,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok && gate.response) return gate.response;
 
   const startTime = Date.now();
   console.log(`[process-retry-queue] Starting at ${new Date().toISOString()}`);
@@ -176,15 +181,15 @@ Deno.serve(async (req) => {
         let transient = false;
 
         if (task.kind === 'ACT_SCRAPE_RETRY') {
-          const { data: syncResult, error: syncError } = await supabase.functions.invoke(
-            'sync-by-work-item',
-            { body: { work_item_id: task.work_item_id, force_refresh: true, _scheduled: true } }
-          );
+          const response = await dispatchRetry(supabaseUrl, supabaseServiceKey,
+            'sync-by-work-item', task.work_item_id, task.id, crypto.randomUUID());
+          const syncResult = await response.json().catch(() => null);
+          const syncError = response.ok ? null : { status: response.status };
 
           if (syncError) {
             console.error(`[process-retry-queue] sync-by-work-item invoke error:`, syncError);
-            const st = Number((syncError as any)?.context?.status ?? 0);
-            transient = st === 0 || st === 502 || st === 503 || st === 504 || (syncError as any)?.name === 'FunctionsFetchError';
+            const st = syncError.status;
+            transient = st === 502 || st === 503 || st === 504;
           } else {
             // ── Policy-driven success check ──
             syncOk = shouldCountAsSuccess(syncResult);
