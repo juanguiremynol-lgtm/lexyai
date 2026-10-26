@@ -1,527 +1,69 @@
-/**
- * process-retry-queue Edge Function
- * 
- * Runs hourly UTC 05–13 and at 18:00. Picks up due retry tasks from sync_retry_queue
- * and re-invokes the appropriate sync function.
- * 
- * Uses syncPolicy.ts for:
- * - shouldCountAsSuccess() to determine true success
- * - retryJitterMs() for jitter calculation
- * - isTransientError() for error classification
- */
-
+/** Bounded retry drain. Cadence remains UTC 05–13 hourly plus 18:00. */
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { dispatchRetry } from "../_shared/retryDispatch.ts";
-import {
-  shouldCountAsSuccess,
-  retryJitterMs,
-  SCRAPING_STUCK,
-} from "../_shared/syncPolicy.ts";
-import {
-  createTraceContext,
-  writeTraceRecord,
-} from "../_shared/traceContext.ts";
+import { retryOutcome } from "../_shared/retryOutcome.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-const MAX_TASKS_PER_RUN = 5;
-
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+Deno.serve(async req => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const gate = await requirePrivilegedCaller(req, corsHeaders);
   if (!gate.ok && gate.response) return gate.response;
-
-  const startTime = Date.now();
-  console.log(`[process-retry-queue] Starting at ${new Date().toISOString()}`);
-
+  const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!url || !key) return json({ ok: false, error: "MISSING_ENV" }, 500);
+  const db = createClient(url, key);
+  const start = Date.now(), results: unknown[] = [];
+  // Reserve both first-query channels and both recovery channels. Claim only
+  // immediately before execution; timeout never locks a batch of unused work.
+  const slots = [
+    ["ACT_SCRAPE_RETRY", true], ["PUB_RETRY", true],
+    ["ACT_SCRAPE_RETRY", false], ["PUB_RETRY", false],
+  ] as const;
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase configuration');
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // === P1.2 NO-OP EARLY EXIT ===
-    // One head count over the whole retry queue. Empty queue => nothing to
-    // reap, nothing to dead-letter, nothing to run: exit without writing to
-    // atenia_cron_runs / sync_traces. Failures below still write in full.
-    {
-      const { count: queueDepth } = await (supabase.from('sync_retry_queue') as any)
-        .select('id', { count: 'exact', head: true });
-      if ((queueDepth ?? 0) === 0) {
-        return new Response(
-          JSON.stringify({ ok: true, no_op: true, reason: 'empty_retry_queue', processed: 0 }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
-      }
-    }
-
-    // === STALE LEASE DETECTION: Reset tasks stuck in RUNNING > 60 min ===
-    const STALE_LEASE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
-    const staleLeaseCutoff = new Date(Date.now() - STALE_LEASE_THRESHOLD_MS).toISOString();
-    try {
-      const { data: staleTasks } = await (supabase.from('sync_retry_queue') as any)
-        .select('id, work_item_id, radicado, kind, attempt, max_attempts, claimed_at')
-        .not('claimed_at', 'is', null)
-        .lt('claimed_at', staleLeaseCutoff);
-
-      if (staleTasks && staleTasks.length > 0) {
-        console.warn(`[process-retry-queue] Found ${staleTasks.length} stale-lease tasks (RUNNING > 60min), resetting to PENDING`);
-        for (const stale of staleTasks) {
-          await (supabase.from('sync_retry_queue') as any)
-            .update({
-              claimed_at: null,
-              last_error_code: 'STALE_LEASE_RECLAIMED',
-              last_error_message: `Auto-reclaimed by process-retry-queue: claimed_at=${stale.claimed_at}, stuck > 60min`,
-            })
-            .eq('id', stale.id);
-          console.log(`[process-retry-queue] Reclaimed stale task: ${stale.radicado} (${stale.kind}, attempt ${stale.attempt}/${stale.max_attempts})`);
+    for (const [kind, initial] of slots) {
+      if (Date.now() - start > 100_000) break;
+      const { data, error } = await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
+      if (error) throw error;
+      const task = data?.[0];
+      if (!task?.lease_token) continue;
+      const traceId = crypto.randomUUID();
+      const { data: item, error: itemError } = await db.from("work_items")
+        .select("id,monitoring_enabled,lifecycle_state,deleted_at").eq("id", task.work_item_id).maybeSingle();
+      if (itemError) throw itemError;
+      let outcome: "SUCCESS" | "RETRY" | "EXHAUSTED" | "INELIGIBLE" = "RETRY";
+      let code: string | null = null;
+      let result: Record<string, unknown> = { trace_id: traceId };
+      if (!item || item.deleted_at || item.lifecycle_state !== "ACTIVE" || !item.monitoring_enabled) {
+        outcome = "INELIGIBLE"; code = "MONITORING_INELIGIBLE";
+      } else if (task.attempt >= task.max_attempts) {
+        outcome = "EXHAUSTED"; code = task.last_error_code ?? "RETRY_EXHAUSTED";
+      } else {
+        try {
+          const response = await dispatchRetry(url, key, kind === "ACT_SCRAPE_RETRY"
+            ? "sync-by-work-item" : "sync-publicaciones-by-work-item", task.work_item_id, task.id, traceId);
+          const payload = await response.json().catch(() => null);
+          const decision = retryOutcome(response.status, payload);
+          outcome = decision.outcome; code = decision.code;
+          result = { trace_id: traceId, http_status: response.status, response: payload };
+        } catch {
+          code = "INVOCATION_TIMEOUT";
+          result = { trace_id: traceId, error_code: code };
         }
       }
-    } catch (staleErr) {
-      console.warn('[process-retry-queue] Stale lease cleanup error:', staleErr);
-    }
-
-    // === ZOMBIE CLEANUP: Dead-letter stuck retry rows ===
-    const zombieCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    try {
-      const { data: zombies } = await (supabase.from('sync_retry_queue') as any)
-        .select('id, work_item_id, radicado, organization_id, kind, attempt, max_attempts, last_error_code')
-        .lte('next_run_at', zombieCutoff)
-        .filter('attempt', 'gte', 'max_attempts');
-      
-      const actualZombies = (zombies || []).filter((z: any) => z.attempt >= z.max_attempts);
-      
-      if (actualZombies.length > 0) {
-        console.warn(`[process-retry-queue] Found ${actualZombies.length} zombie retry rows, cleaning up`);
-        for (const zombie of actualZombies) {
-          await (supabase.from('sync_retry_queue') as any)
-            .delete()
-            .eq('id', zombie.id);
-          
-          await supabase
-            .from('work_items')
-            .update({
-              scrape_status: 'FAILED',
-              last_error_code: SCRAPING_STUCK,
-              last_error_at: new Date().toISOString(),
-            })
-            .eq('id', zombie.work_item_id);
-          
-          console.log(`[process-retry-queue] Cleaned zombie: ${zombie.radicado} (${zombie.kind}, attempt ${zombie.attempt}/${zombie.max_attempts})`);
-        }
-      }
-    } catch (zombieErr) {
-      console.warn('[process-retry-queue] Zombie cleanup error:', zombieErr);
-    }
-
-    // === CONCURRENCY GUARD: Claim rows atomically ===
-    // TTL: 10 minutes — if a worker crashes after claiming, another can reclaim
-    const now = new Date().toISOString();
-    const claimTtlCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-
-    const { data: tasks, error: fetchError } = await (supabase.from('sync_retry_queue') as any)
-      .select('*')
-      .lte('next_run_at', now)
-      .or(`claimed_at.is.null,claimed_at.lt.${claimTtlCutoff}`)
-      .order('next_run_at', { ascending: true })
-      .limit(MAX_TASKS_PER_RUN);
-
-    if (fetchError) {
-      console.error('[process-retry-queue] Fetch error:', fetchError);
-      throw fetchError;
-    }
-
-    if (!tasks || tasks.length === 0) {
-      console.log('[process-retry-queue] No due tasks. Done.');
-      return new Response(JSON.stringify({ ok: true, processed: 0 }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      const { data: committed, error: finishError } = await db.rpc("finish_sync_retry", {
+        p_id: task.id, p_token: task.lease_token, p_outcome: outcome, p_error: code,
+        p_result: result, p_delay_seconds: kind === "PUB_RETRY" ? 86400 : 900,
       });
+      if (finishError) throw finishError;
+      if (!committed) throw new Error("RETRY_LEASE_LOST");
+      results.push({ task_id: task.id, work_item_id: task.work_item_id, trace_id: traceId, outcome, code });
     }
-
-    // Claim fetched tasks — SELECT already filtered by claimed_at criteria,
-    // so this update is safe. If another worker claimed between SELECT and UPDATE,
-    // the 10-min TTL ensures it will be reclaimable if the other worker crashes.
-    const taskIds = tasks.map((t: any) => t.id);
-    await (supabase.from('sync_retry_queue') as any)
-      .update({ claimed_at: now })
-      .in('id', taskIds);
-
-    console.log(`[process-retry-queue] Found ${tasks.length} due tasks`);
-
-    let processed = 0;
-    let succeeded = 0;
-    let failed = 0;
-    let rescheduled = 0;
-    let exhausted = 0;
-
-    for (const task of tasks) {
-      // Time guard: stop if we've been running >50s
-      if (Date.now() - startTime > 50_000) {
-        console.warn('[process-retry-queue] Approaching timeout, stopping');
-        break;
-      }
-
-      console.log(`[process-retry-queue] Processing task ${task.id}: kind=${task.kind}, work_item=${task.work_item_id}, attempt=${task.attempt}/${task.max_attempts}`);
-      processed++;
-
-      try {
-        let syncOk = false;
-        // Infrastructure-level failure (5xx gateway/boot, network): the sync never ran,
-        // so it must not consume an attempt.
-        let transient = false;
-
-        if (task.kind === 'ACT_SCRAPE_RETRY') {
-          const response = await dispatchRetry(supabaseUrl, supabaseServiceKey,
-            'sync-by-work-item', task.work_item_id, task.id, crypto.randomUUID());
-          const syncResult = await response.json().catch(() => null);
-          const syncError = response.ok ? null : { status: response.status };
-
-          if (syncError) {
-            console.error(`[process-retry-queue] sync-by-work-item invoke error:`, syncError);
-            const st = syncError.status;
-            transient = st === 502 || st === 503 || st === 504;
-          } else {
-            // ── Policy-driven success check ──
-            syncOk = shouldCountAsSuccess(syncResult);
-            const stillScraping = syncResult?.scraping_initiated === true;
-
-            if (syncOk) {
-              console.log(`[process-retry-queue] ✅ ACT retry succeeded for ${task.radicado}: inserted=${syncResult?.inserted_count}`);
-            } else if (stillScraping) {
-              console.log(`[process-retry-queue] ⏳ Scraping still in progress for ${task.radicado}`);
-            } else {
-              console.log(`[process-retry-queue] ❌ ACT retry failed for ${task.radicado}: ${syncResult?.code || syncResult?.message || 'unknown'}`);
-            }
-          }
-        } else if (task.kind === 'PUB_RETRY') {
-          // Use direct fetch with explicit service-role Bearer — the JS client's
-          // functions.invoke() does not reliably forward the service key as the
-          // Authorization header, which caused every PUB_RETRY to be rejected
-          // as UNAUTHORIZED by sync-publicaciones-by-work-item (isServiceRole
-          // check failed, then getUser() rejected the anon-key JWT).
-          let pubResult: any = null;
-          let pubError: any = null;
-          try {
-            const resp = await fetch(
-              `${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${supabaseServiceKey}`,
-                  'apikey': supabaseServiceKey,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ work_item_id: task.work_item_id, _scheduled: true }),
-              }
-            );
-            pubResult = await resp.json().catch(() => null);
-            if (!resp.ok) {
-              pubError = new Error(`HTTP ${resp.status}: ${pubResult?.error || 'unknown'}`);
-              transient = resp.status === 502 || resp.status === 503 || resp.status === 504;
-            }
-          } catch (e) {
-            pubError = e;
-            transient = true;
-          }
-
-          if (pubError) {
-            console.error(`[process-retry-queue] sync-pub invoke error:`, pubError);
-          } else {
-            // A PUB_RETRY is only "successful" when the upstream actually
-            // returned publications. An `ok: true + inserted_count: 0`
-            // response means the provider still has no estados for this
-            // radicado — we must keep the retry alive (24h cadence) so the
-            // WI does not get silently marked as done while data may still
-            // arrive within the following 48h window.
-            const inserted = Number(pubResult?.inserted_count ?? 0);
-            const hasData = pubResult?.ok === true && inserted > 0;
-            syncOk = hasData;
-            if (hasData) {
-              console.log(`[process-retry-queue] ✅ PUB retry succeeded for ${task.radicado}: inserted=${inserted}`);
-            } else if (pubResult?.ok === true) {
-              // If publicaciones already exist for this WI (ingested by
-              // scheduled-daily-sync, manual refresh, or an earlier run),
-              // the retry is moot — clear it instead of continuing toward
-              // the false "no coverage" confirmation alert.
-              const { count: existingPubs } = await supabase
-                .from('work_item_publicaciones')
-                .select('id', { count: 'exact', head: true })
-                .eq('work_item_id', task.work_item_id);
-              if ((existingPubs ?? 0) > 0) {
-                console.log(`[process-retry-queue] ✅ PUB retry resolved for ${task.radicado}: ${existingPubs} publicaciones already present`);
-                syncOk = true;
-              } else {
-                console.log(`[process-retry-queue] ⏳ PUB retry still empty for ${task.radicado} (attempt ${task.attempt}/${task.max_attempts})`);
-              }
-            } else {
-              console.log(`[process-retry-queue] ❌ PUB retry failed for ${task.radicado}: ${pubResult?.status || 'unknown'}`);
-            }
-          }
-        }
-
-        if (syncOk) {
-          // Success — delete retry row and clear scrape status
-          await (supabase.from('sync_retry_queue') as any)
-            .delete()
-            .eq('id', task.id);
-
-          await supabase
-            .from('work_items')
-            .update({
-              scrape_status: 'SUCCESS',
-              last_synced_at: new Date().toISOString(),
-              consecutive_failures: 0,
-              consecutive_404_count: 0,
-              last_error_code: null,
-            })
-            .eq('id', task.work_item_id);
-
-          succeeded++;
-        } else if (transient) {
-          // Retry soon with backoff, same attempt number, release the claim.
-          const backoffMs = 15 * 60 * 1000;
-          await (supabase.from('sync_retry_queue') as any)
-            .update({
-              next_run_at: new Date(Date.now() + backoffMs).toISOString(),
-              claimed_at: null,
-              last_error_code: 'PROVIDER_UNAVAILABLE_TRANSIENT',
-              last_error_message: 'Sync function unavailable (5xx/network); attempt not consumed',
-            })
-            .eq('id', task.id);
-          console.warn(`[process-retry-queue] Transient failure for ${task.radicado}; rescheduled without consuming attempt`);
-          rescheduled++;
-        } else if (task.attempt >= task.max_attempts) {
-          // Exhausted — delete retry row, escalate alert
-          console.warn(`[process-retry-queue] Max attempts (${task.max_attempts}) reached for ${task.radicado}`);
-
-          await (supabase.from('sync_retry_queue') as any)
-            .delete()
-            .eq('id', task.id);
-
-          // PUB_RETRY exhaustion is expected for despachos that do not
-          // publish estados electrónicos — coverage_gap + BRECHA_COBERTURA
-          // alert are already persisted by sync-publicaciones. Do NOT flip
-          // the WI to FAILED and do NOT raise a "sincronización fallida"
-          // alert in that case; just close out the retry.
-          if (task.kind !== 'PUB_RETRY') {
-            await supabase
-              .from('work_items')
-              .update({
-                scrape_status: 'FAILED',
-                last_checked_at: new Date().toISOString(),
-                last_error_code: SCRAPING_STUCK,
-                last_error_at: new Date().toISOString(),
-              })
-              .eq('id', task.work_item_id);
-          } else {
-            console.log(`[process-retry-queue] PUB_RETRY exhausted for ${task.radicado} → coverage gap stands (no critical alert)`);
-
-            // Emit a user-facing alert confirming the WI has no real coverage
-            // of estados electrónicos after the full 48h re-check window.
-            // Idempotent per (work_item, day) via fingerprint.
-            try {
-              const { data: wi } = await supabase
-                .from('work_items')
-                .select('owner_id, organization_id, radicado, workflow_type')
-                .eq('id', task.work_item_id)
-                .maybeSingle();
-
-              // Final safety: never emit the "no coverage" confirmation
-              // if the WI already has publicaciones persisted.
-              const { count: pubCountGuard } = await supabase
-                .from('work_item_publicaciones')
-                .select('id', { count: 'exact', head: true })
-                .eq('work_item_id', task.work_item_id);
-              const hasPubsAlready = (pubCountGuard ?? 0) > 0;
-
-              if (wi?.owner_id && !hasPubsAlready) {
-                const confirmedFingerprint = `sin_cobertura_estados_confirmada_${task.work_item_id}`;
-                const { data: existingConfirmed } = await supabase
-                  .from('alert_instances')
-                  .select('id')
-                  .eq('entity_id', task.work_item_id)
-                  .eq('entity_type', 'WORK_ITEM')
-                  .eq('alert_type', 'SIN_COBERTURA_ESTADOS_CONFIRMADA')
-                  .in('status', ['PENDING', 'ACKNOWLEDGED'])
-                  .maybeSingle();
-
-                if (!existingConfirmed) {
-                  await supabase.from('alert_instances').insert({
-                    owner_id: wi.owner_id,
-                    organization_id: wi.organization_id ?? task.organization_id ?? null,
-                    entity_id: task.work_item_id,
-                    entity_type: 'WORK_ITEM',
-                    severity: 'WARNING',
-                    alert_type: 'SIN_COBERTURA_ESTADOS_CONFIRMADA',
-                    title: 'No hemos recibido estados electrónicos de este radicado',
-                    message: `Tras dos re-verificaciones automáticas (24h y 48h) el canal de estados sigue sin entregarnos publicaciones para el radicado ${task.radicado}. Es lo que observamos y nada más: NO se concluye que el despacho no publique estados — todo proceso debe publicarlos, de modo que la ausencia apunta a nuestra lectura o al proveedor. El monitoreo sigue activo; si necesita certeza, consulte el expediente en el portal.`,
-                    status: 'PENDING',
-                    fingerprint: confirmedFingerprint,
-                    payload: {
-                      workflow: wi.workflow_type,
-                      radicado: task.radicado,
-                      provider_key: 'publicaciones',
-                      data_kind: 'ESTADOS',
-                      attempts: task.attempt,
-                      exhausted_at: new Date().toISOString(),
-                      reason: 'PUB_RETRY_EXHAUSTED_EMPTY',
-                    },
-                  });
-                  console.log(`[process-retry-queue] SIN_COBERTURA_ESTADOS_CONFIRMADA alert emitted for ${task.radicado}`);
-                }
-              } else if (hasPubsAlready) {
-                console.log(`[process-retry-queue] Skipping SIN_COBERTURA alert for ${task.radicado}: ${pubCountGuard} publicaciones already present`);
-              }
-            } catch (confirmedErr: any) {
-              console.warn('[process-retry-queue] Failed to emit confirmed no-coverage alert:', confirmedErr?.message);
-            }
-          }
-
-          // Create critical alert if we have an org (skip for PUB_RETRY —
-          // BRECHA_COBERTURA_ESTADOS already communicates the situation).
-          if (task.organization_id && task.kind !== 'PUB_RETRY') {
-            try {
-              const { data: membership } = await supabase
-                .from('organization_memberships')
-                .select('user_id')
-                .eq('organization_id', task.organization_id)
-                .eq('role', 'admin')
-                .limit(1)
-                .maybeSingle();
-
-              if (membership?.user_id) {
-                await supabase.from('alert_instances').insert({
-                  owner_id: membership.user_id,
-                  organization_id: task.organization_id,
-                  entity_type: 'WORK_ITEM',
-                  entity_id: task.work_item_id,
-                  severity: 'WARNING',
-                  status: 'PENDING',
-                  title: `Sincronización fallida tras ${task.max_attempts} reintentos`,
-                  message: `El radicado ${task.radicado} no pudo sincronizarse después de ${task.max_attempts} intentos. Último error: ${task.last_error_code || 'SCRAPING_TIMEOUT'}. Revise el estado del expediente.`,
-                  fingerprint: `retry_exhausted_${task.work_item_id}_${new Date().toISOString().slice(0, 10)}`,
-                  payload: {
-                    kind: task.kind,
-                    provider: task.provider,
-                    last_error_code: task.last_error_code,
-                    last_error_message: task.last_error_message,
-                    attempts: task.attempt,
-                  },
-                });
-              }
-            } catch (alertErr) {
-              console.warn('[process-retry-queue] Alert creation failed:', alertErr);
-            }
-          }
-
-          exhausted++;
-        } else {
-          // Reschedule. PUB_RETRY uses a fixed 24h cadence so the two
-          // remaining attempts land at +24h and +48h from the first empty
-          // response. Other kinds keep the policy-driven jitter.
-          // LR1(a) — PENDING_UPSTREAM means the provider accepted and has not
-          // delivered. Fast re-query is only justified inside the first hour
-          // (attempts at +10min and +30min); after that the provider's own
-          // cycle is daily, so the cadence must fall back to 24h. Asking every
-          // 10 minutes forever cannot change a daily publication.
-          const isPendingUpstream = task.last_error_code === 'PENDING_UPSTREAM';
-          const pendingUpstreamDelayMs = task.attempt <= 1
-            ? 10 * 60 * 1000
-            : task.attempt === 2
-              ? 30 * 60 * 1000
-              : 24 * 60 * 60 * 1000;
-          const delayMs = task.kind === 'PUB_RETRY'
-            ? (isPendingUpstream ? pendingUpstreamDelayMs : 24 * 60 * 60 * 1000)
-            : retryJitterMs();
-          const nextRunAt = new Date(Date.now() + delayMs).toISOString();
-
-
-          await (supabase.from('sync_retry_queue') as any)
-            .update({
-              attempt: task.attempt + 1,
-              next_run_at: nextRunAt,
-              claimed_at: null,
-              last_error_code: task.kind === 'PUB_RETRY'
-                ? (isPendingUpstream ? 'PENDING_UPSTREAM' : 'PUB_EMPTY_RECHECK')
-                : 'SCRAPING_TIMEOUT',
-              last_error_message: `Attempt ${task.attempt} rescheduled (+${Math.round(delayMs / 60000)}min)`,
-            })
-            .eq('id', task.id);
-
-          rescheduled++;
-        }
-      } catch (taskErr: any) {
-        console.error(`[process-retry-queue] Task ${task.id} processing error:`, taskErr);
-        failed++;
-
-        // Reschedule on unexpected error (if attempts remain)
-        if (task.attempt < task.max_attempts) {
-          try {
-            await (supabase.from('sync_retry_queue') as any)
-              .update({
-                attempt: task.attempt + 1,
-                next_run_at: new Date(Date.now() + retryJitterMs()).toISOString(),
-                claimed_at: null,
-                last_error_code: 'INVOCATION_FAILED',
-                last_error_message: taskErr?.message || 'Unknown error',
-              })
-              .eq('id', task.id);
-          } catch {
-            // Best effort
-          }
-        }
-      }
-    }
-
-    const durationMs = Date.now() - startTime;
-    console.log(`[process-retry-queue] Done in ${durationMs}ms: processed=${processed}, succeeded=${succeeded}, rescheduled=${rescheduled}, exhausted=${exhausted}, failed=${failed}`);
-
-    // Write trace record to atenia_cron_runs
-    try {
-      const trace = createTraceContext("process-retry-queue", "CRON");
-      await writeTraceRecord(supabase, trace, failed > 0 ? "PARTIAL" : "OK", {
-        queue_stats: {
-          depth_before: tasks.length,
-          processed,
-          succeeded,
-          rescheduled,
-          exhausted,
-          failed,
-        },
-      }, new Date(startTime));
-    } catch (_traceErr) { /* non-blocking */ }
-
-    return new Response(JSON.stringify({
-      ok: true,
-      processed,
-      succeeded,
-      rescheduled,
-      exhausted,
-      failed,
-      duration_ms: durationMs,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error: any) {
-    console.error('[process-retry-queue] Fatal error:', error);
-    return new Response(JSON.stringify({
-      ok: false,
-      error: error.message || String(error),
-      duration_ms: Date.now() - startTime,
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // No synthetic work-item SUCCESS timestamp: the provider ingestion owns it.
+    return json({ ok: true, revision: "retry-fenced-20261026", processed: results.length, results });
+  } catch (error) {
+    console.error("[retry] drain failed", error instanceof Error ? error.message : "unknown");
+    return json({ ok: false, error: "RETRY_DRAIN_FAILED", results }, 500);
   }
 });
