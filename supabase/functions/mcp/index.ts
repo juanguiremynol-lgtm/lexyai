@@ -1496,15 +1496,36 @@ var add_hearing_default = defineTool19({
     date: z18.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
     description: z18.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
     location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
-    modality: z18.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso.")
+    modality: z18.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."),
+    hearing_id: z18.string().uuid().optional().describe("Para corregir una audiencia existente sin cambiar su identidad; omitir para crear."),
+    expected_updated_at: z18.string().datetime({ offset: true }).optional().describe("Revisi\xF3n le\xEDda de la audiencia, obligatoria al corregir."),
+    reason: z18.string().trim().min(5).max(2e3).optional().describe("Fuente y motivo de correcci\xF3n; obligatorio al corregir."),
+    idempotency_key: z18.string().min(8).max(200).optional(),
+    status: z18.enum(["planned", "scheduled", "held", "postponed", "cancelled"]).optional().describe("Solo al corregir; held requiere occurred_at acreditado."),
+    occurred_at: z18.string().datetime({ offset: true }).optional()
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date, description, location, modality }, ctx) => {
+  handler: async ({ work_item_id, radicado, date, description, location, modality, hearing_id, expected_updated_at, reason, idempotency_key, status, occurred_at }, ctx) => {
     const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const when = new Date(date);
     if (Number.isNaN(when.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/i.test(date)) return errorResult("Fecha inv\xE1lida: usa ISO 8601 con zona horaria expl\xEDcita, por ejemplo -05:00.");
+    if (hearing_id) {
+      if (!expected_updated_at || !reason || !idempotency_key) return errorResult("Corregir requiere expected_updated_at, reason e idempotency_key.");
+      const patch = {
+        scheduled_at: when.toISOString(),
+        custom_name: description,
+        ...location !== void 0 ? { location } : {},
+        ...modality ? { modality } : {},
+        ...status ? { status } : {},
+        ...occurred_at ? { occurred_at } : {}
+      };
+      const { data: data2, error: error2 } = await sb.rpc("mcp_correct_hearing", { p_hearing_id: hearing_id, p_patch: patch, p_expected_updated_at: expected_updated_at, p_reason: reason, p_idempotency_key: idempotency_key });
+      if (error2) return errorResult(rpcErrorText(error2));
+      return textResult("Audiencia corregida conservando su identidad y auditor\xEDa.", data2);
+    }
+    if (status || occurred_at) return errorResult("status y occurred_at requieren hearing_id para una correcci\xF3n expl\xEDcita.");
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id;
