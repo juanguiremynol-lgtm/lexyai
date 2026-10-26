@@ -3,10 +3,10 @@
 ## Production remediation continuation (2026-10-26)
 - [x] Correct explicit retry identity; real rejected401 and legitimate cron source success verified; historical headers remain unavailable.
 - [x] Deploy sync/remisiones/retry/watchdog; Esfinge/Nicholls source success and record preservation read back; Cárdenas replay remains unverified.
-- [ ] Test new MCP correction/reclassification authorization before release; publish and verify served revision.
+- [ ] Accept new MCP correction/reclassification owner/manage/concurrency/audit before opening execution; sandbox role cannot SET ROLE. Public marker0.6.7 verified, publication requested.
 - [x] Apply fenced claims/outcomes, fair channel slots,48h observable initial-query target and canonical cron credentials; schedules unchanged. Real concurrency/SLA acceptance remains pending.
-- [ ] Integrate backend trace semantics and verify Nicholls/Esfinge end-to-end identifiers.
-- [ ] Read complete La Ceiba/Arcila documents before audited reclassification.
+- [ ] Integrate backend-trace contract: aaa6e123/file absent; native MCP/browser session unavailable for full end-to-end presentation.
+- [ ] Audited reclassification: Arcila full PDFs verified, RPC acceptance blocked; La Ceiba full PDF access returns401.
 - [x] Deliver docs/production-remediation-20261026.md with separate deployment/test/record states and blockers.
 
 ## Judicial evidence consistency audit (2026-10-26)
@@ -15,7 +15,7 @@
 - [x] Preserve Nicholls manual ADMISION; clear Esfinge obsolete email and three false remisión closure flags with readback.
 - [x] Prepare gated correction/reclassification and truthful technical consultation presentation; no matter creation/deletion.
 - [x] Deliver matrix in docs/judicial-consistency-audit-20261026.md with tests, evidence and limits.
-- [ ] Deployment and authenticated end-to-end acceptance: blocked on reviewed release; public MCP remains0.6.6.
+- [ ] Authenticated end-to-end acceptance: session unavailable; sync/remisiones deployed and public MCP marker0.6.7 observed on26Oct continuation.
 - [ ] Positive/negative rollback acceptance of two new gated RPCs: sandbox_exec lacks SET ROLE authenticated; do not widen grants.
 - [ ] Complete document/classifier provenance for Nicholls, La Ceiba and Arcila: complete judicial documents/provider traces not verified; no speculative stage changes.
 
