@@ -20,11 +20,6 @@ DO $test$ DECLARE d text; n int; BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.work_items WHERE id='db1b4198-b0ac-453d-98b5-44525f58bf23' AND stage='ADMISION') THEN RAISE EXCEPTION 'manual Nicholls stage changed'; END IF;
 END $test$;
 SELECT '{"suite":"judicial_consistency_actual_schema_readonly","checks":11,"status":"PASS","mutation_fixtures":false}'::jsonb;
-SET LOCAL ROLE authenticated;
-DO $negative$ BEGIN
- BEGIN PERFORM public.mcp_correct_hearing('00000000-0000-0000-0000-000000000000','{}',now(),'No real mutation','read-only-negative'); RAISE EXCEPTION 'gate bypass'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
- BEGIN PERFORM public.mcp_reclassify_work_item('00000000-0000-0000-0000-000000000000','CGP','DRAFTED',now(),'No real mutation','read-only-negative'); RAISE EXCEPTION 'gate bypass'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
-END $negative$;
-RESET ROLE;
-SELECT '{"negative_gates":2,"expected_sqlstate":"42501","status":"PASS"}'::jsonb;
+-- Negative role-switch execution requires a separate privileged rollback harness.
+-- sandbox_exec cannot SET ROLE authenticated; no role/grant bypass is attempted.
 ROLLBACK;
