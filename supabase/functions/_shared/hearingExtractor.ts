@@ -183,7 +183,10 @@ export function hearingDedupeKey(workItemId: string, cand: HearingCandidate): st
 
 /** Extract dated sessions separately; never borrow a time from another date. */
 export function extractHearingsFromAct(input: { act_type: string | null; description: string | null }): HearingCandidate[] {
-  const text = normalize(`${input.act_type ?? ""} ${input.description ?? ""}`);
+  const raw = normalize(`${input.act_type ?? ""} ${input.description ?? ""}`);
+  // Explicit shared year, e.g. "30 de noviembre y 1 de diciembre de 2026".
+  const text = raw.replace(/(\d{1,2})\s+de\s+([a-z]+)\s+y\s+(\d{1,2})\s+de\s+([a-z]+)\s+(?:de|del)\s+(\d{4})/g,
+    "$1 de $2 de $5 y $3 de $4 de $5");
   if (!SCHEDULE_KEYWORDS.some((k) => text.includes(k)) && !RESCHEDULE_KEYWORDS.some((k) => text.includes(k))) return [];
   const matches = [...text.matchAll(/\d{1,2}(?:º|°)?\s+de\s+[a-z]+\s+(?:de|del)\s+\d{4}/g)];
   const result = new Map<string, HearingCandidate>();
@@ -192,8 +195,9 @@ export function extractHearingsFromAct(input: { act_type: string | null; descrip
     const start = match.index ?? 0;
     const end = matches[i + 1]?.index ?? text.length;
     const segment = text.slice(start, end).replace(/(\d)(?:º|°)/g, "$1");
-    // Multi-date documents include headings/historical dates: only explicit timed sessions qualify.
-    if (matches.length > 1 && parseTime(segment).inferred) continue;
+    // Full documents include headings/historical dates: no time borrowing.
+    // Short shared-year scheduling phrases retain both dates for review.
+    if (matches.length > 1 && parseTime(segment).inferred && text === raw) continue;
     const candidate = extractHearingFromAct({ act_type: "audiencia de pruebas", description: segment });
     if (candidate) candidate.title = conciseTitle(input.act_type, input.description);
     if (candidate) result.set(candidate.starts_at_iso, candidate);

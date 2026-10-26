@@ -80,6 +80,11 @@ describe("source dates and identifiers", () => {
     expect(sessions.map(s => s.starts_at_iso)).toEqual(["2026-11-30T13:30:00.000Z", "2026-12-01T13:30:00.000Z"]);
     expect(sessions.every(s => !s.time_inferred)).toBe(true);
   });
+  it("keeps both shared-year dates for review without claiming a source time", () => {
+    const rows = extractHearingsFromAct({ act_type: "Audiencia publica", description: "FIJA FECHA PARA AUDIENCIA DE PRUEBAS EL 30 DE NOVIEMBRE Y 1 DE DICIEMBRE DE 2026. LINK EN EL ACTA" });
+    expect(rows.map(r => r.local_date)).toEqual(["2026-11-30", "2026-12-01"]);
+    expect(rows.every(r => r.time_inferred)).toBe(true);
+  });
   it("does not borrow time across sessions", () => {
     expect(extractHearingsFromAct({ act_type: "audiencia de pruebas", description: "30 de noviembre de 2026 sin hora; 1 de diciembre de 2026 a las 8:30 am" }).map(s => s.local_date)).toEqual(["2026-12-01"]);
   });

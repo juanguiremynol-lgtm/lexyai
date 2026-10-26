@@ -2949,6 +2949,10 @@ Deno.serve(withSyncTimeline(async (req) => {
             description: String(persisted.raw_data?.anotacion || persisted.description || ''),
           });
           for (const candidate of candidates) {
+            if (candidate.time_inferred) {
+              result.errors.push(`Hearing date ${candidate.local_date} needs a verified time from source act ${persisted.id}`);
+              continue;
+            }
             const isFuture = new Date(candidate.starts_at_iso) > new Date();
             const discovery = isFuture ? 'NOVEDAD' : 'HISTORICO_DETECTADO';
             // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
@@ -3437,6 +3441,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       for (const _a of (_dbActs || [])) {
         if (failedEnrichmentIds.has(_a.id)) continue;
         for (const _c of _bfExtract({ act_type: _a.act_type || null, description: _a.description || null })) {
+        if (_c.time_inferred) continue;
         const { data: _exists, error: _lookupError } = await supabase
           .from('work_item_hearings')
           .select('id')
