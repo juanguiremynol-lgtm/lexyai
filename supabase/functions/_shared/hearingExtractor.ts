@@ -199,7 +199,10 @@ export function extractHearingsFromAct(input: { act_type: string | null; descrip
     // Short shared-year scheduling phrases retain both dates for review.
     if (matches.length > 1 && parseTime(segment).inferred && text === raw) continue;
     const candidate = extractHearingFromAct({ act_type: "audiencia de pruebas", description: segment });
-    if (candidate) candidate.title = conciseTitle(input.act_type, input.description);
+    if (candidate) {
+      candidate.title = conciseTitle(input.act_type, input.description);
+      if (RESCHEDULE_KEYWORDS.some((k) => text.includes(k))) candidate.action = "reschedule";
+    }
     if (candidate) result.set(candidate.starts_at_iso, candidate);
   }
   return [...result.values()];

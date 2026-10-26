@@ -4,7 +4,7 @@
 
 Se auditó la implementación existente y el esquema real. No se crearon ni eliminaron asuntos, no se agregaron tutelas, no se enviaron comunicaciones y no se ejecutó una consulta judicial ni un scraper. Se corrigieron únicamente registros indicados con respaldo concreto; las nuevas variantes MCP están preparadas, no publicadas ni habilitadas.
 
-**Verificación:** 58 pruebas Vitest PASS; 11 comprobaciones SQL sobre esquema y registros reales PASS, en transacción de solo lectura con ROLLBACK. Artefacto generado evaluado correctamente; compilación automática OK. El marcador público sigue en `mcp-rev-0-6-6`; el candidato es `0.6.7`, con las mismas 50 herramientas. No confundir manifiesto generado con despliegue.
+**Verificación:** 58 pruebas Vitest PASS antes de añadir la regresión de reprogramación; el resultado final se registra al cierre. 11 comprobaciones SQL sobre esquema y registros reales PASS, en transacción de solo lectura con ROLLBACK. Artefacto generado evaluado correctamente; compilación automática OK. El marcador público sigue en `mcp-rev-0-6-6`; el candidato es `0.6.7`, con las mismas 50 herramientas. No confundir manifiesto generado con despliegue.
 
 ## Matriz
 

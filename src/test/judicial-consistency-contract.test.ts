@@ -91,6 +91,10 @@ describe("source dates and identifiers", () => {
   it("rejects impossible civil dates", () => {
     expect(extractHearingsFromAct({ act_type: "audiencia inicial", description: "31 de noviembre de 2026 a las 8:30 am" })).toEqual([]);
   });
+  it("preserves explicit rescheduling instead of relabelling as an initial schedule", () => {
+    const rows = extractHearingsFromAct({ act_type: "Reprograma audiencia", description: "Nueva fecha 30 de noviembre de 2026 a las 8:30 am" });
+    expect(rows[0]?.action).toBe("reschedule");
+  });
   it("converts Bogota 08:30 to UTC 13:30", () => expect(buildBogotaTimestamptz(2026, 11, 30, 8, 30)).toBe("2026-11-30T13:30:00.000Z"));
   it("never treats 21-digit SPOA as provider-compatible 23 digits", () => {
     expect(hasUsableRadicado("050013333010202300199")).toBe(false);
