@@ -249,7 +249,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
               <div className="text-4xl mb-4">{emptyState.showAddRadicado ? "🔎" : "📭"}</div>
               <h3 className="font-semibold mb-2">{consultation.isError ? "No se pudo verificar la última consulta" : JUDICIAL_QUERY_LABELS[queryState]}</h3>
               <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                {emptyState.description}
+                {consultation.isError ? "No se afirma que no haya novedades mientras el historial de consulta no pueda verificarse."
+                  : queryState === "FALLIDA" ? "La última consulta no terminó correctamente. La ausencia de actuaciones no acredita ausencia de movimientos."
+                  : queryState === "RESTRINGIDA" ? "La fuente no permitió consultar el contenido. Esto no significa que el expediente no tenga actuaciones."
+                  : queryState === "EN_EJECUCION" ? "La consulta todavía está en ejecución; no hay un resultado confirmado."
+                  : emptyState.description}
               </p>
               {emptyState.showAddRadicado && (
                 <div className="mt-6 flex justify-center">
