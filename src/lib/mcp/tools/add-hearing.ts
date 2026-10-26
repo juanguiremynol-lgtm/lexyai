@@ -14,7 +14,7 @@ export default defineTool({
   name: "add_hearing",
   title: "Agendar audiencia",
     description:
-    "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+    "Schedules a hearing or explicitly corrects an existing hearing by hearing_id, expected revision, evidence reason and idempotency key. Corrections preserve identity and audit; require the correction RPC to be released. Never deletes or changes the matter lifecycle. Requires manage permission.",
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("UUID del asunto."),
     radicado: z

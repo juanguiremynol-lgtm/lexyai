@@ -36,7 +36,7 @@ export default defineTool({
     // of the page being exactly full.
     let q = sb
       .from("work_item_hearings")
-      .select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary")
+      .select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary, updated_at")
       .order("scheduled_at", { ascending: true })
       .limit(cap + 1);
 

@@ -194,7 +194,8 @@ export function extractHearingsFromAct(input: { act_type: string | null; descrip
     const segment = text.slice(start, end).replace(/(\d)(?:º|°)/g, "$1");
     // Multi-date documents include headings/historical dates: only explicit timed sessions qualify.
     if (matches.length > 1 && parseTime(segment).inferred) continue;
-    const candidate = extractHearingFromAct({ act_type: input.act_type ?? "audiencia de pruebas", description: segment });
+    const candidate = extractHearingFromAct({ act_type: "audiencia de pruebas", description: segment });
+    if (candidate) candidate.title = conciseTitle(input.act_type, input.description);
     if (candidate) result.set(candidate.starts_at_iso, candidate);
   }
   return [...result.values()];

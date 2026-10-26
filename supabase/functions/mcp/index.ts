@@ -1063,7 +1063,7 @@ var list_hearings_default = defineTool15({
       itemId = resolved.item.id;
     }
     const cap = limit ?? 50;
-    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(cap + 1);
+    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary, updated_at").order("scheduled_at", { ascending: true }).limit(cap + 1);
     if (itemId) q = q.eq("work_item_id", itemId);
     if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
@@ -1489,7 +1489,7 @@ import { z as z18 } from "npm:zod@^3.25.76";
 var add_hearing_default = defineTool19({
   name: "add_hearing",
   title: "Agendar audiencia",
-  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+  description: "Schedules a hearing or explicitly corrects an existing hearing by hearing_id, expected revision, evidence reason and idempotency key. Corrections preserve identity and audit; require the correction RPC to be released. Never deletes or changes the matter lifecycle. Requires manage permission.",
   inputSchema: {
     work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
     radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
@@ -2874,7 +2874,7 @@ var create_work_item_default = defineTool36({
   description: "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
   inputSchema: {
     workflow_type: z30.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
-    radicado: z30.string().trim().optional().describe("Radicado de 23 d\xEDgitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicaci\xF3n."),
+    radicado: z30.string().trim().optional().describe("Radicado judicial compatible de 23 d\xEDgitos (con o sin guiones). Sin identificador compatible no hay consulta autom\xE1tica; esto no determina si el expediente existe jur\xEDdicamente."),
     title: z30.string().trim().max(300).optional(),
     client_id: z30.string().uuid().optional().describe("Cliente propio del usuario."),
     demandantes: z30.string().trim().max(1e3).optional(),
@@ -2904,7 +2904,7 @@ var create_work_item_default = defineTool36({
     });
     if (error) return errorResult(rpcErrorText(error));
     const r = data;
-    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}.`, r);
+    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}. No se realiz\xF3 una consulta judicial en esta operaci\xF3n; la sincronizaci\xF3n inicial queda programada si el identificador es compatible.`, { ...r, consulta_realizada: false });
   }
 });
 
