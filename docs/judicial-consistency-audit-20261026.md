@@ -4,7 +4,7 @@
 
 Se auditó la implementación existente y el esquema real. No se crearon ni eliminaron asuntos, no se agregaron tutelas, no se enviaron comunicaciones y no se ejecutó una consulta judicial ni un scraper. Se corrigieron únicamente registros indicados con respaldo concreto; las nuevas variantes MCP están preparadas, no publicadas ni habilitadas.
 
-**Verificación:** 58 pruebas Vitest PASS antes de añadir la regresión de reprogramación; el resultado final se registra al cierre. 11 comprobaciones SQL sobre esquema y registros reales PASS, en transacción de solo lectura con ROLLBACK. Artefacto generado evaluado correctamente; compilación automática OK. El marcador público sigue en `mcp-rev-0-6-6`; el candidato es `0.6.7`, con las mismas 50 herramientas. No confundir manifiesto generado con despliegue.
+**Verificación final:** 59 pruebas Vitest PASS; 11 comprobaciones SQL sobre esquema y registros reales PASS, en transacción de solo lectura con ROLLBACK. Artefacto generado evaluado correctamente; compilación automática OK. El marcador público sigue en `mcp-rev-0-6-6`; el candidato es `0.6.7`, con las mismas 50 herramientas. No confundir manifiesto generado con despliegue.
 
 ## Matriz
 
@@ -47,3 +47,5 @@ Presentación: `src/lib/monitoring-reason.ts`, `src/pages/WorkItemDetail/tabs/Ac
 Migraciones0082–0086: null correo, corrección audiencia gated, acción de auditoría canónica, reclasificación gated, disponibilidad efectiva de ambas variantes. La acción inicialmente usada en la corrección de audiencia no cumplía CHECK; el intento revirtió, se corrigió a `hearing_updated/hearing_created` y la lectura posterior confirma tres auditorías y tres audiencias.
 
 Pruebas: `src/test/judicial-consistency-contract.test.ts`, `src/test/mcp-final-discrepancies.test.ts`, `supabase/tests/judicial_consistency_contract.sql`, más suites existentes de operaciones/remisiones/extractor.
+
+Revisión independiente: se conservó el cierre de ejecución de las dos variantes (no es bypass de owner/manage, que se verifica dentro de la RPC); el sweep sí rechaza `time_inferred` antes de insertar. Se añadió lectura de `raw_data.anotacion` al sweep para alinear su evidencia con el camino principal. No se declara completa la convergencia documental ni la aceptación de autorización de nuevas RPC.
