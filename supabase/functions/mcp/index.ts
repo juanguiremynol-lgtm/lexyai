@@ -2056,7 +2056,7 @@ import { z as z23 } from "npm:zod@^3.25.76";
 var update_work_item_default = defineTool28({
   name: "update_work_item",
   title: "Editar datos de un asunto",
-  description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+  description: "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
   inputSchema: {
     radicado: z23.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z23.string().uuid().optional().describe("UUID del asunto."),
@@ -2602,6 +2602,10 @@ var get_capabilities_default = defineTool34({
         has_manage_grant: hasGrant,
         manage_tools: available,
         tool_availability: a.tools,
+        correction_availability: {
+          add_hearing_existing: hasGrant && a.tools.correct_hearing?.available === true,
+          update_work_item_reclassification: hasGrant && a.tools.reclassify_work_item?.available === true
+        },
         access_verified: verified,
         reason: !verified ? "SESSION_UNVERIFIED" : hasGrant && !canManage ? "EXECUTION_UNAVAILABLE" : !hasGrant ? "READ_ONLY" : null,
         unavailable_manage_tools: MANAGE_TOOLS.filter((name) => !available.includes(name)),

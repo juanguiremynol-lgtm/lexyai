@@ -15,7 +15,7 @@ export default defineTool({
   name: "update_work_item",
   title: "Editar datos de un asunto",
   description:
-    "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+    "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
   inputSchema: {
     radicado: z.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z.string().uuid().optional().describe("UUID del asunto."),

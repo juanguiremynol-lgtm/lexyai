@@ -3577,8 +3577,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (fetchResult.caseMetadata) {
       const meta = fetchResult.caseMetadata;
       
-      // Basic metadata (always update)
-      if (meta.despacho) updatePayload.authority_name = meta.despacho;
+      // Provider metadata cannot supersede a recorded current court. A
+      // destination change needs evidence reconciliation, not origin metadata.
+      if (meta.despacho && !workItem.authority_name) updatePayload.authority_name = meta.despacho;
       // Only set demandantes/demandados from caseMetadata if not already set from sujetos
       if (meta.demandante && !updatePayload.demandantes) updatePayload.demandantes = meta.demandante;
       if (meta.demandado && !updatePayload.demandados) updatePayload.demandados = meta.demandado;
@@ -3843,7 +3844,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const newDespacho = fetchResult.caseMetadata?.despacho;
     const previousDespacho = workItem.authority_name;
     
-    if (newDespacho && newDespacho !== previousDespacho) {
+    if (newDespacho && !previousDespacho) {
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

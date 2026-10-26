@@ -58,6 +58,14 @@ describe("deployed judicial contracts", () => {
     await edit.handler({ id: "wi", authority_email: null } as never, ctx);
     expect(rpc).toHaveBeenCalledWith("mcp_update_work_item", expect.objectContaining({ p_patch: { authority_email: null } }));
   });
+  it("rejects combined reclassification and metadata before any RPC", async () => {
+    const result = await edit.handler({ id: "wi", workflow_type: "EJECUTIVO", stage: "SEGUIR_ADELANTE", title: "Changed" } as never, ctx);
+    expect(result.isError).toBe(true); expect(rpc).not.toHaveBeenCalled();
+  });
+  it("requires a target stage, reason and revision for reclassification", async () => {
+    const result = await edit.handler({ id: "wi", workflow_type: "EJECUTIVO" } as never, ctx);
+    expect(result.isError).toBe(true); expect(rpc).not.toHaveBeenCalled();
+  });
 });
 describe("source dates and identifiers", () => {
   it("extracts both timed Cardenas sessions separately", () => {
