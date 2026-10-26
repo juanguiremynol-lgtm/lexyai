@@ -27203,6 +27203,17 @@ export type Database = {
         Args: { p_authorization_id: string }
         Returns: Json
       }
+      mcp_reclassify_work_item: {
+        Args: {
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason: string
+          p_stage: string
+          p_work_item_id: string
+          p_workflow_type: string
+        }
+        Returns: Json
+      }
       mcp_reconcile_updates: {
         Args: { p_limit?: number; p_since: string; p_work_item_id?: string }
         Returns: Json
