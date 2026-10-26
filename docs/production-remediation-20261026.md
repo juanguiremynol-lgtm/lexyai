@@ -1,0 +1,32 @@
+# Continuación de remediación — 26 octubre 2026
+
+## Estado verificable, no cierre global
+
+Base solicitada: `1e7b0f372b0edfff1ea2fc4a3c4be4fcbf8a0e26`; checkout inicial observado `f1945721446950289fcd37b3775aea05669cf229`. La referencia `aaa6e123` y `docs/backend-trace-contract-20261026.md` no están disponibles en el repositorio accesible; no se inventa ni se declara integrada esa entrega.
+
+No se repitieron reparaciones de Cárdenas/Esfinge/remisiones. No se crearon/eliminaron asuntos, tutelas ni comunicaciones. Consultas judiciales acotadas de Nicholls y Esfinge sí fueron autorizadas y ejecutadas.
+
+| Frente | Código preparado | Despliegue confirmado | Dato reparado | Prueba real / lectura | Pendiente |
+|---|---|---|---|---|---|
+| Autorización ACT retry | Credencial server-to-server explícita, trace/task/invoker; guard previo para retry/watchdog/remisiones | Herramienta confirma cuatro funciones; sync SHA `3e4a048eabb424f10d22350b649b6a43708e04d47fc0cd193275f450f2afd301` | No reparación jurídica | 401 real con token inválido en sync; retry/remisiones rechazan 401. Vault cron legítimo obtuvo success CPNU en Nicholls/Esfinge | Las cabeceras históricas no se guardaron: mecanismo exacto del rechazo antiguo no demostrable retrospectivamente |
+| Preservación sync | No cancelación masiva; no sustitución despacho actual; no cierre automático por remisión | sync/remisiones desplegados; remisiones SHA `fa76fcdfd451cfb6a133db7d32da2a6b31ba8839f62cf7725bef164b68b30fe6` | Ninguna repetida | Esfinge success con adapter `judicial-preservation-20261026`, id timeline `6f449767-c452-471f-b473-351767265ca6`, despacho ejecuciónJ3/emailNULL; Nicholls ADMISION; tres cierresNULL; tres audiencias intactas | Cárdenas no tuvo replay proveedor en esta continuación; dry-run remisión no prueba todas las mutaciones |
+| Retry coordinación | RPC claim SKIP LOCKED + token, finish atómico, archivo terminal; slots ACT/PUB inicial y recuperación; watchdog considera cola vencida activa, sin hardcode3 | Migración0087 aplicada; retry SHA `136de82aaffd258c356063e82cdd93f516d5e0e4217ff0d6c3300c766b54cd1c`; watchdog SHA `7f9f41777fff9d6ff858f121b7ba56b3d878509686d0b8e97bde78840d75f4a7` | Cola consumible; no fresh-success inventado | Solicitud real de drenaje1299; resultado por verificar | Pruebas transaccionales de concurrencia/fencing y primer-consulta48h bajo carga no certificadas |
+| MCP adaptadores | Candidato0.6.7/50; artefacto válido | Marcador público observado `mcp-rev-0-6-7` antes de nueva solicitud publish; publicación solicitada, no inferida del manifiesto | No opt-ins reales | 63 Vitest PASS; artefacto OK; sitioHTTP200 | Nuevas RPC correction/reclassification siguen cerradas: sandbox_exec no puede SET ROLE authenticated. No habilitar hasta acceptance propietario/manage/revisión/motivo/idempotencia/auditoría |
+| Contrato backend | Estado múltiple conservado como filas; éxito no deducido de inventario antiguo; 401/403 = caller/error, no privacidad | No integración afirmada del documento ausente | No cambio | Historial source-specific leído | Entrega aaa6e123 necesaria para integrar exactamente recuperación completa/incompleta/noevaluada y frescura SAMAI independiente |
+| Nicholls/Esfinge recorrido | Invoker/auth-mechanism/task metadata sin secretos; adapter visible | sync confirmado | ADMISION y correoNULL conservados | Nicholls request1291 HTTP200; Esfinge request1295 y timeline anterior; primer request1292 DNS timeout, no éxito declarado | Lectura MCP autenticada y presentación completa no disponibles sin sesión; trace_id de respuesta orquestada aúnNULL |
+| Arcila | Dos PDFs completos leídos: mandamiento02/09 y ejecución14/10 | Ninguna reclasificación ejecutada | No cambio especulativo | SHA oct `2b9055a85acdf45f482786e9e7187c3ab34e40edcc49195e6c67ff10d062f267`; sep `d17762e97f40ff01aff7fa797dfbc1cb685fa76506710e9c4f0a587015d1d896`; resolutiva prosigue ejecución, avalúo/remate, liquidación art446 | Reclasificación auditada bloqueada por aceptación RPC; documento respalda EJECUTIVO/SEGUIR_ADELANTE, preservar historia declarativa |
+| La Ceiba | No inferencia por título | Sin cambios | Ninguno | URL del auto devuelveHTTP401 | Recuperación autenticada del PDF íntegro; 401 no prueba expediente privado |
+
+## Causa y coordinación
+
+ACT retry usaba `functions.invoke` sin Authorization explícita mientras PUB ya tenía fetch con Bearer. Receptor exige service verificado o cron para `_scheduled`; los históricos fueron401, providernone, `CALLER_UNAUTHORIZED`. No se interpreta como fallo judicial. Ahora se usa identidad explícita y guard estricto antes de lecturas. Cron jobs7/67/95 sustituyen referencias antiguas por Vault, con horarios idénticos (`0 * * * *`, `0 5-13 * * *`, `0 18 * * *`).
+
+Selección FIFO por created_at/id dentro de cuatro clases evita que el PUB viejo monopolice todo el lote. Solo se reclama al ejecutar; no se dejan cinco filas bloqueadas tras cortar presupuesto. La RPC terminal registra resultado/último error/attempt/fecha antes de retirar la fila, y rechaza token obsoleto. Timeout cuenta hacia un resultado acotado; no desaparece ni queda en bucle infinito. Worker no escribe `last_synced_at` ni convierte publicaciones antiguas en prueba de consulta nueva.
+
+Objetivo operativo: primera consulta en48h desde creación de fila; respuesta worker expone target/overdue/sla_met. Es un objetivo medible, no garantía ya aprobada: una sola plaza inicial por canal/corrida tiene capacidad limitada y debe evaluarse con profundidad real. No se aumentó frecuencia.
+
+## Pruebas y límites
+
+63 Vitest PASS (6 archivos), Deno2 tests/10 pasos PASS con transporte interceptado; aceptación service/cron y rechazos anon/forjado/missing, guard manual conservado. Deno check de retry/remisiones pasó con node-modules-dir auto; se restauró instalación Bun congelada tras enlaces Deno, sin cambios package/lock. Compilación automática final OK. No se presenta esto como aceptación completa de nuevas RPC o equivalencia de fixtures con producción.
+
+Nuevas firmas continúan sin EXECUTE authenticated; once RPC publicadas anteriores no se regatearon. No se acuñó sesión real ni se concedió gestión a nadie. Pendientes se dejan explícitos, no se atribuyen genéricamente a Google Cloud.
