@@ -29,7 +29,7 @@ export type MonitoringOffReason =
   (typeof MONITORING_OFF_REASON)[keyof typeof MONITORING_OFF_REASON];
 
 export const MONITORING_OFF_REASON_LABEL: Record<string, string> = {
-  PENDIENTE_DE_RADICACION: "Pendiente de radicación",
+  PENDIENTE_DE_RADICACION: "Falta un identificador compatible para la consulta automática",
   WORKFLOW_SIN_PROVEEDOR: "Sin proveedor judicial para este tipo de proceso",
   EXPEDIENTE_NO_ACTIVO: "Expediente no activo",
 };
@@ -47,7 +47,7 @@ function radDigits(radicado: string | null | undefined): string {
 }
 
 export function hasUsableRadicado(radicado: string | null | undefined): boolean {
-  return radDigits(radicado).length >= 21;
+  return radDigits(radicado).length === 23;
 }
 
 /**
@@ -126,9 +126,9 @@ export function resolveActsEmptyState(input: {
   if (eligible && !hasUsableRadicado(input.radicado)) {
     return {
       kind: "SIN_RADICADO",
-      title: "Este expediente aún no tiene radicado",
+      title: "Falta un identificador compatible para consultar este expediente",
       description:
-        "No hemos consultado a ningún sistema judicial: sin radicado no es posible identificar el proceso ante el proveedor. Agregá el radicado para habilitar el monitoreo y la sincronización inicial.",
+        "La consulta automática requiere un radicado judicial de 23 dígitos. Esto no significa que el expediente no exista o no esté radicado. Las referencias SPOA o SFC se conservan sin agregar ceros ni convertirlas en radicados judiciales.",
       showAddRadicado: true,
     };
   }

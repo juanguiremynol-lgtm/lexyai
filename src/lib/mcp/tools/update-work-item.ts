@@ -24,7 +24,7 @@ export default defineTool({
     demandantes: z.string().trim().max(1000).optional(),
     demandados: z.string().trim().max(1000).optional(),
     authority_name: z.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_email: z.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina explícitamente un correo desactualizado, sin inventar reemplazo."),
     authority_city: z.string().trim().max(120).optional(),
     expediente_url: z.string().trim().url().max(2000).optional(),
     client_id: z.string().uuid().optional().describe("Cliente al que se vincula el asunto."),

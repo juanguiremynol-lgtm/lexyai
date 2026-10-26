@@ -2044,7 +2044,7 @@ var update_work_item_default = defineTool28({
     demandantes: z23.string().trim().max(1e3).optional(),
     demandados: z23.string().trim().max(1e3).optional(),
     authority_name: z23.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z23.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_email: z23.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina expl\xEDcitamente un correo desactualizado, sin inventar reemplazo."),
     authority_city: z23.string().trim().max(120).optional(),
     expediente_url: z23.string().trim().url().max(2e3).optional(),
     client_id: z23.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
