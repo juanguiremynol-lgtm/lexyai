@@ -1,5 +1,14 @@
 # Roadmap
 
+## Production remediation continuation (2026-10-26)
+- [ ] Diagnose CALLER_UNAUTHORIZED and verify legitimate/rejected calls without weakening authorization.
+- [ ] Deploy safe sync/remisión corrections and verify preservation through subsequent execution/readback.
+- [ ] Test new MCP correction/reclassification authorization before release; publish and verify served revision.
+- [ ] Coordinate retry ownership, fair selection, initial-query deadline and durable exhaustion without increasing schedules.
+- [ ] Integrate backend trace semantics and verify Nicholls/Esfinge end-to-end identifiers.
+- [ ] Read complete La Ceiba/Arcila documents before audited reclassification.
+- [ ] Deliver prepared/deployed/repaired/tested/pending matrix; do not repeat confirmed repairs.
+
 ## Judicial evidence consistency audit (2026-10-26)
 - [x] Compare real hearing/task constraints and correct adapters with focused regression tests.
 - [x] Verify Cárdenas Acta041 pages11–12; correct three hearings with audit and real readback.
