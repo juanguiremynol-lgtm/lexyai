@@ -2073,7 +2073,11 @@ var update_work_item_default = defineTool28({
     monitoring_enabled: z23.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
     monitoring_off_reason: z23.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos."),
-    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
+    workflow_type: z23.string().trim().min(2).optional().describe("Reclasificaci\xF3n expl\xEDcita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."),
+    stage: z23.string().trim().min(1).optional().describe("Etapa de destino validada contra el cat\xE1logo vivo del tipo de proceso."),
+    expected_updated_at: z23.string().datetime({ offset: true }).optional(),
+    reason: z23.string().trim().min(5).max(2e3).optional().describe("Motivo y evidencia de la reclasificaci\xF3n.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2083,6 +2087,14 @@ var update_work_item_default = defineTool28({
     const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    if (args.workflow_type !== void 0 || args.stage !== void 0) {
+      const allowed = /* @__PURE__ */ new Set(["id", "radicado", "workflow_type", "stage", "expected_updated_at", "reason", "idempotency_key"]);
+      if (Object.entries(args).some(([k, v]) => v !== void 0 && !allowed.has(k))) return errorResult("No combines reclasificaci\xF3n con edici\xF3n de datos o monitoreo.");
+      if (!args.workflow_type || !args.stage || !args.expected_updated_at || !args.reason || !args.idempotency_key) return errorResult("Reclasificar requiere tipo, etapa, revisi\xF3n, motivo e idempotency_key.");
+      const { data: data2, error: error2 } = await sb.rpc("mcp_reclassify_work_item", { p_work_item_id: item.id, p_workflow_type: args.workflow_type, p_stage: args.stage, p_expected_updated_at: args.expected_updated_at, p_reason: args.reason, p_idempotency_key: args.idempotency_key });
+      if (error2) return errorResult(rpcErrorText(error2));
+      return textResult("Asunto reclasificado; actuaciones, documentos, notas e historial se conservan.", data2);
+    }
     const EDITABLE = [
       "title",
       "description",
@@ -3344,7 +3356,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.6",
+  version: "0.6.7",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3372,7 +3384,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-6"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-7"
   }),
   tools: [
     get_user_context_default,
