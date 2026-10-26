@@ -61,7 +61,13 @@ Deno.serve(async req => {
       results.push({ task_id: task.id, work_item_id: task.work_item_id, trace_id: traceId, outcome, code });
     }
     // No synthetic work-item SUCCESS timestamp: the provider ingestion owns it.
-    return json({ ok: true, revision: "retry-fenced-20261026", processed: results.length, results });
+    const { count: overdueInitial, error: slaError } = await db.from("sync_retry_queue")
+      .select("id", { count: "exact", head: true }).eq("attempt", 0)
+      .lt("created_at", new Date(Date.now() - 48 * 3600_000).toISOString());
+    if (slaError) throw slaError;
+    return json({ ok: true, revision: "retry-fenced-20261026", processed: results.length, results,
+      first_query_target_hours: 48, overdue_initial_queries: overdueInitial,
+      sla_met: overdueInitial === 0 });
   } catch (error) {
     console.error("[retry] drain failed", error instanceof Error ? error.message : "unknown");
     return json({ ok: false, error: "RETRY_DRAIN_FAILED", results }, 500);
