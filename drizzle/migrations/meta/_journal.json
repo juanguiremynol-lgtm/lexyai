@@ -603,6 +603,13 @@
       "when": 1792977501293,
       "tag": "0085_mcp_reclassify_work_item",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792977561949,
+      "tag": "0086_mcp_correction_capabilities",
+      "breakpoints": true
     }
   ]
 }
