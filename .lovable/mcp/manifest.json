@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-6",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-7",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -473,7 +473,16 @@
             },
             "status": {
               "type": "string",
-              "description": "Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."
+              "enum": [
+                "PENDIENTE",
+                "COMPLETADA",
+                "OPEN",
+                "PENDING",
+                "DONE",
+                "COMPLETED",
+                "all"
+              ],
+              "description": "PENDIENTE o COMPLETADA (también acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."
             },
             "limit": {
               "type": "integer",
@@ -729,7 +738,7 @@
       {
         "name": "add_hearing",
         "title": "Agendar audiencia",
-        "description": "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+        "description": "Schedules a hearing or explicitly corrects an existing hearing by hearing_id, expected revision, evidence reason and idempotency key. Corrections preserve identity and audit; require the correction RPC to be released. Never deletes or changes the matter lifecycle. Requires manage permission.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -762,6 +771,51 @@
               "type": "string",
               "maxLength": 300,
               "description": "Lugar o enlace de la audiencia."
+            },
+            "modality": {
+              "type": "string",
+              "enum": [
+                "presencial",
+                "virtual",
+                "mixta"
+              ],
+              "description": "Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."
+            },
+            "hearing_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Para corregir una audiencia existente sin cambiar su identidad; omitir para crear."
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Revisión leída de la audiencia, obligatoria al corregir."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000,
+              "description": "Fuente y motivo de corrección; obligatorio al corregir."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "planned",
+                "scheduled",
+                "held",
+                "postponed",
+                "cancelled"
+              ],
+              "description": "Solo al corregir; held requiere occurred_at acreditado."
+            },
+            "occurred_at": {
+              "type": "string",
+              "format": "date-time"
             }
           },
           "required": [
@@ -890,7 +944,7 @@
       {
         "name": "update_work_item",
         "title": "Editar datos de un asunto",
-        "description": "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+        "description": "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -932,10 +986,17 @@
               "description": "Nombre del despacho."
             },
             "authority_email": {
-              "type": "string",
-              "format": "email",
-              "maxLength": 200,
-              "description": "Correo del despacho."
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "email",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Correo del despacho; null elimina explícitamente un correo desactualizado, sin inventar reemplazo."
             },
             "authority_city": {
               "type": "string",
@@ -974,6 +1035,26 @@
               "minLength": 8,
               "maxLength": 200,
               "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            },
+            "workflow_type": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Reclasificación explícita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."
+            },
+            "stage": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Etapa de destino validada contra el catálogo vivo del tipo de proceso."
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000,
+              "description": "Motivo y evidencia de la reclasificación."
             }
           },
           "additionalProperties": false,
@@ -1128,8 +1209,12 @@
                 "LOW",
                 "MEDIUM",
                 "HIGH",
-                "URGENT"
-              ]
+                "URGENT",
+                "BAJA",
+                "MEDIA",
+                "ALTA"
+              ],
+              "description": "LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."
             },
             "due_date": {
               "type": "string",
@@ -1378,7 +1463,7 @@
             },
             "radicado": {
               "type": "string",
-              "description": "Radicado de 23 dígitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicación."
+              "description": "Radicado judicial compatible de 23 dígitos (con o sin guiones). Sin identificador compatible no hay consulta automática; esto no determina si el expediente existe jurídicamente."
             },
             "title": {
               "type": "string",
