@@ -24,21 +24,24 @@ export default defineTool({
     date: z.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogotá)."),
     description: z.string().trim().min(1).max(500).describe("Nombre o descripción de la audiencia."),
     location: z.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
+    modality: z.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
+  handler: async ({ work_item_id, radicado, date, description, location, modality }, ctx) => {
     const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
 
     const when = new Date(date);
-    if (Number.isNaN(when.getTime())) return errorResult("Fecha inválida: usa formato ISO 8601.");
+    if (Number.isNaN(when.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/i.test(date)) return errorResult("Fecha inválida: usa ISO 8601 con zona horaria explícita, por ejemplo -05:00.");
 
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id as string;
 
-    const orgId = await callerOrganizationId(sb, ctx.getUserId()!);
+    const userId = ctx.getUserId();
+    if (!userId) return errorResult("No se pudo identificar al usuario.");
+    const orgId = await callerOrganizationId(sb, userId);
 
     const { data, error } = await sb
       .from("work_item_hearings")
@@ -48,8 +51,8 @@ export default defineTool({
         custom_name: description,
         scheduled_at: when.toISOString(),
         location: location ?? null,
-        status: "SCHEDULED",
-        modality: location && /^https?:\/\//i.test(location) ? "VIRTUAL" : "PRESENCIAL",
+        status: "scheduled",
+        modality: modality ?? (location && /^https?:\/\//i.test(location) ? "virtual" : "presencial"),
         created_by: ctx.getUserId(),
         notes_plain_text: "Agendada vía asistente de IA (MCP).",
       })

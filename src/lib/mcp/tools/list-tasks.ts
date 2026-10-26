@@ -10,7 +10,7 @@ export default defineTool({
   inputSchema: {
     work_item_id: z.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z.string().trim().optional().describe("Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."),
+    status: z.enum(["PENDIENTE", "COMPLETADA", "OPEN", "PENDING", "DONE", "COMPLETED", "all"]).optional().describe("PENDIENTE o COMPLETADA (también acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."),
     limit: z.number().int().min(1).max(100).optional().describe("Máximo de filas (default 50)."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -33,8 +33,8 @@ export default defineTool({
       .limit(limit ?? 50);
 
     if (itemId) q = q.eq("work_item_id", itemId);
-    if (!status) q = q.neq("status", "COMPLETED");
-    else if (status.toLowerCase() !== "all") q = q.eq("status", status.toUpperCase());
+    if (!status) q = q.eq("status", "PENDIENTE");
+    else if (status !== "all") q = q.eq("status", ["DONE", "COMPLETED", "COMPLETADA"].includes(status) ? "COMPLETADA" : "PENDIENTE");
 
     const { data, error } = await q;
     if (error) return errorResult(error.message);

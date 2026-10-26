@@ -1126,7 +1126,7 @@ var list_tasks_default = defineTool16({
   inputSchema: {
     work_item_id: z15.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z15.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z15.string().trim().optional().describe("Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."),
+    status: z15.enum(["PENDIENTE", "COMPLETADA", "OPEN", "PENDING", "DONE", "COMPLETED", "all"]).optional().describe("PENDIENTE o COMPLETADA (tambi\xE9n acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."),
     limit: z15.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -1142,8 +1142,8 @@ var list_tasks_default = defineTool16({
     }
     let q = sb.from("work_item_tasks").select("id, work_item_id, title, description, status, priority, due_date, completed_at, created_at").order("due_date", { ascending: true, nullsFirst: false }).limit(limit ?? 50);
     if (itemId) q = q.eq("work_item_id", itemId);
-    if (!status) q = q.neq("status", "COMPLETED");
-    else if (status.toLowerCase() !== "all") q = q.eq("status", status.toUpperCase());
+    if (!status) q = q.eq("status", "PENDIENTE");
+    else if (status !== "all") q = q.eq("status", ["DONE", "COMPLETED", "COMPLETADA"].includes(status) ? "COMPLETADA" : "PENDIENTE");
     const { data, error } = await q;
     if (error) return errorResult(error.message);
     return textResult(`${data?.length ?? 0} tareas.`, {
@@ -1495,27 +1495,30 @@ var add_hearing_default = defineTool19({
     radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     date: z18.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
     description: z18.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
-    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
+    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
+    modality: z18.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
+  handler: async ({ work_item_id, radicado, date, description, location, modality }, ctx) => {
     const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const when = new Date(date);
-    if (Number.isNaN(when.getTime())) return errorResult("Fecha inv\xE1lida: usa formato ISO 8601.");
+    if (Number.isNaN(when.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/i.test(date)) return errorResult("Fecha inv\xE1lida: usa ISO 8601 con zona horaria expl\xEDcita, por ejemplo -05:00.");
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id;
-    const orgId = await callerOrganizationId(sb, ctx.getUserId());
+    const userId = ctx.getUserId();
+    if (!userId) return errorResult("No se pudo identificar al usuario.");
+    const orgId = await callerOrganizationId(sb, userId);
     const { data, error } = await sb.from("work_item_hearings").insert({
       work_item_id: itemId,
       organization_id: orgId,
       custom_name: description,
       scheduled_at: when.toISOString(),
       location: location ?? null,
-      status: "SCHEDULED",
-      modality: location && /^https?:\/\//i.test(location) ? "VIRTUAL" : "PRESENCIAL",
+      status: "scheduled",
+      modality: modality ?? (location && /^https?:\/\//i.test(location) ? "virtual" : "presencial"),
       created_by: ctx.getUserId(),
       notes_plain_text: "Agendada v\xEDa asistente de IA (MCP)."
     }).select("id, work_item_id, custom_name, scheduled_at, location, status").maybeSingle();
@@ -2219,7 +2222,7 @@ var manage_task_default = defineTool30({
     work_item_id: z25.string().uuid().optional(),
     title: z25.string().trim().max(300).optional(),
     description: z25.string().trim().max(3e3).optional(),
-    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT", "BAJA", "MEDIA", "ALTA"]).optional().describe("LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."),
     due_date: z25.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -2230,6 +2233,7 @@ var manage_task_default = defineTool30({
     const userId = ctx.getUserId?.();
     if (!userId) return errorResult("No se pudo identificar al usuario del token.");
     const dueISO = args.due_date ? `${args.due_date}T17:00:00-05:00` : void 0;
+    const priorities = { LOW: "BAJA", MEDIUM: "MEDIA", HIGH: "ALTA", URGENT: "ALTA", BAJA: "BAJA", MEDIA: "MEDIA", ALTA: "ALTA" };
     if (args.action === "create") {
       if (!args.title) return errorResult("Indica el t\xEDtulo de la tarea.");
       const resolved = await resolveWorkItem(sb, { id: args.work_item_id, radicado: args.radicado });
@@ -2242,9 +2246,9 @@ var manage_task_default = defineTool30({
         work_item_id: item.id,
         title: args.title,
         description: args.description ?? null,
-        priority: args.priority ?? "MEDIUM",
+        priority: priorities[args.priority ?? "MEDIUM"],
         due_date: dueISO ?? null,
-        status: "OPEN"
+        status: "PENDIENTE"
       }).select("id, work_item_id, title, priority, due_date, status").maybeSingle();
       if (error2) return errorResult(error2.message);
       return textResult(`Tarea creada en ${item.radicado ?? item.id}.`, { task: data2 });
@@ -2252,17 +2256,17 @@ var manage_task_default = defineTool30({
     if (!args.task_id) return errorResult("Indica el task_id.");
     const patch = { updated_at: (/* @__PURE__ */ new Date()).toISOString() };
     if (args.action === "complete") {
-      patch.status = "DONE";
+      patch.status = "COMPLETADA";
       patch.completed_at = (/* @__PURE__ */ new Date()).toISOString();
       patch.completed_by = userId;
     } else if (args.action === "reopen") {
-      patch.status = "OPEN";
+      patch.status = "PENDIENTE";
       patch.completed_at = null;
       patch.completed_by = null;
     } else {
       if (args.title !== void 0) patch.title = args.title;
       if (args.description !== void 0) patch.description = args.description;
-      if (args.priority !== void 0) patch.priority = args.priority;
+      if (args.priority !== void 0) patch.priority = priorities[args.priority];
       if (dueISO !== void 0) patch.due_date = dueISO;
       if (Object.keys(patch).length === 1) return errorResult("No indicaste ning\xFAn campo para cambiar.");
     }
