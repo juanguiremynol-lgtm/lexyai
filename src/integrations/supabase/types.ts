@@ -27138,6 +27138,16 @@ export type Database = {
         Returns: Json
       }
       mcp_caller_context: { Args: never; Returns: Json }
+      mcp_correct_hearing: {
+        Args: {
+          p_expected_updated_at: string
+          p_hearing_id: string
+          p_idempotency_key: string
+          p_patch: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
       mcp_create_work_item: {
         Args: {
           p_authority_name: string
