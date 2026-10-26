@@ -1,11 +1,14 @@
 # Roadmap
 
 ## Judicial evidence consistency audit (2026-10-26)
-- [ ] Compare deployed hearing/task constraints with MCP contracts and correct adapters with regression tests.
-- [ ] Audit Cárdenas source pages, event identities, multiple dates, time zone and status; apply only evidence-backed audited corrections.
-- [ ] Trace Nicholls publications/classification while preserving manual ADMISION; audit Esfinge current court/email and remissions.
-- [ ] Review remisión closure flags, safe reclassification and technical monitoring presentation without creating/deleting matters.
-- [ ] Deliver evidence matrix, focused tests, read-back results and explicit deployment/provider blockers.
+- [x] Compare real hearing/task constraints and correct adapters with focused regression tests.
+- [x] Verify Cárdenas Acta041 pages11–12; correct three hearings with audit and real readback.
+- [x] Preserve Nicholls manual ADMISION; clear Esfinge obsolete email and three false remisión closure flags with readback.
+- [x] Prepare gated correction/reclassification and truthful technical consultation presentation; no matter creation/deletion.
+- [x] Deliver matrix in docs/judicial-consistency-audit-20261026.md with tests, evidence and limits.
+- [ ] Deployment and authenticated end-to-end acceptance: blocked on reviewed release; public MCP remains0.6.6.
+- [ ] Positive/negative rollback acceptance of two new gated RPCs: sandbox_exec lacks SET ROLE authenticated; do not widen grants.
+- [ ] Complete document/classifier provenance for Nicholls, La Ceiba and Arcila: complete judicial documents/provider traces not verified; no speculative stage changes.
 
 ## Native MCP permission choice (2026-10-24 21:31 UTC)
 - [x] Normalize optional trusted client display name only; 36 focused rendered tests PASS, root-reported hosted 20/20 rollback evidence recorded; MCP signatures unchanged, no publish.

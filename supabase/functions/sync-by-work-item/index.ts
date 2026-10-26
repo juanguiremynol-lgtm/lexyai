@@ -3432,7 +3432,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const { extractHearingsFromAct: _bfExtract } = await import("../_shared/hearingExtractor.ts");
       const { data: _dbActs, error: _readError } = await supabase
         .from('work_item_acts')
-        .select('id, act_type, description')
+        .select('id, act_type, description, raw_data')
         .eq('work_item_id', work_item_id)
         .or('act_type.ilike.%audiencia%,act_type.ilike.%diligencia%,description.ilike.%audiencia%,description.ilike.%fija fecha%,description.ilike.%señala fecha%,description.ilike.%senala fecha%')
         .limit(500);
@@ -3440,7 +3440,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       let _bfInserted = 0;
       for (const _a of (_dbActs || [])) {
         if (failedEnrichmentIds.has(_a.id)) continue;
-        for (const _c of _bfExtract({ act_type: _a.act_type || null, description: _a.description || null })) {
+        const _raw = _a.raw_data as Record<string, unknown> | null;
+        for (const _c of _bfExtract({ act_type: _a.act_type || null, description: `${_a.description || ''} ${String(_raw?.anotacion || '')}` })) {
         if (_c.time_inferred) continue;
         const { data: _exists, error: _lookupError } = await supabase
           .from('work_item_hearings')
