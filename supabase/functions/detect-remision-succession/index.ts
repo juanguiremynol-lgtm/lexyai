@@ -12,7 +12,7 @@
  *   3. searches OUR OWN portfolio for a matter at the destination whose parties
  *      match (`party_name_match`) — the upstream contracts expose no
  *      party-by-despacho search, so this is the only automatic route
- *   4. closes the origin as CERRADO_POR_REMISION and closes its open terms
+ *   4. preserves the matter and terms; remisión alone is not termination
  *   5. enqueues a census request for the destination despacho
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
@@ -42,8 +42,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
 
   let body: { work_item_id?: string; dry_run?: boolean } = {};
@@ -154,25 +154,8 @@ Deno.serve(async (req) => {
     }
 
     if (relation === "REMISION_COMPETENCIA") {
-      // The origin is closed by remisión — its silence is explained, not a ghost.
-      await supabase
-        .from("work_items")
-        .update({
-          closure_reason: "CERRADO_POR_REMISION",
-          closure_at: new Date().toISOString(),
-          closure_note: destino.nombre
-            ? `Expediente remitido por competencia a ${destino.nombre}.`
-            : "Expediente remitido por competencia; el despacho receptor no está identificado en el auto.",
-        })
-        .eq("id", workItemId);
-
-      // Terms of the origin do not expire — they close with the file. CANCELLED
-      // is the catalogue's "no longer running", and `closure_reason` says why.
-      await supabase
-        .from("work_item_deadlines")
-        .update({ status: "CANCELLED", closure_reason: "CERRADO_POR_REMISION" })
-        .eq("work_item_id", workItemId)
-        .in("status", ["PENDING", "PENDING_REVIEW", "SUGGESTED_BY_EMAIL", "SUGGESTED_BY_PROVIDER"]);
+      // Only the succession evidence is recorded. A competence remisión does
+      // not establish termination or discharge any procedural deadline.
 
       if (destino.codigo) {
         const { data: known } = await supabase
