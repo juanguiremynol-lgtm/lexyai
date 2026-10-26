@@ -1,5 +1,12 @@
 # Roadmap
 
+## Judicial evidence consistency audit (2026-10-26)
+- [ ] Compare deployed hearing/task constraints with MCP contracts and correct adapters with regression tests.
+- [ ] Audit Cárdenas source pages, event identities, multiple dates, time zone and status; apply only evidence-backed audited corrections.
+- [ ] Trace Nicholls publications/classification while preserving manual ADMISION; audit Esfinge current court/email and remissions.
+- [ ] Review remisión closure flags, safe reclassification and technical monitoring presentation without creating/deleting matters.
+- [ ] Deliver evidence matrix, focused tests, read-back results and explicit deployment/provider blockers.
+
 ## Native MCP permission choice (2026-10-24 21:31 UTC)
 - [x] Normalize optional trusted client display name only; 36 focused rendered tests PASS, root-reported hosted 20/20 rollback evidence recorded; MCP signatures unchanged, no publish.
 - [x] Integrate independent addendum: StrictMode-safe one-shot authorization lookup, hardened resolver and canonical connection rows; 30 rendered tests and 12 local rollback checks PASS, MCP signatures unchanged; root owns hosted acceptance/publication.
