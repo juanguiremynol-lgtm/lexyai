@@ -4446,4 +4446,4 @@ Deno.serve(withSyncTimeline(async (req) => {
       traceId
     );
   }
-}, { function_name: "sync-by-work-item", default_operation: "acts" }));
+}, { function_name: "sync-by-work-item", default_operation: "acts", adapter_version: "judicial-preservation-20261026" }));

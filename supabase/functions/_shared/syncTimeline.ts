@@ -199,6 +199,10 @@ export function withSyncTimeline(
       metadata: {
         http_status: response.status,
         trace_id: strOr(parsed?.trace_id),
+        invoker_function: req.headers.get("x-invoker-function"),
+        retry_task_id: req.headers.get("x-retry-task-id"),
+        scheduled_requested: req.headers.get("x-invoker-function") === "process-retry-queue",
+        auth_mechanism: req.headers.has("x-cron-key") ? "cron_header" : req.headers.has("authorization") ? "bearer" : "none",
         warnings: parsed?.warnings ?? undefined,
       },
     }).catch(() => { /* swallowed */ });
