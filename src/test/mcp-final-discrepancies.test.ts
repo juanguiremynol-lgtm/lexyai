@@ -16,6 +16,7 @@ const updateArgs = {
   demandantes: undefined, demandados: undefined, authority_name: undefined, authority_email: undefined, authority_city: undefined,
   expediente_url: undefined, client_id: "00000000-0000-0000-0000-000000000099", is_flagged: undefined,
   monitoring_enabled: false, monitoring_off_reason: "Explicit pause", email_linking_enabled: undefined, idempotency_key: undefined,
+  workflow_type: undefined, stage: undefined, expected_updated_at: undefined, reason: undefined,
 };
 describe("final MCP discrepancies", () => {
   it("composes invalid-client plus pause into one atomic call, never a prior monitoring mutation", async () => {
