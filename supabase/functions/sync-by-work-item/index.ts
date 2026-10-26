@@ -2954,7 +2954,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             // work_item_hearings.status enum: planned|scheduled|held|postponed|cancelled
             // A past scheduled date does not prove celebration. Nor does a new
             // future session identify an older hearing to cancel or postpone.
-            const status = isFuture ? 'scheduled' : 'planned';
+            const status = isFuture && !candidate.time_inferred ? 'scheduled' : 'planned';
             const { data: existingH, error: lookupError } = await supabase
               .from('work_item_hearings')
               .select('id')
@@ -3452,7 +3452,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           custom_name: _c.title,
           scheduled_at: _c.starts_at_iso,
           auto_detected: true,
-          status: _isFut ? 'scheduled' : 'planned',
+          status: _isFut && !_c.time_inferred ? 'scheduled' : 'planned',
           source_act_id: _a.id,
           extraction_method: 'act_regex_v2',
           time_inferred: _c.time_inferred,

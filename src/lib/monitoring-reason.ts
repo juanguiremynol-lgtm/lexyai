@@ -83,6 +83,26 @@ export type ActsEmptyStateKind =
   | "CANAL_ACTUACIONES_SIN_RESPUESTA"
   | "CONSULTADO_SIN_RESULTADOS";
 
+export type JudicialQueryState = "IDENTIFICADOR_INCOMPATIBLE" | "PENDIENTE" | "EN_EJECUCION" | "CON_RESULTADOS" | "SIN_NOVEDADES" | "FALLIDA" | "RESTRINGIDA";
+
+/** Actual source attempt wins over stored documents and old success timestamps. */
+export function judicialQueryState(input: { compatible: boolean; status?: string | null; count?: number | null }): JudicialQueryState {
+  if (!input.compatible) return "IDENTIFICADOR_INCOMPATIBLE";
+  const status = (input.status ?? "").toUpperCase();
+  if (["RESTRICTED", "PRIVATE"].includes(status)) return "RESTRINGIDA";
+  if (["ERROR", "FAILED", "REJECTED", "TIMEOUT"].includes(status)) return "FALLIDA";
+  if (["RUNNING", "IN_PROGRESS"].includes(status)) return "EN_EJECUCION";
+  if (["SUCCESS", "SUCCESS_EMPTY", "EMPTY", "NOT_FOUND"].includes(status)) return (input.count ?? 0) > 0 ? "CON_RESULTADOS" : "SIN_NOVEDADES";
+  return "PENDIENTE";
+}
+
+export const JUDICIAL_QUERY_LABELS: Record<JudicialQueryState, string> = {
+  IDENTIFICADOR_INCOMPATIBLE: "Expediente sin identificador compatible para consulta automática",
+  PENDIENTE: "Consulta inicial pendiente", EN_EJECUCION: "Consulta en ejecución",
+  CON_RESULTADOS: "Consulta exitosa con resultados", SIN_NOVEDADES: "Consulta exitosa sin novedades",
+  FALLIDA: "Consulta fallida", RESTRINGIDA: "Fuente restringida o privada",
+};
+
 export interface ActsEmptyState {
   kind: ActsEmptyStateKind;
   title: string;

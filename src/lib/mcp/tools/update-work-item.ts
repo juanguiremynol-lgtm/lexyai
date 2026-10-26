@@ -6,9 +6,8 @@ import { errorResult, IDEMPOTENCY_KEY_DESCRIPTION, requireWriteScope, resolveWor
  * Editable surface of a matter over MCP.
  *
  * What is intentionally NOT here, and why:
- *  - `radicado` / `workflow_type` / `stage`: identity, routing and procedural
- *    stage are governed by the classification and preclusion rules in the DB.
- *    An assistant must not move a matter through its procedural life.
+ *  - Radicado stays immutable. Reclassification is a separate audited RPC
+ *    with live destination-stage validation, never a metadata patch.
  *  - deletion / lifecycle_state: handled only by change_work_item_lifecycle (recoverable; no purge).
  */
 export default defineTool({

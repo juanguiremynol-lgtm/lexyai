@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractHearingsFromAct, buildBogotaTimestamptz } from "../../supabase/functions/_shared/hearingExtractor";
-import { hasUsableRadicado, resolveActsEmptyState } from "@/lib/monitoring-reason";
+import { hasUsableRadicado, resolveActsEmptyState, judicialQueryState } from "@/lib/monitoring-reason";
 const { client, query, insert, update, rpc } = vi.hoisted(() => {
   const query: Record<string, any> = {};
   const insert = vi.fn(); const update = vi.fn(); const rpc = vi.fn();
@@ -68,6 +68,13 @@ describe("deployed judicial contracts", () => {
   });
 });
 describe("source dates and identifiers", () => {
+  it.each([[undefined, "PENDIENTE"], ["RUNNING", "EN_EJECUCION"], ["SUCCESS_EMPTY", "SIN_NOVEDADES"], ["ERROR", "FALLIDA"], ["RESTRICTED", "RESTRINGIDA"]])("actual query %s has truthful state", (status, expected) => {
+    expect(judicialQueryState({ compatible: true, status })).toBe(expected);
+  });
+  it("successful query with records is distinct from empty and pending", () => {
+    expect(judicialQueryState({ compatible: true, status: "success", count: 2 })).toBe("CON_RESULTADOS");
+    expect(judicialQueryState({ compatible: false, status: "success", count: 2 })).toBe("IDENTIFICADOR_INCOMPATIBLE");
+  });
   it("extracts both timed Cardenas sessions separately", () => {
     const sessions = extractHearingsFromAct({ act_type: "Acta audiencia de pruebas", description: "30 de noviembre de 2026 a las 8:30 am. 1º de diciembre de 2026 a las 8:30 am" });
     expect(sessions.map(s => s.starts_at_iso)).toEqual(["2026-11-30T13:30:00.000Z", "2026-12-01T13:30:00.000Z"]);

@@ -290,6 +290,34 @@ var list_work_items_default = defineTool({
 // src/lib/mcp/tools/get-work-item.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z2 } from "npm:zod@^3.25.76";
+
+// src/lib/monitoring-reason.ts
+function radDigits(radicado) {
+  return (radicado || "").replace(/\D/g, "");
+}
+function hasUsableRadicado(radicado) {
+  return radDigits(radicado).length === 23;
+}
+function judicialQueryState(input) {
+  if (!input.compatible) return "IDENTIFICADOR_INCOMPATIBLE";
+  const status = (input.status ?? "").toUpperCase();
+  if (["RESTRICTED", "PRIVATE"].includes(status)) return "RESTRINGIDA";
+  if (["ERROR", "FAILED", "REJECTED", "TIMEOUT"].includes(status)) return "FALLIDA";
+  if (["RUNNING", "IN_PROGRESS"].includes(status)) return "EN_EJECUCION";
+  if (["SUCCESS", "SUCCESS_EMPTY", "EMPTY", "NOT_FOUND"].includes(status)) return (input.count ?? 0) > 0 ? "CON_RESULTADOS" : "SIN_NOVEDADES";
+  return "PENDIENTE";
+}
+var JUDICIAL_QUERY_LABELS = {
+  IDENTIFICADOR_INCOMPATIBLE: "Expediente sin identificador compatible para consulta autom\xE1tica",
+  PENDIENTE: "Consulta inicial pendiente",
+  EN_EJECUCION: "Consulta en ejecuci\xF3n",
+  CON_RESULTADOS: "Consulta exitosa con resultados",
+  SIN_NOVEDADES: "Consulta exitosa sin novedades",
+  FALLIDA: "Consulta fallida",
+  RESTRINGIDA: "Fuente restringida o privada"
+};
+
+// src/lib/mcp/tools/get-work-item.ts
 var get_work_item_default = defineTool2({
   name: "get_work_item",
   title: "Detalle de asunto",
@@ -312,6 +340,18 @@ var get_work_item_default = defineTool2({
       return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
     }
     const item = resolved.item;
+    const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline").select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at").eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
+    if (checksError) return errorResult("No se pudo verificar el historial de consultas; no se informa como sin novedades.");
+    const seen = /* @__PURE__ */ new Set();
+    const queryStates = (checks ?? []).filter((c) => {
+      const key = `${c.provider}:${c.operation}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((c) => {
+      const state = judicialQueryState({ compatible: hasUsableRadicado(item.radicado), status: c.status, count: (c.records_inserted ?? 0) + (c.records_skipped ?? 0) });
+      return { ...c, state, label: JUDICIAL_QUERY_LABELS[state] };
+    });
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
       sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
@@ -380,7 +420,9 @@ var get_work_item_default = defineTool2({
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         terminos_activos: deadlines ?? [],
-        audiencias: hearings ?? []
+        audiencias: hearings ?? [],
+        consultas: queryStates,
+        consulta_estado: queryStates.length ? null : JUDICIAL_QUERY_LABELS[judicialQueryState({ compatible: hasUsableRadicado(item.radicado) })]
       }
     );
   }
