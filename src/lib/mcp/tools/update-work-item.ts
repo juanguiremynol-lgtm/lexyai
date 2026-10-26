@@ -6,16 +6,15 @@ import { errorResult, IDEMPOTENCY_KEY_DESCRIPTION, requireWriteScope, resolveWor
  * Editable surface of a matter over MCP.
  *
  * What is intentionally NOT here, and why:
- *  - `radicado` / `workflow_type` / `stage`: identity, routing and procedural
- *    stage are governed by the classification and preclusion rules in the DB.
- *    An assistant must not move a matter through its procedural life.
+ *  - Radicado stays immutable. Reclassification is a separate audited RPC
+ *    with live destination-stage validation, never a metadata patch.
  *  - deletion / lifecycle_state: handled only by change_work_item_lifecycle (recoverable; no purge).
  */
 export default defineTool({
   name: "update_work_item",
   title: "Editar datos de un asunto",
   description:
-    "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+    "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
   inputSchema: {
     radicado: z.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z.string().uuid().optional().describe("UUID del asunto."),
@@ -24,7 +23,7 @@ export default defineTool({
     demandantes: z.string().trim().max(1000).optional(),
     demandados: z.string().trim().max(1000).optional(),
     authority_name: z.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_email: z.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina explícitamente un correo desactualizado, sin inventar reemplazo."),
     authority_city: z.string().trim().max(120).optional(),
     expediente_url: z.string().trim().url().max(2000).optional(),
     client_id: z.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
@@ -42,6 +41,10 @@ export default defineTool({
       .describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z.boolean().optional().describe("Activar o desactivar la vinculación de correos."),
     idempotency_key: z.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
+    workflow_type: z.string().trim().min(2).optional().describe("Reclasificación explícita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."),
+    stage: z.string().trim().min(1).optional().describe("Etapa de destino validada contra el catálogo vivo del tipo de proceso."),
+    expected_updated_at: z.string().datetime({ offset: true }).optional(),
+    reason: z.string().trim().min(5).max(2000).optional().describe("Motivo y evidencia de la reclasificación."),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -52,6 +55,15 @@ export default defineTool({
     const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+
+    if (args.workflow_type !== undefined || args.stage !== undefined) {
+      const allowed = new Set(["id", "radicado", "workflow_type", "stage", "expected_updated_at", "reason", "idempotency_key"]);
+      if (Object.entries(args).some(([k, v]) => v !== undefined && !allowed.has(k))) return errorResult("No combines reclasificación con edición de datos o monitoreo.");
+      if (!args.workflow_type || !args.stage || !args.expected_updated_at || !args.reason || !args.idempotency_key) return errorResult("Reclasificar requiere tipo, etapa, revisión, motivo e idempotency_key.");
+      const { data, error } = await sb.rpc("mcp_reclassify_work_item", { p_work_item_id: item.id as string, p_workflow_type: args.workflow_type, p_stage: args.stage, p_expected_updated_at: args.expected_updated_at, p_reason: args.reason, p_idempotency_key: args.idempotency_key });
+      if (error) return errorResult(rpcErrorText(error));
+      return textResult("Asunto reclasificado; actuaciones, documentos, notas e historial se conservan.", data as Record<string, unknown>);
+    }
 
     const EDITABLE = [
       "title", "description", "demandantes", "demandados", "authority_name", "authority_email",

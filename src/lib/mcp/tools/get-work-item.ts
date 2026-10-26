@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
+import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
 
 export default defineTool({
   name: "get_work_item",
@@ -32,6 +33,19 @@ export default defineTool({
       return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
     }
     const item = resolved.item as Record<string, any>;
+    const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline")
+      .select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at")
+      .eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
+    if (checksError) return errorResult("No se pudo verificar el historial de consultas; no se informa como sin novedades.");
+    const seen = new Set<string>();
+    const queryStates = (checks ?? []).filter((c) => {
+      const key = `${c.provider}:${c.operation}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).map((c) => {
+      const state = judicialQueryState({ compatible: hasUsableRadicado(item.radicado), status: c.status, count: (c.records_inserted ?? 0) + (c.records_skipped ?? 0) });
+      return { ...c, state, label: JUDICIAL_QUERY_LABELS[state] };
+    });
 
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts")
@@ -102,6 +116,8 @@ export default defineTool({
         recent_estados: estados ?? [],
         terminos_activos: deadlines ?? [],
         audiencias: hearings ?? [],
+        consultas: queryStates,
+        consulta_estado: queryStates.length ? null : JUDICIAL_QUERY_LABELS[judicialQueryState({ compatible: hasUsableRadicado(item.radicado) })],
       },
     );
   },

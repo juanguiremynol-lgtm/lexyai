@@ -11,7 +11,7 @@ export default defineTool({
     "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
   inputSchema: {
     workflow_type: z.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
-    radicado: z.string().trim().optional().describe("Radicado de 23 dígitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicación."),
+    radicado: z.string().trim().optional().describe("Radicado judicial compatible de 23 dígitos (con o sin guiones). Sin identificador compatible no hay consulta automática; esto no determina si el expediente existe jurídicamente."),
     title: z.string().trim().max(300).optional(),
     client_id: z.string().uuid().optional().describe("Cliente propio del usuario."),
     demandantes: z.string().trim().max(1000).optional(),
@@ -41,6 +41,6 @@ export default defineTool({
     });
     if (error) return errorResult(rpcErrorText(error));
     const r = data as Record<string, unknown>;
-    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}.`, r);
+    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}. No se realizó una consulta judicial en esta operación; la sincronización inicial queda programada si el identificador es compatible.`, { ...r, consulta_realizada: false });
   },
 });

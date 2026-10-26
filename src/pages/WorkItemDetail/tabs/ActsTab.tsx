@@ -35,7 +35,7 @@ import { ActuacionesTable } from "./ActuacionesTable";
 import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actuaciones";
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
 import { AlertCircle } from "lucide-react";
-import { resolveActsEmptyState } from "@/lib/monitoring-reason";
+import { resolveActsEmptyState, judicialQueryState, JUDICIAL_QUERY_LABELS, hasUsableRadicado } from "@/lib/monitoring-reason";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 
 interface ActsTabProps {
@@ -95,6 +95,18 @@ export function ActsTab({ workItem }: ActsTabProps) {
   const acts = supabaseQuery.data;
   const isLoading = supabaseQuery.isLoading;
   const apiError = supabaseQuery.error;
+  const consultation = useQuery({
+    queryKey: ["work-item-acts-consultation", workItem.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("work_item_sync_timeline")
+        .select("status, records_inserted, records_skipped, finished_at, error_code")
+        .eq("work_item_id", workItem.id).eq("operation", "acts")
+        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60_000,
+  });
 
   // ─── API label for badges ───────────────────────────────────────────────
   const apiLabel = isCGP ? "CPNU" : isCPACA ? "SAMAI" : null;
@@ -204,6 +216,8 @@ export function ActsTab({ workItem }: ActsTabProps) {
   }
 
   if (!acts || acts.length === 0) {
+    const queryState = judicialQueryState({ compatible: hasUsableRadicado(workItem.radicado), status: consultation.data?.status,
+      count: (consultation.data?.records_inserted ?? 0) + (consultation.data?.records_skipped ?? 0) });
     const emptyState = resolveActsEmptyState({
       workflowType: workItem.workflow_type,
       radicado: workItem.radicado,
@@ -233,9 +247,13 @@ export function ActsTab({ workItem }: ActsTabProps) {
           <CardContent className="py-12">
             <div className="text-center">
               <div className="text-4xl mb-4">{emptyState.showAddRadicado ? "🔎" : "📭"}</div>
-              <h3 className="font-semibold mb-2">{emptyState.title}</h3>
+              <h3 className="font-semibold mb-2">{consultation.isError ? "No se pudo verificar la última consulta" : JUDICIAL_QUERY_LABELS[queryState]}</h3>
               <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                {emptyState.description}
+                {consultation.isError ? "No se afirma que no haya novedades mientras el historial de consulta no pueda verificarse."
+                  : queryState === "FALLIDA" ? "La última consulta no terminó correctamente. La ausencia de actuaciones no acredita ausencia de movimientos."
+                  : queryState === "RESTRINGIDA" ? "La fuente no permitió consultar el contenido. Esto no significa que el expediente no tenga actuaciones."
+                  : queryState === "EN_EJECUCION" ? "La consulta todavía está en ejecución; no hay un resultado confirmado."
+                  : emptyState.description}
               </p>
               {emptyState.showAddRadicado && (
                 <div className="mt-6 flex justify-center">

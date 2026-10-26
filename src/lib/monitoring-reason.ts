@@ -29,7 +29,7 @@ export type MonitoringOffReason =
   (typeof MONITORING_OFF_REASON)[keyof typeof MONITORING_OFF_REASON];
 
 export const MONITORING_OFF_REASON_LABEL: Record<string, string> = {
-  PENDIENTE_DE_RADICACION: "Pendiente de radicación",
+  PENDIENTE_DE_RADICACION: "Falta un identificador compatible para la consulta automática",
   WORKFLOW_SIN_PROVEEDOR: "Sin proveedor judicial para este tipo de proceso",
   EXPEDIENTE_NO_ACTIVO: "Expediente no activo",
 };
@@ -47,7 +47,7 @@ function radDigits(radicado: string | null | undefined): string {
 }
 
 export function hasUsableRadicado(radicado: string | null | undefined): boolean {
-  return radDigits(radicado).length >= 21;
+  return radDigits(radicado).length === 23;
 }
 
 /**
@@ -82,6 +82,26 @@ export type ActsEmptyStateKind =
   | "NUNCA_CONSULTADO"
   | "CANAL_ACTUACIONES_SIN_RESPUESTA"
   | "CONSULTADO_SIN_RESULTADOS";
+
+export type JudicialQueryState = "IDENTIFICADOR_INCOMPATIBLE" | "PENDIENTE" | "EN_EJECUCION" | "CON_RESULTADOS" | "SIN_NOVEDADES" | "FALLIDA" | "RESTRINGIDA";
+
+/** Actual source attempt wins over stored documents and old success timestamps. */
+export function judicialQueryState(input: { compatible: boolean; status?: string | null; count?: number | null }): JudicialQueryState {
+  if (!input.compatible) return "IDENTIFICADOR_INCOMPATIBLE";
+  const status = (input.status ?? "").toUpperCase();
+  if (["RESTRICTED", "PRIVATE"].includes(status)) return "RESTRINGIDA";
+  if (["ERROR", "FAILED", "REJECTED", "TIMEOUT"].includes(status)) return "FALLIDA";
+  if (["RUNNING", "IN_PROGRESS"].includes(status)) return "EN_EJECUCION";
+  if (["SUCCESS", "SUCCESS_EMPTY", "EMPTY", "NOT_FOUND"].includes(status)) return (input.count ?? 0) > 0 ? "CON_RESULTADOS" : "SIN_NOVEDADES";
+  return "PENDIENTE";
+}
+
+export const JUDICIAL_QUERY_LABELS: Record<JudicialQueryState, string> = {
+  IDENTIFICADOR_INCOMPATIBLE: "Expediente sin identificador compatible para consulta automática",
+  PENDIENTE: "Consulta inicial pendiente", EN_EJECUCION: "Consulta en ejecución",
+  CON_RESULTADOS: "Consulta exitosa con resultados", SIN_NOVEDADES: "Consulta exitosa sin novedades",
+  FALLIDA: "Consulta fallida", RESTRINGIDA: "Fuente restringida o privada",
+};
 
 export interface ActsEmptyState {
   kind: ActsEmptyStateKind;
@@ -126,9 +146,9 @@ export function resolveActsEmptyState(input: {
   if (eligible && !hasUsableRadicado(input.radicado)) {
     return {
       kind: "SIN_RADICADO",
-      title: "Este expediente aún no tiene radicado",
+      title: "Falta un identificador compatible para consultar este expediente",
       description:
-        "No hemos consultado a ningún sistema judicial: sin radicado no es posible identificar el proceso ante el proveedor. Agregá el radicado para habilitar el monitoreo y la sincronización inicial.",
+        "La consulta automática requiere un radicado judicial de 23 dígitos. Esto no significa que el expediente no exista o no esté radicado. Las referencias SPOA o SFC se conservan sin agregar ceros ni convertirlas en radicados judiciales.",
       showAddRadicado: true,
     };
   }

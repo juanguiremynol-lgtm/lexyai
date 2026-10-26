@@ -21,7 +21,7 @@ export default defineTool({
     work_item_id: z.string().uuid().optional(),
     title: z.string().trim().max(300).optional(),
     description: z.string().trim().max(3000).optional(),
-    priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT", "BAJA", "MEDIA", "ALTA"]).optional().describe("LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."),
     due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha límite interna (YYYY-MM-DD)."),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -33,6 +33,7 @@ export default defineTool({
     if (!userId) return errorResult("No se pudo identificar al usuario del token.");
 
     const dueISO = args.due_date ? `${args.due_date}T17:00:00-05:00` : undefined;
+    const priorities = { LOW: "BAJA", MEDIUM: "MEDIA", HIGH: "ALTA", URGENT: "ALTA", BAJA: "BAJA", MEDIA: "MEDIA", ALTA: "ALTA" } as const;
 
     if (args.action === "create") {
       if (!args.title) return errorResult("Indica el título de la tarea.");
@@ -49,9 +50,9 @@ export default defineTool({
           work_item_id: item.id as string,
           title: args.title,
           description: args.description ?? null,
-          priority: args.priority ?? "MEDIUM",
+           priority: priorities[args.priority ?? "MEDIUM"],
           due_date: dueISO ?? null,
-          status: "OPEN",
+           status: "PENDIENTE",
         })
         .select("id, work_item_id, title, priority, due_date, status")
         .maybeSingle();
@@ -63,17 +64,17 @@ export default defineTool({
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (args.action === "complete") {
-      patch.status = "DONE";
+      patch.status = "COMPLETADA";
       patch.completed_at = new Date().toISOString();
       patch.completed_by = userId;
     } else if (args.action === "reopen") {
-      patch.status = "OPEN";
+      patch.status = "PENDIENTE";
       patch.completed_at = null;
       patch.completed_by = null;
     } else {
       if (args.title !== undefined) patch.title = args.title;
       if (args.description !== undefined) patch.description = args.description;
-      if (args.priority !== undefined) patch.priority = args.priority;
+      if (args.priority !== undefined) patch.priority = priorities[args.priority];
       if (dueISO !== undefined) patch.due_date = dueISO;
       if (Object.keys(patch).length === 1) return errorResult("No indicaste ningún campo para cambiar.");
     }

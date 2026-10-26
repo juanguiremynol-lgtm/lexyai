@@ -27138,6 +27138,16 @@ export type Database = {
         Returns: Json
       }
       mcp_caller_context: { Args: never; Returns: Json }
+      mcp_correct_hearing: {
+        Args: {
+          p_expected_updated_at: string
+          p_hearing_id: string
+          p_idempotency_key: string
+          p_patch: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
       mcp_create_work_item: {
         Args: {
           p_authority_name: string
@@ -27191,6 +27201,17 @@ export type Database = {
       mcp_mutation_availability: { Args: never; Returns: Json }
       mcp_native_authorization_identity: {
         Args: { p_authorization_id: string }
+        Returns: Json
+      }
+      mcp_reclassify_work_item: {
+        Args: {
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_reason: string
+          p_stage: string
+          p_work_item_id: string
+          p_workflow_type: string
+        }
         Returns: Json
       }
       mcp_reconcile_updates: {

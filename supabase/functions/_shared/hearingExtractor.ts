@@ -116,6 +116,8 @@ function parseDate(text: string): { y: number; m: number; d: number } | null {
   const m = MONTHS[r[2]];
   const y = parseInt(r[3], 10);
   if (!m || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  const check = new Date(Date.UTC(y, m - 1, d));
+  if (check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) return null;
   return { y, m, d };
 }
 
@@ -177,4 +179,31 @@ export function extractHearingFromAct(input: {
  */
 export function hearingDedupeKey(workItemId: string, cand: HearingCandidate): string {
   return `${workItemId}|${cand.starts_at_iso}`;
+}
+
+/** Extract dated sessions separately; never borrow a time from another date. */
+export function extractHearingsFromAct(input: { act_type: string | null; description: string | null }): HearingCandidate[] {
+  const raw = normalize(`${input.act_type ?? ""} ${input.description ?? ""}`);
+  // Explicit shared year, e.g. "30 de noviembre y 1 de diciembre de 2026".
+  const text = raw.replace(/(\d{1,2})\s+de\s+([a-z]+)\s+y\s+(\d{1,2})\s+de\s+([a-z]+)\s+(?:de|del)\s+(\d{4})/g,
+    "$1 de $2 de $5 y $3 de $4 de $5");
+  if (!SCHEDULE_KEYWORDS.some((k) => text.includes(k)) && !RESCHEDULE_KEYWORDS.some((k) => text.includes(k))) return [];
+  const matches = [...text.matchAll(/\d{1,2}(?:º|°)?\s+de\s+[a-z]+\s+(?:de|del)\s+\d{4}/g)];
+  const result = new Map<string, HearingCandidate>();
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const start = match.index ?? 0;
+    const end = matches[i + 1]?.index ?? text.length;
+    const segment = text.slice(start, end).replace(/(\d)(?:º|°)/g, "$1");
+    // Full documents include headings/historical dates: no time borrowing.
+    // Short shared-year scheduling phrases retain both dates for review.
+    if (matches.length > 1 && parseTime(segment).inferred && text === raw) continue;
+    const candidate = extractHearingFromAct({ act_type: "audiencia de pruebas", description: segment });
+    if (candidate) {
+      candidate.title = conciseTitle(input.act_type, input.description);
+      if (RESCHEDULE_KEYWORDS.some((k) => text.includes(k))) candidate.action = "reschedule";
+    }
+    if (candidate) result.set(candidate.starts_at_iso, candidate);
+  }
+  return [...result.values()];
 }

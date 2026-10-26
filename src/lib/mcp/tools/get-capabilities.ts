@@ -49,6 +49,10 @@ export default defineTool({
         has_manage_grant: hasGrant,
         manage_tools: available,
         tool_availability: a.tools,
+        correction_availability: {
+          add_hearing_existing: hasGrant && a.tools.correct_hearing?.available === true,
+          update_work_item_reclassification: hasGrant && a.tools.reclassify_work_item?.available === true,
+        },
         access_verified: verified,
         reason: !verified ? "SESSION_UNVERIFIED" : hasGrant && !canManage ? "EXECUTION_UNAVAILABLE" : !hasGrant ? "READ_ONLY" : null,
         unavailable_manage_tools: MANAGE_TOOLS.filter((name) => !available.includes(name)),

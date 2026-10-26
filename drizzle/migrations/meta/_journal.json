@@ -575,6 +575,41 @@
       "when": 1792878136976,
       "tag": "0081_mcp_native_authorization_resolver_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792977306807,
+      "tag": "0082_mcp_clear_court_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792977352248,
+      "tag": "0083_mcp_correct_hearing",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792977418368,
+      "tag": "0084_mcp_hearing_audit_action_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792977501293,
+      "tag": "0085_mcp_reclassify_work_item",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792977561949,
+      "tag": "0086_mcp_correction_capabilities",
+      "breakpoints": true
     }
   ]
 }

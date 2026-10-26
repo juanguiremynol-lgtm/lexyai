@@ -46,3 +46,4 @@
 - Freshness issue discovery is an invoker RPC with independent UUID keyset pagination, embedded first page and per-source evidence — issue identities remain discoverable beyond capped event-page detail.
 
 - Native AI consent deduplicates official GET by authorization/user before the native resolver (GET binds ownership and may autoapprove); retain callbacks only in memory, approve without redirect, save/revoke then verify the exact client. Settings rows come from the canonical native RPC; SDK enrichment is optional — reconnects, StrictMode and retries must not repeat authorization or hide connections.
+- MCP hearing/task adapters use the deployed lowercase hearing enums and Spanish task enums; correction/reclassification require owner/manage, revision, reason and atomic audit, and new RPCs remain release-gated. Remisión evidence never closes a matter or cancels terms by itself; past scheduled dates never prove celebration.

@@ -290,6 +290,34 @@ var list_work_items_default = defineTool({
 // src/lib/mcp/tools/get-work-item.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z2 } from "npm:zod@^3.25.76";
+
+// src/lib/monitoring-reason.ts
+function radDigits(radicado) {
+  return (radicado || "").replace(/\D/g, "");
+}
+function hasUsableRadicado(radicado) {
+  return radDigits(radicado).length === 23;
+}
+function judicialQueryState(input) {
+  if (!input.compatible) return "IDENTIFICADOR_INCOMPATIBLE";
+  const status = (input.status ?? "").toUpperCase();
+  if (["RESTRICTED", "PRIVATE"].includes(status)) return "RESTRINGIDA";
+  if (["ERROR", "FAILED", "REJECTED", "TIMEOUT"].includes(status)) return "FALLIDA";
+  if (["RUNNING", "IN_PROGRESS"].includes(status)) return "EN_EJECUCION";
+  if (["SUCCESS", "SUCCESS_EMPTY", "EMPTY", "NOT_FOUND"].includes(status)) return (input.count ?? 0) > 0 ? "CON_RESULTADOS" : "SIN_NOVEDADES";
+  return "PENDIENTE";
+}
+var JUDICIAL_QUERY_LABELS = {
+  IDENTIFICADOR_INCOMPATIBLE: "Expediente sin identificador compatible para consulta autom\xE1tica",
+  PENDIENTE: "Consulta inicial pendiente",
+  EN_EJECUCION: "Consulta en ejecuci\xF3n",
+  CON_RESULTADOS: "Consulta exitosa con resultados",
+  SIN_NOVEDADES: "Consulta exitosa sin novedades",
+  FALLIDA: "Consulta fallida",
+  RESTRINGIDA: "Fuente restringida o privada"
+};
+
+// src/lib/mcp/tools/get-work-item.ts
 var get_work_item_default = defineTool2({
   name: "get_work_item",
   title: "Detalle de asunto",
@@ -312,6 +340,18 @@ var get_work_item_default = defineTool2({
       return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
     }
     const item = resolved.item;
+    const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline").select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at").eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
+    if (checksError) return errorResult("No se pudo verificar el historial de consultas; no se informa como sin novedades.");
+    const seen = /* @__PURE__ */ new Set();
+    const queryStates = (checks ?? []).filter((c) => {
+      const key = `${c.provider}:${c.operation}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((c) => {
+      const state = judicialQueryState({ compatible: hasUsableRadicado(item.radicado), status: c.status, count: (c.records_inserted ?? 0) + (c.records_skipped ?? 0) });
+      return { ...c, state, label: JUDICIAL_QUERY_LABELS[state] };
+    });
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
       sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
@@ -380,7 +420,9 @@ var get_work_item_default = defineTool2({
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         terminos_activos: deadlines ?? [],
-        audiencias: hearings ?? []
+        audiencias: hearings ?? [],
+        consultas: queryStates,
+        consulta_estado: queryStates.length ? null : JUDICIAL_QUERY_LABELS[judicialQueryState({ compatible: hasUsableRadicado(item.radicado) })]
       }
     );
   }
@@ -1063,7 +1105,7 @@ var list_hearings_default = defineTool15({
       itemId = resolved.item.id;
     }
     const cap = limit ?? 50;
-    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary").order("scheduled_at", { ascending: true }).limit(cap + 1);
+    let q = sb.from("work_item_hearings").select("id, work_item_id, custom_name, status, scheduled_at, occurred_at, duration_minutes, modality, location, meeting_link, decisions_summary, updated_at").order("scheduled_at", { ascending: true }).limit(cap + 1);
     if (itemId) q = q.eq("work_item_id", itemId);
     if (date_from) q = q.gte("scheduled_at", `${date_from}T00:00:00-05:00`);
     if (date_to) q = q.lte("scheduled_at", `${date_to}T23:59:59-05:00`);
@@ -1126,7 +1168,7 @@ var list_tasks_default = defineTool16({
   inputSchema: {
     work_item_id: z15.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
     radicado: z15.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z15.string().trim().optional().describe("Estado exacto (p. ej. PENDING, IN_PROGRESS, COMPLETED) o 'all'."),
+    status: z15.enum(["PENDIENTE", "COMPLETADA", "OPEN", "PENDING", "DONE", "COMPLETED", "all"]).optional().describe("PENDIENTE o COMPLETADA (tambi\xE9n acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."),
     limit: z15.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -1142,8 +1184,8 @@ var list_tasks_default = defineTool16({
     }
     let q = sb.from("work_item_tasks").select("id, work_item_id, title, description, status, priority, due_date, completed_at, created_at").order("due_date", { ascending: true, nullsFirst: false }).limit(limit ?? 50);
     if (itemId) q = q.eq("work_item_id", itemId);
-    if (!status) q = q.neq("status", "COMPLETED");
-    else if (status.toLowerCase() !== "all") q = q.eq("status", status.toUpperCase());
+    if (!status) q = q.eq("status", "PENDIENTE");
+    else if (status !== "all") q = q.eq("status", ["DONE", "COMPLETED", "COMPLETADA"].includes(status) ? "COMPLETADA" : "PENDIENTE");
     const { data, error } = await q;
     if (error) return errorResult(error.message);
     return textResult(`${data?.length ?? 0} tareas.`, {
@@ -1489,33 +1531,57 @@ import { z as z18 } from "npm:zod@^3.25.76";
 var add_hearing_default = defineTool19({
   name: "add_hearing",
   title: "Agendar audiencia",
-  description: "Schedules a hearing (audiencia) on one of the caller's matters. Requires a manage grant (see get_capabilities). It only inserts new hearings: it never deletes, reschedules by deletion, reclassifies, or changes the lifecycle of a matter.",
+  description: "Schedules a hearing or explicitly corrects an existing hearing by hearing_id, expected revision, evidence reason and idempotency key. Corrections preserve identity and audit; require the correction RPC to be released. Never deletes or changes the matter lifecycle. Requires manage permission.",
   inputSchema: {
     work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
     radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     date: z18.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
     description: z18.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
-    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia.")
+    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
+    modality: z18.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."),
+    hearing_id: z18.string().uuid().optional().describe("Para corregir una audiencia existente sin cambiar su identidad; omitir para crear."),
+    expected_updated_at: z18.string().datetime({ offset: true }).optional().describe("Revisi\xF3n le\xEDda de la audiencia, obligatoria al corregir."),
+    reason: z18.string().trim().min(5).max(2e3).optional().describe("Fuente y motivo de correcci\xF3n; obligatorio al corregir."),
+    idempotency_key: z18.string().min(8).max(200).optional(),
+    status: z18.enum(["planned", "scheduled", "held", "postponed", "cancelled"]).optional().describe("Solo al corregir; held requiere occurred_at acreditado."),
+    occurred_at: z18.string().datetime({ offset: true }).optional()
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  handler: async ({ work_item_id, radicado, date, description, location }, ctx) => {
+  handler: async ({ work_item_id, radicado, date, description, location, modality, hearing_id, expected_updated_at, reason, idempotency_key, status, occurred_at }, ctx) => {
     const denied = await requireWriteScope(ctx);
     if (denied) return errorResult(denied);
     const sb = sbForUser(ctx);
     const when = new Date(date);
-    if (Number.isNaN(when.getTime())) return errorResult("Fecha inv\xE1lida: usa formato ISO 8601.");
+    if (Number.isNaN(when.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/i.test(date)) return errorResult("Fecha inv\xE1lida: usa ISO 8601 con zona horaria expl\xEDcita, por ejemplo -05:00.");
+    if (hearing_id) {
+      if (!expected_updated_at || !reason || !idempotency_key) return errorResult("Corregir requiere expected_updated_at, reason e idempotency_key.");
+      const patch = {
+        scheduled_at: when.toISOString(),
+        custom_name: description,
+        ...location !== void 0 ? { location } : {},
+        ...modality ? { modality } : {},
+        ...status ? { status } : {},
+        ...occurred_at ? { occurred_at } : {}
+      };
+      const { data: data2, error: error2 } = await sb.rpc("mcp_correct_hearing", { p_hearing_id: hearing_id, p_patch: patch, p_expected_updated_at: expected_updated_at, p_reason: reason, p_idempotency_key: idempotency_key });
+      if (error2) return errorResult(rpcErrorText(error2));
+      return textResult("Audiencia corregida conservando su identidad y auditor\xEDa.", data2);
+    }
+    if (status || occurred_at) return errorResult("status y occurred_at requieren hearing_id para una correcci\xF3n expl\xEDcita.");
     const resolved = await resolveWorkItem(sb, { id: work_item_id, radicado });
     if (resolved.error || !resolved.item) return errorResult(resolved.error ?? "Asunto no encontrado.");
     const itemId = resolved.item.id;
-    const orgId = await callerOrganizationId(sb, ctx.getUserId());
+    const userId = ctx.getUserId();
+    if (!userId) return errorResult("No se pudo identificar al usuario.");
+    const orgId = await callerOrganizationId(sb, userId);
     const { data, error } = await sb.from("work_item_hearings").insert({
       work_item_id: itemId,
       organization_id: orgId,
       custom_name: description,
       scheduled_at: when.toISOString(),
       location: location ?? null,
-      status: "SCHEDULED",
-      modality: location && /^https?:\/\//i.test(location) ? "VIRTUAL" : "PRESENCIAL",
+      status: "scheduled",
+      modality: modality ?? (location && /^https?:\/\//i.test(location) ? "virtual" : "presencial"),
       created_by: ctx.getUserId(),
       notes_plain_text: "Agendada v\xEDa asistente de IA (MCP)."
     }).select("id, work_item_id, custom_name, scheduled_at, location, status").maybeSingle();
@@ -2032,7 +2098,7 @@ import { z as z23 } from "npm:zod@^3.25.76";
 var update_work_item_default = defineTool28({
   name: "update_work_item",
   title: "Editar datos de un asunto",
-  description: "Updates the descriptive fields of a matter: title, parties, court data, links, client, flags and monitoring switches. Monitoring is paused/resumed through the explicit, audited user suspension (a reason is required to pause). It can NEVER change the radicado, the workflow type, the procedural stage, or delete/archive the matter.",
+  description: "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
   inputSchema: {
     radicado: z23.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
     id: z23.string().uuid().optional().describe("UUID del asunto."),
@@ -2041,7 +2107,7 @@ var update_work_item_default = defineTool28({
     demandantes: z23.string().trim().max(1e3).optional(),
     demandados: z23.string().trim().max(1e3).optional(),
     authority_name: z23.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z23.string().trim().email().max(200).optional().describe("Correo del despacho."),
+    authority_email: z23.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina expl\xEDcitamente un correo desactualizado, sin inventar reemplazo."),
     authority_city: z23.string().trim().max(120).optional(),
     expediente_url: z23.string().trim().url().max(2e3).optional(),
     client_id: z23.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
@@ -2049,7 +2115,11 @@ var update_work_item_default = defineTool28({
     monitoring_enabled: z23.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
     monitoring_off_reason: z23.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
     email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos."),
-    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
+    workflow_type: z23.string().trim().min(2).optional().describe("Reclasificaci\xF3n expl\xEDcita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."),
+    stage: z23.string().trim().min(1).optional().describe("Etapa de destino validada contra el cat\xE1logo vivo del tipo de proceso."),
+    expected_updated_at: z23.string().datetime({ offset: true }).optional(),
+    reason: z23.string().trim().min(5).max(2e3).optional().describe("Motivo y evidencia de la reclasificaci\xF3n.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2059,6 +2129,14 @@ var update_work_item_default = defineTool28({
     const resolved = await resolveWorkItem(sb, { id: args.id, radicado: args.radicado });
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
+    if (args.workflow_type !== void 0 || args.stage !== void 0) {
+      const allowed = /* @__PURE__ */ new Set(["id", "radicado", "workflow_type", "stage", "expected_updated_at", "reason", "idempotency_key"]);
+      if (Object.entries(args).some(([k, v]) => v !== void 0 && !allowed.has(k))) return errorResult("No combines reclasificaci\xF3n con edici\xF3n de datos o monitoreo.");
+      if (!args.workflow_type || !args.stage || !args.expected_updated_at || !args.reason || !args.idempotency_key) return errorResult("Reclasificar requiere tipo, etapa, revisi\xF3n, motivo e idempotency_key.");
+      const { data: data2, error: error2 } = await sb.rpc("mcp_reclassify_work_item", { p_work_item_id: item.id, p_workflow_type: args.workflow_type, p_stage: args.stage, p_expected_updated_at: args.expected_updated_at, p_reason: args.reason, p_idempotency_key: args.idempotency_key });
+      if (error2) return errorResult(rpcErrorText(error2));
+      return textResult("Asunto reclasificado; actuaciones, documentos, notas e historial se conservan.", data2);
+    }
     const EDITABLE = [
       "title",
       "description",
@@ -2219,7 +2297,7 @@ var manage_task_default = defineTool30({
     work_item_id: z25.string().uuid().optional(),
     title: z25.string().trim().max(300).optional(),
     description: z25.string().trim().max(3e3).optional(),
-    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT", "BAJA", "MEDIA", "ALTA"]).optional().describe("LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."),
     due_date: z25.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -2230,6 +2308,7 @@ var manage_task_default = defineTool30({
     const userId = ctx.getUserId?.();
     if (!userId) return errorResult("No se pudo identificar al usuario del token.");
     const dueISO = args.due_date ? `${args.due_date}T17:00:00-05:00` : void 0;
+    const priorities = { LOW: "BAJA", MEDIUM: "MEDIA", HIGH: "ALTA", URGENT: "ALTA", BAJA: "BAJA", MEDIA: "MEDIA", ALTA: "ALTA" };
     if (args.action === "create") {
       if (!args.title) return errorResult("Indica el t\xEDtulo de la tarea.");
       const resolved = await resolveWorkItem(sb, { id: args.work_item_id, radicado: args.radicado });
@@ -2242,9 +2321,9 @@ var manage_task_default = defineTool30({
         work_item_id: item.id,
         title: args.title,
         description: args.description ?? null,
-        priority: args.priority ?? "MEDIUM",
+        priority: priorities[args.priority ?? "MEDIUM"],
         due_date: dueISO ?? null,
-        status: "OPEN"
+        status: "PENDIENTE"
       }).select("id, work_item_id, title, priority, due_date, status").maybeSingle();
       if (error2) return errorResult(error2.message);
       return textResult(`Tarea creada en ${item.radicado ?? item.id}.`, { task: data2 });
@@ -2252,17 +2331,17 @@ var manage_task_default = defineTool30({
     if (!args.task_id) return errorResult("Indica el task_id.");
     const patch = { updated_at: (/* @__PURE__ */ new Date()).toISOString() };
     if (args.action === "complete") {
-      patch.status = "DONE";
+      patch.status = "COMPLETADA";
       patch.completed_at = (/* @__PURE__ */ new Date()).toISOString();
       patch.completed_by = userId;
     } else if (args.action === "reopen") {
-      patch.status = "OPEN";
+      patch.status = "PENDIENTE";
       patch.completed_at = null;
       patch.completed_by = null;
     } else {
       if (args.title !== void 0) patch.title = args.title;
       if (args.description !== void 0) patch.description = args.description;
-      if (args.priority !== void 0) patch.priority = args.priority;
+      if (args.priority !== void 0) patch.priority = priorities[args.priority];
       if (dueISO !== void 0) patch.due_date = dueISO;
       if (Object.keys(patch).length === 1) return errorResult("No indicaste ning\xFAn campo para cambiar.");
     }
@@ -2565,6 +2644,10 @@ var get_capabilities_default = defineTool34({
         has_manage_grant: hasGrant,
         manage_tools: available,
         tool_availability: a.tools,
+        correction_availability: {
+          add_hearing_existing: hasGrant && a.tools.correct_hearing?.available === true,
+          update_work_item_reclassification: hasGrant && a.tools.reclassify_work_item?.available === true
+        },
         access_verified: verified,
         reason: !verified ? "SESSION_UNVERIFIED" : hasGrant && !canManage ? "EXECUTION_UNAVAILABLE" : !hasGrant ? "READ_ONLY" : null,
         unavailable_manage_tools: MANAGE_TOOLS.filter((name) => !available.includes(name)),
@@ -2849,7 +2932,7 @@ var create_work_item_default = defineTool36({
   description: "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
   inputSchema: {
     workflow_type: z30.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
-    radicado: z30.string().trim().optional().describe("Radicado de 23 d\xEDgitos (con o sin guiones). Sin radicado el monitoreo queda pendiente de radicaci\xF3n."),
+    radicado: z30.string().trim().optional().describe("Radicado judicial compatible de 23 d\xEDgitos (con o sin guiones). Sin identificador compatible no hay consulta autom\xE1tica; esto no determina si el expediente existe jur\xEDdicamente."),
     title: z30.string().trim().max(300).optional(),
     client_id: z30.string().uuid().optional().describe("Cliente propio del usuario."),
     demandantes: z30.string().trim().max(1e3).optional(),
@@ -2879,7 +2962,7 @@ var create_work_item_default = defineTool36({
     });
     if (error) return errorResult(rpcErrorText(error));
     const r = data;
-    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}.`, r);
+    return textResult(`Asunto creado${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}. No se realiz\xF3 una consulta judicial en esta operaci\xF3n; la sincronizaci\xF3n inicial queda programada si el identificador es compatible.`, { ...r, consulta_realizada: false });
   }
 });
 
@@ -3319,7 +3402,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.6",
+  version: "0.6.7",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3339,7 +3422,7 @@ var mcp_default = defineMcp({
     "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
     "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. `get_capabilities` verifica disponibilidad de ejecuci\xF3n y permiso de gesti\xF3n en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
-    "No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
+    "Correcciones expl\xEDcitas: add_hearing con hearing_id conserva identidad, exige revisi\xF3n, motivo y clave; update_work_item admite authority_email:null y, separadamente, reclasificaci\xF3n workflow_type+stage con cat\xE1logo vivo, motivo y revisi\xF3n. get_capabilities.correction_availability determina si esas variantes est\xE1n liberadas; nunca presumas disponibilidad de una variante por el permiso de la herramienta base. La remisi\xF3n no acredita terminaci\xF3n. No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
     "Las herramientas `atenia_*` son exclusivas de administradores de la plataforma; para cualquier otro usuario devuelven un rechazo limpio. No las ofrezcas si el usuario no es administrador."
   ].join(" "),
   auth: auth.oauth.issuer({
@@ -3347,7 +3430,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-6"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-7"
   }),
   tools: [
     get_user_context_default,
