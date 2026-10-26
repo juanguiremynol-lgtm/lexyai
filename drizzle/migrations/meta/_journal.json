@@ -610,6 +610,13 @@
       "when": 1792977561949,
       "tag": "0086_mcp_correction_capabilities",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1793016939395,
+      "tag": "0087_retry_queue_fenced_outcomes",
+      "breakpoints": true
     }
   ]
 }
