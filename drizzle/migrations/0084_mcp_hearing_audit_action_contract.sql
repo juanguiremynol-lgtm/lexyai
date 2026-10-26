@@ -1,0 +1,1 @@
+DO $patch$ DECLARE s text; BEGIN SELECT pg_get_functiondef('public.mcp_correct_hearing(uuid,jsonb,timestamptz,text,text)'::regprocedure) INTO s; IF strpos(s,'''MCP_CORRECTION''')=0 THEN RAISE EXCEPTION 'audit action anchor mismatch'; END IF; s:=replace(s,'''MCP_CORRECTION''','''hearing_updated'''); EXECUTE s; END $patch$;

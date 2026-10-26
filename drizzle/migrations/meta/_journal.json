@@ -589,6 +589,13 @@
       "when": 1792977352248,
       "tag": "0083_mcp_correct_hearing",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792977418368,
+      "tag": "0084_mcp_hearing_audit_action_contract",
+      "breakpoints": true
     }
   ]
 }
