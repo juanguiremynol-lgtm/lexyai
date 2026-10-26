@@ -15,6 +15,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { startHeartbeat, finishHeartbeat, heartbeatNoOp, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
 import { ONLINE_SYNC_ELIGIBLE_LIST } from "../_shared/onlineSyncEligibility.ts";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,6 +89,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok && gate.response) return gate.response;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -337,25 +341,19 @@ Deno.serve(async (req) => {
       for (const src of stuckSources) {
         if (timeUp()) { (results as any).partial = true; break; }
         // Check if there's an active retry queued
-        const { data: retryRow } = await admin
+        const { data: retryRows, error: retryError } = await admin
           .from("sync_retry_queue")
           .select("id, next_run_at, attempt, max_attempts")
-          .eq("work_item_id", src.work_item_id)
-          .gt("next_run_at", new Date().toISOString())
-          .maybeSingle();
+          .eq("work_item_id", src.work_item_id);
 
-        if (retryRow && retryRow.attempt < retryRow.max_attempts) {
+        if (retryError) { (results as any).partial = true; continue; }
+        if ((retryRows ?? []).some(row => row.attempt < row.max_attempts)) {
           // Active retry exists — skip, it will converge
           continue;
         }
 
         // Check if retry is exhausted
-        const { data: exhaustedRetry } = await admin
-          .from("sync_retry_queue")
-          .select("id, attempt, max_attempts")
-          .eq("work_item_id", src.work_item_id)
-          .gte("attempt", 3) // max_attempts typically 3
-          .maybeSingle();
+        const exhaustedRetry = (retryRows ?? []).some(row => row.attempt >= row.max_attempts);
 
         if (exhaustedRetry || (src.consecutive_failures || 0) >= 5) {
           // Terminal: mark SCRAPING_STUCK

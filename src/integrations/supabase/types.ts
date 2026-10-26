@@ -17315,6 +17315,42 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_retry_outcomes: {
+        Row: {
+          attempt: number
+          created_at: string
+          error_code: string | null
+          id: string
+          kind: string
+          outcome: string
+          result: Json
+          task_id: string
+          work_item_id: string
+        }
+        Insert: {
+          attempt: number
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          kind: string
+          outcome: string
+          result?: Json
+          task_id: string
+          work_item_id: string
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          kind?: string
+          outcome?: string
+          result?: Json
+          task_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       sync_retry_queue: {
         Row: {
           attempt: number
@@ -17324,6 +17360,7 @@ export type Database = {
           kind: string
           last_error_code: string | null
           last_error_message: string | null
+          lease_token: string | null
           max_attempts: number
           next_run_at: string
           organization_id: string | null
@@ -17342,6 +17379,7 @@ export type Database = {
           kind: string
           last_error_code?: string | null
           last_error_message?: string | null
+          lease_token?: string | null
           max_attempts?: number
           next_run_at: string
           organization_id?: string | null
@@ -17360,6 +17398,7 @@ export type Database = {
           kind?: string
           last_error_code?: string | null
           last_error_message?: string | null
+          lease_token?: string | null
           max_attempts?: number
           next_run_at?: string
           organization_id?: string | null
@@ -26355,6 +26394,34 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      claim_sync_retry: {
+        Args: { p_initial: boolean; p_kind: string }
+        Returns: {
+          attempt: number
+          claimed_at: string | null
+          created_at: string
+          id: string
+          kind: string
+          last_error_code: string | null
+          last_error_message: string | null
+          lease_token: string | null
+          max_attempts: number
+          next_run_at: string
+          organization_id: string | null
+          provider: string
+          radicado: string
+          scraping_job_id: string | null
+          stage: string | null
+          updated_at: string
+          work_item_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "sync_retry_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       classify_deadline_birth_status: {
         Args: { p_deadline_date: string }
         Returns: string
@@ -26810,6 +26877,17 @@ export type Database = {
           _run_id: string
           _success: boolean
           _work_item_id: string
+        }
+        Returns: boolean
+      }
+      finish_sync_retry: {
+        Args: {
+          p_delay_seconds?: number
+          p_error: string
+          p_id: string
+          p_outcome: string
+          p_result: Json
+          p_token: string
         }
         Returns: boolean
       }

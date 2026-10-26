@@ -142,18 +142,17 @@ async function enqueueScrapingRetry(
       .maybeSingle();
 
     if (existing) {
-      // Already queued — increment attempt and reschedule
+      // Retry worker owns attempt accounting and lease/backoff. Provider
+      // execution must not increment the same retry a second time.
       if (existing.attempt < existing.max_attempts) {
         await (supabase.from('sync_retry_queue') as any)
           .update({
-            attempt: existing.attempt + 1,
-            next_run_at: nextRunAt,
             last_error_code: input.errorCode || 'SCRAPING_TIMEOUT',
             last_error_message: input.errorMessage || 'Rescheduled',
             scraping_job_id: input.scrapingJobId || null,
           })
           .eq('id', existing.id);
-        console.log(`[sync-by-work-item] Retry rescheduled: attempt ${existing.attempt + 1}/${existing.max_attempts}, next_run_at=${nextRunAt}`);
+        console.log(`[sync-by-work-item] Retry evidence updated; attempt and schedule retained`);
       } else {
         console.log(`[sync-by-work-item] Retry already at max attempts (${existing.max_attempts}), not rescheduling`);
       }
@@ -4447,4 +4446,4 @@ Deno.serve(withSyncTimeline(async (req) => {
       traceId
     );
   }
-}, { function_name: "sync-by-work-item", default_operation: "acts" }));
+}, { function_name: "sync-by-work-item", default_operation: "acts", adapter_version: "judicial-preservation-20261026" }));
