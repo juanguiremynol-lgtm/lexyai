@@ -30,8 +30,15 @@ Deno.test('generic 502 and timeout do not open the shared session circuit', asyn
   await withSamaiEstadosBreaker(rpc, async () => ({...valid,status:'TIMEOUT',httpStatus:undefined}));
   equal(outcomes,['OTHER_FAILURE','OTHER_FAILURE']);
 });
-Deno.test('lost probe or unavailable database returns pending rather than success', async () => {
-  const lost=await withSamaiEstadosBreaker(async (name) => name.startsWith('acquire') ? [{allowed:true,generation:2,probe_token:'probe',retry_at:null}] : false, async () => valid);
+Deno.test('lost seal keeps the real source answer; unavailable permit defers', async () => {
+  let calls=0;
+  const lost=await withSamaiEstadosBreaker(async (name) => name.startsWith('acquire') ? [{allowed:true,generation:2,probe_token:'probe',retry_at:null}] : false, async () => {calls++;return valid;});
   const unavailable=await withSamaiEstadosBreaker(async () => {throw new Error('unavailable');}, async () => valid);
-  equal([lost.errorMessage,unavailable.errorMessage],['PROVIDER_BREAKER_LEASE_LOST','PROVIDER_BREAKER_UNAVAILABLE']);
+  equal([lost.status,lost.errorMessage,(lost as any).breakerSeal,calls],[valid.status,valid.errorMessage,'LOST',1]);
+  equal(unavailable.errorMessage,'PROVIDER_BREAKER_UNAVAILABLE');
+});
+Deno.test('lost seal on a session 403 stays a failure, never a deferral or success', async () => {
+  const blocked={...valid,status:'ERROR',httpStatus:502,errorMessage:'SAMAI_ESTADOS_SESSION_403'} as any;
+  const r=await withSamaiEstadosBreaker(async (n) => n.startsWith('acquire') ? [{allowed:true,generation:0,probe_token:null,retry_at:null}] : false, async () => blocked);
+  equal([r.status,r.errorMessage],['ERROR','SAMAI_ESTADOS_SESSION_403']);
 });
