@@ -65,3 +65,10 @@ Producidas por src/lib/services/atenia-incident-policy.ts sin work_item_id; ning
 - atenia-e2e-scheduled ef3403abce23234192d89a22c756e635657f429509461d3d4bc32b5d1c3b1870
 DEPLOY_SHA sigue sin configurar (no se inventa).
 Web publicada: https://andromeda.legal sirve /assets/main-Bx4I7k9K.js (sin cambios de interfaz en este turno).
+
+## 2026-10-28 20:25 UTC — async PP bridge integrated (supersedes "backend synchronous/not deployed" above)
+- Integrated lexyai `fix/pp-async-caller-20261028` commit c4a4c76c (base b9199925 = project HEAD, applied cleanly, 9 files).
+- Migration applied as drizzle 0090 (finish_sync_retry accepts DEFERRED/PP_RUN_PENDING only with valid run UUID, ADMITIDA/EN_CURSO, admission <24h; no attempt increment).
+- Deployed: sync-publicaciones-by-work-item (src sha256 8cea87d2…), process-retry-queue (79260f1c…).
+- Deno: 13/13 PASS. Isolated SQL suite not run (needs empty cluster).
+- Nicholls single check (net request 2488): HTTP 202 reused run 0233cc45-1944-44f8-bafb-7580b4cddace, trazabilidad 3cd0dab4-7edb-4520-a3b6-6381d85122fa, estado EN_CURSO, status PENDING_UPSTREAM, 0 inserted / 3 skipped; association stored in cron_state pub_rescrape:db1b4198…; no new run created.

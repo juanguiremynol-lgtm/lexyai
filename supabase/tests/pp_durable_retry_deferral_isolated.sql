@@ -5,7 +5,7 @@ CREATE SCHEMA auth;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT 'service_role'::text $$;
 CREATE TABLE public.sync_retry_queue (id uuid PRIMARY KEY, work_item_id uuid,kind text,attempt int,max_attempts int,lease_token uuid,claimed_at timestamptz,next_run_at timestamptz,last_error_code text,last_error_message text);
 CREATE TABLE public.sync_retry_outcomes (task_id uuid PRIMARY KEY,work_item_id uuid,kind text,attempt int,outcome text,error_code text,result jsonb);
-\i supabase/migrations/20261028040000_retry_pp_durable_deferral.sql
+\i drizzle/migrations/0090_retry_pp_durable_deferral.sql
 INSERT INTO sync_retry_queue VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000002','PUB_RETRY',1,4,'00000000-0000-4000-8000-000000000003',now(),now(),NULL,NULL);
 DO $$ DECLARE v jsonb; ok boolean; q sync_retry_queue%ROWTYPE;
 BEGIN
