@@ -1940,16 +1940,25 @@ Deno.serve(withSyncTimeline(async (req) => {
     // backend_run_id, backend_new_events). Absent fields stay null; nothing
     // is synthesized.
     {
-      const b: any = (fetchResult as any).procesarAck?.body ?? (fetchResult as any).historicoRead?.body ?? null;
+      const runRead = fetchResult.runStatusRead;
+      const b: any = (fetchResult as any).procesarAck?.body ?? runRead?.body ?? (fetchResult as any).historicoRead?.body ?? null;
       const pick = (k: string) => (b && typeof b === 'object' && b[k] != null ? b[k] : null);
-      const backendRunId = pick('backend_run_id');
+      const backendRunId = pick('backend_run_id') ?? (runRead ? runRead.run_id : null);
       const admittedNow = (fetchResult as any).procesarAck?.http_status === 202 && backendRunId;
       const admittedAt = gateStatus.backendRunId === backendRunId ? (gateStatus.backendAdmittedAt ?? gateStatus.lastTriggeredAt)
         : admittedNow ? new Date().toISOString() : null;
+      // The bound uses the app's first observation; a backend admission time
+      // is reported separately only when the backend actually sends one.
+      const backendReported = ['admitida_en', 'admitted_at', 'fecha_admision', 'creado_en', 'created_at']
+        .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
         backend_new_events: pick('backend_new_events'), run_status: pick('run_status'),
         estado: pick('estado'), backend_admitted_at: admittedAt,
+        backend_admitted_at_source: admittedAt ? 'app_first_observed' : null,
+        backend_reported_admitted_at: backendReported,
+        run_status_polled: !!runRead, run_status_http: runRead?.http_status ?? null,
+        run_status_polled_at: runRead?.polled_at ?? null, run_status_error: runRead?.error ?? null,
         procesar_transport_error: (fetchResult as any).procesarAck?.transport_error ?? null,
       };
     }
@@ -1957,6 +1966,29 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ── Persist gate ledger + trace ONLY when we actually fired the trigger ──
     if (rescrapeDecision.triggered) {
       await recordRescrapeTrigger(supabase, work_item_id, normalizedRadicado, rescrapeDecision);
+    } else if (fetchResult.runStatusRead) {
+      // Follow-up ledger: admission/run id are preserved verbatim; only poll
+      // counters move. A completed or definitively failed run closes follow-up.
+      const rr = fetchResult.runStatusRead;
+      const est = rr.body && typeof rr.body === 'object' ? (rr.body as any).estado ?? null : null;
+      const closed = fetchResult.durableCompleted === true ||
+        (!fetchResult.ok && (rr.http_status ?? 0) >= 400 && (rr.http_status ?? 0) < 500) ||
+        (!fetchResult.ok && (est === 'PARCIAL' || est === 'FALLIDA'));
+      try {
+        const key = `pub_rescrape:${work_item_id}`;
+        const { data: cur } = await supabase.from('cron_state').select('value').eq('key', key).maybeSingle();
+        const v = (cur?.value ?? {}) as Record<string, unknown>;
+        if (v.backend_run_id === rr.run_id) {
+          await supabase.from('cron_state').update({
+            value: { ...v, poll_count: (Number(v.poll_count ?? 0) || 0) + 1, last_polled_at: rr.polled_at,
+              last_poll_http: rr.http_status, last_poll_estado: est, last_poll_error: rr.error ?? fetchResult.error ?? null,
+              followup_closed: closed, followup_closed_at: closed ? rr.polled_at : null },
+            updated_at: new Date().toISOString(),
+          }).eq('key', key);
+        }
+      } catch (e) {
+        console.warn('[sync-pub] follow-up ledger update failed', e instanceof Error ? e.message : 'unknown');
+      }
     }
     try {
       await supabase.from('provider_sync_traces' as any).insert({
