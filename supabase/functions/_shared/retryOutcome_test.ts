@@ -20,7 +20,12 @@ Deno.test('PP durable admission defers without spending attempts until its fixed
   const now = Date.parse('2026-10-28T18:00:00Z');
   const payload = {pending_upstream:true,backend_trace:{backend_run_id:'21e9c43b-f2fd-4bb3-9247-01169937cad8',estado:'EN_CURSO',backend_admitted_at:'2026-10-28T17:00:00Z'}};
   assertEquals(ppDurableDeferral(payload, now), {code:'PP_RUN_PENDING',delaySeconds:1800});
-  assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,backend_admitted_at:'2026-10-27T18:00:00Z'}}, now), null);
+  // Past 24h: observable overdue follow-up, still no attempt and no new extraction.
+  assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,backend_admitted_at:'2026-10-27T18:00:00Z'}}, now), {code:'PP_RUN_OVERDUE',delaySeconds:21600});
+  // Near the 72h cap the delay never overshoots it.
+  assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,backend_admitted_at:'2026-10-25T19:00:00Z'}}, now), {code:'PP_RUN_OVERDUE',delaySeconds:3600});
+  // At 72h the follow-up ends terminally and visibly.
+  assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,backend_admitted_at:'2026-10-25T18:00:00Z'}}, now), {terminal:true,code:'PP_RUN_FOLLOWUP_EXPIRED'});
   assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,backend_run_id:'invalid'}}, now), null);
   assertEquals(ppDurableDeferral({...payload,backend_trace:{...payload.backend_trace,estado:'PARCIAL'}}, now), null);
   assertEquals(ppDurableDeferral({...payload,pending_upstream:false}, now), null);
