@@ -2633,7 +2633,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ran successfully but found zero actuaciones. This is NOT a failure — it's a valid
     // empty result (common for newly filed cases or intermittent scraper gaps).
     // Redirect to the empty-handling path (line ~2470) by normalizing the fetchResult.
-    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && !fetchResult.scrapingInitiated) {
+    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && fetchResult.httpStatus !== 404 && !fetchResult.scrapingInitiated) {
       console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned isEmpty=true — treating as valid empty result, not error`);
       // Normalize: set ok=true so it falls through to the empty actuaciones handler below
       fetchResult.ok = true;
@@ -2855,7 +2855,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // BUG FIX 2.2: This is expected for newly filed cases. Treat as ok=true with status 'empty'.
     // This is non-transient (no retry needed) and non-404 (no demonitor).
     if (fetchResult.actuaciones.length === 0) {
-      const incompleteEmpty = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted'].includes(a.status));
+      const incompleteEmpty = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
       result.ok = !incompleteEmpty;
       result.partial = incompleteEmpty;
       result.code = incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT';
@@ -3535,7 +3535,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Validate sync integrity before setting last_synced_at
     const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
     const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout');
-    const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted'].includes(a.status));
+    const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
 
     const persistenceFailed = !persistenceIsComplete(persistLedger);
     if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
