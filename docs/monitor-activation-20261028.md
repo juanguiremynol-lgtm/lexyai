@@ -31,3 +31,13 @@ La CLI usa por función la sintaxis siguiente desde este checkout, tras comproba
 ```
 
 El SQL de cron está fuera de `supabase/migrations`: debe ejecutarse expresamente por el canal SQL autorizado y no se ejecuta al publicar una función.
+
+## Recuperación selectiva de SAMAI Estados
+
+La corrida del 28 de octubre `f3e27d50-4d97-4a49-aa45-78c3cfffe110` contiene 15 resultados agotados. Los 15 asuntos ya tienen una fila `PUB_RETRY` activa: no insertar copias ni cambiar la corrida histórica. Comprobar su situación en el momento de la ejecución, pues puede haber cambiado.
+
+La migración `20261028030000_retry_provider_deferral.sql` añade el resultado `DEFERRED` a `finish_sync_retry`. Aplicar antes de desplegar `process-retry-queue` de esta rama; el orden inverso puede generar errores. La función SQL conserva los caminos existentes de `SUCCESS`, `RETRY`, `EXHAUSTED` e `INELIGIBLE`; bajo `DEFERRED` conserva el contador y libera solo la concesión coincidente. No rebajar sus permisos. Publicar también `sync-publicaciones-by-work-item`, que incorpora el control de inscripción para CPACA, y los módulos compartidos que empaquetan ambas funciones.
+
+Una pausa de vigilancia conserva la fila y la difiere hasta un día sin consumir intentos. Si se reactiva, la fila se vuelve elegible en su siguiente vencimiento; la recuperación inmediata tras reactivar todavía requiere comprobación productiva. La eliminación terminal conserva el resultado en `sync_retry_outcomes`. No reactivar trabajos de asuntos eliminados ni deshabilitados.
+
+La guardia incorporada cubre SAMAI Estados para CPACA, tanto en el monitor diario como en la ruta manual. No garantiza por sí sola la exclusión individual de SAMAI Estados para TUTELA, ni la selección correcta de todos los elementos del snapshot diario. La tabla de ítems del monitor solo admite PENDING, CLAIMED, SUCCESS y FAILED, por lo que una exclusión en esa vía todavía no se registra como SKIPPED. No considerar cerrados esos límites sin corrección y prueba de integración.
