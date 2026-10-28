@@ -37,14 +37,15 @@ BEGIN
   END IF;
   RETURN QUERY
   WITH ranked AS (
-    SELECT q.*, row_number() OVER (PARTITION BY q.action_type
-      ORDER BY q.priority + floor(greatest(0, extract(epoch FROM (now()-q.created_at))) / 3600) DESC, q.created_at, q.id) AS rn
-    FROM public.atenia_ai_remediation_queue q
-    WHERE q.status='PENDING' AND q.run_after<=now() AND q.attempts<q.max_attempts
-      AND q.action_type IN ('RETRY_ACTS','RETRY_PUBS','RETRY_PUBS_HEAVY','RUN_INTEGRATION_HEALTH')
+    SELECT id, row_number() OVER (PARTITION BY action_type
+      ORDER BY priority + floor(greatest(0, extract(epoch FROM (now()-created_at))) / 3600) DESC, created_at, id) AS rn,
+      priority + floor(greatest(0, extract(epoch FROM (now()-created_at))) / 3600) AS aged
+    FROM public.atenia_ai_remediation_queue
+    WHERE status='PENDING' AND run_after<=now() AND attempts<max_attempts
+      AND action_type IN ('RETRY_ACTS','RETRY_PUBS','RETRY_PUBS_HEAVY','RUN_INTEGRATION_HEALTH')
   )
-  SELECT (r).* FROM (SELECT ranked AS r, rn, priority + floor(greatest(0, extract(epoch FROM (now()-created_at))) / 3600) aged, created_at, id FROM ranked) s
-  ORDER BY s.rn, s.aged DESC, s.created_at, s.id
+  SELECT q.* FROM public.atenia_ai_remediation_queue q JOIN ranked r ON r.id=q.id
+  ORDER BY r.rn, r.aged DESC, q.created_at, q.id
   LIMIT greatest(0, least(coalesce(_limit, 5), 5));
 END $$;
 REVOKE ALL ON FUNCTION public.atenia_ai_claim_supported_queue(integer) FROM PUBLIC, anon, authenticated;
