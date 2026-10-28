@@ -26520,6 +26520,34 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_sync_retry_pp_poll: {
+        Args: { p_task_id?: string }
+        Returns: {
+          attempt: number
+          claimed_at: string | null
+          created_at: string
+          id: string
+          kind: string
+          last_error_code: string | null
+          last_error_message: string | null
+          lease_token: string | null
+          max_attempts: number
+          next_run_at: string
+          organization_id: string | null
+          provider: string
+          radicado: string
+          scraping_job_id: string | null
+          stage: string | null
+          updated_at: string
+          work_item_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "sync_retry_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       classify_deadline_birth_status: {
         Args: { p_deadline_date: string }
         Returns: string
