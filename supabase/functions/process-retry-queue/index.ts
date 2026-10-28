@@ -2,16 +2,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { FOLLOWUP_SLOTS, followupSlots } from "./slots.ts";
 import { dispatchRetry } from "../_shared/retryDispatch.ts";
 import { breakerDeferral, ppDurableDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
 import { isExclusiveSamaiPublication, retryItemDisposition, samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 
-export const FOLLOWUP_SLOTS = 8;
-export function followupSlots(n: number) {
-  return Array.from({ length: n }, () => ["PUB_RETRY", "pp_poll"] as const);
-}
-
-if (import.meta.main) Deno.serve(async req => {
+Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const gate = await requirePrivilegedCaller(req, corsHeaders);
   if (!gate.ok && gate.response) return gate.response;

@@ -1,4 +1,4 @@
-import { FOLLOWUP_SLOTS, followupSlots } from "./index.ts";
+import { FOLLOWUP_SLOTS, followupSlots } from "./slots.ts";
 const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
 Deno.test("followup mode has only follow-up slots (no extraction channels)", () => {
   const s = followupSlots(FOLLOWUP_SLOTS);
