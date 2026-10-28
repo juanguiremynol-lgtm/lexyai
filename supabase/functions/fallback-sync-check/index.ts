@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
+import { invokeInternal } from "../_shared/internalInvoke.ts";
   shouldCountAsSuccess,
   isScrapingPending,
   shouldEnqueueRetry,
