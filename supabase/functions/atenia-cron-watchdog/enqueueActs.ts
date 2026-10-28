@@ -9,6 +9,11 @@ type RetryInsert = {
   max_attempts: number; next_run_at: string; last_error_code: string;
 };
 
+/** Route convergence gaps to the same fenced queue as other coverage gaps. */
+export function mergeCoverageCandidates(stuck: string[], missing: string[], stale: string[]): string[] {
+  return [...new Set([...stuck, ...missing, ...stale])];
+}
+
 /** Accept only durable inserts; a duplicate must not reset an existing lease,
  * attempt counter, due date, or backoff. A completed attempt is not success. */
 export async function enqueueMissingActs(
@@ -23,12 +28,18 @@ export async function enqueueMissingActs(
     seen.add(item.id);
     if (!item.monitoring_enabled || item.deleted_at || item.status !== "ACTIVE" || !item.organization_id ||
       !item.radicado || item.radicado.replace(/\D/g, "").length !== 23) { stats.ineligible++; continue; }
-    const sources = enrollments.filter(e => e.work_item_id === item.id);
-    // The generic consumer can choose an alternative source. Until it checks
-    // every provider at execution, avoid dispatching across a disabled source.
-    if (!sources.length || sources.some(e => !e.enabled)) { stats.source_blocked++; continue; }
+    // sync-by-work-item re-reads the current enrollments at execution time and
+    // gates each CPNU/SAMAI call. An unrelated disabled source must not prevent
+    // work for an enabled one; no disabled source is selected for the task.
+    const sources = enrollments.filter(e => e.work_item_id === item.id && e.enabled &&
+      ["cpnu", "samai"].includes(e.provider_key));
+    if (!sources.length) { stats.source_blocked++; continue; }
     const preferred = item.workflow_type === "CPACA" ? "samai" : "cpnu";
-    const source = sources.find(e => e.provider_key === preferred) ?? sources[0];
+    const primary = sources.find(e => e.provider_key === preferred);
+    // The non-orchestrated CHAIN path does not invoke an enabled alternative
+    // when its primary is disabled. Avoid scheduling futile repeated retries.
+    if (!primary && !["TUTELA", "INDETERMINADO"].includes(item.workflow_type)) { stats.source_blocked++; continue; }
+    const source = primary ?? sources[0];
     if (!source || !["cpnu", "samai"].includes(source.provider_key)) { stats.source_blocked++; continue; }
     if (recentCompletedIds.has(item.id)) { stats.recently_finished++; continue; }
     if (activeLegacyIds.has(item.id)) { stats.legacy_pending++; continue; }

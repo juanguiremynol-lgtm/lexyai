@@ -5,12 +5,19 @@ function assertEquals(actual: unknown, expected: unknown) {
 
 const item = { id: "case-a", radicado: "05001333301020240013900", workflow_type: "CPACA" };
 
-Deno.test("an active enrollment is required and disabled alternatives block generic dispatch", () => {
+Deno.test("an enabled source remains eligible when an alternative is disabled", () => {
   assertEquals(fallbackEligibility(item, []), { eligible: false, reason: "NO_ACTS_ENROLLMENT" });
   assertEquals(fallbackEligibility(item, [
     { work_item_id: "case-a", provider_key: "samai", enabled: true },
     { work_item_id: "case-a", provider_key: "cpnu", enabled: false },
-  ]), { eligible: false, reason: "DISABLED_SOURCE_REQUIRES_BOUNDARY_GUARD" });
+  ]), { eligible: true, provider: "samai" });
+  assertEquals(fallbackEligibility(item, [
+    { work_item_id: "case-a", provider_key: "samai", enabled: false },
+  ]), { eligible: false, reason: "NO_ENABLED_ACTS_SOURCE" });
+  assertEquals(fallbackEligibility(item, [
+    { work_item_id: "case-a", provider_key: "samai", enabled: false },
+    { work_item_id: "case-a", provider_key: "cpnu", enabled: true },
+  ]), { eligible: false, reason: "ENABLED_SOURCE_NOT_REACHABLE_BY_CHAIN" });
 });
 
 Deno.test("different items' enrollment and a malformed radicado do not authorize work", () => {

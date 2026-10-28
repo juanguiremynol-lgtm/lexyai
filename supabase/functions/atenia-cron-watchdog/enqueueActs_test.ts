@@ -1,4 +1,4 @@
-import { enqueueMissingActs, type WatchCandidate } from "./enqueueActs.ts";
+import { enqueueMissingActs, mergeCoverageCandidates, type WatchCandidate } from "./enqueueActs.ts";
 function equal(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`expected ${JSON.stringify(expected)} got ${JSON.stringify(actual)}`);
 }
@@ -6,6 +6,10 @@ const now = "2026-10-28T12:00:00Z";
 const item: WatchCandidate = { id: "a", organization_id: "org", radicado: "05001333301020240013900",
   workflow_type: "CPACA", monitoring_enabled: true, deleted_at: null, status: "ACTIVE" };
 const samai = { work_item_id: "a", provider_key: "samai", enabled: true };
+
+Deno.test("stuck convergence and coverage gaps use a single deduplicated durable candidate", () => {
+  equal(mergeCoverageCandidates(["a", "a"], ["a", "b"], ["b", "c"]), ["a", "b", "c"]);
+});
 
 Deno.test("repeated watchdog pass preserves task backoff and counts only actual inserts", async () => {
   const tasks = new Map<string, any>();
@@ -21,13 +25,16 @@ Deno.test("repeated watchdog pass preserves task backoff and counts only actual 
   equal([tasks.get("a").attempt, tasks.get("a").next_run_at], [2, "2026-10-29T12:00:00Z"]);
 });
 
-Deno.test("disabled or absent source and recent exhaustion do not dispatch", async () => {
+Deno.test("disabled alternatives do not block an enabled source; absent sources and recent exhaustion do not dispatch", async () => {
   let calls = 0;
-  const writer = async (): Promise<"inserted"> => { calls++; return "inserted"; };
-  const blocked = await enqueueMissingActs([item], [samai, { ...samai, provider_key: "cpnu", enabled: false }], new Set(), writer, now);
+  let selected = "";
+  const writer = async (task: any): Promise<"inserted"> => { calls++; selected = task.provider; return "inserted"; };
+  const allowed = await enqueueMissingActs([item], [samai, { ...samai, provider_key: "cpnu", enabled: false }], new Set(), writer, now);
+  const blocked = await enqueueMissingActs([item], [{ ...samai, enabled: false }], new Set(), writer, now);
+  const alternateOnly = await enqueueMissingActs([item], [{ ...samai, enabled: false }, { ...samai, provider_key: "cpnu" }], new Set(), writer, now);
   const absent = await enqueueMissingActs([item], [], new Set(), writer, now);
   const exhausted = await enqueueMissingActs([item], [samai], new Set(["a"]), writer, now);
-  equal([calls, blocked.source_blocked, absent.source_blocked, exhausted.recently_finished], [0, 1, 1, 1]);
+  equal([calls, selected, allowed.inserted, blocked.source_blocked, alternateOnly.source_blocked, absent.source_blocked, exhausted.recently_finished], [1, "samai", 1, 1, 1, 1, 1]);
 });
 
 Deno.test("write errors remain visible and do not inflate inserted count", async () => {

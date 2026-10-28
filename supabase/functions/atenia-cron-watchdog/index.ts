@@ -16,7 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { startHeartbeat, finishHeartbeat, heartbeatNoOp, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
 import { ONLINE_SYNC_ELIGIBLE_LIST } from "../_shared/onlineSyncEligibility.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
-import { enqueueMissingActs } from "./enqueueActs.ts";
+import { enqueueMissingActs, mergeCoverageCandidates } from "./enqueueActs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -309,6 +309,7 @@ Deno.serve(async (req) => {
 
     let stuckRemediated = 0;
     let stuckMarkedTerminal = 0;
+    const stuckRecoveryIds: string[] = [];
 
     if (stuckSources && stuckSources.length > 0) {
       for (const src of stuckSources) {
@@ -361,23 +362,10 @@ Deno.serve(async (req) => {
 
           stuckMarkedTerminal++;
         } else {
-          // Enqueue remediation retry
-          const today = new Date().toISOString().slice(0, 10);
-          try {
-            await admin.from("atenia_ai_remediation_queue").upsert(
-              {
-                action_type: "ACT_SCRAPE_RETRY",
-                work_item_id: src.work_item_id,
-                organization_id: src.organization_id,
-                status: "PENDING",
-                priority: 3,
-                payload: { source: "watchdog_stuck_convergence", stuck_since: src.updated_at },
-                dedupe_key: `STUCK:${today}:${src.work_item_id}`,
-              },
-              { onConflict: "dedupe_key" }
-            );
-            stuckRemediated++;
-          } catch (_) { /* non-fatal */ }
+          // The AI queue does not consume ACT_SCRAPE_RETRY and its partial
+          // dedupe index cannot support this old upsert. Include the matter in
+          // the durable ACT queue below, after eligibility and lease checks.
+          stuckRecoveryIds.push(src.work_item_id);
         }
       }
 
@@ -616,7 +604,9 @@ Deno.serve(async (req) => {
         .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`)
         .order("last_synced_at", { ascending: true, nullsFirst: true }).limit(100);
       if (staleError) throw staleError;
-      const ids = [...new Set([...(missing ?? []), ...(stale ?? [])].map((row: { id: string }) => row.id))];
+      const ids = mergeCoverageCandidates(stuckRecoveryIds,
+        (missing ?? []).map((row: { id: string }) => row.id),
+        (stale ?? []).map((row: { id: string }) => row.id));
       if (ids.length) {
         const { data: items, error: itemsError } = await admin.from("work_items")
           .select("id,organization_id,radicado,workflow_type,monitoring_enabled,deleted_at,status").in("id", ids);
@@ -629,7 +619,7 @@ Deno.serve(async (req) => {
           .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
         if (recentError) throw recentError;
         const { data: legacy, error: legacyError } = await admin.from("atenia_ai_remediation_queue")
-          .select("work_item_id").in("action_type", ["RETRY_ACTS", "SYNC_WORK_ITEM"])
+          .select("work_item_id").in("action_type", ["RETRY_ACTS", "SYNC_WORK_ITEM", "ACT_SCRAPE_RETRY"])
           .in("status", ["PENDING", "RUNNING"]).in("work_item_id", ids);
         if (legacyError) throw legacyError;
         const stats = await enqueueMissingActs(items ?? [], enrollments ?? [],
@@ -637,9 +627,11 @@ Deno.serve(async (req) => {
             const { data, error } = await admin.from("sync_retry_queue")
               .upsert(task, { onConflict: "work_item_id,kind", ignoreDuplicates: true }).select("id");
             if (error) throw error;
+            if (data?.length && stuckRecoveryIds.includes(task.work_item_id)) stuckRemediated++;
             return data?.length ? "inserted" : "existing";
           }, new Date().toISOString(), new Set((legacy ?? []).map(row => row.work_item_id)));
         results.coverage_queue = stats;
+        (results.stuck_convergence as { remediated: number }).remediated = stuckRemediated;
         // Compatibility field counts only confirmed insertions, not candidates.
         results.coverage_enqueued = stats.inserted;
         if (stats.source_blocked) {
