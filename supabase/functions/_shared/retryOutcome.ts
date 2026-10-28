@@ -15,3 +15,13 @@ export function retryOutcome(httpStatus: number, payload: Record<string, unknown
   }
   return { outcome: "RETRY", code: typeof payload.code === "string" ? payload.code : "INGESTION_INCOMPLETE" };
 }
+
+/** The shared provider breaker rejects a permit before any source call. */
+export function breakerDeferral(payload: Record<string, unknown> | null): { delaySeconds: number; code: string } | null {
+  const summary = payload?.samai_estados_summary;
+  const signal = summary && typeof summary === 'object' ? String((summary as Record<string, unknown>).error ?? '') : '';
+  if (!/^PROVIDER_BREAKER_(OPEN|UNAVAILABLE|LEASE_LOST)(:|$)/.test(signal)) return null;
+  const retryAt = Date.parse(signal.slice(signal.indexOf(':') + 1));
+  const delaySeconds = Number.isFinite(retryAt) ? Math.ceil((retryAt - Date.now()) / 1000) : 130;
+  return { code: signal.split(':', 1)[0], delaySeconds: Math.max(5, Math.min(1800, delaySeconds)) };
+}
