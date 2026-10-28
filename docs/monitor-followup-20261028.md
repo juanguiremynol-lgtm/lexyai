@@ -47,7 +47,7 @@ Producidas por src/lib/services/atenia-incident-policy.ts sin work_item_id; ning
 
 ### Servicio intermediario (Cloud Run)
 - Destino efectivo: https://publicaciones-procesales-api-11974381924.us-central1.run.app (revisión declarada 00082-xez, fuente 96b6cbb según contrato 26/10; no verificable desde aquí). Repo no accesible desde Lovable.
-- Contrato actual observado: POST /procesar-radicado síncrono, 34/34 abortos a 60 s hoy; GET /historico/{radicado} 200 con `run_status` (LECTURA_PARCIAL/SUCCESS_EMPTY), `busqueda.{fuente,procesado,ultima_sync,estados_analizados}`, sin motivo de parcialidad ni ids de corrida.
+- [HISTÓRICO, superado 20:25 UTC — ver abajo] Contrato observado antes del cambio: POST /procesar-radicado síncrono, 34/34 abortos a 60 s hoy; GET /historico/{radicado} 200 con `run_status` (LECTURA_PARCIAL/SUCCESS_EMPTY), `busqueda.{fuente,procesado,ultima_sync,estados_analizados}`, sin motivo de parcialidad ni ids de corrida.
 - Contrato requerido:
   1. Admisión durable e idempotente (clave radicado+día Bogotá) ANTES de responder 202 `{backend_run_id, trazabilidad_id, estado:"ADMITIDA"}`; repetir devuelve la misma corrida.
   2. Trabajador durable con reintentos propios; GET /runs/{backend_run_id} → `{estado: ADMITIDA|EN_CURSO|COMPLETA|PARCIAL|FALLIDA, motivo_parcial, checkpoint, estados_analizados, total_estimado, backend_new_events, finalizada_en}`.
@@ -55,7 +55,7 @@ Producidas por src/lib/services/atenia-incident-policy.ts sin work_item_id; ning
   4. /historico incluye `backend_run_id`, `trazabilidad_id`, `consulta_completa` y `motivo_parcial`.
 - Compatibilidad del consumidor (ya desplegada): guarda `backend_trace` cuando existan esos campos y deja null si faltan; no hace polling a /runs hasta que una respuesta 202 incluya `backend_run_id` (no se activa sobre endpoint inexistente).
 - Pruebas de aceptación: (a) POST repetido mismo radicado → mismo run_id; (b) radicado con >200 estados → COMPLETA tras checkpoints; (c) timeout forzado → PARCIAL con motivo; (d) /historico del día con `consulta_completa=true` → la app registra SUCCESS sin PENDING_UPSTREAM; (e) caso Nicholls 05376311200120261033300 con ultima_sync de hoy.
-- Estado: no desplegado; ejecutar en el entorno autorizado.
+- [HISTÓRICO] Estado al redactar: no desplegado. Superado: backend 00091-fod (8655f3f8) y app c4a4c76c desplegados; ver entradas 20:25 y 20:31 UTC.
 
 ### Huellas de despliegue de este turno (SHA-256 de contenido enviado, no commit Git)
 - sync-by-work-item 7d1e36c54bb3426d544cb7d62b3881b08d7112f8f2f91df40b2a41152048d369
@@ -72,3 +72,11 @@ Web publicada: https://andromeda.legal sirve /assets/main-Bx4I7k9K.js (sin cambi
 - Deployed: sync-publicaciones-by-work-item (src sha256 8cea87d2…), process-retry-queue (79260f1c…).
 - Deno: 13/13 PASS. Isolated SQL suite not run (needs empty cluster).
 - Nicholls single check (net request 2488): HTTP 202 reused run 0233cc45-1944-44f8-bafb-7580b4cddace, trazabilidad 3cd0dab4-7edb-4520-a3b6-6381d85122fa, estado EN_CURSO, status PENDING_UPSTREAM, 0 inserted / 3 skipped; association stored in cron_state pub_rescrape:db1b4198…; no new run created.
+
+## 2026-10-28 20:31 UTC (15:31 Bogotá) — verification closure
+- HISTORICAL NOTE: any statement above or in Codex reports that `fix/pp-async-caller-20261028` is "not deployed" or that the PP backend is synchronous is superseded by the 20:25 UTC entry (c4a4c76c integrated, migration 0090, both consumers deployed). Do not re-implement.
+- Task d84d9222-72c8-489d-bd6f-859c3e499ff4 not yet taken by a scheduled drain: attempt 1, no lease, next_run_at 06:00 UTC (due), last_error PENDING_UPSTREAM, no outcome row.
+- Limitation: claim_sync_retry takes the oldest due task per channel (1 recovery PUB slot per drain); 22 due PUB_RETRY tasks precede this one, and there is no task-id parameter. A targeted drain is not possible without new parameters, so no manual drain was run.
+- Association (cron_state pub_rescrape:db1b4198…): run 0233cc45, trace 3cd0dab4, backend_admitted_at 20:21:51Z. Admission is preserved for the same run_id (recordRescrapeTrigger + backend_trace use stored value); not renewed per poll.
+- 24h exit: after the deadline ppDurableDeferral returns null → normal RETRY consumes one attempt with PENDING_UPSTREAM (observable), association/run kept; DB also rejects expired PP deferrals.
+- Isolated SQL suite: not run (no empty PostgreSQL cluster available; production not used).
