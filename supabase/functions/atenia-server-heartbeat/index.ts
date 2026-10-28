@@ -10,6 +10,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { startHeartbeat, finishHeartbeat } from "../_shared/platformJobHeartbeat.ts";
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +35,11 @@ Deno.serve(async (req) => {
       });
     }
   } catch { /* not JSON, proceed normally */ }
+
+  // This caller dispatches privileged supervisor work; a public anon token
+  // must not be able to escalate through its service-role client.
+  const caller = await requirePrivilegedCaller(req, corsHeaders);
+  if (!caller.ok) return caller.response!;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -262,6 +268,7 @@ Deno.serve(async (req) => {
         const { error: invokeErr } = await supabase.functions.invoke(
           "atenia-ai-supervisor",
           {
+            headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
             body: {
               mode: "HEARTBEAT",
               organization_id: org.id,

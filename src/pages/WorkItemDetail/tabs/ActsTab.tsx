@@ -36,6 +36,7 @@ import { useCpnuActuaciones, resyncCpnuActuaciones } from "@/hooks/use-cpnu-actu
 import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-actuaciones";
 import { AlertCircle } from "lucide-react";
 import { resolveActsEmptyState, judicialQueryState, JUDICIAL_QUERY_LABELS, hasUsableRadicado } from "@/lib/monitoring-reason";
+import { incompleteConsultationMessage } from "./judicialQueryDisplay";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 
 interface ActsTabProps {
@@ -215,6 +216,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
     );
   }
 
+  const incompleteMessage = incompleteConsultationMessage(consultation.data?.status);
   if (!acts || acts.length === 0) {
     const queryState = judicialQueryState({ compatible: hasUsableRadicado(workItem.radicado), status: consultation.data?.status,
       count: (consultation.data?.records_inserted ?? 0) + (consultation.data?.records_skipped ?? 0) });
@@ -247,9 +249,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
           <CardContent className="py-12">
             <div className="text-center">
               <div className="text-4xl mb-4">{emptyState.showAddRadicado ? "🔎" : "📭"}</div>
-              <h3 className="font-semibold mb-2">{consultation.isError ? "No se pudo verificar la última consulta" : JUDICIAL_QUERY_LABELS[queryState]}</h3>
+              <h3 className="font-semibold mb-2">{consultation.isError ? "No se pudo verificar la última consulta" : incompleteMessage?.title ?? JUDICIAL_QUERY_LABELS[queryState]}</h3>
               <p className="text-muted-foreground text-sm max-w-md mx-auto">
                 {consultation.isError ? "No se afirma que no haya novedades mientras el historial de consulta no pueda verificarse."
+                  : incompleteMessage ? incompleteMessage.description
                   : queryState === "FALLIDA" ? "La última consulta no terminó correctamente. La ausencia de actuaciones no acredita ausencia de movimientos."
                   : queryState === "RESTRINGIDA" ? "La fuente no permitió consultar el contenido. Esto no significa que el expediente no tenga actuaciones."
                   : queryState === "EN_EJECUCION" ? "La consulta todavía está en ejecución; no hay un resultado confirmado."
@@ -300,6 +303,12 @@ export function ActsTab({ workItem }: ActsTabProps) {
               {apiError instanceof Error ? apiError.message : String(apiError)}
             </p>
           </div>
+        </div>
+      )}
+      {incompleteMessage && (
+        <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm" role="status">
+          <p className="font-medium">{incompleteMessage.title}</p>
+          <p className="text-muted-foreground">{incompleteMessage.description}</p>
         </div>
       )}
       {/* Diff view for recent changes */}

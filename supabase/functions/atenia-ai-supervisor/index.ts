@@ -21,6 +21,7 @@
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
+import { authorizeSupervisor, ineligibleRefusal, remediationHeaders, remediationVerdict } from "../_shared/ateniaRemediationSecurity.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { invokeInternal } from "../_shared/internalInvoke.ts";
 import {
@@ -1193,7 +1194,13 @@ async function runQueueWorker(
   supabase: SupabaseAdmin,
   dryRun: boolean,
 ): Promise<{ claimed: number; results: unknown[] }> {
-  const { data: jobs, error } = await supabase.rpc("atenia_ai_claim_queue", {
+  // A dry run must not consume attempts or leave claimed rows RUNNING.
+  if (dryRun) {
+    const { data, error } = await supabase.rpc("atenia_ai_preview_supported_queue", { _limit: 5 });
+    if (error) return { claimed: 0, results: [{ error: error.message }] };
+    return { claimed: 0, results: (data ?? []).map((job: any) => ({ ...job, status: "DRY_RUN" })) };
+  }
+  const { data: jobs, error } = await supabase.rpc("atenia_ai_claim_supported_queue", {
     _limit: 5,
   });
   if (error) {
@@ -1204,74 +1211,109 @@ async function runQueueWorker(
   const results: unknown[] = [];
 
   for (const job of jobs ?? []) {
-    if (dryRun) {
-      results.push({
-        id: job.id,
-        action_type: job.action_type,
-        status: "DRY_RUN",
-      });
-      continue;
-    }
-
     try {
       let invokeResult: { data?: unknown; error?: unknown } = {};
+      const headers = remediationHeaders(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", String(job.id));
 
       if (job.action_type === "RETRY_ACTS") {
+<<<<<<< supabase/functions/atenia-ai-supervisor/index.ts
         invokeResult = await invokeInternal("sync-by-work-item", {
           work_item_id: job.work_item_id,
           force_refresh: false,
           _scheduled: true,
         }, "atenia-ai-supervisor", { taskId: job.id });
+=======
+        invokeResult = await supabase.functions.invoke("sync-by-work-item", {
+          headers,
+          body: {
+            work_item_id: job.work_item_id,
+            force_refresh: false,
+            _scheduled: true,
+          },
+        });
+>>>>>>> /tmp/mrg/theirs/supabase/functions/atenia-ai-supervisor/index.ts
       } else if (
         job.action_type === "RETRY_PUBS" ||
         job.action_type === "RETRY_PUBS_HEAVY"
       ) {
+<<<<<<< supabase/functions/atenia-ai-supervisor/index.ts
         invokeResult = await invokeInternal("sync-publicaciones-by-work-item", {
           work_item_id: job.work_item_id,
           _scheduled: true,
           heavy: job.action_type === "RETRY_PUBS_HEAVY",
         }, "atenia-ai-supervisor", { taskId: job.id });
+=======
+        invokeResult = await supabase.functions.invoke(
+          "sync-publicaciones-by-work-item",
+          {
+            headers,
+            body: {
+              work_item_id: job.work_item_id,
+              _scheduled: true,
+              heavy: job.action_type === "RETRY_PUBS_HEAVY",
+            },
+          },
+        );
+>>>>>>> /tmp/mrg/theirs/supabase/functions/atenia-ai-supervisor/index.ts
       } else if (job.action_type === "RUN_INTEGRATION_HEALTH") {
         invokeResult = await supabase.functions.invoke("integration-health", {
+          headers,
           body: { _scheduled: true },
         });
       } else {
         throw new Error(`Unknown action_type: ${job.action_type}`);
       }
 
-      if (invokeResult?.error) throw invokeResult.error;
+      let ineligible: string | null = null;
+      if (invokeResult?.error) {
+        const ctx = (invokeResult.error as { context?: unknown }).context;
+        if (ctx instanceof Response && ctx.status === 409) {
+          ineligible = ineligibleRefusal(ctx.status, await ctx.clone().json().catch(() => null));
+        }
+        if (!ineligible) throw invokeResult.error;
+      }
+      const verdict = ineligible
+        ? { outcome: "SKIPPED" as const, code: ineligible }
+        : remediationVerdict(invokeResult.data);
+      if (verdict.outcome === "RETRY") throw new Error(verdict.code);
 
-      await supabase
+      const { data: finished, error: finishError } = await supabase
         .from("atenia_ai_remediation_queue")
         .update({
-          status: "DONE",
+          status: verdict.outcome,
           updated_at: new Date().toISOString(),
-          last_error: null,
+          last_error: verdict.outcome === "SKIPPED" ? verdict.code : null,
         })
-        .eq("id", job.id);
+        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts)
+        .select("id").maybeSingle();
+      if (finishError) throw finishError;
+      if (!finished) {
+        results.push({ id: job.id, status: "LEASE_REPLACED" });
+        continue;
+      }
 
       // ── Bug 6 FIX: Include remediation details in evidence ──
       await logAction(supabase, {
         actor: "ATENIA",
         organization_id: job.organization_id ?? null,
         work_item_id: job.work_item_id ?? null,
-        action_type: "REMEDIATION_DONE",
+        action_type: verdict.outcome === "DONE" ? "REMEDIATION_DONE" : "REMEDIATION_SKIPPED",
         autonomy_tier: "ACT",
         reason_code: job.reason_code ?? null,
-        summary: `Remediación completada: ${job.action_type} para item ${job.work_item_id?.slice(0, 8) ?? 'N/A'}.`,
-        reasoning: `Remediación completada: ${job.action_type} para item ${job.work_item_id?.slice(0, 8) ?? 'N/A'} (${job.reason_code ?? 'sin código'}).`,
+        summary: `${verdict.outcome === "DONE" ? "Remediación completada" : "Consulta omitida"}: ${job.action_type} para item ${job.work_item_id?.slice(0, 8) ?? 'N/A'}.`,
+        reasoning: `${verdict.outcome === "DONE" ? "Remediación completada" : `Consulta omitida: ${verdict.code}`}: ${job.action_type} para item ${job.work_item_id?.slice(0, 8) ?? 'N/A'} (${job.reason_code ?? 'sin código'}).`,
         evidence: {
           job_id: job.id,
           remediation_type: job.action_type,
           work_item_id: job.work_item_id,
           reason_code: job.reason_code,
           provider: job.provider ?? null,
-          result: "success",
+          result: verdict.outcome === "DONE" ? "success" : verdict.code,
         },
         is_reversible: false,
       });
 
-      results.push({ id: job.id, status: "DONE" });
+      results.push({ id: job.id, status: verdict.outcome, code: verdict.code });
     } catch (e: unknown) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       const attempts = job.attempts ?? 1;
@@ -1280,7 +1322,7 @@ async function runQueueWorker(
       const nextRun = new Date(Date.now() + backoffMin * 60 * 1000);
       const terminal = attempts >= maxAttempts;
 
-      await supabase
+      const { data: retried, error: retryError } = await supabase
         .from("atenia_ai_remediation_queue")
         .update({
           status: terminal ? "FAILED" : "PENDING",
@@ -1288,7 +1330,12 @@ async function runQueueWorker(
           run_after: terminal ? job.run_after : nextRun.toISOString(),
           last_error: errorMsg,
         })
-        .eq("id", job.id);
+        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts)
+        .select("id").maybeSingle();
+      if (retryError || !retried) {
+        results.push({ id: job.id, status: retryError ? "UPDATE_FAILED" : "LEASE_REPLACED" });
+        continue;
+      }
 
       await logAction(supabase, {
         actor: "ATENIA",
@@ -1962,8 +2009,15 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase config");
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
+      auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    // This endpoint runs with service-role privileges and verify_jwt=false.
+    // Verify the cron/service identity or a platform administrator before
+    // reading or mutating any tenant data or dispatching privileged work.
+    if (!await authorizeSupervisor(req, supabase)) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
 
     let input: AteniaAIInput;
     try {

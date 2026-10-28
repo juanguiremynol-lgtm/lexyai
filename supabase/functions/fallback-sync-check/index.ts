@@ -1,14 +1,17 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
+<<<<<<< supabase/functions/fallback-sync-check/index.ts
 import { invokeInternal } from "../_shared/internalInvoke.ts";
   shouldCountAsSuccess,
   isScrapingPending,
   shouldEnqueueRetry,
   retryJitterMs,
+=======
+>>>>>>> /tmp/mrg/theirs/supabase/functions/fallback-sync-check/index.ts
   SYNC_ENABLED_WORKFLOWS,
-  TERMINAL_STAGES,
 } from "../_shared/syncPolicy.ts";
+import { fallbackEligibility, type Enrollment } from "./eligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -231,19 +234,22 @@ Deno.serve(async (req) => {
 
         const { data: workItems, error: fetchError } = await supabase
           .from("work_items")
-          .select("id, radicado, workflow_type, consecutive_failures, consecutive_404_count, last_error_code")
+          .select("id, radicado, workflow_type, last_synced_at")
           .eq("organization_id", pendingOrg.organization_id)
           .eq("monitoring_enabled", true)
           .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-          .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
-          .not("radicado", "is", null)
+          .eq("status", "ACTIVE")
+          .is("deleted_at", null)
           .or(`last_synced_at.is.null,last_synced_at.lt.${ledgerStartedAt}`)
-          .limit(30);
+          .order("last_synced_at", { ascending: true, nullsFirst: true })
+          .order("id", { ascending: true })
+          .limit(1000);
 
         if (fetchError) {
           throw fetchError;
         }
 
+<<<<<<< supabase/functions/fallback-sync-check/index.ts
         const eligibleItems = (workItems || []).filter((item: any) => {
           if (!item.radicado || item.radicado.replace(/\D/g, '').length !== 23) return false;
           if ((item.consecutive_failures || 0) >= 3) {
@@ -317,29 +323,57 @@ Deno.serve(async (req) => {
             }
           } catch {
             errorCount++;
+=======
+        const candidates = workItems || [];
+        const itemIds = candidates.map((item: { id: string }) => item.id);
+        let enrollments: Enrollment[] = [];
+        if (itemIds.length) {
+          const { data, error } = await supabase.from("work_item_provider_enrollment")
+            .select("work_item_id,provider_key,enabled")
+            .eq("scope", "ACTS")
+            .in("work_item_id", itemIds);
+          if (error) throw error;
+          enrollments = data || [];
+        }
+        const deferred: Record<string, number> = {};
+        let queued = 0;
+        let enqueueErrors = 0;
+        for (const item of candidates) {
+          const eligibility = fallbackEligibility(item, enrollments);
+          if (!eligibility.eligible) {
+            deferred[eligibility.reason] = (deferred[eligibility.reason] || 0) + 1;
+            continue;
+>>>>>>> /tmp/mrg/theirs/supabase/functions/fallback-sync-check/index.ts
           }
-
-          // Rate limit
-          await new Promise(r => setTimeout(r, 1200));
-
-          if (Date.now() - startTime > 48000) break;
+          // The queue's unique (work_item_id,kind) key and ignoreDuplicates
+          // preserve an existing lease, retry count and due time on repetition.
+          const { error } = await supabase.from("sync_retry_queue").upsert({
+            work_item_id: item.id,
+            organization_id: pendingOrg.organization_id,
+            radicado: item.radicado,
+            kind: "ACT_SCRAPE_RETRY",
+            provider: eligibility.provider,
+            attempt: 0,
+            max_attempts: 3,
+            next_run_at: new Date().toISOString(),
+            last_error_code: "FALLBACK_COVERAGE_PENDING",
+          }, { onConflict: "work_item_id,kind", ignoreDuplicates: true });
+          if (error) enqueueErrors++;
+          else queued++;
         }
 
-        // Update ledger
-        const successRate = eligibleItems.length > 0 ? syncedCount / eligibleItems.length : 1;
-        const newStatus = successRate >= 0.9 ? 'SUCCESS' : (syncedCount > 0 ? 'PARTIAL' : 'FAILED');
-
-        await supabase.rpc('update_daily_sync_ledger', {
+        // Enqueue acceptance is not a provider result. The worker owns outcome
+        // and last-success timestamps; do not convert an empty page or dispatch
+        // to a successful daily run, nor overwrite prior succeeded counts.
+        const newStatus = enqueueErrors ? "FAILED" : "PARTIAL";
+        const { error: ledgerUpdateError } = await supabase.rpc('update_daily_sync_ledger', {
           p_ledger_id: pendingOrg.ledger_id,
           p_status: newStatus,
-          p_items_succeeded: syncedCount,
-          p_items_failed: errorCount,
-          p_metadata: { retry_run_id: runId, retry_at: new Date().toISOString() }
+          p_metadata: { retry_run_id: runId, retry_at: new Date().toISOString(),
+            fallback_candidates: candidates.length, fallback_queue_accepted: queued,
+            fallback_queue_errors: enqueueErrors, fallback_deferred: deferred }
         });
-
-        if (newStatus === 'SUCCESS') {
-          retriesSucceeded++;
-        }
+        if (ledgerUpdateError) throw ledgerUpdateError;
 
         retryResults.push({
           org_id: pendingOrg.organization_id,
@@ -435,7 +469,8 @@ async function findMissedOrganizations(
     .select("organization_id")
     .eq("monitoring_enabled", true)
     .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-    .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
+    .eq("status", "ACTIVE")
+    .is("deleted_at", null)
     .not("radicado", "is", null)
     .not("organization_id", "is", null);
 

@@ -25,6 +25,7 @@ const HISTORICAL_REPAIR_SCOPE: HistoricalRepairScope | null = null;
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import { occurredByToday, persistenceIsComplete, requiredSourcesComplete, ingestionOutcome, recordEmptyInitialCompletion } from "../_shared/syncCompletion.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
@@ -218,6 +219,10 @@ interface SyncResult {
   warnings: string[];
   errors: string[];
   trace_id?: string;
+  sync_run_id?: string;
+  source_observed_at?: string;
+  partial?: boolean;
+  source_complete?: boolean;
   code?: string; // Error code for client
   persistence_unknown?: { fingerprint: string | null; reason: string }[];
   // Auto-scraping fields
@@ -333,6 +338,7 @@ interface FetchResult {
   isEmpty?: boolean; // Indicates empty result (for fallback logic)
   latencyMs?: number;
   httpStatus?: number;
+  sourceObservedAt?: string;
   // Auto-scraping fields
   scrapingInitiated?: boolean;
   scrapingJobId?: string;
@@ -830,6 +836,8 @@ function classifyProviderError(
 
   const httpStatus = fetchResult.httpStatus;
   const errorMsg = (fetchResult.error || '').toLowerCase();
+  const samaiCode = (fetchResult.error || '').match(/^SAMAI_[A-Z_]+/);
+  if (samaiCode) return samaiCode[0];
 
   // HTTP status-based classification
   if (httpStatus) {
@@ -884,6 +892,8 @@ async function sealReadOutcome(
   fetchResult: FetchResult | null,
   providerAttempts: ProviderAttempt[],
   scrapingInitiated: boolean,
+  allowSuccess = false,
+  effectsPending = false,
 ): Promise<void> {
   if (scrapingInitiated) return;
 
@@ -896,22 +906,27 @@ async function sealReadOutcome(
     // the restriction. Case-insensitive: attempts may arrive canonicalised.
     providerAttempts.some((a) => {
       const st = String(a.status ?? '').toLowerCase();
-      return st === 'success' || st === 'empty' || st === 'not_found' || st === 'restricted';
+      return st === 'success' || st === 'empty';
     });
 
   if (answered) {
-    await supabase
+    // A successful read is not a successful ingestion. Only the empty path
+    // or the completed persistence ledger can permit the success stamp.
+    if (!allowSuccess) return;
+    const successTime = fetchResult?.sourceObservedAt || nowIso;
+    const { error } = await supabase
       .from('work_items')
       .update({
         last_checked_at: nowIso,
-        last_synced_at: nowIso,
-        last_successful_sync_at: nowIso,
-        scrape_status: 'SUCCESS',
-        last_error_code: null,
+        last_synced_at: successTime,
+        last_successful_sync_at: successTime,
+        scrape_status: effectsPending ? 'PARTIAL_SUCCESS' : 'SUCCESS',
+        last_error_code: effectsPending ? 'POST_INGEST_EFFECTS_PENDING' : null,
         consecutive_failures: 0,
         provider_reachable: true,
       })
       .eq('id', workItemId);
+    if (error) throw error;
     return;
   }
 
@@ -1078,6 +1093,7 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
     isEmpty: bridged.isEmpty,
     latencyMs: bridged.latencyMs,
     httpStatus: bridged.httpStatus,
+    sourceObservedAt: bridged.sourceObservedAt,
     scrapingInitiated: bridged.scrapingInitiated,
     scrapingJobId: bridged.scrapingJobId,
     scrapingPollUrl: bridged.scrapingPollUrl,
@@ -1092,7 +1108,9 @@ async function fetchFromCpnu(
   forceRefresh?: boolean,
   freshnessContext?: { dbMaxActDate?: string | null; historicalRecordCount?: number },
   allowBuscar?: boolean,
+  enabled = false,
 ): Promise<FetchResult> {
+  if (!enabled) return { ok: false, actuaciones: [], provider: 'cpnu', error: 'SOURCE_DISABLED' };
   const result = await sharedFetchFromCpnu({
     radicado,
     mode: 'monitoring',
@@ -1127,7 +1145,8 @@ function stampCpnuBuscarMeta(syncResult: SyncResult, fetchResult: FetchResult | 
   if (meta.buscar_deferred) syncResult.cpnu_buscar_deferred = true;
 }
 
-async function fetchFromSamai(radicado: string): Promise<FetchResult> {
+async function fetchFromSamai(radicado: string, enabled = false): Promise<FetchResult> {
+  if (!enabled) return { ok: false, actuaciones: [], provider: 'samai', error: 'SOURCE_DISABLED' };
   const result = await sharedFetchFromSamai({
     radicado,
     mode: 'monitoring',
@@ -1192,6 +1211,7 @@ async function executeViaOrchestrator(
   force_refresh?: boolean,
   allow_buscar?: boolean,
   callerTrace?: Record<string, unknown>,
+  enabledProviders = new Set<string>(),
 ): Promise<OrchestratorExecResult> {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1210,13 +1230,13 @@ async function executeViaOrchestrator(
     {
       key: "CPNU",
       fetchFn: createLegacyAdapter(
-        (radicado: string) => fetchFromCpnu(radicado, force_refresh, freshnessContext, allow_buscar),
+        (radicado: string) => fetchFromCpnu(radicado, force_refresh, freshnessContext, allow_buscar, enabledProviders.has('cpnu')),
       ),
     },
     {
       key: "SAMAI",
       fetchFn: createLegacyAdapter(
-        (radicado: string) => fetchFromSamai(radicado),
+        (radicado: string) => fetchFromSamai(radicado, enabledProviders.has('samai')),
       ),
     },
     // Note: PUBLICACIONES is handled by sync-publicaciones-by-work-item
@@ -1244,6 +1264,7 @@ async function executeViaOrchestrator(
     `Bearer ${supabaseServiceKey}`,
     {
       skipEstados: true, // Estados handled by sync-publicaciones-by-work-item
+      enabledProviders,
       timeoutMs: 30_000,
       releaseGate: releaseGate ? {
         forceEmptyProvider: releaseGate.force_empty_provider,
@@ -1263,6 +1284,8 @@ async function executeViaOrchestrator(
   let scrapingResult: FetchResult | null = null;
   let answeredAbsence = false;
   let answeredAbsenceProvider: string | null = null;
+  let emptyFetchResult: FetchResult | null = null;
+  let failedFetchResult: FetchResult | null = null;
 
   for (const attempt of orchResult.providerAttempts) {
     const legacyResult = extractLegacyResult(attempt.metadata as Record<string, unknown>);
@@ -1286,12 +1309,19 @@ async function executeViaOrchestrator(
     // RR1 — an answered absence is a COMPLETE read with no novedades.
     // The orchestrator already classifies it correctly; this extraction used to
     // drop it, leaving fetchResult null and reporting "All providers failed".
-    if (attemptIsAnsweredAbsence(attempt.status, (attempt as { error_code?: string | null }).error_code)) {
+    if (attemptIsAnsweredAbsence(attempt.status, (attempt as { error_code?: string | null }).error_code) &&
+        attempt.status === 'empty' && legacyResult?.httpStatus !== 404) {
       answeredAbsence = true;
       if (!answeredAbsenceProvider) answeredAbsenceProvider = attempt.provider.toLowerCase();
     }
 
     if (legacyResult) {
+      if (!legacyResult.ok && !legacyResult.isEmpty && !failedFetchResult) {
+        failedFetchResult = legacyResult as unknown as FetchResult;
+      }
+      if (legacyResult.ok && legacyResult.actuaciones.length === 0 && !emptyFetchResult) {
+        emptyFetchResult = legacyResult as unknown as FetchResult;
+      }
       if (legacyResult.ok && legacyResult.actuaciones.length > 0) {
         allFetchResults.push(legacyResult as unknown as FetchResult);
         allSources.push(legacyResult.provider);
@@ -1324,7 +1354,7 @@ async function executeViaOrchestrator(
   // empty read so the pipeline takes the "sin novedades" path instead of the
   // failure handler. Silence (error/timeout/scraping) never reaches here.
   if (!fetchResult && answeredAbsence && !scrapingInitiated) {
-    fetchResult = {
+    fetchResult = emptyFetchResult || {
       ok: true,
       actuaciones: [],
       provider: answeredAbsenceProvider || "cpnu",
@@ -1333,6 +1363,7 @@ async function executeViaOrchestrator(
       httpStatus: 200,
     } as FetchResult;
   }
+  if (!fetchResult && !scrapingInitiated && !answeredAbsence) fetchResult = failedFetchResult;
 
   const providerOrderReason = orchResult.providerAttempts.length > 0
     ? `orchestrator_${orchResult.status.toLowerCase()}_${allSources.join("+") || "none"}`
@@ -1586,16 +1617,6 @@ Deno.serve(withSyncTimeline(async (req) => {
       });
     }
 
-    // ── The attempt is stamped HERE, before any provider call ──
-    // Every early return below (404, empty, provider error) used to leave
-    // `last_attempted_sync_at` NULL, so a matter that had genuinely been read
-    // three times still looked "nunca intentado" to the ghost detector, which
-    // then paused it. An attempt is an attempt regardless of its outcome.
-    await supabase
-      .from('work_items')
-      .update({ last_attempted_sync_at: new Date().toISOString() })
-      .eq('id', work_item_id);
-
     // Log work item loaded
 
     await logTrace(supabase, {
@@ -1634,6 +1655,21 @@ Deno.serve(withSyncTimeline(async (req) => {
 
       console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
     }
+
+    // Record the attempt only after authorizing access to this matter.
+    const { error: attemptStampError } = await supabase.from('work_items')
+      .update({ last_attempted_sync_at: new Date().toISOString() }).eq('id', work_item_id);
+    if (attemptStampError) return errorResponse('ATTEMPT_PERSIST_FAILED', 'No fue posible registrar el intento', 503, traceId);
+
+    // A fallback is a real provider call and needs its own enabled enrollment.
+    // Fail closed when the enrollment lookup itself is unavailable.
+    const { data: enrollmentRows, error: enrollmentError } = await supabase
+      .from('work_item_provider_enrollment').select('provider_key,enabled')
+      .eq('work_item_id', work_item_id);
+    if (enrollmentError) return errorResponse('ENROLLMENT_LOOKUP_FAILED', 'No fue posible comprobar las fuentes habilitadas', 503, traceId);
+    const enabledProviders = new Set<string>((enrollmentRows || [])
+      .filter((row: any) => row.enabled === true)
+      .map((row: any) => String(row.provider_key).toLowerCase()));
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
@@ -1711,7 +1747,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         auth_kind: _scheduled ? 'SCHEDULED' : 'USER',
         observed_at: new Date().toISOString(),
       };
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar, callerTrace);
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar, callerTrace, enabledProviders);
 
 
       // Transfer orchestrator results into SyncResult
@@ -1720,6 +1756,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       result.warnings.push(...orchExec.warnings);
       fetchResult = orchExec.fetchResult;
       orchestratorSyncRunId = orchExec.syncRunId;
+      if (orchestratorSyncRunId) result.sync_run_id = orchestratorSyncRunId;
 
       // IX3(c)/S6 — seal the read outcome here, before any work that can be
       // cut off by the caller's timeout. A read never ends without a verdict.
@@ -1905,9 +1942,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       const providerLabels: string[] = [];
       
       if (hasRadicado) {
-        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar));
+        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu')));
         providerLabels.push('cpnu');
-        providerPromises.push(fetchFromSamai(normalizedRadicado));
+        providerPromises.push(fetchFromSamai(normalizedRadicado, enabledProviders.has('samai')));
         providerLabels.push('samai');
       }
       // ITER48 — there is no tutelas provider to call. A tutela is the UNION of
@@ -2211,7 +2248,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.log(`[sync-by-work-item] Note: Publicaciones sync is handled by sync-publicaciones-by-work-item`);
       
       // Fetch from CPNU for actuaciones
-      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu'));
       stampCpnuBuscarMeta(result, fetchResult);
       
       result.provider_attempts.push({
@@ -2260,7 +2297,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           },
         });
         
-        fetchResult = await fetchFromSamai(normalizedRadicado);
+        fetchResult = await fetchFromSamai(normalizedRadicado, enabledProviders.has('samai'));
         
         // Log PROVIDER_RESPONSE trace step
         await logTrace(supabase, {
@@ -2363,7 +2400,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           console.log(`[sync-by-work-item] SAMAI returned EMPTY/NOT_FOUND (no scraping), trying CPNU fallback`);
           result.warnings.push(`SAMAI (primary) empty: ${fetchResult.error ?? 'no data'}`);
           
-          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu'));
           stampCpnuBuscarMeta(result, cpnuResult);
           
           result.provider_attempts.push({
@@ -2422,7 +2459,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           },
         });
         
-        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu'));
         stampCpnuBuscarMeta(result, fetchResult);
         
         // Log PROVIDER_RESPONSE trace step
@@ -2598,7 +2635,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ran successfully but found zero actuaciones. This is NOT a failure — it's a valid
     // empty result (common for newly filed cases or intermittent scraper gaps).
     // Redirect to the empty-handling path (line ~2470) by normalizing the fetchResult.
-    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && !fetchResult.scrapingInitiated) {
+    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && fetchResult.httpStatus !== 404 && !fetchResult.scrapingInitiated) {
       console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned isEmpty=true — treating as valid empty result, not error`);
       // Normalize: set ok=true so it falls through to the empty actuaciones handler below
       fetchResult.ok = true;
@@ -2630,7 +2667,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         message: `TUTELA fallback: /proceso/${normalizeRadicado(workItem.radicado!)} (primary CPNU empty)`,
         meta: { is_fallback: true, provider_primary: 'cpnu', provider_fallback: 'samai', request_path: `/proceso/${normalizeRadicado(workItem.radicado!)}` },
       });
-      const samaiFallback = await fetchFromSamai(normalizeRadicado(workItem.radicado!));
+      const samaiFallback = await fetchFromSamai(normalizeRadicado(workItem.radicado!), enabledProviders.has('samai'));
       result.provider_attempts.push({
         provider: 'samai',
         status: samaiFallback.ok ? 'success' : (samaiFallback.isEmpty ? 'not_found' : 'error'),
@@ -2664,7 +2701,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // Handle fetch failure - with enhanced diagnostics and auto-scraping
     if (!fetchResult || !fetchResult.ok) {
-      const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : 'PROVIDER_ERROR';
+      const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : classifyProviderError(fetchResult, 'PROVIDER_ERROR');
       const providerUsed = fetchResult?.provider || providerOrder.primary;
       
       result.errors.push(fetchResult?.error || 'All providers failed to fetch data');
@@ -2812,6 +2849,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     result.provider_used = fetchResult.provider;
+    result.source_observed_at = fetchResult.sourceObservedAt;
     console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
     // Handle empty actuaciones — settled empty, but NOT an error.
@@ -2819,8 +2857,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     // BUG FIX 2.2: This is expected for newly filed cases. Treat as ok=true with status 'empty'.
     // This is non-transient (no retry needed) and non-404 (no demonitor).
     if (fetchResult.actuaciones.length === 0) {
-      result.ok = true;
-      result.code = 'PROVIDER_EMPTY_RESULT';
+      const incompleteEmpty = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
+      result.ok = !incompleteEmpty;
+      result.partial = incompleteEmpty;
+      result.code = incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT';
       result.warnings.push('Provider returned valid response with zero actuaciones — case may not yet be indexed');
       
       // Fetch current consecutive_failures for increment
@@ -2830,19 +2870,25 @@ Deno.serve(withSyncTimeline(async (req) => {
         .eq('id', work_item_id)
         .single();
       
-      await supabase
+      const { error: emptyUpdateError } = await supabase
         .from('work_items')
         .update({
-          scrape_status: 'EMPTY',
+          scrape_status: incompleteEmpty ? 'PARTIAL_SUCCESS' : 'EMPTY',
           last_crawled_at: new Date().toISOString(),
           last_checked_at: new Date().toISOString(),
           // Clear transient error codes so UI badge resets (no "retry scheduled" spinner)
-          last_error_code: 'PROVIDER_EMPTY_RESULT',
+          last_error_code: incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT',
           // Increment consecutive_failures to surface patterns, but NOT consecutive_404_count
           consecutive_failures: ((currentItemEmpty as any)?.consecutive_failures || 0) + 1,
           provider_reachable: true,
         })
         .eq('id', work_item_id);
+      if (emptyUpdateError) throw emptyUpdateError;
+      if (!incompleteEmpty) {
+        await recordEmptyInitialCompletion(supabase, work_item_id, fetchResult.sourceObservedAt);
+        await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+        result.source_complete = true;
+      }
       
       // Log trace for forensics
       await logTrace(supabase, {
@@ -2854,8 +2900,8 @@ Deno.serve(withSyncTimeline(async (req) => {
         provider: fetchResult.provider,
         http_status: fetchResult.httpStatus || 200,
         latency_ms: fetchResult.latencyMs || null,
-        success: true, // Empty is not a failure — provider responded correctly
-        error_code: 'PROVIDER_EMPTY_RESULT',
+        success: !incompleteEmpty,
+        error_code: result.code,
         message: `Provider ${fetchResult.provider} returned valid response with 0 actuaciones`,
         meta: { radicado_preview: workItem.radicado?.slice(0, 10) + '...' },
       });
@@ -2996,7 +3042,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       
       // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
       // This happens BEFORE deduplication so we report the true latest event date
-      if (actDate && (!latestDate || actDate > latestDate)) {
+      if (actDate && occurredByToday(actDate) && (!latestDate || actDate > latestDate)) {
         latestDate = actDate;
       }
 
@@ -3495,14 +3541,19 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Validate sync integrity before setting last_synced_at
     const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
     const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout');
+    const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
 
-    const persistenceFailed = persistLedger.errored > 0 || persistLedger.rejected > 0 || persistLedger.skippedStructural > 0;
+    const persistenceFailed = !persistenceIsComplete(persistLedger);
     if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
     // A CPNU snapshot flagged stale by the freshness gate whose live re-read was
     // deferred is NOT evidence of an up-to-date expediente: it must never be
     // stamped as SUCCESS nor advance last_synced_at (silent-failure guard).
     const staleSnapshotDeferred = result.cpnu_buscar_deferred === true && !result.cpnu_buscar_used;
-    const syncOk = anyProviderSucceeded && !allProvidersFailed && !persistenceFailed && !staleSnapshotDeferred;
+    const syncOk = anyProviderSucceeded && !allProvidersFailed && !anyProviderIncomplete && !persistenceFailed && !staleSnapshotDeferred;
+    if (!syncOk && anyProviderSucceeded) {
+      result.partial = true;
+      result.code ||= staleSnapshotDeferred ? 'CPNU_SNAPSHOT_STALE_DEFERRED' : 'PARTIAL_SOURCE';
+    }
     const nowIso = new Date().toISOString();
 
     if (!syncOk) {
@@ -3513,12 +3564,11 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     const updatePayload: Record<string, unknown> = {
-      scrape_status: allProvidersFailed ? 'FAILED' : ((result.errors.length > 0 || staleSnapshotDeferred) ? 'PARTIAL_SUCCESS' : 'SUCCESS'),
+      scrape_status: allProvidersFailed ? 'FAILED' : ((result.errors.length > 0 || staleSnapshotDeferred || persistenceFailed || anyProviderIncomplete) ? 'PARTIAL_SUCCESS' : 'IN_PROGRESS'),
       last_crawled_at: nowIso,
       last_checked_at: nowIso,
       last_attempted_sync_at: nowIso, // ALWAYS update attempt timestamp
       // CRITICAL INVARIANT: last_synced_at only advances on actual success
-      ...(syncOk ? { last_synced_at: nowIso, last_successful_sync_at: nowIso } : {}),
       total_actuaciones: fetchResult.actuaciones.length,
       scrape_provider: fetchResult.provider,
       // Reset failure counters only on success
@@ -3818,22 +3868,11 @@ Deno.serve(withSyncTimeline(async (req) => {
       updatePayload.provider_sources = providerSources;
     }
 
-    await supabase
+    const { error: itemUpdateError } = await supabase
       .from('work_items')
       .update(updatePayload)
       .eq('id', work_item_id);
-
-    // Set initial sync completion marker (idempotent: only on first successful sync)
-    try {
-      await supabase
-        .from('work_items')
-        .update({ acts_initial_sync_completed_at: new Date().toISOString() } as any)
-        .eq('id', work_item_id)
-        .is('acts_initial_sync_completed_at' as any, null);
-    } catch {
-      // best-effort: marker setting should never break sync
-      console.warn('[sync-by-work-item] Failed to set acts_initial_sync_completed_at marker');
-    }
+    if (itemUpdateError) throw itemUpdateError;
 
     // ============= PUBLICACIONES SYNC =============
     // NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
@@ -3899,26 +3938,18 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // ============= EXTERNAL PROVIDER ENRICHMENT (data_kind-aware subchains) =============
-    // After built-in sync completes, resolve external provider routes and execute
-    // TWO independent subchains: one for ACTUACIONES, one for ESTADOS.
-    // Routes with scope=BOTH are called in both subchains.
-    // Compatibility gating prevents incompatible providers from being called.
-    //
-    // Spec:
-    //   - data_kind=ACTUACIONES: procedural actions (fed by CPNU, SAMAI, etc.)
-    //   - data_kind=ESTADOS: procedural status/publications (fed by SAMAI_ESTADOS, Publicaciones, etc.)
-    //   - Primary mapping: CGP→CPNU(acts)/Publicaciones(estados), CPACA→SAMAI(acts)/SAMAI_ESTADOS(estados)
-    //   - Fallback providers are merged if non-duplicate; provenance always preserved
+    // This entry point certifies ACTUACIONES only. Estados have their own
+    // durable monitor and independent outcome; never start them indirectly.
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminDb = createClient(supabaseUrl, supabaseServiceKey);
 
       // Import coverage matrix for compatibility gating
-      const { isProviderCompatible, routeScopeToDataKinds } = await import("../_shared/providerCoverageMatrix.ts");
+      const { isProviderCompatible } = await import("../_shared/providerCoverageMatrix.ts");
 
       // Query global routes for this workflow
-      const { data: globalRoutes } = await adminDb
+      const { data: globalRoutes, error: globalRoutesError } = await adminDb
         .from('provider_category_routes_global')
         .select('id, workflow, scope, route_kind, priority, provider_connector_id, enabled, is_authoritative, provider_connectors(id, name, key)')
         .eq('workflow', workItem.workflow_type)
@@ -3926,13 +3957,14 @@ Deno.serve(withSyncTimeline(async (req) => {
         .order('priority');
 
       // Query org override routes
-      const { data: orgRoutes } = await adminDb
+      const { data: orgRoutes, error: orgRoutesError } = await adminDb
         .from('provider_category_routes_org_override')
         .select('id, workflow, scope, route_kind, priority, provider_connector_id, enabled, is_authoritative, provider_connectors(id, name, key)')
         .eq('organization_id', workItem.organization_id)
         .eq('workflow', workItem.workflow_type)
         .eq('enabled', true)
         .order('priority');
+      if (globalRoutesError || orgRoutesError) throw new Error('PROVIDER_ROUTE_LOOKUP_FAILED');
 
       // Use org overrides if available, otherwise global
       const activeRoutes = (orgRoutes && orgRoutes.length > 0) ? orgRoutes : (globalRoutes || []);
@@ -3941,7 +3973,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.log(`[sync-by-work-item] External provider enrichment: ${activeRoutes.length} route(s) for ${workItem.workflow_type}`);
 
         // ── Execute subchains by data_kind ──
-        const DATA_KINDS = ["ACTUACIONES", "ESTADOS"] as const;
+        const DATA_KINDS: ReadonlyArray<"ACTUACIONES" | "ESTADOS"> = ["ACTUACIONES"];
         for (const dataKind of DATA_KINDS) {
           // Filter routes applicable to this data_kind
           const scopeFilter = dataKind === "ACTUACIONES" ? "ACTS" : "PUBS";
@@ -3960,6 +3992,10 @@ Deno.serve(withSyncTimeline(async (req) => {
             const connectorInfo = (route as any).provider_connectors;
             const connectorName = connectorInfo?.name || connectorId?.slice(0, 8);
             const connectorKey = connectorInfo?.key || connectorName;
+            if (!enabledProviders.has(String(connectorKey).toLowerCase())) {
+              console.log(`[sync-by-work-item] SKIP disabled or unenrolled provider ${connectorKey}`);
+              continue;
+            }
             const providerOrder = routeIdx;
             const providerOrderReason = route.route_kind === "PRIMARY"
               ? `PRIMARY (priority=${route.priority})`
@@ -4012,6 +4048,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             const instance = instances?.[0];
 
             if (!instance) {
+              result.provider_attempts.push({ provider: `ext:${connectorName}`, status: 'error', latencyMs: 0, message: 'MISSING_INSTANCE' });
               console.warn(`[sync-by-work-item] SKIP external provider ${connectorName} (${dataKind}): no active instance (${isOrgRoute ? 'ORG' : 'PLATFORM'})`);
               result.warnings.push(`External provider ${connectorName} (${dataKind}): MISSING_INSTANCE`);
 
@@ -4048,6 +4085,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
             let sourceId = existingSource?.id;
             if (!sourceId) {
+              result.provider_attempts.push({ provider: `ext:${connectorName}`, status: 'error', latencyMs: 0, message: 'SOURCE_BINDING_FAILED' });
               // Auto-create source binding
               const { data: newSource, error: sourceErr } = await adminDb
                 .from('work_item_sources')
@@ -4099,15 +4137,17 @@ Deno.serve(withSyncTimeline(async (req) => {
               const reportedDataKind = extData.data_kind || dataKind.toLowerCase();
               const insertedCount = extData[`inserted_${reportedDataKind}`] || extData.inserted_actuaciones || extData.inserted_estados || 0;
 
+              const completeExternal = extResp.ok && extData.ok === true && extData.pending_upstream !== true &&
+                !['PARTIAL', 'PENDING_UPSTREAM', 'ERROR'].includes(String(extData.status || '').toUpperCase());
               result.provider_attempts.push({
                 provider: `ext:${connectorName}`,
-                status: extData.ok ? 'success' : (extData.empty ? 'empty' : 'error'),
+                status: completeExternal ? (extData.empty ? 'empty' : 'success') : 'error',
                 latencyMs: extLatency,
                 message: extData.error || (extData.ok ? `External sync OK (${dataKind})` : undefined),
                 actuacionesCount: insertedCount,
               });
 
-              if (extData.ok && insertedCount > 0) {
+              if (completeExternal && insertedCount > 0) {
                 result.inserted_count += insertedCount;
                 result.warnings.push(`External ${connectorName}: +${insertedCount} ${dataKind}`);
               }
@@ -4121,7 +4161,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 provider: connectorName,
                 http_status: extResp.status,
                 latency_ms: extLatency,
-                success: !!extData.ok,
+                success: completeExternal,
                 error_code: extData.code || null,
                 message: extData.ok
                   ? `External ${connectorName} (${dataKind}): inserted=${insertedCount}`
@@ -4162,10 +4202,28 @@ Deno.serve(withSyncTimeline(async (req) => {
       // External provider enrichment should never block the main sync
       console.warn(`[sync-by-work-item] External provider enrichment failed (non-blocking):`, extEnrichErr?.message);
       result.warnings.push(`External provider enrichment error: ${extEnrichErr?.message}`);
+      result.provider_attempts.push({ provider: 'ext:route_lookup', status: 'error', latencyMs: 0, message: 'PROVIDER_ROUTE_LOOKUP_FAILED' });
     }
 
-    result.ok = !persistenceFailed;
+    const completeAfterEnrichment = requiredSourcesComplete(syncOk, result.provider_attempts);
+    result.ok = completeAfterEnrichment;
+    if (syncOk && !completeAfterEnrichment) {
+      result.partial = true;
+      result.code = 'PARTIAL_SOURCE';
+      const { error: partialUpdateError } = await supabase.from('work_items').update({
+        scrape_status: 'PARTIAL_SUCCESS', last_error_code: result.code,
+        last_error_at: new Date().toISOString(),
+      }).eq('id', work_item_id);
+      if (partialUpdateError) throw partialUpdateError;
+    }
+    const { effectsPending } = ingestionOutcome(completeAfterEnrichment, result.errors);
+    if (effectsPending) {
+      result.ok = false;
+      result.partial = true;
+      result.code = 'POST_INGEST_EFFECTS_PENDING';
+    }
 
+    let verificationFailed = false;
     // ── LAYER 2: POST-INSERT VERIFICATION ──
     // Detect silent trigger failures that roll back inserts without errors
     if (result.inserted_count > 0 && attemptedFingerprints.length > 0) {
@@ -4181,6 +4239,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           const missingFps = attemptedFingerprints.filter(fp => !persistedSet.has(fp));
 
           if (missingFps.length > 0) {
+            verificationFailed = true;
             const msg = `[DATA_LOSS_DETECTED] ${missingFps.length}/${attemptedFingerprints.length} act inserts did NOT persist for ${work_item_id} (likely trigger bug)`;
             console.error(msg);
             result.warnings.push(msg);
@@ -4217,10 +4276,21 @@ Deno.serve(withSyncTimeline(async (req) => {
           } else {
             console.log(`[VERIFY_OK] All ${attemptedFingerprints.length} act inserts verified persisted`);
           }
+        } else {
+          verificationFailed = true;
         }
       } catch (verifyError: any) {
+        verificationFailed = true;
         console.warn(`[VERIFY_INSERTS] Verification query failed: ${verifyError?.message}`);
       }
+    }
+    if (verificationFailed) {
+      result.ok = false;
+      result.code = 'PERSISTENCE_UNKNOWN';
+      await supabase.from('work_items').update({
+        scrape_status: 'PARTIAL_SUCCESS', last_error_code: 'PERSISTENCE_UNKNOWN',
+        last_error_at: new Date().toISOString(),
+      }).eq('id', work_item_id);
     }
 
     // ── STRUCTURED SYNC LOG ──
@@ -4245,7 +4315,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       ),
       totalActsUpserted: result.inserted_count,
       totalActsSkipped: result.skipped_count,
-      status: result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS',
+      status: result.ok ? 'SUCCESS' : 'PARTIAL',
       durationMs: syncDurationMs,
       orchestrator: useOrchestrator,
     };
@@ -4260,7 +4330,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           organization_id: workItem.organization_id,
           workflow_type: workItem.workflow_type,
           step: 'SYNC_LOG_DEBUG',
-          success: true,
+          success: result.ok,
           message: `SyncLog: ${result.inserted_count} inserted, ${result.skipped_count} skipped, ${syncDurationMs}ms`,
           meta: syncLog,
         });
@@ -4317,8 +4387,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         skippedDuplicate: persistLedger.skippedDuplicate,
         skippedStructural: persistLedger.skippedStructural,
         rejected: persistLedger.rejected,
-        errored: persistLedger.errored,
+        errored: persistLedger.errored + (verificationFailed ? 1 : 0),
       });
+      if (((syncOk && !completeAfterEnrichment) || effectsPending) && orchestratorSyncRunId) {
+        const { error: partialRunError } = await supabase.from('external_sync_runs').update({
+          status: 'PARTIAL', error_code: effectsPending ? 'POST_INGEST_EFFECTS_PENDING' : 'PARTIAL_SOURCE',
+          error_message: effectsPending ? 'Actuaciones guardadas; hay efectos derivados pendientes.' : 'Al menos un proveedor de actuaciones no completó su consulta.',
+        }).eq('id', orchestratorSyncRunId);
+        if (partialRunError) throw partialRunError;
+      }
     }
 
     if (!useOrchestrator) {
@@ -4328,7 +4405,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         // NOT "the feed had rows and none were new", which is the normal steady
         // state and used to raise a daily flood of phantom PERSIST_MISMATCH runs.
         const persistedZeroDespiteData = ledgerHasLoss;
-        const runStatus = !result.ok
+        const runStatus = result.partial ? 'PARTIAL' : !result.ok
           ? 'FAILED'
           : persistedZeroDespiteData
             ? 'PARTIAL'
@@ -4378,7 +4455,14 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* sync run recording is best-effort */ }
     }
 
-    return jsonResponse(result, persistenceFailed ? 500 : 200);
+    if (completeAfterEnrichment && !ledgerHasLoss && !verificationFailed) {
+      await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true, effectsPending);
+      result.source_complete = true;
+      await supabase.from('work_items')
+        .update({ acts_initial_sync_completed_at: fetchResult.sourceObservedAt || new Date().toISOString() } as any)
+        .eq('id', work_item_id).is('acts_initial_sync_completed_at' as any, null);
+    }
+    return jsonResponse(result, persistenceFailed || verificationFailed ? 500 : 200);
 
   } catch (err: any) {
     // Enhanced error classification for better diagnostics

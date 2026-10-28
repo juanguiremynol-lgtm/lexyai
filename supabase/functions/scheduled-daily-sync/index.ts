@@ -597,6 +597,7 @@ Deno.serve(async (req) => {
     if (!isContinuation || partialOrgs.length === 0) {
       try {
         await supabase.functions.invoke("atenia-ai-supervisor", {
+          headers: { Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey! },
           body: { mode: "POST_DAILY_SYNC" },
         });
       } catch (supErr) {
