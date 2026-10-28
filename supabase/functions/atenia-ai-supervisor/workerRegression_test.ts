@@ -35,7 +35,13 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     }
     if (url.pathname.endsWith('/atenia_ai_remediation_queue') && req.method === 'PATCH') {
       updates.push({ url, body: await req.json() });
-      if (url.searchParams.get('id') === 'eq.task3') return j([]);
+      // Model real PostgREST: zero rows under a single-object Accept is 406
+      // PGRST116, which maybeSingle() maps to data=null (lease replaced).
+      if (url.searchParams.get('id') === 'eq.task3') {
+        return (req.headers.get('accept') ?? '').includes('vnd.pgrst.object')
+          ? j({ code: 'PGRST116', details: 'The result contains 0 rows', hint: null, message: 'JSON object requested, multiple (or no) rows returned' }, 406)
+          : j([]);
+      }
       return j({ id: url.searchParams.get('id')?.replace('eq.', '') });
     }
     if (req.method === 'HEAD') return new Response(null, { status: 200, headers: { 'content-range': '*/0' } });
