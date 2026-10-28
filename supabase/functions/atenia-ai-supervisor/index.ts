@@ -1195,14 +1195,11 @@ async function runQueueWorker(
 ): Promise<{ claimed: number; results: unknown[] }> {
   // A dry run must not consume attempts or leave claimed rows RUNNING.
   if (dryRun) {
-    const { data, error } = await supabase.from("atenia_ai_remediation_queue")
-      .select("id,action_type").eq("status", "PENDING")
-      .lte("run_after", new Date().toISOString())
-      .order("priority", { ascending: false }).order("created_at").limit(5);
+    const { data, error } = await supabase.rpc("atenia_ai_preview_supported_queue", { _limit: 5 });
     if (error) return { claimed: 0, results: [{ error: error.message }] };
     return { claimed: 0, results: (data ?? []).map((job: any) => ({ ...job, status: "DRY_RUN" })) };
   }
-  const { data: jobs, error } = await supabase.rpc("atenia_ai_claim_queue", {
+  const { data: jobs, error } = await supabase.rpc("atenia_ai_claim_supported_queue", {
     _limit: 5,
   });
   if (error) {

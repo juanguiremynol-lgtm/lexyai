@@ -19,7 +19,7 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     const url = new URL(req.url);
     const j = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     if (url.pathname.endsWith('/rpc/atenia_ai_try_start_task')) return j(true);
-    if (url.pathname.endsWith('/rpc/atenia_ai_claim_queue')) return j([
+    if (url.pathname.endsWith('/rpc/atenia_ai_claim_supported_queue')) return j([
       { id: 'task1', work_item_id: 'item1', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3 },
       { id: 'task2', work_item_id: 'item2', action_type: 'RETRY_PUBS', attempts: 1, max_attempts: 3 },
       { id: 'task3', work_item_id: 'item3', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3 },
