@@ -194,7 +194,14 @@ export function extractHearingsFromAct(input: { act_type: string | null; descrip
     const match = matches[i];
     const start = match.index ?? 0;
     const end = matches[i + 1]?.index ?? text.length;
-    const segment = text.slice(start, end).replace(/(\d)(?:º|°)/g, "$1");
+    // A time written immediately before the date ("a las 9:00 a.m. del 10 de ...")
+    // belongs to this date; only a directly adjacent time phrase is carried over.
+    const prevEnd = i > 0 ? (matches[i - 1].index ?? 0) + matches[i - 1][0].length : 0;
+    const leading = text.slice(prevEnd, start).match(
+      /(?:a\s+las|hora\s*:?|a\s+la)\s*\d{1,2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?|am|pm)?\s*,?\s*(?:del|de|el(?:\s+dia)?|para\s+el(?:\s+dia)?)?\s*$/,
+    )?.[0] ?? "";
+    let segment = text.slice(start, end).replace(/(\d)(?:º|°)/g, "$1");
+    if (leading && parseTime(segment).inferred) segment = `${leading.trim()} ${segment}`;
     // Full documents include headings/historical dates: no time borrowing.
     // Short shared-year scheduling phrases retain both dates for review.
     if (matches.length > 1 && parseTime(segment).inferred && text === raw) continue;
