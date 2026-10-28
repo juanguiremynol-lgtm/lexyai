@@ -47,7 +47,7 @@ Producidas por src/lib/services/atenia-incident-policy.ts sin work_item_id; ning
 
 ### Servicio intermediario (Cloud Run)
 - Destino efectivo: https://publicaciones-procesales-api-11974381924.us-central1.run.app (revisión declarada 00082-xez, fuente 96b6cbb según contrato 26/10; no verificable desde aquí). Repo no accesible desde Lovable.
-- Contrato actual observado: POST /procesar-radicado síncrono, 34/34 abortos a 60 s hoy; GET /historico/{radicado} 200 con `run_status` (LECTURA_PARCIAL/SUCCESS_EMPTY), `busqueda.{fuente,procesado,ultima_sync,estados_analizados}`, sin motivo de parcialidad ni ids de corrida.
+- [HISTÓRICO, superado 20:25 UTC — ver abajo] Contrato observado antes del cambio: POST /procesar-radicado síncrono, 34/34 abortos a 60 s hoy; GET /historico/{radicado} 200 con `run_status` (LECTURA_PARCIAL/SUCCESS_EMPTY), `busqueda.{fuente,procesado,ultima_sync,estados_analizados}`, sin motivo de parcialidad ni ids de corrida.
 - Contrato requerido:
   1. Admisión durable e idempotente (clave radicado+día Bogotá) ANTES de responder 202 `{backend_run_id, trazabilidad_id, estado:"ADMITIDA"}`; repetir devuelve la misma corrida.
   2. Trabajador durable con reintentos propios; GET /runs/{backend_run_id} → `{estado: ADMITIDA|EN_CURSO|COMPLETA|PARCIAL|FALLIDA, motivo_parcial, checkpoint, estados_analizados, total_estimado, backend_new_events, finalizada_en}`.
@@ -55,7 +55,7 @@ Producidas por src/lib/services/atenia-incident-policy.ts sin work_item_id; ning
   4. /historico incluye `backend_run_id`, `trazabilidad_id`, `consulta_completa` y `motivo_parcial`.
 - Compatibilidad del consumidor (ya desplegada): guarda `backend_trace` cuando existan esos campos y deja null si faltan; no hace polling a /runs hasta que una respuesta 202 incluya `backend_run_id` (no se activa sobre endpoint inexistente).
 - Pruebas de aceptación: (a) POST repetido mismo radicado → mismo run_id; (b) radicado con >200 estados → COMPLETA tras checkpoints; (c) timeout forzado → PARCIAL con motivo; (d) /historico del día con `consulta_completa=true` → la app registra SUCCESS sin PENDING_UPSTREAM; (e) caso Nicholls 05376311200120261033300 con ultima_sync de hoy.
-- Estado: no desplegado; ejecutar en el entorno autorizado.
+- [HISTÓRICO] Estado al redactar: no desplegado. Superado: backend 00091-fod (8655f3f8) y app c4a4c76c desplegados; ver entradas 20:25 y 20:31 UTC.
 
 ### Huellas de despliegue de este turno (SHA-256 de contenido enviado, no commit Git)
 - sync-by-work-item 7d1e36c54bb3426d544cb7d62b3881b08d7112f8f2f91df40b2a41152048d369
