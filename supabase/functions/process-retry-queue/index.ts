@@ -18,14 +18,26 @@ Deno.serve(async req => {
   const start = Date.now(), results: unknown[] = [];
   // Reserve both first-query channels and both recovery channels. Claim only
   // immediately before execution; timeout never locks a batch of unused work.
-  const slots = [
+  // Two cheap follow-up slots for already admitted PP runs (GET /runs only,
+  // no new extraction) run first and never take the extraction slots, so
+  // historical recoveries cannot starve them and they cannot starve first
+  // queries or actuaciones. A privileged caller may target one follow-up
+  // task; it still goes through the same claim predicate, lease and finish.
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const target = typeof body?.pp_poll_task_id === "string" && UUID_RE.test(body.pp_poll_task_id) ? body.pp_poll_task_id : null;
+  type Slot = readonly ["ACT_SCRAPE_RETRY" | "PUB_RETRY", boolean | "pp_poll"];
+  const slots: readonly Slot[] = target ? [["PUB_RETRY", "pp_poll"]] : [
+    ["PUB_RETRY", "pp_poll"], ["PUB_RETRY", "pp_poll"],
     ["ACT_SCRAPE_RETRY", true], ["PUB_RETRY", true],
     ["ACT_SCRAPE_RETRY", false], ["PUB_RETRY", false],
-  ] as const;
+  ];
   try {
     for (const [kind, initial] of slots) {
       if (Date.now() - start > 100_000) break;
-      const { data, error } = await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
+      const { data, error } = initial === "pp_poll"
+        ? await db.rpc("claim_sync_retry_pp_poll", { p_task_id: target })
+        : await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
       if (error) throw error;
       const task = data?.[0];
       if (!task?.lease_token) continue;
@@ -82,7 +94,8 @@ Deno.serve(async req => {
           // Only a durable PP admission can defer without consuming attempts;
           // its original admission timestamp puts a hard bound on polling.
           const ppDeferred = kind === "PUB_RETRY" ? ppDurableDeferral(payload) : null;
-          if (ppDeferred) { outcome = "DEFERRED"; code = ppDeferred.code; delaySeconds = ppDeferred.delaySeconds; }
+          if (ppDeferred?.terminal) { outcome = "EXHAUSTED"; code = ppDeferred.code; }
+          else if (ppDeferred) { outcome = "DEFERRED"; code = ppDeferred.code; delaySeconds = ppDeferred.delaySeconds; }
           result = { trace_id: traceId, http_status: response.status, response: payload };
           }
         } catch {
@@ -96,14 +109,14 @@ Deno.serve(async req => {
       });
       if (finishError) throw finishError;
       if (!committed) throw new Error("RETRY_LEASE_LOST");
-      results.push({ task_id: task.id, work_item_id: task.work_item_id, trace_id: traceId, outcome, code });
+      results.push({ task_id: task.id, work_item_id: task.work_item_id, trace_id: traceId, slot: initial === "pp_poll" ? "pp_poll" : kind, attempt_before: task.attempt, outcome, code });
     }
     // No synthetic work-item SUCCESS timestamp: the provider ingestion owns it.
     const { count: overdueInitial, error: slaError } = await db.from("sync_retry_queue")
       .select("id", { count: "exact", head: true }).eq("attempt", 0)
       .lt("created_at", new Date(Date.now() - 48 * 3600_000).toISOString());
     if (slaError) throw slaError;
-    return json({ ok: true, revision: "retry-fenced-20261026", processed: results.length, results,
+    return json({ ok: true, revision: "retry-pp-poll-20261028", processed: results.length, results,
       first_query_target_hours: 48, overdue_initial_queries: overdueInitial,
       sla_met: overdueInitial === 0 });
   } catch (error) {
