@@ -24,6 +24,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
+import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
@@ -1681,6 +1682,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     const normalizedRadicado = normalizeRadicado(workItem.radicado);
+
+    // This endpoint is invoked by both the monitor and users. For CPACA its
+    // only publication source is SAMAI Estados; never bypass a disabled or
+    // missing per-matter enrolment through a direct invocation.
+    if (workItem.workflow_type === 'CPACA') {
+      const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
+        .select('enabled').eq('work_item_id', work_item_id).eq('provider_key', 'samai_estados').eq('scope', 'PUBS').maybeSingle();
+      const decision = samaiEnrollmentDecision(enrollmentError, enrollment);
+      if (decision === 'UNAVAILABLE') {
+        return errorResponse('SOURCE_ENROLLMENT_UNAVAILABLE', 'No se pudo verificar la habilitación de la fuente.', 503,
+          { stage: 'source_enrollment', radicado: normalizedRadicado });
+      }
+      if (decision === 'DISABLED') {
+        return jsonResponse({ ok: false, status: 'SKIPPED', result_code: 'ROUTING_SKIP_SOURCE_DISABLED',
+          message: 'SAMAI Estados no está habilitado para este asunto.', work_item_id }, 200);
+      }
+    }
 
     // ============= DEFENSIVE ROUTING GUARD (Doctor's rule) =============
     // sync-publicaciones-by-work-item is the PP (Publicaciones Procesales)

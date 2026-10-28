@@ -9,9 +9,9 @@ BEGIN
  SELECT * INTO q FROM public.sync_retry_queue WHERE id=p_id AND lease_token=p_token FOR UPDATE;
  IF NOT FOUND THEN RETURN false; END IF;
  IF p_outcome='DEFERRED' THEN
-  IF p_error IS NULL OR p_error NOT IN ('PROVIDER_BREAKER_OPEN','PROVIDER_BREAKER_UNAVAILABLE','PROVIDER_BREAKER_LEASE_LOST','SOURCE_ENROLLMENT_UNAVAILABLE') THEN RAISE EXCEPTION 'invalid deferral'; END IF;
+  IF p_error IS NULL OR p_error NOT IN ('PROVIDER_BREAKER_OPEN','PROVIDER_BREAKER_UNAVAILABLE','PROVIDER_BREAKER_LEASE_LOST','SOURCE_ENROLLMENT_UNAVAILABLE','MONITORING_PAUSED') THEN RAISE EXCEPTION 'invalid deferral'; END IF;
   UPDATE public.sync_retry_queue SET claimed_at=NULL,lease_token=NULL,
-   next_run_at=now()+make_interval(secs=>greatest(5,least(p_delay_seconds,1800))),
+   next_run_at=now()+make_interval(secs=>greatest(5,least(p_delay_seconds,CASE WHEN p_error='MONITORING_PAUSED' THEN 86400 ELSE 1800 END))),
    last_error_code=p_error,last_error_message=left(p_result::text,1000) WHERE id=q.id;
  ELSIF p_outcome='RETRY' AND q.attempt+1<q.max_attempts THEN
   UPDATE public.sync_retry_queue SET attempt=attempt+1,claimed_at=NULL,lease_token=NULL,next_run_at=now()+make_interval(secs=>p_delay_seconds),last_error_code=p_error,last_error_message=left(p_result::text,1000) WHERE id=q.id;

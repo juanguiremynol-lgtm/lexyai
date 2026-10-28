@@ -4,7 +4,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { dispatchRetry } from "../_shared/retryDispatch.ts";
 import { breakerDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
-import { isExclusiveSamaiPublication, retryItemEligible } from "../_shared/retryEligibility.ts";
+import { isExclusiveSamaiPublication, retryItemDisposition, samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 
 Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -37,8 +37,11 @@ Deno.serve(async req => {
       let code: string | null = null;
       let result: Record<string, unknown> = { trace_id: traceId };
       let delaySeconds = kind === "PUB_RETRY" ? 86400 : 900;
-      if (!retryItemEligible(item)) {
-        outcome = "INELIGIBLE"; code = "MONITORING_INELIGIBLE";
+      const disposition = retryItemDisposition(item);
+      if (disposition === "MISSING" || disposition === "DELETED") {
+        outcome = "INELIGIBLE"; code = disposition === "MISSING" ? "ITEM_NOT_FOUND" : "ITEM_DELETED";
+      } else if (disposition === "PAUSED") {
+        outcome = "DEFERRED"; code = "MONITORING_PAUSED"; delaySeconds = 86400;
       } else if (task.attempt >= task.max_attempts) {
         outcome = "EXHAUSTED"; code = task.last_error_code ?? "RETRY_EXHAUSTED";
       } else {
@@ -49,9 +52,10 @@ Deno.serve(async req => {
             const { data: enrollment, error: enrollmentError } = await db.from("work_item_provider_enrollment")
               .select("enabled").eq("work_item_id", task.work_item_id).eq("provider_key", "samai_estados")
               .eq("scope", "PUBS").maybeSingle();
-            if (enrollmentError) {
+            const enrollmentDecision = samaiEnrollmentDecision(enrollmentError, enrollment);
+            if (enrollmentDecision === "UNAVAILABLE") {
               outcome = "DEFERRED"; code = "SOURCE_ENROLLMENT_UNAVAILABLE"; delaySeconds = 130;
-            } else if (!enrollment?.enabled) {
+            } else if (enrollmentDecision === "DISABLED") {
               outcome = "INELIGIBLE"; code = "SOURCE_NOT_ENABLED";
             } else {
               const { data: breaker, error: breakerError } = await db.rpc("peek_samai_estados_breaker");
