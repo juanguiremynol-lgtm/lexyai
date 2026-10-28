@@ -31,6 +31,7 @@ DO $$ BEGIN
  PERFORM public.finish_sync_retry('22222222-2222-2222-2222-222222222222','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','INELIGIBLE','ITEM_DELETED','{}',900);
  PERFORM public.finish_sync_retry('33333333-3333-3333-3333-333333333333','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','EXHAUSTED','RETRY_EXHAUSTED','{}',900);
  IF (SELECT count(*) FROM sync_retry_outcomes WHERE outcome IN ('SUCCESS','INELIGIBLE','EXHAUSTED'))<>3 THEN RAISE EXCEPTION 'terminal history not preserved'; END IF;
+ IF NOT EXISTS (SELECT 1 FROM sync_retry_outcomes WHERE outcome='INELIGIBLE' AND attempt=0) THEN RAISE EXCEPTION 'exclusion falsely counted as source attempt'; END IF;
  IF (SELECT count(*) FROM sync_retry_queue WHERE id IN ('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222','33333333-3333-3333-3333-333333333333'))<>0 THEN RAISE EXCEPTION 'terminal item retained'; END IF;
 END $$;
 SELECT set_config('test.role','anon',false);

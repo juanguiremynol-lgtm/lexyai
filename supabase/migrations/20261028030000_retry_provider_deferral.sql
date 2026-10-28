@@ -17,7 +17,7 @@ BEGIN
   UPDATE public.sync_retry_queue SET attempt=attempt+1,claimed_at=NULL,lease_token=NULL,next_run_at=now()+make_interval(secs=>p_delay_seconds),last_error_code=p_error,last_error_message=left(p_result::text,1000) WHERE id=q.id;
  ELSE
   INSERT INTO public.sync_retry_outcomes(task_id,work_item_id,kind,attempt,outcome,error_code,result)
-   VALUES(q.id,q.work_item_id,q.kind,q.attempt+1,CASE WHEN p_outcome='RETRY' THEN 'EXHAUSTED' ELSE p_outcome END,p_error,COALESCE(p_result,'{}'::jsonb)) ON CONFLICT(task_id) DO NOTHING;
+   VALUES(q.id,q.work_item_id,q.kind,CASE WHEN p_outcome='INELIGIBLE' THEN q.attempt ELSE q.attempt+1 END,CASE WHEN p_outcome='RETRY' THEN 'EXHAUSTED' ELSE p_outcome END,p_error,COALESCE(p_result,'{}'::jsonb)) ON CONFLICT(task_id) DO NOTHING;
   DELETE FROM public.sync_retry_queue WHERE id=q.id AND lease_token=p_token;
  END IF;
  RETURN true;

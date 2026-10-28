@@ -1891,7 +1891,22 @@ Deno.serve(withSyncTimeline(async (req) => {
     // (never SUCCESS while a provider errored — see error-return branch below).
     const isCpaca = workItem.workflow_type === 'CPACA';
     const isTutelaUnion = workItem.workflow_type === 'TUTELA';
-    if (isCpaca || isTutelaUnion) {
+    let tutelaSamaiEnabled = false;
+    if (isTutelaUnion) {
+      const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
+        .select('enabled').eq('work_item_id', work_item_id).eq('provider_key', 'samai_estados').eq('scope', 'PUBS').maybeSingle();
+      const decision = samaiEnrollmentDecision(enrollmentError, enrollment);
+      tutelaSamaiEnabled = decision === 'ENABLED';
+      if (decision === 'UNAVAILABLE') {
+        // Keep PP results, but never certify complete coverage when the
+        // eligibility of the second source could not be established.
+        fetchResult.readIncomplete = true;
+        result.warnings.push('No se pudo verificar si SAMAI Estados está habilitado; la consulta queda parcial.');
+      } else if (decision === 'DISABLED') {
+        result.warnings.push('SAMAI Estados no está habilitado para este asunto.');
+      }
+    }
+    if (isCpaca || (isTutelaUnion && tutelaSamaiEnabled)) {
       if (isTutelaUnion) {
         console.log(
           `[sync-pub][samai_estados] TUTELA union: querying SAMAI_ESTADOS alongside PP for wi=${work_item_id} ` +
