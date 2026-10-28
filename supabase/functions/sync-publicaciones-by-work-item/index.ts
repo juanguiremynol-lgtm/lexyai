@@ -25,6 +25,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
 import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableContract.ts";
+import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
+/** Poll budget per admitted run (hourly drains over the 72h window). */
+const PP_MAX_POLLS_PER_RUN = 96;
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
@@ -363,7 +366,8 @@ type RescrapeDecision = {
     | 'trigger_accepted'
     | 'trigger_error'
     | 'not_evaluated'
-    | 'routing_skip_non_pp_category';
+    | 'routing_skip_non_pp_category'
+    | 'follow_admitted_run';
   httpStatus?: number;
   error?: string;
   backendRunId?: string | null;
