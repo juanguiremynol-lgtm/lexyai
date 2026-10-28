@@ -1,3 +1,4 @@
+import { invokeInternal } from "../_shared/internalInvoke.ts";
 /**
  * atenia-platform-sweep — Daily cross-org platform health sweep.
  *
@@ -152,9 +153,9 @@ Deno.serve(async (req) => {
 
           for (const item of critItems ?? []) {
             try {
-              await supabase.functions.invoke("sync-by-work-item", {
-                body: { work_item_id: item.id, trigger: "PLATFORM_SWEEP" },
-              });
+              const r = await invokeInternal("sync-by-work-item",
+                { work_item_id: item.id, trigger: "PLATFORM_SWEEP", _scheduled: true }, "atenia-platform-sweep");
+              if (r.error) console.warn("[platform-sweep] sync failed", item.id, r.status);
             } catch { /* non-blocking */ }
           }
         }
