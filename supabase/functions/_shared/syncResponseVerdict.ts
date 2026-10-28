@@ -4,5 +4,5 @@ export function syncResponseOk(httpOk: boolean, body: unknown): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   const result = body as Record<string, unknown>;
   if (result.ok === false || result.success === false) return false;
-  return result.ok === true || (httpOk && result.error == null);
+  return result.ok === true || result.success === true;
 }

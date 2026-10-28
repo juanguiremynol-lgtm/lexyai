@@ -165,6 +165,13 @@ export function withSyncTimeline(
       resultCode === "PENDING_UPSTREAM" ||
       strOr(parsed?.status) === "PENDING_UPSTREAM";
 
+    // An untrusted caller can supply any work_item_id. A rejected request has
+    // not proved entitlement to that row; retain only unattributed telemetry.
+    if (authRejected) {
+      console.warn(`[syncTimeline] caller rejected function=${opts.function_name} http_status=${response.status}`);
+      return response;
+    }
+
     let status: SyncTimelineEvent["status"];
     if (authRejected) status = "rejected";
     else if (pendingUpstream) status = "pending_upstream";
@@ -203,6 +210,7 @@ export function withSyncTimeline(
         http_status: response.status,
         trace_id: strOr(parsed?.trace_id),
         source_observed_at: strOr(parsed?.source_observed_at),
+        source_complete: parsed?.source_complete === true,
         invoker_function: req.headers.get("x-invoker-function"),
         retry_task_id: req.headers.get("x-retry-task-id"),
         scheduled_requested: req.headers.get("x-invoker-function") === "process-retry-queue",

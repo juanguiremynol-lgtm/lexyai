@@ -19,6 +19,11 @@ export function assessSamaiFeed(
   if (source.consulta_exitosa_ultimo_intento !== true || source.ultimo_resultado !== 'ok') {
     return { ok: false, code: 'SAMAI_SOURCE_LAST_ATTEMPT_FAILED' };
   }
+  // A collector's legacy `ok` only proves that the returned set committed.
+  // It does not prove that the portal returned this case or all its pages.
+  if (source.identidad_verificada !== true || source.paginacion_completa !== true || source.persistencia_confirmada !== true) {
+    return { ok: false, code: 'SAMAI_SOURCE_COVERAGE_UNVERIFIED' };
+  }
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
   });

@@ -25,7 +25,7 @@ const HISTORICAL_REPAIR_SCOPE: HistoricalRepairScope | null = null;
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
-import { occurredByToday, persistenceIsComplete } from "../_shared/syncCompletion.ts";
+import { occurredByToday, persistenceIsComplete, requiredSourcesComplete, ingestionOutcome, recordEmptyInitialCompletion } from "../_shared/syncCompletion.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { canonicalActFingerprint } from "../_shared/canonicalFingerprint.ts";
@@ -222,6 +222,7 @@ interface SyncResult {
   sync_run_id?: string;
   source_observed_at?: string;
   partial?: boolean;
+  source_complete?: boolean;
   code?: string; // Error code for client
   persistence_unknown?: { fingerprint: string | null; reason: string }[];
   // Auto-scraping fields
@@ -892,6 +893,7 @@ async function sealReadOutcome(
   providerAttempts: ProviderAttempt[],
   scrapingInitiated: boolean,
   allowSuccess = false,
+  effectsPending = false,
 ): Promise<void> {
   if (scrapingInitiated) return;
 
@@ -918,8 +920,8 @@ async function sealReadOutcome(
         last_checked_at: nowIso,
         last_synced_at: successTime,
         last_successful_sync_at: successTime,
-        scrape_status: 'SUCCESS',
-        last_error_code: null,
+        scrape_status: effectsPending ? 'PARTIAL_SUCCESS' : 'SUCCESS',
+        last_error_code: effectsPending ? 'POST_INGEST_EFFECTS_PENDING' : null,
         consecutive_failures: 0,
         provider_reachable: true,
       })
@@ -2882,7 +2884,11 @@ Deno.serve(withSyncTimeline(async (req) => {
         })
         .eq('id', work_item_id);
       if (emptyUpdateError) throw emptyUpdateError;
-      if (!incompleteEmpty) await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+      if (!incompleteEmpty) {
+        await recordEmptyInitialCompletion(supabase, work_item_id, fetchResult.sourceObservedAt);
+        await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+        result.source_complete = true;
+      }
       
       // Log trace for forensics
       await logTrace(supabase, {
@@ -3932,26 +3938,18 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // ============= EXTERNAL PROVIDER ENRICHMENT (data_kind-aware subchains) =============
-    // After built-in sync completes, resolve external provider routes and execute
-    // TWO independent subchains: one for ACTUACIONES, one for ESTADOS.
-    // Routes with scope=BOTH are called in both subchains.
-    // Compatibility gating prevents incompatible providers from being called.
-    //
-    // Spec:
-    //   - data_kind=ACTUACIONES: procedural actions (fed by CPNU, SAMAI, etc.)
-    //   - data_kind=ESTADOS: procedural status/publications (fed by SAMAI_ESTADOS, Publicaciones, etc.)
-    //   - Primary mapping: CGP→CPNU(acts)/Publicaciones(estados), CPACA→SAMAI(acts)/SAMAI_ESTADOS(estados)
-    //   - Fallback providers are merged if non-duplicate; provenance always preserved
+    // This entry point certifies ACTUACIONES only. Estados have their own
+    // durable monitor and independent outcome; never start them indirectly.
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminDb = createClient(supabaseUrl, supabaseServiceKey);
 
       // Import coverage matrix for compatibility gating
-      const { isProviderCompatible, routeScopeToDataKinds } = await import("../_shared/providerCoverageMatrix.ts");
+      const { isProviderCompatible } = await import("../_shared/providerCoverageMatrix.ts");
 
       // Query global routes for this workflow
-      const { data: globalRoutes } = await adminDb
+      const { data: globalRoutes, error: globalRoutesError } = await adminDb
         .from('provider_category_routes_global')
         .select('id, workflow, scope, route_kind, priority, provider_connector_id, enabled, is_authoritative, provider_connectors(id, name, key)')
         .eq('workflow', workItem.workflow_type)
@@ -3959,13 +3957,14 @@ Deno.serve(withSyncTimeline(async (req) => {
         .order('priority');
 
       // Query org override routes
-      const { data: orgRoutes } = await adminDb
+      const { data: orgRoutes, error: orgRoutesError } = await adminDb
         .from('provider_category_routes_org_override')
         .select('id, workflow, scope, route_kind, priority, provider_connector_id, enabled, is_authoritative, provider_connectors(id, name, key)')
         .eq('organization_id', workItem.organization_id)
         .eq('workflow', workItem.workflow_type)
         .eq('enabled', true)
         .order('priority');
+      if (globalRoutesError || orgRoutesError) throw new Error('PROVIDER_ROUTE_LOOKUP_FAILED');
 
       // Use org overrides if available, otherwise global
       const activeRoutes = (orgRoutes && orgRoutes.length > 0) ? orgRoutes : (globalRoutes || []);
@@ -3974,7 +3973,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.log(`[sync-by-work-item] External provider enrichment: ${activeRoutes.length} route(s) for ${workItem.workflow_type}`);
 
         // ── Execute subchains by data_kind ──
-        const DATA_KINDS = ["ACTUACIONES", "ESTADOS"] as const;
+        const DATA_KINDS: ReadonlyArray<"ACTUACIONES" | "ESTADOS"> = ["ACTUACIONES"];
         for (const dataKind of DATA_KINDS) {
           // Filter routes applicable to this data_kind
           const scopeFilter = dataKind === "ACTUACIONES" ? "ACTS" : "PUBS";
@@ -4049,6 +4048,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             const instance = instances?.[0];
 
             if (!instance) {
+              result.provider_attempts.push({ provider: `ext:${connectorName}`, status: 'error', latencyMs: 0, message: 'MISSING_INSTANCE' });
               console.warn(`[sync-by-work-item] SKIP external provider ${connectorName} (${dataKind}): no active instance (${isOrgRoute ? 'ORG' : 'PLATFORM'})`);
               result.warnings.push(`External provider ${connectorName} (${dataKind}): MISSING_INSTANCE`);
 
@@ -4085,6 +4085,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
             let sourceId = existingSource?.id;
             if (!sourceId) {
+              result.provider_attempts.push({ provider: `ext:${connectorName}`, status: 'error', latencyMs: 0, message: 'SOURCE_BINDING_FAILED' });
               // Auto-create source binding
               const { data: newSource, error: sourceErr } = await adminDb
                 .from('work_item_sources')
@@ -4136,15 +4137,17 @@ Deno.serve(withSyncTimeline(async (req) => {
               const reportedDataKind = extData.data_kind || dataKind.toLowerCase();
               const insertedCount = extData[`inserted_${reportedDataKind}`] || extData.inserted_actuaciones || extData.inserted_estados || 0;
 
+              const completeExternal = extResp.ok && extData.ok === true && extData.pending_upstream !== true &&
+                !['PARTIAL', 'PENDING_UPSTREAM', 'ERROR'].includes(String(extData.status || '').toUpperCase());
               result.provider_attempts.push({
                 provider: `ext:${connectorName}`,
-                status: extData.ok ? 'success' : (extData.empty ? 'empty' : 'error'),
+                status: completeExternal ? (extData.empty ? 'empty' : 'success') : 'error',
                 latencyMs: extLatency,
                 message: extData.error || (extData.ok ? `External sync OK (${dataKind})` : undefined),
                 actuacionesCount: insertedCount,
               });
 
-              if (extData.ok && insertedCount > 0) {
+              if (completeExternal && insertedCount > 0) {
                 result.inserted_count += insertedCount;
                 result.warnings.push(`External ${connectorName}: +${insertedCount} ${dataKind}`);
               }
@@ -4158,7 +4161,7 @@ Deno.serve(withSyncTimeline(async (req) => {
                 provider: connectorName,
                 http_status: extResp.status,
                 latency_ms: extLatency,
-                success: !!extData.ok,
+                success: completeExternal,
                 error_code: extData.code || null,
                 message: extData.ok
                   ? `External ${connectorName} (${dataKind}): inserted=${insertedCount}`
@@ -4199,9 +4202,26 @@ Deno.serve(withSyncTimeline(async (req) => {
       // External provider enrichment should never block the main sync
       console.warn(`[sync-by-work-item] External provider enrichment failed (non-blocking):`, extEnrichErr?.message);
       result.warnings.push(`External provider enrichment error: ${extEnrichErr?.message}`);
+      result.provider_attempts.push({ provider: 'ext:route_lookup', status: 'error', latencyMs: 0, message: 'PROVIDER_ROUTE_LOOKUP_FAILED' });
     }
 
-    result.ok = syncOk;
+    const completeAfterEnrichment = requiredSourcesComplete(syncOk, result.provider_attempts);
+    result.ok = completeAfterEnrichment;
+    if (syncOk && !completeAfterEnrichment) {
+      result.partial = true;
+      result.code = 'PARTIAL_SOURCE';
+      const { error: partialUpdateError } = await supabase.from('work_items').update({
+        scrape_status: 'PARTIAL_SUCCESS', last_error_code: result.code,
+        last_error_at: new Date().toISOString(),
+      }).eq('id', work_item_id);
+      if (partialUpdateError) throw partialUpdateError;
+    }
+    const { effectsPending } = ingestionOutcome(completeAfterEnrichment, result.errors);
+    if (effectsPending) {
+      result.ok = false;
+      result.partial = true;
+      result.code = 'POST_INGEST_EFFECTS_PENDING';
+    }
 
     let verificationFailed = false;
     // ── LAYER 2: POST-INSERT VERIFICATION ──
@@ -4295,7 +4315,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       ),
       totalActsUpserted: result.inserted_count,
       totalActsSkipped: result.skipped_count,
-      status: result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS',
+      status: result.ok ? 'SUCCESS' : 'PARTIAL',
       durationMs: syncDurationMs,
       orchestrator: useOrchestrator,
     };
@@ -4310,7 +4330,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           organization_id: workItem.organization_id,
           workflow_type: workItem.workflow_type,
           step: 'SYNC_LOG_DEBUG',
-          success: true,
+          success: result.ok,
           message: `SyncLog: ${result.inserted_count} inserted, ${result.skipped_count} skipped, ${syncDurationMs}ms`,
           meta: syncLog,
         });
@@ -4369,6 +4389,13 @@ Deno.serve(withSyncTimeline(async (req) => {
         rejected: persistLedger.rejected,
         errored: persistLedger.errored + (verificationFailed ? 1 : 0),
       });
+      if (((syncOk && !completeAfterEnrichment) || effectsPending) && orchestratorSyncRunId) {
+        const { error: partialRunError } = await supabase.from('external_sync_runs').update({
+          status: 'PARTIAL', error_code: effectsPending ? 'POST_INGEST_EFFECTS_PENDING' : 'PARTIAL_SOURCE',
+          error_message: effectsPending ? 'Actuaciones guardadas; hay efectos derivados pendientes.' : 'Al menos un proveedor de actuaciones no completó su consulta.',
+        }).eq('id', orchestratorSyncRunId);
+        if (partialRunError) throw partialRunError;
+      }
     }
 
     if (!useOrchestrator) {
@@ -4378,7 +4405,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         // NOT "the feed had rows and none were new", which is the normal steady
         // state and used to raise a daily flood of phantom PERSIST_MISMATCH runs.
         const persistedZeroDespiteData = ledgerHasLoss;
-        const runStatus = !result.ok
+        const runStatus = result.partial ? 'PARTIAL' : !result.ok
           ? 'FAILED'
           : persistedZeroDespiteData
             ? 'PARTIAL'
@@ -4428,8 +4455,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* sync run recording is best-effort */ }
     }
 
-    if (syncOk && !ledgerHasLoss && !verificationFailed) {
-      await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+    if (completeAfterEnrichment && !ledgerHasLoss && !verificationFailed) {
+      await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true, effectsPending);
+      result.source_complete = true;
       await supabase.from('work_items')
         .update({ acts_initial_sync_completed_at: fetchResult.sourceObservedAt || new Date().toISOString() } as any)
         .eq('id', work_item_id).is('acts_initial_sync_completed_at' as any, null);
