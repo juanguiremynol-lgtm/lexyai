@@ -381,7 +381,7 @@ const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
 async function checkRescrapeGate(
   supabase: any,
   workItemId: string,
-): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null }> {
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null; followupClosed?: boolean; pollCount?: number }> {
   const key = `pub_rescrape:${workItemId}`;
   try {
     const { data } = await supabase
@@ -401,6 +401,8 @@ async function checkRescrapeGate(
       hoursSince: Number(hours.toFixed(2)),
       backendRunId: typeof data?.value?.backend_run_id === 'string' ? data.value.backend_run_id : null,
       backendAdmittedAt: typeof data?.value?.backend_admitted_at === 'string' ? data.value.backend_admitted_at : null,
+      followupClosed: data?.value?.followup_closed === true,
+      pollCount: Number(data?.value?.poll_count ?? 0) || 0,
     };
   } catch (_e) {
     return { allow: true, lastTriggeredAt: null, hoursSince: null };
@@ -1874,6 +1876,14 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ITER55 B1 — the sync cooldown folds into the TRIGGER gate, not the read.
     const triggerAllowed = gateStatus.allow && !readOnlyDueToCooldown;
     let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
+    // A stored, still-open durable run is followed with GET /runs only — no
+    // new POST while its bounded follow-up window (72h from first app
+    // observation) and poll budget last.
+    const admittedMs = Date.parse(gateStatus.backendAdmittedAt ?? '');
+    const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed &&
+      Number.isFinite(admittedMs) && Date.now() - admittedMs < PP_FOLLOWUP_MAX_MS &&
+      (gateStatus.pollCount ?? 0) < PP_MAX_POLLS_PER_RUN ? gateStatus.backendRunId : null;
+    if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
     console.log(
       `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${triggerAllowed} (gate=${gateStatus.allow}, read_only_cooldown=${readOnlyDueToCooldown}) ` +
         `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,
@@ -1896,7 +1906,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     } else {
       try {
         fetchResult = await Promise.race([
-        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
+        activeRunId
+          ? followAdmittedRun(normalizedRadicado, baseUrl, apiKey, activeRunId)
+          : fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
           allow: triggerAllowed,
           onDecision: (d) => { rescrapeDecision = d; },
         }),
