@@ -16,6 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { startHeartbeat, finishHeartbeat, heartbeatNoOp, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
 import { ONLINE_SYNC_ELIGIBLE_LIST } from "../_shared/onlineSyncEligibility.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { enqueueMissingActs } from "./enqueueActs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -282,38 +283,10 @@ Deno.serve(async (req) => {
         severity: "WARNING",
       });
 
-      // Enqueue missing items for sync
-      if (Number(cov.missing_attempts) > 0 && Number(cov.missing_attempts) <= 100) {
-        const { data: missingItems } = await admin
-          .from("work_items")
-          .select("id, organization_id")
-          .eq("monitoring_enabled", true)
-          .not("id", "in", `(SELECT DISTINCT work_item_id FROM sync_traces WHERE created_at > now() - interval '24 hours')`)
-          .limit(50);
+      // Recovery is queued below together with stale items. The old path
+      // upserted an unsupported SYNC_WORK_ITEM action against a partial index
+      // and counted candidates even when PostgREST returned a write error.
 
-        // Use raw SQL for the subquery
-        const { data: missingRaw } = await admin.rpc("atenia_get_missing_sync_items");
-        if (missingRaw && Array.isArray(missingRaw)) {
-          const today = new Date().toISOString().slice(0, 10);
-          for (const item of missingRaw.slice(0, 50)) {
-            try {
-              await admin.from("atenia_ai_remediation_queue").upsert(
-                {
-                  action_type: "SYNC_WORK_ITEM",
-                  work_item_id: item.id,
-                  organization_id: item.organization_id,
-                  status: "PENDING",
-                  priority: 5,
-                  payload: { source: "watchdog_coverage_invariant" },
-                  dedupe_key: `COVERAGE:${today}:${item.id}`,
-                },
-                { onConflict: "dedupe_key" }
-              );
-            } catch (_) { /* non-fatal */ }
-          }
-          results.coverage_enqueued = missingRaw.length;
-        }
-      }
     }
 
     // ================================================================
@@ -571,21 +544,9 @@ Deno.serve(async (req) => {
           severity: "CRITICAL",
         });
 
-        for (const orgId of missingOrgs.slice(0, 20)) {
-          try {
-            await admin.from("atenia_ai_remediation_queue").upsert(
-              {
-                action_type: "SYNC_ORG_DAILY",
-                organization_id: orgId,
-                status: "PENDING",
-                priority: 2,
-                payload: { source: "watchdog_org_verification", run_date: todayStr },
-                dedupe_key: `ORG_DAILY:${todayStr}:${orgId}`,
-              },
-              { onConflict: "dedupe_key" }
-            );
-          } catch (_) { /* non-fatal */ }
-        }
+        // The per-item durable queue below handles recovery. SYNC_ORG_DAILY
+        // is not a supported remediation-worker action; keep this as an alert.
+
       }
 
       const failedLedger = (todayLedger ?? []).filter((l: any) => l.status === "FAILED");
@@ -640,36 +601,71 @@ Deno.serve(async (req) => {
         });
       } catch (_) { /* non-fatal */ }
 
-      const { data: stalestItems } = await admin
-        .from("work_items")
-        .select("id, organization_id")
-        .eq("monitoring_enabled", true)
-        .is("deleted_at", null)
-        .not("radicado", "is", null)
+
+    }
+
+    // Coverage and freshness share a single durable ACT queue. A failed or
+    // exhausted retry stays visible for a day instead of being re-created on
+    // every watchdog tick. The separate estados monitor owns publication work.
+    try {
+      const { data: missing, error: missingError } = await admin.rpc("atenia_get_missing_sync_items");
+      if (missingError) throw missingError;
+      const { data: stale, error: staleError } = await admin.from("work_items")
+        .select("id").eq("monitoring_enabled", true).is("deleted_at", null)
         .in("workflow_type", ONLINE_SYNC_ELIGIBLE_LIST)
         .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`)
-        .order("last_synced_at", { ascending: true, nullsFirst: true })
-        .limit(30);
-
-      if (stalestItems && stalestItems.length > 0) {
-        for (const item of stalestItems) {
-          try {
-            await admin.from("atenia_ai_remediation_queue").upsert(
-              {
-                action_type: "SYNC_WORK_ITEM",
-                work_item_id: item.id,
-                organization_id: item.organization_id,
-                status: "PENDING",
-                priority: 2,
-                payload: { source: "watchdog_freshness_audit", threshold_hours: CRITICAL_STALE_HOURS },
-                dedupe_key: `FRESH:${todayStr}:${item.id}`,
-              },
-              { onConflict: "dedupe_key" }
-            );
-          } catch (_) { /* non-fatal */ }
+        .order("last_synced_at", { ascending: true, nullsFirst: true }).limit(100);
+      if (staleError) throw staleError;
+      const ids = [...new Set([...(missing ?? []), ...(stale ?? [])].map((row: { id: string }) => row.id))];
+      if (ids.length) {
+        const { data: items, error: itemsError } = await admin.from("work_items")
+          .select("id,organization_id,radicado,workflow_type,monitoring_enabled,deleted_at,status").in("id", ids);
+        if (itemsError) throw itemsError;
+        const { data: enrollments, error: enrollmentError } = await admin.from("work_item_provider_enrollment")
+          .select("work_item_id,provider_key,enabled").eq("scope", "ACTS").in("work_item_id", ids);
+        if (enrollmentError) throw enrollmentError;
+        const { data: recent, error: recentError } = await admin.from("sync_retry_outcomes")
+          .select("work_item_id").eq("kind", "ACT_SCRAPE_RETRY").in("work_item_id", ids)
+          .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        if (recentError) throw recentError;
+        const { data: legacy, error: legacyError } = await admin.from("atenia_ai_remediation_queue")
+          .select("work_item_id").in("action_type", ["RETRY_ACTS", "SYNC_WORK_ITEM"])
+          .in("status", ["PENDING", "RUNNING"]).in("work_item_id", ids);
+        if (legacyError) throw legacyError;
+        const stats = await enqueueMissingActs(items ?? [], enrollments ?? [],
+          new Set((recent ?? []).map(row => row.work_item_id)), async task => {
+            const { data, error } = await admin.from("sync_retry_queue")
+              .upsert(task, { onConflict: "work_item_id,kind", ignoreDuplicates: true }).select("id");
+            if (error) throw error;
+            return data?.length ? "inserted" : "existing";
+          }, new Date().toISOString(), new Set((legacy ?? []).map(row => row.work_item_id)));
+        results.coverage_queue = stats;
+        // Compatibility field counts only confirmed insertions, not candidates.
+        results.coverage_enqueued = stats.inserted;
+        if (stats.source_blocked) {
+          (results as any).partial = true;
+          alerts.push({ title: "⚠️ Fuente de actuaciones pendiente", severity: "WARNING",
+            message: `${stats.source_blocked} asuntos requieren revisar su inscripción de fuente antes de recuperar actuaciones.` });
         }
-        results.freshness_enqueued = stalestItems.length;
+        if ((missing ?? []).length >= 100 || (stale ?? []).length >= 100) {
+          (results as any).partial = true;
+          results.coverage_selection_capped = true;
+        }
+        if (stats.write_errors) {
+          (results as any).partial = true;
+          alerts.push({ title: "⚠️ Falló el encolado de vigilancia", severity: "WARNING",
+            message: `${stats.write_errors} trabajos no pudieron guardarse para recuperación.` });
+        }
+      } else {
+        results.coverage_queue = { inserted: 0, existing: 0, recently_finished: 0, legacy_pending: 0, ineligible: 0, source_blocked: 0, write_errors: 0 };
+        results.coverage_enqueued = 0;
       }
+    } catch (error) {
+      (results as any).partial = true;
+      results.coverage_queue = { error: "COVERAGE_QUEUE_QUERY_FAILED" };
+      console.error("[watchdog] coverage queue failed", error instanceof Error ? error.message : "unknown");
+      alerts.push({ title: "⚠️ Falló la revisión de pendientes", severity: "WARNING",
+        message: "No se pudo comprobar o encolar la recuperación de actuaciones." });
     }
 
     // ================================================================
