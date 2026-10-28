@@ -1,14 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
-<<<<<<< supabase/functions/fallback-sync-check/index.ts
-import { invokeInternal } from "../_shared/internalInvoke.ts";
-  shouldCountAsSuccess,
-  isScrapingPending,
-  shouldEnqueueRetry,
-  retryJitterMs,
-=======
->>>>>>> /tmp/mrg/theirs/supabase/functions/fallback-sync-check/index.ts
   SYNC_ENABLED_WORKFLOWS,
 } from "../_shared/syncPolicy.ts";
 import { fallbackEligibility, type Enrollment } from "./eligibility.ts";
@@ -249,81 +241,6 @@ Deno.serve(async (req) => {
           throw fetchError;
         }
 
-<<<<<<< supabase/functions/fallback-sync-check/index.ts
-        const eligibleItems = (workItems || []).filter((item: any) => {
-          if (!item.radicado || item.radicado.replace(/\D/g, '').length !== 23) return false;
-          if ((item.consecutive_failures || 0) >= 3) {
-            console.log(`[fallback-sync-check] Skipping ${item.radicado}: ${item.consecutive_failures} consecutive failures`);
-            return false;
-          }
-          if (item.last_error_code === 'PROVIDER_RATE_LIMITED') {
-            console.log(`[fallback-sync-check] Skipping ${item.radicado}: rate limited`);
-            return false;
-          }
-          return true;
-        });
-
-        console.log(`[fallback-sync-check] Org ${pendingOrg.organization_id}: ${eligibleItems.length} eligible items (of ${(workItems || []).length} total)`);
-
-        let syncedCount = 0;
-        let errorCount = 0;
-
-        for (const item of eligibleItems) {
-          try {
-            const { data: syncResult } = await invokeInternal("sync-by-work-item",
-              { work_item_id: item.id, _scheduled: true }, "fallback-sync-check");
-
-            // ── Policy-driven success/pending/failure classification ──
-            // IQ2(a): the ESTADOS channel is NOT invoked from here. An estados
-            // read may never be gated on an actuaciones result; it runs on its
-            // own cron (scheduled-daily-estados) against its own provider.
-            if (shouldCountAsSuccess(syncResult)) {
-
-
-              await supabase
-                .from("work_items")
-                .update({ last_synced_at: new Date().toISOString() })
-                .eq("id", item.id);
-              syncedCount++;
-            } else if (isScrapingPending(syncResult)) {
-              // Scraping in progress — do NOT mark as success, do NOT clear failure counters.
-              // Use policy engine to decide retry enqueue.
-              console.log(`[fallback-sync-check] ${item.radicado}: scraping pending, checking retry enqueue`);
-              try {
-                const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
-                  .select('id, work_item_id, kind, attempt, max_attempts')
-                  .eq('work_item_id', item.id)
-                  .eq('kind', 'ACT_SCRAPE_RETRY')
-                  .maybeSingle();
-
-                const decision = shouldEnqueueRetry(syncResult, existingRetry);
-                if (decision.enqueue) {
-                  const nextRunAt = new Date(Date.now() + retryJitterMs()).toISOString();
-                  await (supabase.from('sync_retry_queue') as any).insert({
-                    work_item_id: item.id,
-                    organization_id: pendingOrg.organization_id,
-                    radicado: item.radicado,
-                    kind: decision.kind,
-                    provider: syncResult?.scraping_provider || 'cpnu',
-                    attempt: 1,
-                    max_attempts: 3,
-                    next_run_at: nextRunAt,
-                    last_error_code: 'SCRAPING_TIMEOUT',
-                    last_error_message: 'Enqueued by fallback-sync-check',
-                    scraping_job_id: syncResult?.scraping_job_id || null,
-                  });
-                  console.log(`[fallback-sync-check] Retry enqueued for ${item.radicado}: ${decision.reason}`);
-                }
-              } catch (retryEnqueueErr) {
-                console.warn(`[fallback-sync-check] Failed to enqueue retry:`, retryEnqueueErr);
-              }
-              // Count as "pending" — not success, not error
-            } else {
-              errorCount++;
-            }
-          } catch {
-            errorCount++;
-=======
         const candidates = workItems || [];
         const itemIds = candidates.map((item: { id: string }) => item.id);
         let enrollments: Enrollment[] = [];
@@ -343,7 +260,6 @@ Deno.serve(async (req) => {
           if (!eligibility.eligible) {
             deferred[eligibility.reason] = (deferred[eligibility.reason] || 0) + 1;
             continue;
->>>>>>> /tmp/mrg/theirs/supabase/functions/fallback-sync-check/index.ts
           }
           // The queue's unique (work_item_id,kind) key and ignoreDuplicates
           // preserve an existing lease, retry count and due time on repetition.
