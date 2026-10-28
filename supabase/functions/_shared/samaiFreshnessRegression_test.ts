@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { fetchFromSamai } from './providerAdapters/samaiAdapter.ts';
 import { assessSamaiFeed } from './samaiFeedFreshness.ts';
-import { persistenceIsComplete, occurredByToday } from './syncCompletion.ts';
+import { persistenceIsComplete, occurredByToday, requiredSourcesComplete, ingestionOutcome, recordEmptyInitialCompletion } from './syncCompletion.ts';
 import { syncResponseOk } from './syncResponseVerdict.ts';
 import { withSyncTimeline } from './syncTimeline.ts';
 
@@ -10,7 +10,8 @@ function feed(observed: string, extra: Record<string, unknown> = {}) {
   return {
     radicado, actuaciones: [{ actuacion: 'Auto', fechaActuacion: '2026-10-20' }], total_found: 1,
     fuentes_frescura: {
-      expediente: { ultima_consulta_exitosa: observed, ultimo_resultado: 'ok', consulta_exitosa_ultimo_intento: true },
+      expediente: { ultima_consulta_exitosa: observed, ultimo_resultado: 'ok', consulta_exitosa_ultimo_intento: true,
+        identidad_verificada: true, paginacion_completa: true, persistencia_confirmada: true },
       estados: { ultima_consulta_exitosa: new Date().toISOString(), ultimo_resultado: 'ok', consulta_exitosa_ultimo_intento: true },
     }, ...extra,
   };
@@ -22,6 +23,9 @@ Deno.test('freshness belongs to expediente, exact case and current Bogotá day',
   assert.deepEqual(assessSamaiFeed(feed('2026-10-28T04:59:00Z'), radicado, now), { ok: false, code: 'SAMAI_SOURCE_OBSERVATION_STALE' });
   assert.deepEqual(assessSamaiFeed(feed('2026-10-28T05:01:00Z', { radicado: 'different' }), radicado, now), { ok: false, code: 'SAMAI_CASE_MISMATCH' });
   assert.deepEqual(assessSamaiFeed({ radicado, actuaciones: [], fuentes_frescura: { estados: { ultima_consulta_exitosa: now.toISOString() } } }, radicado, now), { ok: false, code: 'SAMAI_SOURCE_OBSERVATION_MISSING' });
+  assert.deepEqual(assessSamaiFeed(feed(now.toISOString(), { fuentes_frescura: { expediente: {
+    ultima_consulta_exitosa: now.toISOString(), ultimo_resultado: 'ok', consulta_exitosa_ultimo_intento: true,
+  } } }), radicado, now), { ok: false, code: 'SAMAI_SOURCE_COVERAGE_UNVERIFIED' });
   assert.equal(assessSamaiFeed(feed('2026-10-28T09:00:00Z'), radicado, now).ok, false);
 });
 
@@ -71,9 +75,34 @@ Deno.test('persistence failure, duplicates and future dates cannot advance a suc
   assert.equal(occurredByToday('2026-10-28', new Date('2026-10-28T12:00:00Z')), true);
 });
 
+Deno.test('a later required provider failure cannot turn a partial result into success', () => {
+  const attempts = [{ status: 'success' }];
+  assert.equal(requiredSourcesComplete(true, attempts), true);
+  assert.equal(requiredSourcesComplete(true, [...attempts, { status: 'error' }]), false);
+  assert.equal(requiredSourcesComplete(true, [...attempts, { status: 'skipped' }]), false);
+  assert.equal(requiredSourcesComplete(false, attempts), false);
+});
+
+Deno.test('source persistence and failed hearing effects have distinct outcomes', () => {
+  assert.deepEqual(ingestionOutcome(true, ['Hearing backfill failed']), { sourceComplete: true, effectsPending: true });
+  assert.deepEqual(ingestionOutcome(false, ['write failed']), { sourceComplete: false, effectsPending: false });
+});
+
+Deno.test('validated empty records its source observation and propagates a write failure', async () => {
+  let written: unknown;
+  const makeDb = (error: unknown) => ({ from: () => ({ update: (value: unknown) => {
+    written = value;
+    return { eq: () => ({ is: () => Promise.resolve({ error }) }) };
+  } }) });
+  await recordEmptyInitialCompletion(makeDb(null), 'wi', '2026-10-28T05:00:00Z');
+  assert.deepEqual(written, { acts_initial_sync_completed_at: '2026-10-28T05:00:00Z' });
+  await assert.rejects(() => recordEmptyInitialCompletion(makeDb(new Error('storage failed')), 'wi'));
+});
+
 Deno.test('HTTP 200 with an explicit failed verdict remains a failure', () => {
   assert.equal(syncResponseOk(true, { ok: false, code: 'PENDING_UPSTREAM' }), false);
   assert.equal(syncResponseOk(true, { ok: false, code: 'PROVIDER_ERROR' }), false);
+  assert.equal(syncResponseOk(true, {}), false);
   assert.equal(syncResponseOk(false, { ok: true }), false);
   assert.equal(syncResponseOk(true, { ok: true, inserted_count: 0 }), true);
 });
@@ -101,6 +130,14 @@ Deno.test('timeline persists a 200/ok:false failure before returning', async () 
     assert.ok(row);
     assert.equal((row as Record<string, unknown>).status, 'error');
     assert.equal((row as Record<string, unknown>).error_code, 'SAMAI_SOURCE_OBSERVATION_STALE');
+    row = null;
+    const rejected = withSyncTimeline(() => new Response(JSON.stringify({ ok: false, code: 'UNAUTHORIZED' }), {
+      status: 401, headers: { 'content-type': 'application/json' },
+    }), { function_name: 'sync-by-work-item', default_operation: 'acts' });
+    await rejected(new Request('https://test.invalid/run', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ work_item_id: 'another-tenant' }),
+    }));
+    assert.equal(row, null);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousUrl === undefined) Deno.env.delete('SUPABASE_URL'); else Deno.env.set('SUPABASE_URL', previousUrl);

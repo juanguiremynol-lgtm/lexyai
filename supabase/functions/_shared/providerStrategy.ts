@@ -65,6 +65,7 @@ export const TRANSIENT_ERROR_CODES: ReadonlySet<string> = new Set([
   "SAMAI_SOURCE_LAST_ATTEMPT_FAILED",
   "SAMAI_SOURCE_OBSERVATION_STALE",
   "SAMAI_SOURCE_FEED_PARTIAL",
+  "SAMAI_SOURCE_COVERAGE_UNVERIFIED",
 ]);
 
 /** True when the code means the provider never delivered an answer. */
@@ -144,6 +145,7 @@ export const ADAPTER_SENTINEL_CODES: ReadonlySet<string> = new Set([
   "SAMAI_SOURCE_LAST_ATTEMPT_FAILED",
   "SAMAI_SOURCE_OBSERVATION_STALE",
   "SAMAI_SOURCE_FEED_PARTIAL",
+  "SAMAI_SOURCE_COVERAGE_UNVERIFIED",
 ]);
 
 
