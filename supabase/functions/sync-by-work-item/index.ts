@@ -3339,6 +3339,14 @@ Deno.serve(withSyncTimeline(async (req) => {
             counts.error_count = 0;
             counts.errors = [];
             counts.outcomes = [{ bucket: 'SKIPPED_DUPLICATE', fingerprint: structuralTwinFp }];
+          } else {
+            const last = persistLedger.outcomes[persistLedger.outcomes.length - 1];
+            if (last) last.reason = `${String(last.reason ?? '')} [twin_check date=${actDate ?? 'null'} candidates=${(twins ?? []).length} matches=${matches.length} err=${twinErr ? 'y' : 'n'}]`;
+          }
+        } else if ((counts.error_count || 0) > 0 && Array.isArray(counts.outcomes)) {
+          const last = persistLedger.outcomes[persistLedger.outcomes.length - 1];
+          if (last && String(last.reason ?? '').includes('idx_acts_dedupe_structural')) {
+            last.reason = `${String(last.reason)} [twin_check skipped outcomes=${counts.outcomes.length} errors=${counts.error_count}]`;
           }
         }
 
