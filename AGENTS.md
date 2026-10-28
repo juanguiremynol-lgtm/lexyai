@@ -48,3 +48,5 @@
 
 - Native AI consent deduplicates official GET by authorization/user before the native resolver (GET binds ownership and may autoapprove); retain callbacks only in memory, approve without redirect, save/revoke then verify the exact client. Settings rows come from the canonical native RPC; SDK enrichment is optional — reconnects, StrictMode and retries must not repeat authorization or hide connections.
 - MCP hearing/task adapters use the deployed lowercase hearing enums and Spanish task enums; correction/reclassification require owner/manage, revision, reason and atomic audit, and new RPCs remain release-gated. Remisión evidence never closes a matter or cancels terms by itself; past scheduled dates never prove celebration.
+- A lost SAMAI Estados breaker seal (generation moved by a concurrent worker or expired probe) never discards the source answer obtained under a valid permit; only an unavailable permit defers — avoids fake PROVIDER_BREAKER_LEASE_LOST deferrals.
+- atenia_ai_claim_supported_queue interleaves action types (round-robin by aged priority) so provider-pending PUB retries cannot starve ACT retries.
