@@ -42,7 +42,13 @@ export async function withSamaiEstadosBreaker(rpc: Rpc, run: () => Promise<Provi
   try {
     const sealed = await rpc('finish_samai_estados_breaker', { _generation: permit.generation,
       _probe_token: permit.probe_token, _outcome: valid ? 'VALID_RESPONSE' : transient ? 'TRANSIENT_FAILURE' : 'OTHER_FAILURE' });
-    if (sealed !== true) return pending('PROVIDER_BREAKER_LEASE_LOST');
-  } catch { return pending('PROVIDER_BREAKER_UNAVAILABLE'); }
+    // A lost seal only means another worker already moved the shared circuit
+    // (generation bump after concurrent session 403s or probe expiry). The
+    // source answer obtained under a valid permit is still evidence: return
+    // it unchanged instead of discarding it as a fake deferral.
+    if (sealed !== true) return { ...result, breakerSeal: 'LOST' } as ProviderAdapterResult;
+  } catch {
+    return valid ? { ...result, breakerSeal: 'UNAVAILABLE' } as ProviderAdapterResult : pending('PROVIDER_BREAKER_UNAVAILABLE');
+  }
   return result;
 }

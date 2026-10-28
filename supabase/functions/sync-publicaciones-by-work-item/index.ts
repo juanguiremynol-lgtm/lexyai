@@ -509,6 +509,7 @@ async function writePublicacionesAttemptRow(
           latency_ms: result?.provider_latency_ms || 0,
           inserted_count: result?.inserted_count || 0,
           skipped_count: result?.skipped_count || 0,
+          backend_trace: result?.backend_trace ?? null,
         },
 
         // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
@@ -1833,6 +1834,18 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
+    // Backend correlation per published contract (trazabilidad_id,
+    // backend_run_id, backend_new_events). Absent fields stay null; nothing
+    // is synthesized.
+    {
+      const b: any = (fetchResult as any).procesarAck?.body ?? (fetchResult as any).historicoRead?.body ?? null;
+      const pick = (k: string) => (b && typeof b === 'object' && b[k] != null ? b[k] : null);
+      (result as any).backend_trace = {
+        trazabilidad_id: pick('trazabilidad_id'), backend_run_id: pick('backend_run_id'),
+        backend_new_events: pick('backend_new_events'), run_status: pick('run_status'),
+        procesar_transport_error: (fetchResult as any).procesarAck?.transport_error ?? null,
+      };
+    }
 
     // ── Persist gate ledger + trace ONLY when we actually fired the trigger ──
     if (rescrapeDecision.triggered) {
