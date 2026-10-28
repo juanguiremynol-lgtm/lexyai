@@ -16322,6 +16322,39 @@ export type Database = {
         }
         Relationships: []
       }
+      public_provider_breakers: {
+        Row: {
+          consecutive_transient: number
+          generation: number
+          probe_expires_at: string | null
+          probe_token: string | null
+          provider: string
+          retry_at: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          consecutive_transient?: number
+          generation?: number
+          probe_expires_at?: string | null
+          probe_token?: string | null
+          provider: string
+          retry_at?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          consecutive_transient?: number
+          generation?: number
+          probe_expires_at?: string | null
+          probe_token?: string | null
+          provider?: string
+          retry_at?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       rate_limits: {
         Row: {
           count: number
@@ -25962,6 +25995,15 @@ export type Database = {
         Args: { p_organization_id: string; p_origin: string; p_run_id: string }
         Returns: Json
       }
+      acquire_samai_estados_breaker: {
+        Args: never
+        Returns: {
+          allowed: boolean
+          generation: number
+          probe_token: string
+          retry_at: string
+        }[]
+      }
       act_current_copy_invalidated: {
         Args: { doc: Json; prior: Json }
         Returns: boolean
@@ -26121,9 +26163,65 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      atenia_ai_claim_supported_queue: {
+        Args: { _limit?: number }
+        Returns: {
+          action_type: string
+          attempts: number
+          created_at: string
+          dedupe_key: string | null
+          id: string
+          last_error: string | null
+          lease_heartbeat_at: string | null
+          max_attempts: number
+          organization_id: string | null
+          payload: Json
+          priority: number
+          provider: string | null
+          reason_code: string | null
+          run_after: string
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "atenia_ai_remediation_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       atenia_ai_finish_task: {
         Args: { _error?: Json; _status: string; _task_key: string }
         Returns: undefined
+      }
+      atenia_ai_preview_supported_queue: {
+        Args: { _limit?: number }
+        Returns: {
+          action_type: string
+          attempts: number
+          created_at: string
+          dedupe_key: string | null
+          id: string
+          last_error: string | null
+          lease_heartbeat_at: string | null
+          max_attempts: number
+          organization_id: string | null
+          payload: Json
+          priority: number
+          provider: string | null
+          reason_code: string | null
+          run_after: string
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "atenia_ai_remediation_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       atenia_ai_reserve_daily_ai: {
         Args: { _caller: string; _org_id: string; _usage_date: string }
@@ -26634,6 +26732,16 @@ export type Database = {
         Args: { p_confirm: boolean; p_suggestion_id: string }
         Returns: Json
       }
+      defer_public_monitor_for_breaker: {
+        Args: {
+          _error_code: string
+          _lease_token: string
+          _retry_at: string
+          _run_id: string
+          _work_item_id: string
+        }
+        Returns: boolean
+      }
       derive_desfijacion: {
         Args: { p_desfijacion?: string; p_fijacion: string }
         Returns: string
@@ -26878,6 +26986,10 @@ export type Database = {
           _success: boolean
           _work_item_id: string
         }
+        Returns: boolean
+      }
+      finish_samai_estados_breaker: {
+        Args: { _generation: number; _outcome: string; _probe_token: string }
         Returns: boolean
       }
       finish_sync_retry: {
@@ -27387,6 +27499,13 @@ export type Database = {
         Returns: string
       }
       party_name_match: { Args: { a: string; b: string }; Returns: number }
+      peek_samai_estados_breaker: {
+        Args: never
+        Returns: {
+          paused: boolean
+          retry_at: string
+        }[]
+      }
       platform_create_courtesy_voucher: {
         Args: {
           p_expires_days?: number
