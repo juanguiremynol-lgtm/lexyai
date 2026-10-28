@@ -1,3 +1,5 @@
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { invokeInternal } from "../_shared/internalInvoke.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
@@ -38,6 +40,9 @@ Deno.serve(async (req) => {
       });
     }
   } catch { /* not JSON, proceed normally */ }
+
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok && gate.response) return gate.response;
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
@@ -116,8 +121,7 @@ Deno.serve(async (req) => {
 
         console.log(`[fallback-sync-check] Triggering overflow pass for chain ${row.chain_id}, org=${row.organization_id}`);
         try {
-          await supabase.functions.invoke("scheduled-daily-sync", {
-            body: {
+          const overflow = await invokeInternal("scheduled-daily-sync", {
               org_id: row.organization_id,
               resume_after_id: meta.overflow_resume_after_id || row.cursor_last_work_item_id,
               is_continuation: true,
@@ -129,8 +133,8 @@ Deno.serve(async (req) => {
               manual_initiator_user_id: row.manual_initiator_user_id,
               is_overflow: true,
               item_timeout_counts: meta.overflow_item_timeout_counts || {},
-            },
-          });
+          }, "fallback-sync-check");
+          if (overflow.error) throw overflow.error;
           // Mark overflow as consumed so it doesn't fire again
           await supabase.from("auto_sync_daily_ledger")
             .update({ continuation_block_reason: "OVERFLOW_DISPATCHED" })
@@ -154,7 +158,7 @@ Deno.serve(async (req) => {
       if (missedOrgs.length > 0) {
         console.log(`[fallback-sync-check] Found ${missedOrgs.length} orgs with no sync today`);
         
-        const { data, error } = await supabase.functions.invoke("scheduled-daily-sync");
+        const { data, error } = await invokeInternal("scheduled-daily-sync", {}, "fallback-sync-check");
 
         if (error) {
           console.error("[fallback-sync-check] Failed to trigger catchup sync:", error);
