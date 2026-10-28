@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { dispatchRetry } from "../_shared/retryDispatch.ts";
-import { breakerDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
+import { breakerDeferral, ppDurableDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
 import { isExclusiveSamaiPublication, retryItemDisposition, samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 
 Deno.serve(async req => {
@@ -79,6 +79,10 @@ Deno.serve(async req => {
           // before the adapter acquires a permit.
           const deferred = item && isExclusiveSamaiPublication(kind, item.workflow_type) ? breakerDeferral(payload) : null;
           if (deferred) { outcome = "DEFERRED"; code = deferred.code; delaySeconds = deferred.delaySeconds; }
+          // Only a durable PP admission can defer without consuming attempts;
+          // its original admission timestamp puts a hard bound on polling.
+          const ppDeferred = kind === "PUB_RETRY" ? ppDurableDeferral(payload) : null;
+          if (ppDeferred) { outcome = "DEFERRED"; code = ppDeferred.code; delaySeconds = ppDeferred.delaySeconds; }
           result = { trace_id: traceId, http_status: response.status, response: payload };
           }
         } catch {
