@@ -21,6 +21,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { canonicalizeProvider } from "./syncVocabulary.ts";
+import { syncResponseOk } from "./syncResponseVerdict.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -52,7 +53,7 @@ export async function recordSyncTimelineEvent(
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return;
   try {
-    const supabase = createClient(url, key);
+    const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
     // ITER63 — one declared vocabulary, one stable multi-source ordering.
     const canon = canonicalizeProvider(event.provider);
     const { error } = await supabase.from("work_item_sync_timeline").insert({
@@ -139,7 +140,7 @@ export function withSyncTimeline(
     const latencyMs = Date.now() - startMs;
 
     // Heuristic classification from common response shapes.
-    const ok = parsed?.ok === true || (response.ok && parsed?.error == null);
+    const ok = syncResponseOk(response.ok, parsed);
     const inserted = numberOr(parsed?.inserted_count ?? parsed?.inserted, 0);
     const skipped = numberOr(parsed?.skipped_count ?? parsed?.skipped, 0);
     const provider =
@@ -167,6 +168,7 @@ export function withSyncTimeline(
     let status: SyncTimelineEvent["status"];
     if (authRejected) status = "rejected";
     else if (pendingUpstream) status = "pending_upstream";
+    else if (parsed?.partial === true) status = "partial";
     else if (!ok) status = "error";
     else if (parsed?.code === "SCRAPING_INITIATED" || parsed?.scraping_initiated) status = "skipped";
     else if (inserted === 0 && skipped === 0) {
@@ -174,8 +176,9 @@ export function withSyncTimeline(
       status = provider === "unknown" ? "skipped" : "empty";
     } else status = "success";
 
-    // Fire-and-forget; never block response delivery.
-    recordSyncTimelineEvent({
+    // Complete the evidence write before returning; edge runtimes do not
+    // guarantee progress of a detached promise after the response ends.
+    await recordSyncTimelineEvent({
       work_item_id: workItemId,
       // Never attribute a caller-side rejection to a provider we never called.
       provider: authRejected ? "none" : provider,
@@ -199,6 +202,7 @@ export function withSyncTimeline(
       metadata: {
         http_status: response.status,
         trace_id: strOr(parsed?.trace_id),
+        source_observed_at: strOr(parsed?.source_observed_at),
         invoker_function: req.headers.get("x-invoker-function"),
         retry_task_id: req.headers.get("x-retry-task-id"),
         scheduled_requested: req.headers.get("x-invoker-function") === "process-retry-queue",

@@ -1069,6 +1069,8 @@ export async function orchestrateSync(
     runMode?: "NORMAL" | "CRON" | "MANUAL_DEBUG" | "DRY_RUN";
     /** Dry run: skip DB writes for actuaciones/publicaciones (still show parsed + dedupe decisions) */
     dryRun?: boolean;
+    /** Work-item source permissions. Undefined is reserved for non-monitoring debug callers. */
+    enabledProviders?: ReadonlySet<string>;
   },
 ): Promise<SyncRunResult> {
   const startTime = Date.now();
@@ -1117,6 +1119,9 @@ export async function orchestrateSync(
   try {
     // Phase 1: Actuaciones — use override-aware coverage
     const actCoverage = getProviderCoverageWithOverrides(ctx.workflowType, "ACTUACIONES", overrides);
+    if (options?.enabledProviders) {
+      actCoverage.providers = actCoverage.providers.filter((p) => options.enabledProviders!.has(p.key.toLowerCase()));
+    }
     if (actCoverage.compatible && actCoverage.providers.length > 0) {
       const actResult = await executeSync(
         "ACTUACIONES",
@@ -1174,6 +1179,9 @@ export async function orchestrateSync(
     // Phase 2: Estados (unless skipped) — use override-aware coverage
     if (!options?.skipEstados) {
       const estCoverage = getProviderCoverageWithOverrides(ctx.workflowType, "ESTADOS", overrides);
+      if (options?.enabledProviders) {
+        estCoverage.providers = estCoverage.providers.filter((p) => options.enabledProviders!.has(p.key.toLowerCase()));
+      }
       if (estCoverage.compatible && estCoverage.providers.length > 0) {
         const estResult = await executeSync(
           "ESTADOS",
