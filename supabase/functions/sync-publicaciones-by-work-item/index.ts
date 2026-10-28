@@ -24,6 +24,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
+import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableContract.ts";
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
@@ -196,6 +197,7 @@ export type ProcesarAck = {
 
 type FetchResultV3 = {
   readIncomplete?: boolean;
+  durableCompleted?: boolean;
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
@@ -362,6 +364,8 @@ type RescrapeDecision = {
     | 'routing_skip_non_pp_category';
   httpStatus?: number;
   error?: string;
+  backendRunId?: string | null;
+  traceId?: string | null;
 };
 
 const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
@@ -375,7 +379,7 @@ const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
 async function checkRescrapeGate(
   supabase: any,
   workItemId: string,
-): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null }> {
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null }> {
   const key = `pub_rescrape:${workItemId}`;
   try {
     const { data } = await supabase
@@ -393,6 +397,8 @@ async function checkRescrapeGate(
       allow: deltaMs >= RESCRAPE_COOLDOWN_MS,
       lastTriggeredAt: lastIso,
       hoursSince: Number(hours.toFixed(2)),
+      backendRunId: typeof data?.value?.backend_run_id === 'string' ? data.value.backend_run_id : null,
+      backendAdmittedAt: typeof data?.value?.backend_admitted_at === 'string' ? data.value.backend_admitted_at : null,
     };
   } catch (_e) {
     return { allow: true, lastTriggeredAt: null, hoursSince: null };
@@ -419,7 +425,10 @@ async function recordRescrapeTrigger(
       .eq('key', key)
       .maybeSingle();
     const attempts = ((existing?.value?.attempts as number | undefined) ?? 0) + 1;
-    await supabase
+    const admittedAt = decision.backendRunId && existing?.value?.backend_run_id === decision.backendRunId
+      ? existing?.value?.backend_admitted_at ?? existing?.value?.last_triggered_at ?? new Date().toISOString()
+      : decision.backendRunId ? new Date().toISOString() : null;
+    const { error: ledgerError } = await supabase
       .from('cron_state')
       .upsert(
         {
@@ -431,11 +440,15 @@ async function recordRescrapeTrigger(
             last_decision: decision.reason,
             last_http_status: decision.httpStatus ?? null,
             last_error: decision.error ?? null,
+            backend_run_id: decision.backendRunId ?? null,
+            backend_admitted_at: admittedAt,
+            trazabilidad_id: decision.traceId ?? null,
           },
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' } as any,
       );
+    if (ledgerError) throw ledgerError;
   } catch (e: any) {
     console.warn(`[sync-pub] Failed to persist rescrape gate: ${e?.message}`);
   }
@@ -932,15 +945,15 @@ async function refreshLegacyPdfRowsForProxy(
 /**
  * Try POST /procesar-radicado as final fallback for the pp-scraper v3.1.0 API.
  */
-async function tryProcesarFallback(
+export async function tryProcesarFallback(
   baseUrl: string,
   radicado: string,
   headers: Record<string, string>
 ): Promise<FetchResultV3 | null> {
   const startTime = Date.now();
-  const processingTriggeredMessage = 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
+  baseUrl = baseUrl.replace(/\/+$/, '');
   const procesarUrl = `${baseUrl}/procesar-radicado`;
 
   // JN4 — the ack is KEPT, always, including the empty one. We store the
@@ -1002,33 +1015,57 @@ async function tryProcesarFallback(
     );
 
     if (!procesarResponse.ok) {
-      console.log(`[sync-pub] /procesar-radicado returned ${procesarResponse.status}`);
-      const latencyMs = Date.now() - startTime;
-      if (procesarResponse.status >= 500) {
-        return {
-          ok: false,
-          publicaciones: [],
-          error: `HTTP ${procesarResponse.status}`,
-          latencyMs,
-          httpStatus: procesarResponse.status,
-          found: false,
-          resultCode: 'ERROR',
-          procesarAck,
-        };
-      }
+      const detail = typeof procesarData?.detail === 'string' ? `: ${procesarData.detail.slice(0, 200)}` : '';
+      return { ok: false, publicaciones: [], error: `HTTP ${procesarResponse.status}${detail}`,
+        latencyMs: Date.now() - startTime, httpStatus: procesarResponse.status,
+        found: false, resultCode: 'ERROR', procesarAck };
+    }
 
-      // /procesar-radicado is a trigger. Non-5xx responses without immediate data
-      // are treated as accepted/no-data so remediation does not churn on live scrapes.
-      return {
-        ok: true,
-        publicaciones: [],
-        error: processingTriggeredMessage,
-        latencyMs,
-        httpStatus: procesarResponse.status,
-        found: false,
-        resultCode: 'NO_DATA',
-        procesarAck,
-      };
+    if (procesarResponse.status === 202) {
+      let verdict = durableVerdict(202, procesarData);
+      const pending = (reason: string): FetchResultV3 => ({
+        ok: true, publicaciones: [], error: reason, latencyMs: Date.now() - startTime,
+        httpStatus: 202, found: false, resultCode: 'NO_DATA', readIncomplete: true, procesarAck,
+      });
+      const failed = (reason: string): FetchResultV3 => ({
+        ok: false, publicaciones: [], error: reason, latencyMs: Date.now() - startTime,
+        httpStatus: 202, found: false, resultCode: 'ERROR', procesarAck,
+      });
+      if (verdict.kind === 'error') return failed(verdict.reason);
+      const admittedRun = verdict.runId;
+      // One short, bounded status read; no sleeps or background work after the
+      // Edge response. Later PUB_RETRY invocations read /historico, which also
+      // carries the backend run ID and completion certificate.
+      if (verdict.kind === 'pending') {
+        const status = await fetchWithTimeoutAndRetry(`${baseUrl}/runs/${admittedRun}`, headers, 5000, 1);
+        if (!status.ok || !status.response) {
+          if (status.httpStatus && status.httpStatus >= 400 && status.httpStatus < 500)
+            return failed(`PP_RUN_STATUS_HTTP ${status.httpStatus}`);
+          return pending(`PP_RUN_STATUS_PENDING: ${status.error ?? 'unavailable'}`);
+        }
+        let data: unknown;
+        try { data = await status.response.json(); }
+        catch { return failed('PP_RUN_STATUS_INVALID_JSON'); }
+        verdict = durableVerdict(status.httpStatus ?? 200, data, admittedRun);
+      }
+      if (verdict.kind === 'error') return failed(verdict.reason);
+      if (verdict.kind === 'pending') return pending(verdict.reason);
+      // A finished job is not enough: the matching persisted reader result is
+      // what the application must actually ingest before claiming completion.
+      const url = `${baseUrl}/historico/${radicado}`;
+      const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
+      if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
+      let historyData: unknown;
+      try { historyData = await history.response.json(); }
+      catch { return pending('PP_HISTORY_INVALID_JSON'); }
+      if (!matchingCompletedHistory(admittedRun, historyData, radicado) || !publicSnapshotCompleted(historyData))
+        return pending('PP_HISTORY_NOT_CERTIFIED_OR_RUN_MISMATCH');
+      const extractedHistory = extractPublicacionesFromResponse(historyData, Date.now() - startTime);
+      const historyRead: HistoricoRead = { endpoint: 'GET /historico/{radicado}', url, radicado,
+        http_status: history.httpStatus ?? 200, latency_ms: Date.now() - startTime,
+        body: historyData, body_bytes: JSON.stringify(historyData).length,
+        payload_count: extractedHistory.publicaciones.length, parse_error: null, transport_error: null };
+      return { ...extractedHistory, httpStatus: 202, durableCompleted: true, historicoRead: historyRead, procesarAck };
     }
 
     const extracted = extractPublicacionesFromResponse(procesarData, Date.now() - startTime);
@@ -1036,16 +1073,17 @@ async function tryProcesarFallback(
       return {
         ok: true,
         publicaciones: [],
-        error: processingTriggeredMessage,
+        error: 'PP_RESPONSE_NOT_CERTIFIED',
         latencyMs: Date.now() - startTime,
         httpStatus: procesarResponse.status,
         found: false,
         resultCode: 'NO_DATA',
+        readIncomplete: true,
         procesarAck,
       };
     }
 
-    return { ...extracted, procesarAck };
+    return { ...extracted, readIncomplete: procesarData?.consulta_completa !== true || procesarData?.persistencia_completa !== true, procesarAck };
 
     
   } catch (err: any) {
@@ -1056,16 +1094,8 @@ async function tryProcesarFallback(
     // endpoint, the latency and the failure mode are recorded.
     const procesarAck = ack({ latency_ms: latencyMs, transport_error: message });
     if (err?.name === 'AbortError') {
-      console.log(`[sync-pub] /procesar-radicado trigger timed out after 60000ms; treating as processing started`);
-      return {
-        ok: true,
-        publicaciones: [],
-        error: processingTriggeredMessage,
-        latencyMs,
-        found: false,
-        resultCode: 'NO_DATA',
-        procesarAck,
-      };
+      return { ok: false, publicaciones: [], error: 'PP_ADMISSION_TIMEOUT: durable acceptance not confirmed',
+        latencyMs, found: false, resultCode: 'ERROR', procesarAck };
     }
 
     if (message.toLowerCase().includes('connection refused')) {
@@ -1180,7 +1210,7 @@ export type HistoricoRead = {
   transport_error: string | null;
 };
 
-async function fetchPublicaciones(
+export async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
   apiKey: string,
@@ -1189,15 +1219,22 @@ async function fetchPublicaciones(
   const capture: { read: HistoricoRead | null } = { read: null };
   let res = await fetchPublicacionesInner(radicado, baseUrl, apiKey, rescrapeGate, capture);
   const observedBody = res.procesarAck?.body ?? capture.read?.body;
-  if (res.ok && publicSnapshotIncomplete(observedBody)) {
+  // The stored feed is data, not proof that today's source read completed.
+  // The durable reader binds its completion certificate to a run and radicado.
+  if (res.ok && !res.durableCompleted && !res.procesarAck && capture.read?.body) {
+    const stored = capture.read.body as Record<string, unknown>;
+    const runId = typeof stored.backend_run_id === 'string' ? stored.backend_run_id : '';
+    if (!runId || !matchingCompletedHistory(runId, stored, radicado)) res.readIncomplete = true;
+  }
+  if (res.ok && !res.durableCompleted && (res.readIncomplete || publicSnapshotIncomplete(observedBody))) {
     if (rescrapeGate?.allow && !res.procesarAck) {
       const refreshed = await tryProcesarFallback(baseUrl, radicado, { 'x-api-key': apiKey, 'Content-Type': 'application/json' });
       if (refreshed) res = { ...refreshed, publicaciones: refreshed.publicaciones.length ? refreshed.publicaciones : res.publicaciones };
-      rescrapeGate.onDecision?.({ triggered: true, reason: refreshed?.ok ? 'trigger_accepted' : 'trigger_error', httpStatus: refreshed?.httpStatus });
+      rescrapeGate.onDecision?.({ triggered: true, reason: refreshed?.ok ? 'trigger_accepted' : 'trigger_error', httpStatus: refreshed?.httpStatus, error: refreshed?.error, backendRunId: String(refreshed?.procesarAck?.body?.backend_run_id ?? '') || null, traceId: String(refreshed?.procesarAck?.body?.trazabilidad_id ?? '') || null });
     }
-    res.readIncomplete = publicSnapshotIncomplete(res.procesarAck?.body ?? observedBody);
+    if (!res.durableCompleted) res.readIncomplete = !!res.readIncomplete || publicSnapshotIncomplete(res.procesarAck?.body ?? observedBody);
   }
-  return capture.read ? { ...res, historicoRead: capture.read } : res;
+  return res.historicoRead ? res : capture.read ? { ...res, historicoRead: capture.read } : res;
 }
 
 async function fetchPublicacionesInner(
@@ -1346,15 +1383,17 @@ async function fetchPublicacionesInner(
       reason: procesarResult.ok ? 'trigger_accepted' : 'trigger_error',
       httpStatus: procesarResult.httpStatus,
       error: procesarResult.error,
+      backendRunId: String(procesarResult.procesarAck?.body?.backend_run_id ?? '') || null,
+      traceId: String(procesarResult.procesarAck?.body?.trazabilidad_id ?? '') || null,
     };
     rescrapeGate?.onDecision?.(decision);
     // If /procesar-radicado also came back empty and /historico had already
     // answered 200-empty, prefer the earlier empty (has the correct 200 status)
     // so downstream logs reflect that PP itself has no data — not an error.
-    if (procesarResult.publicaciones.length === 0 && historicoEmptyResult) {
-      // JN4 — the ack survives the preference for the /historico empty.
-      return { ...historicoEmptyResult, procesarAck: procesarResult.procesarAck };
-    }
+    // The admission result takes precedence over the older stored snapshot:
+    // it can be pending or rejected, and the ACK and IDs must survive.
+    if (procesarResult.publicaciones.length === 0 && historicoEmptyResult &&
+        !procesarResult.procesarAck) return historicoEmptyResult;
     return procesarResult;
   }
 
@@ -1824,12 +1863,12 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.warn(`[sync-pub] Safety timeout hit after ${elapsed}ms for ${normalizedRadicado}: ${errMsg}`);
       
       fetchResult = {
-        ok: true,
+        ok: false,
         publicaciones: [],
-        error: 'PROCESSING_TRIGGERED: scrape started; data expected on next /historico read',
+        error: `PP_CALLER_TIMEOUT: ${errMsg}`,
         latencyMs: elapsed,
         found: false,
-        resultCode: 'NO_DATA',
+        resultCode: 'ERROR',
       };
       }
     }
@@ -1840,9 +1879,14 @@ Deno.serve(withSyncTimeline(async (req) => {
     {
       const b: any = (fetchResult as any).procesarAck?.body ?? (fetchResult as any).historicoRead?.body ?? null;
       const pick = (k: string) => (b && typeof b === 'object' && b[k] != null ? b[k] : null);
+      const backendRunId = pick('backend_run_id');
+      const admittedNow = (fetchResult as any).procesarAck?.http_status === 202 && backendRunId;
+      const admittedAt = gateStatus.backendRunId === backendRunId ? (gateStatus.backendAdmittedAt ?? gateStatus.lastTriggeredAt)
+        : admittedNow ? new Date().toISOString() : null;
       (result as any).backend_trace = {
-        trazabilidad_id: pick('trazabilidad_id'), backend_run_id: pick('backend_run_id'),
+        trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
         backend_new_events: pick('backend_new_events'), run_status: pick('run_status'),
+        estado: pick('estado'), backend_admitted_at: admittedAt,
         procesar_transport_error: (fetchResult as any).procesarAck?.transport_error ?? null,
       };
     }
@@ -2827,6 +2871,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (fetchResult.readIncomplete || result.result_code === 'CONTRACT_MISMATCH') {
       result.ok = false;
       result.result_code = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
+      (result as any).status = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
+      if (fetchResult.readIncomplete) (result as any).pending_upstream = true;
       result.warnings.push('Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.');
       await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
     }
