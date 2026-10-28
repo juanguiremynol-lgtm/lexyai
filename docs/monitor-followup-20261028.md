@@ -72,3 +72,11 @@ Web publicada: https://andromeda.legal sirve /assets/main-Bx4I7k9K.js (sin cambi
 - Deployed: sync-publicaciones-by-work-item (src sha256 8cea87d2…), process-retry-queue (79260f1c…).
 - Deno: 13/13 PASS. Isolated SQL suite not run (needs empty cluster).
 - Nicholls single check (net request 2488): HTTP 202 reused run 0233cc45-1944-44f8-bafb-7580b4cddace, trazabilidad 3cd0dab4-7edb-4520-a3b6-6381d85122fa, estado EN_CURSO, status PENDING_UPSTREAM, 0 inserted / 3 skipped; association stored in cron_state pub_rescrape:db1b4198…; no new run created.
+
+## 2026-10-28 20:31 UTC (15:31 Bogotá) — verification closure
+- HISTORICAL NOTE: any statement above or in Codex reports that `fix/pp-async-caller-20261028` is "not deployed" or that the PP backend is synchronous is superseded by the 20:25 UTC entry (c4a4c76c integrated, migration 0090, both consumers deployed). Do not re-implement.
+- Task d84d9222-72c8-489d-bd6f-859c3e499ff4 not yet taken by a scheduled drain: attempt 1, no lease, next_run_at 06:00 UTC (due), last_error PENDING_UPSTREAM, no outcome row.
+- Limitation: claim_sync_retry takes the oldest due task per channel (1 recovery PUB slot per drain); 22 due PUB_RETRY tasks precede this one, and there is no task-id parameter. A targeted drain is not possible without new parameters, so no manual drain was run.
+- Association (cron_state pub_rescrape:db1b4198…): run 0233cc45, trace 3cd0dab4, backend_admitted_at 20:21:51Z. Admission is preserved for the same run_id (recordRescrapeTrigger + backend_trace use stored value); not renewed per poll.
+- 24h exit: after the deadline ppDurableDeferral returns null → normal RETRY consumes one attempt with PENDING_UPSTREAM (observable), association/run kept; DB also rejects expired PP deferrals.
+- Isolated SQL suite: not run (no empty PostgreSQL cluster available; production not used).
