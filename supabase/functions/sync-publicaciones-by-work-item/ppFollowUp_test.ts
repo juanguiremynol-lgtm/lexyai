@@ -42,3 +42,9 @@ Deno.test('completed run without certified history stays pending', async () => {
     check(r.ok && r.readIncomplete === true && !r.durableCompleted, 'uncertified history must not complete');
   });
 });
+
+Deno.test('stored body is sanitized to bounded scalars without secrets', async () => {
+  const { sanitizeRunBody } = await import('./index.ts');
+  const o = sanitizeRunBody({ estado: 'ADMITIDA', api_key: 'x', checkpoint: { p: 3 }, n: 1 })!;
+  check(o.estado === 'ADMITIDA' && !('api_key' in o) && o.checkpoint === '{"p":3}' && o.n === 1, 'bad sanitize');
+});

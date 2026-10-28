@@ -47,7 +47,7 @@ if (import.meta.main) Deno.serve(async req => {
         : await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
       if (error) throw error;
       const task = data?.[0];
-      if (!task?.lease_token) continue;
+      if (!task?.lease_token) { if (followupOnly) break; continue; }
       const traceId = crypto.randomUUID();
       const { data: item, error: itemError } = await db.from("work_items")
         .select("id,monitoring_enabled,lifecycle_state,deleted_at,workflow_type").eq("id", task.work_item_id).maybeSingle();
