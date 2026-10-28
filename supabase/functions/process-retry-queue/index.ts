@@ -6,7 +6,12 @@ import { dispatchRetry } from "../_shared/retryDispatch.ts";
 import { breakerDeferral, ppDurableDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
 import { isExclusiveSamaiPublication, retryItemDisposition, samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 
-Deno.serve(async req => {
+export const FOLLOWUP_SLOTS = 8;
+export function followupSlots(n: number) {
+  return Array.from({ length: n }, () => ["PUB_RETRY", "pp_poll"] as const);
+}
+
+if (import.meta.main) Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const gate = await requirePrivilegedCaller(req, corsHeaders);
   if (!gate.ok && gate.response) return gate.response;
@@ -27,7 +32,9 @@ Deno.serve(async req => {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const target = typeof body?.pp_poll_task_id === "string" && UUID_RE.test(body.pp_poll_task_id) ? body.pp_poll_task_id : null;
   type Slot = readonly ["ACT_SCRAPE_RETRY" | "PUB_RETRY", boolean | "pp_poll"];
-  const slots: readonly Slot[] = target ? [["PUB_RETRY", "pp_poll"]] : [
+  // followup mode: ONLY follow-up slots, by construction (no extraction).
+  const followupOnly = body?.mode === "followup";
+  const slots: readonly Slot[] = target ? [["PUB_RETRY", "pp_poll"]] : followupOnly ? followupSlots(FOLLOWUP_SLOTS) : [
     ["PUB_RETRY", "pp_poll"], ["PUB_RETRY", "pp_poll"],
     ["ACT_SCRAPE_RETRY", true], ["PUB_RETRY", true],
     ["ACT_SCRAPE_RETRY", false], ["PUB_RETRY", false],
@@ -111,6 +118,7 @@ Deno.serve(async req => {
       if (!committed) throw new Error("RETRY_LEASE_LOST");
       results.push({ task_id: task.id, work_item_id: task.work_item_id, trace_id: traceId, slot: initial === "pp_poll" ? "pp_poll" : kind, attempt_before: task.attempt, outcome, code });
     }
+    if (followupOnly) return json({ ok: true, revision: "retry-pp-poll-20261028b", mode: "followup", processed: results.length, results });
     // No synthetic work-item SUCCESS timestamp: the provider ingestion owns it.
     const { count: overdueInitial, error: slaError } = await db.from("sync_retry_queue")
       .select("id", { count: "exact", head: true }).eq("attempt", 0)
