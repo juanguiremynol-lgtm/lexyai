@@ -22,6 +22,7 @@
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { invokeInternal } from "../_shared/internalInvoke.ts";
 import {
   bogotaDayBoundsUtc,
   bogotaHour,
@@ -1216,27 +1217,20 @@ async function runQueueWorker(
       let invokeResult: { data?: unknown; error?: unknown } = {};
 
       if (job.action_type === "RETRY_ACTS") {
-        invokeResult = await supabase.functions.invoke("sync-by-work-item", {
-          body: {
-            work_item_id: job.work_item_id,
-            force_refresh: false,
-            _scheduled: true,
-          },
-        });
+        invokeResult = await invokeInternal("sync-by-work-item", {
+          work_item_id: job.work_item_id,
+          force_refresh: false,
+          _scheduled: true,
+        }, "atenia-ai-supervisor", { taskId: job.id });
       } else if (
         job.action_type === "RETRY_PUBS" ||
         job.action_type === "RETRY_PUBS_HEAVY"
       ) {
-        invokeResult = await supabase.functions.invoke(
-          "sync-publicaciones-by-work-item",
-          {
-            body: {
-              work_item_id: job.work_item_id,
-              _scheduled: true,
-              heavy: job.action_type === "RETRY_PUBS_HEAVY",
-            },
-          },
-        );
+        invokeResult = await invokeInternal("sync-publicaciones-by-work-item", {
+          work_item_id: job.work_item_id,
+          _scheduled: true,
+          heavy: job.action_type === "RETRY_PUBS_HEAVY",
+        }, "atenia-ai-supervisor", { taskId: job.id });
       } else if (job.action_type === "RUN_INTEGRATION_HEALTH") {
         invokeResult = await supabase.functions.invoke("integration-health", {
           body: { _scheduled: true },

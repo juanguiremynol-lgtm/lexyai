@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
+import { invokeInternal } from "../_shared/internalInvoke.ts";
   shouldCountAsSuccess,
   isScrapingPending,
   shouldEnqueueRetry,
@@ -263,9 +264,8 @@ Deno.serve(async (req) => {
 
         for (const item of eligibleItems) {
           try {
-            const { data: syncResult } = await supabase.functions.invoke("sync-by-work-item", {
-              body: { work_item_id: item.id, _scheduled: true }
-            });
+            const { data: syncResult } = await invokeInternal("sync-by-work-item",
+              { work_item_id: item.id, _scheduled: true }, "fallback-sync-check");
 
             // ── Policy-driven success/pending/failure classification ──
             // IQ2(a): the ESTADOS channel is NOT invoked from here. An estados
