@@ -28,6 +28,18 @@ import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableCo
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
+/** Scalar top-level fields of a /runs body (≤200 chars each, ≤30 keys). */
+export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body as Record<string, unknown>).slice(0, 30)) {
+    if (/key|token|secret|password/i.test(k)) continue;
+    if (v === null || typeof v === 'number' || typeof v === 'boolean') out[k] = v;
+    else if (typeof v === 'string') out[k] = v.slice(0, 200);
+    else if (typeof v === 'object') out[k] = JSON.stringify(v).slice(0, 200);
+  }
+  return out;
+}
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
@@ -1884,9 +1896,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     // new POST while its bounded follow-up window (72h from first app
     // observation) and poll budget last.
     const admittedMs = Date.parse(gateStatus.backendAdmittedAt ?? '');
-    const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed &&
-      Number.isFinite(admittedMs) && Date.now() - admittedMs < PP_FOLLOWUP_MAX_MS &&
-      (gateStatus.pollCount ?? 0) < PP_MAX_POLLS_PER_RUN ? gateStatus.backendRunId : null;
+    // Any stored run not yet proven terminal is only ever READ (GET /runs):
+    // expiry of the app's follow-up budget, a cooldown lapse or a new day
+    // never authorizes a new POST while the backend run may still be alive.
+    const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed ? gateStatus.backendRunId : null;
+    const followupExpired = !!activeRunId && (!Number.isFinite(admittedMs) || Date.now() - admittedMs >= PP_FOLLOWUP_MAX_MS ||
+      (gateStatus.pollCount ?? 0) >= PP_MAX_POLLS_PER_RUN);
     if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
     console.log(
       `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${triggerAllowed} (gate=${gateStatus.allow}, read_only_cooldown=${readOnlyDueToCooldown}) ` +
@@ -1959,6 +1974,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         backend_reported_admitted_at: backendReported,
         run_status_polled: !!runRead, run_status_http: runRead?.http_status ?? null,
         run_status_polled_at: runRead?.polled_at ?? null, run_status_error: runRead?.error ?? null,
+        followup_expired_needs_intervention: followupExpired,
         procesar_transport_error: (fetchResult as any).procesarAck?.transport_error ?? null,
       };
     }
@@ -1982,6 +1998,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           await supabase.from('cron_state').update({
             value: { ...v, poll_count: (Number(v.poll_count ?? 0) || 0) + 1, last_polled_at: rr.polled_at,
               last_poll_http: rr.http_status, last_poll_estado: est, last_poll_error: rr.error ?? fetchResult.error ?? null,
+              last_poll_body: sanitizeRunBody(rr.body), followup_expired: followupExpired,
               followup_closed: closed, followup_closed_at: closed ? rr.polled_at : null },
             updated_at: new Date().toISOString(),
           }).eq('key', key);

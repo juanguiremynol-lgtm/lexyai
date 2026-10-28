@@ -88,3 +88,14 @@ Web publicada: https://andromeda.legal sirve /assets/main-Bx4I7k9K.js (sin cambi
 - backend_trace now distinguishes `backend_admitted_at_source=app_first_observed` from `backend_reported_admitted_at` (null: backend sends none) and records live `run_status_polled/http/polled_at`.
 - Deployed: sync-publicaciones-by-work-item 6724984a…, process-retry-queue e34892b1… Tests 16/16.
 - Real worker run (request 2497, targeted pp_poll, same claim/lease/finish): task d84d9222 attempt 1→1, lease null after, next_run_at 06:00→21:06:02 UTC, last_error PENDING_UPSTREAM→PP_RUN_PENDING, no outcome row; live GET /runs 200 estado ADMITIDA at 20:36:01Z; run 0233cc45, trace 3cd0dab4, admission 20:21:51.668Z unchanged; poll_count 1.
+
+## 2026-10-28 20:47 UTC (15:47 Bogotá) — durable follow-up trigger
+- New cron 99 `pp-run-followup-15m` `*/15 * * * *` (UTC; Bogotá = UTC−5, every 15 min all day), x-cron-key from Vault, body {"mode":"followup"}. SQL-gated: HTTP only if a due open follow-up exists (same predicate as claim_sync_retry_pp_poll), else no function boot/provider call.
+- followup mode: only pp_poll slots (max 8 per call, stops at first empty claim); extraction slots unreachable by construction (slots.ts + followupOnly_test.ts). Overlap with cron 67/95 safe: same SKIP LOCKED claim + lease token fencing.
+- Effective schedule: 0–24h target ≤30 min → met (deferral ≤30 min + ≤15 min trigger ⇒ ≤45 min worst case). 24–72h target ~6h → met (≤6h + 15 min). Capacity 8×96 = 768 follow-ups/day vs real volume at 20:47: 3 stored/open runs (of 67 PUB tasks).
+- Expiry: a stored run not proven terminal is now only READ (GET /runs) by sync-publicaciones, even after 72h/96 polls or cooldown/day change; `followup_expired_needs_intervention` flags it. New POST only after a terminal state closes follow-up.
+- Ledger keeps sanitized last /runs body (last_poll_body) with source timestamp last_polled_at.
+- ADMITIDA vs EN_CURSO (Nicholls): 202 at 20:21 said EN_CURSO, GET /runs at 20:36 said ADMITIDA (body not stored at that poll). Two other runs polled at 20:45 also report ADMITIDA with estados_analizados 0, checkpoint unchanged. No conclusion on regression; for Codex.
+- Deployed sync-publicaciones-by-work-item 196d7b26…, process-retry-queue 74f3a659…. Tests 16/16 + 2 follow-up-only.
+- First automatic run 20:45:00 UTC (request 2502): mode followup, 2 pp_poll tasks (c8f41dc1, e76d925a), both DEFERRED PP_RUN_PENDING, attempt 1→1, no extraction slots. Nicholls not touched (next_run_at 21:06:02 → served by the 21:15 UTC firing).
+- Concurrent: scheduled-publicaciones-monitor (request 2503, same minute) is a separate extraction channel and admitted run 7c94efe6 for e76d925a at 20:45:06.
