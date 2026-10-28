@@ -3316,7 +3316,20 @@ Deno.serve(withSyncTimeline(async (req) => {
           const { data: twins, error: twinErr } = await supabase.from('work_item_acts')
             .select('hash_fingerprint, description').eq('work_item_id', work_item_id).eq('is_archived', false)
             .eq('act_date', actDate);
-          const matches = (twins ?? []).filter((r: any) => norm(r.description) === norm(description));
+          // Same canonicalization as the unique index (DB functions).
+          const canon = async (t: unknown): Promise<string | null> => {
+            const { data: stripped, error: e1 } = await supabase.rpc('canon_strip_title_noise', { p_raw: String(t ?? '') });
+            if (e1) return null;
+            const { data: n, error: e2 } = await supabase.rpc('canon_normalize_title', { p_raw: stripped });
+            return e2 ? null : String(n ?? '');
+          };
+          const target = await canon(description);
+          const matches: any[] = [];
+          if (target !== null) {
+            for (const r of twins ?? []) {
+              if (norm(r.description) === norm(description) || (await canon(r.description)) === target) matches.push(r);
+            }
+          }
           if (!twinErr && matches.length === 1) {
             structuralTwinFp = matches[0].hash_fingerprint;
             persistLedger.errored -= 1;
