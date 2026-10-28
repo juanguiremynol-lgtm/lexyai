@@ -33,6 +33,7 @@ import {
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
 import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
+import { internalBreakerRpc, isSharedSessionBlock, withSamaiEstadosBreaker } from './samaiEstadosBreaker.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -69,12 +70,15 @@ export async function fetchFromSamaiEstados(
     return emptyResult('ERROR', Date.now() - startTime, 'SAMAI_ESTADOS_BASE_URL not configured');
   }
 
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) return emptyResult('ERROR', Date.now() - startTime, 'PROVIDER_BREAKER_UNAVAILABLE');
+
   try {
-    if (mode === 'monitoring') {
-      return await fetchMonitoring(radicado, baseUrl, apiKeyInfo, options, startTime);
-    } else {
-      return await fetchDiscovery(radicado, baseUrl, apiKeyInfo, options, startTime);
-    }
+    return await withSamaiEstadosBreaker(internalBreakerRpc(supabaseUrl, serviceKey), () =>
+      mode === 'monitoring'
+        ? fetchMonitoring(radicado, baseUrl, apiKeyInfo, options, startTime)
+        : fetchDiscovery(radicado, baseUrl, apiKeyInfo, options, startTime));
   } catch (err: any) {
     const isTimeout = err instanceof DOMException && err.name === 'AbortError';
     return emptyResult(
@@ -107,7 +111,7 @@ async function fetchMonitoring(
     body: JSON.stringify({ radicado }),
   });
 
-  if (result.ok && result.data) {
+  if (result.ok && result.data && hasPublicationInventory(result.data)) {
     const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
     const rowOutcomes: NonNullable<ProviderAdapterResult['rowOutcomes']> = [];
     const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches, rowOutcomes);
@@ -126,9 +130,9 @@ async function fetchMonitoring(
   }
 
   return emptyResult(
-    result.httpStatus === 404 ? 'EMPTY' : 'ERROR',
+    'ERROR',
     Date.now() - startTime,
-    result.error || 'No estados found',
+    result.error || 'INVALID_PUBLICATION_INVENTORY',
     result.httpStatus,
   );
 }
@@ -154,11 +158,11 @@ async function fetchDiscovery(
     body: JSON.stringify({ radicado }),
   });
 
-  if (!result.ok || !result.data) {
+  if (!result.ok || !result.data || !hasPublicationInventory(result.data)) {
     return emptyResult(
-      result.httpStatus === 404 ? 'EMPTY' : 'ERROR',
+      'ERROR',
       Date.now() - startTime,
-      result.error || `HTTP ${result.httpStatus}`,
+      result.error || 'INVALID_PUBLICATION_INVENTORY',
       result.httpStatus,
     );
   }
@@ -179,6 +183,11 @@ async function fetchDiscovery(
     identityMismatches,
     rowOutcomes,
   };
+}
+
+function hasPublicationInventory(data: any): boolean {
+  const envelope = data?.result || data;
+  return Array.isArray(envelope?.estados) || Array.isArray(envelope?.actuaciones);
 }
 
 // ═══════════════════════════════════════════
@@ -244,6 +253,15 @@ async function fetchEndpoint(
     clearTimeout(timeoutId);
 
     if (!resp.ok) {
+      // The API wraps a provider's session-init 403 as 502. Only this exact
+      // shared session URL is a provider-wide breaker signal; document 403s,
+      // timeouts and unrelated case-specific errors do not open the circuit.
+      if (resp.status === 502) {
+        const body = await resp.json().catch(() => null);
+        if (isSharedSessionBlock(resp.status, body)) {
+          return { ok: false, error: 'SAMAI_ESTADOS_SESSION_403', httpStatus: resp.status };
+        }
+      }
       return { ok: false, error: `HTTP ${resp.status}`, httpStatus: resp.status };
     }
 

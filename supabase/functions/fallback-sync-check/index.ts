@@ -1,14 +1,11 @@
+import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
+import { invokeInternal } from "../_shared/internalInvoke.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
-import { invokeInternal } from "../_shared/internalInvoke.ts";
-  shouldCountAsSuccess,
-  isScrapingPending,
-  shouldEnqueueRetry,
-  retryJitterMs,
   SYNC_ENABLED_WORKFLOWS,
-  TERMINAL_STAGES,
 } from "../_shared/syncPolicy.ts";
+import { fallbackEligibility, type Enrollment } from "./eligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,6 +40,9 @@ Deno.serve(async (req) => {
       });
     }
   } catch { /* not JSON, proceed normally */ }
+
+  const gate = await requirePrivilegedCaller(req, corsHeaders);
+  if (!gate.ok && gate.response) return gate.response;
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
@@ -121,8 +121,7 @@ Deno.serve(async (req) => {
 
         console.log(`[fallback-sync-check] Triggering overflow pass for chain ${row.chain_id}, org=${row.organization_id}`);
         try {
-          await supabase.functions.invoke("scheduled-daily-sync", {
-            body: {
+          const overflow = await invokeInternal("scheduled-daily-sync", {
               org_id: row.organization_id,
               resume_after_id: meta.overflow_resume_after_id || row.cursor_last_work_item_id,
               is_continuation: true,
@@ -134,8 +133,8 @@ Deno.serve(async (req) => {
               manual_initiator_user_id: row.manual_initiator_user_id,
               is_overflow: true,
               item_timeout_counts: meta.overflow_item_timeout_counts || {},
-            },
-          });
+          }, "fallback-sync-check");
+          if (overflow.error) throw overflow.error;
           // Mark overflow as consumed so it doesn't fire again
           await supabase.from("auto_sync_daily_ledger")
             .update({ continuation_block_reason: "OVERFLOW_DISPATCHED" })
@@ -159,7 +158,7 @@ Deno.serve(async (req) => {
       if (missedOrgs.length > 0) {
         console.log(`[fallback-sync-check] Found ${missedOrgs.length} orgs with no sync today`);
         
-        const { data, error } = await supabase.functions.invoke("scheduled-daily-sync");
+        const { data, error } = await invokeInternal("scheduled-daily-sync", {}, "fallback-sync-check");
 
         if (error) {
           console.error("[fallback-sync-check] Failed to trigger catchup sync:", error);
@@ -231,115 +230,70 @@ Deno.serve(async (req) => {
 
         const { data: workItems, error: fetchError } = await supabase
           .from("work_items")
-          .select("id, radicado, workflow_type, consecutive_failures, consecutive_404_count, last_error_code")
+          .select("id, radicado, workflow_type, last_synced_at")
           .eq("organization_id", pendingOrg.organization_id)
           .eq("monitoring_enabled", true)
           .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-          .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
-          .not("radicado", "is", null)
+          .eq("status", "ACTIVE")
+          .is("deleted_at", null)
           .or(`last_synced_at.is.null,last_synced_at.lt.${ledgerStartedAt}`)
-          .limit(30);
+          .order("last_synced_at", { ascending: true, nullsFirst: true })
+          .order("id", { ascending: true })
+          .limit(1000);
 
         if (fetchError) {
           throw fetchError;
         }
 
-        const eligibleItems = (workItems || []).filter((item: any) => {
-          if (!item.radicado || item.radicado.replace(/\D/g, '').length !== 23) return false;
-          if ((item.consecutive_failures || 0) >= 3) {
-            console.log(`[fallback-sync-check] Skipping ${item.radicado}: ${item.consecutive_failures} consecutive failures`);
-            return false;
+        const candidates = workItems || [];
+        const itemIds = candidates.map((item: { id: string }) => item.id);
+        let enrollments: Enrollment[] = [];
+        if (itemIds.length) {
+          const { data, error } = await supabase.from("work_item_provider_enrollment")
+            .select("work_item_id,provider_key,enabled")
+            .eq("scope", "ACTS")
+            .in("work_item_id", itemIds);
+          if (error) throw error;
+          enrollments = data || [];
+        }
+        const deferred: Record<string, number> = {};
+        let queued = 0;
+        let enqueueErrors = 0;
+        for (const item of candidates) {
+          const eligibility = fallbackEligibility(item, enrollments);
+          if (!eligibility.eligible) {
+            deferred[eligibility.reason] = (deferred[eligibility.reason] || 0) + 1;
+            continue;
           }
-          if (item.last_error_code === 'PROVIDER_RATE_LIMITED') {
-            console.log(`[fallback-sync-check] Skipping ${item.radicado}: rate limited`);
-            return false;
-          }
-          return true;
-        });
-
-        console.log(`[fallback-sync-check] Org ${pendingOrg.organization_id}: ${eligibleItems.length} eligible items (of ${(workItems || []).length} total)`);
-
-        let syncedCount = 0;
-        let errorCount = 0;
-
-        for (const item of eligibleItems) {
-          try {
-            const { data: syncResult } = await invokeInternal("sync-by-work-item",
-              { work_item_id: item.id, _scheduled: true }, "fallback-sync-check");
-
-            // ── Policy-driven success/pending/failure classification ──
-            // IQ2(a): the ESTADOS channel is NOT invoked from here. An estados
-            // read may never be gated on an actuaciones result; it runs on its
-            // own cron (scheduled-daily-estados) against its own provider.
-            if (shouldCountAsSuccess(syncResult)) {
-
-
-              await supabase
-                .from("work_items")
-                .update({ last_synced_at: new Date().toISOString() })
-                .eq("id", item.id);
-              syncedCount++;
-            } else if (isScrapingPending(syncResult)) {
-              // Scraping in progress — do NOT mark as success, do NOT clear failure counters.
-              // Use policy engine to decide retry enqueue.
-              console.log(`[fallback-sync-check] ${item.radicado}: scraping pending, checking retry enqueue`);
-              try {
-                const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
-                  .select('id, work_item_id, kind, attempt, max_attempts')
-                  .eq('work_item_id', item.id)
-                  .eq('kind', 'ACT_SCRAPE_RETRY')
-                  .maybeSingle();
-
-                const decision = shouldEnqueueRetry(syncResult, existingRetry);
-                if (decision.enqueue) {
-                  const nextRunAt = new Date(Date.now() + retryJitterMs()).toISOString();
-                  await (supabase.from('sync_retry_queue') as any).insert({
-                    work_item_id: item.id,
-                    organization_id: pendingOrg.organization_id,
-                    radicado: item.radicado,
-                    kind: decision.kind,
-                    provider: syncResult?.scraping_provider || 'cpnu',
-                    attempt: 1,
-                    max_attempts: 3,
-                    next_run_at: nextRunAt,
-                    last_error_code: 'SCRAPING_TIMEOUT',
-                    last_error_message: 'Enqueued by fallback-sync-check',
-                    scraping_job_id: syncResult?.scraping_job_id || null,
-                  });
-                  console.log(`[fallback-sync-check] Retry enqueued for ${item.radicado}: ${decision.reason}`);
-                }
-              } catch (retryEnqueueErr) {
-                console.warn(`[fallback-sync-check] Failed to enqueue retry:`, retryEnqueueErr);
-              }
-              // Count as "pending" — not success, not error
-            } else {
-              errorCount++;
-            }
-          } catch {
-            errorCount++;
-          }
-
-          // Rate limit
-          await new Promise(r => setTimeout(r, 1200));
-
-          if (Date.now() - startTime > 48000) break;
+          // The queue's unique (work_item_id,kind) key and ignoreDuplicates
+          // preserve an existing lease, retry count and due time on repetition.
+          const { error } = await supabase.from("sync_retry_queue").upsert({
+            work_item_id: item.id,
+            organization_id: pendingOrg.organization_id,
+            radicado: item.radicado,
+            kind: "ACT_SCRAPE_RETRY",
+            provider: eligibility.provider,
+            attempt: 0,
+            max_attempts: 3,
+            next_run_at: new Date().toISOString(),
+            last_error_code: "FALLBACK_COVERAGE_PENDING",
+          }, { onConflict: "work_item_id,kind", ignoreDuplicates: true });
+          if (error) enqueueErrors++;
+          else queued++;
         }
 
-        // Update ledger
-        const successRate = eligibleItems.length > 0 ? syncedCount / eligibleItems.length : 1;
-        const newStatus = successRate >= 0.9 ? 'SUCCESS' : (syncedCount > 0 ? 'PARTIAL' : 'FAILED');
-
-        await supabase.rpc('update_daily_sync_ledger', {
+        // Enqueue acceptance is not a provider result. The worker owns outcome
+        // and last-success timestamps; do not convert an empty page or dispatch
+        // to a successful daily run, nor overwrite prior succeeded counts.
+        const newStatus = enqueueErrors ? "FAILED" : "PARTIAL";
+        const { error: ledgerUpdateError } = await supabase.rpc('update_daily_sync_ledger', {
           p_ledger_id: pendingOrg.ledger_id,
           p_status: newStatus,
-          p_items_succeeded: syncedCount,
-          p_items_failed: errorCount,
-          p_metadata: { retry_run_id: runId, retry_at: new Date().toISOString() }
+          p_metadata: { retry_run_id: runId, retry_at: new Date().toISOString(),
+            fallback_candidates: candidates.length, fallback_queue_accepted: queued,
+            fallback_queue_errors: enqueueErrors, fallback_deferred: deferred }
         });
-
-        if (newStatus === 'SUCCESS') {
-          retriesSucceeded++;
-        }
+        if (ledgerUpdateError) throw ledgerUpdateError;
 
         retryResults.push({
           org_id: pendingOrg.organization_id,
@@ -435,7 +389,8 @@ async function findMissedOrganizations(
     .select("organization_id")
     .eq("monitoring_enabled", true)
     .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-    .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
+    .eq("status", "ACTIVE")
+    .is("deleted_at", null)
     .not("radicado", "is", null)
     .not("organization_id", "is", null);
 

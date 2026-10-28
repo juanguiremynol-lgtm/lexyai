@@ -40,6 +40,7 @@ import {
 import { parseSujetosArray } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { normalizeActDocumentos, mergeActDocumentos } from '../actDocumentos.ts';
+import { assessSamaiFeed } from '../samaiFeedFreshness.ts';
 
 // Deno global declaration — this module is also type-checked by the Vitest
 // (browser/node) program, which has no Deno lib.
@@ -135,7 +136,7 @@ async function fetchFeedMode(
   const response = await fetch(url, { method: 'GET', headers });
 
   if (response.status === 404) {
-    return makeEmptyResult('Record not found in SAMAI feed', startTime, 404);
+    return makeErrorResult('SAMAI_SOURCE_OBSERVATION_MISSING', startTime, 404);
   }
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
@@ -148,13 +149,19 @@ async function fetchFeedMode(
 
   const data = await response.json();
   const result = (data.result ?? data) as Record<string, unknown>;
+  const freshness = assessSamaiFeed(result, radicado);
+  if (freshness.ok === false) {
+    // The cached rows remain intact in both databases. They are not a new
+    // successful consultation of the public source.
+    return makeErrorResult(freshness.code, startTime, response.status);
+  }
   const rawActuaciones =
     (result.feedCombinado as Array<Record<string, unknown>>) ||
     (result.actuaciones as Array<Record<string, unknown>>) ||
     [];
 
-  if (!rawActuaciones || rawActuaciones.length === 0) {
-    return makeEmptyResult('No actuaciones in SAMAI feed response', startTime, response.status);
+  if (!Number.isInteger(result.total_found) || result.total_found !== rawActuaciones.length) {
+    return makeErrorResult('SAMAI_SOURCE_FEED_PARTIAL', startTime, response.status);
   }
 
   console.log(
@@ -163,7 +170,10 @@ async function fetchFeedMode(
   );
 
   const sujetos = (result.sujetos_procesales ?? result.sujetos ?? []) as Array<Record<string, unknown>>;
-  return buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, response.status);
+  return {
+    ...buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, response.status),
+    sourceObservedAt: freshness.observedAt,
+  };
 }
 
 async function resolveFeedApiKey(): Promise<ApiKeyInfo> {

@@ -74,6 +74,12 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     runId = claimedRun.run_id;
   }
   if (!runId) return response({ error: "No se pudo identificar la corrida" }, 500);
+  if (channel === "samai_estados") {
+    const { data: breaker, error: breakerError } = await db.rpc("peek_samai_estados_breaker");
+    if (breakerError) return response({ error: "PROVIDER_BREAKER_UNAVAILABLE", run_id: runId }, 503);
+    if (breaker?.[0]?.paused) return response({ ok: false, pending: true, run_id: runId,
+      error: "PROVIDER_BREAKER_OPEN", retry_at: breaker[0].retry_at });
+  }
   const { data: claimed, error: batchError } = await db.rpc("claim_public_monitor_items", {
     _run_id: runId, _channel: channel, _limit: BATCH_SIZE,
   });
@@ -96,6 +102,17 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       retryable = verdict.retryable;
       errorCode = verdict.code;
     } catch (error) { errorCode = error instanceof Error ? error.message.slice(0, 200) : "SYNC_FAILED"; }
+    const providerMessage = String((result.samai_estados_summary as Record<string, unknown> | undefined)?.error ?? "");
+    if (channel === "samai_estados" && providerMessage.startsWith("PROVIDER_BREAKER_")) {
+      const retryText = providerMessage.startsWith("PROVIDER_BREAKER_OPEN:") ? providerMessage.slice("PROVIDER_BREAKER_OPEN:".length) : "";
+      const breakerCode = providerMessage.startsWith("PROVIDER_BREAKER_OPEN:") ? "PROVIDER_BREAKER_OPEN" : providerMessage;
+      const retryAt = Number.isFinite(Date.parse(retryText)) ? new Date(retryText).toISOString() : new Date(Date.now() + 60_000).toISOString();
+      const { data: deferred, error: deferError } = await db.rpc("defer_public_monitor_for_breaker", {
+        _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token, _retry_at: retryAt, _error_code: breakerCode,
+      });
+      if (deferError || deferred !== true) return response({ error: "BREAKER_DEFER_FAILED", run_id: runId }, 503);
+      return response({ ok: false, pending: true, error: breakerCode, retry_at: retryAt, run_id: runId });
+    }
     const { data: sealed, error: sealError } = await db.rpc("finish_public_monitor_item", {
       _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token,
       _success: success, _retryable: retryable, _error_code: errorCode, _result: result,
