@@ -3303,6 +3303,53 @@ Deno.serve(withSyncTimeline(async (req) => {
           );
         }
 
+        // A conflict on idx_acts_dedupe_structural proves an active row with
+        // the same canonical structural key already exists (typically a legacy
+        // short fingerprint the JS identity pass did not pair). Resolve that
+        // exact row read-only; if exactly one matches, account the parsed row
+        // as a duplicate of it. Stored fingerprints are never re-keyed.
+        let structuralTwinFp: string | null = null;
+        if (!((counts.inserted_count || 0) > 0 || (counts.updated_count || 0) > 0) && (counts.error_count || 0) === 1 &&
+            (counts.rejected_count || 0) === 0 && Array.isArray(counts.outcomes) &&
+            counts.outcomes.length === 1 && String(counts.outcomes[0]?.reason ?? '').includes('idx_acts_dedupe_structural')) {
+          const norm = (t: unknown) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          const { data: twins, error: twinErr } = await supabase.from('work_item_acts')
+            .select('hash_fingerprint, description').eq('work_item_id', work_item_id).eq('is_archived', false)
+            .eq('act_date', actDate);
+          // Same canonicalization as the unique index (DB functions).
+          const canon = async (t: unknown): Promise<string | null> => {
+            const { data: stripped, error: e1 } = await supabase.rpc('canon_strip_title_noise', { p_raw: String(t ?? '') });
+            if (e1) return null;
+            const { data: n, error: e2 } = await supabase.rpc('canon_normalize_title', { p_raw: stripped });
+            return e2 ? null : String(n ?? '');
+          };
+          const target = await canon(description);
+          const matches: any[] = [];
+          if (target !== null) {
+            for (const r of twins ?? []) {
+              if (norm(r.description) === norm(description) || (await canon(r.description)) === target) matches.push(r);
+            }
+          }
+          if (!twinErr && matches.length === 1) {
+            structuralTwinFp = matches[0].hash_fingerprint;
+            persistLedger.errored -= 1;
+            persistLedger.skippedDuplicate += 1;
+            persistLedger.outcomes.pop();
+            persistLedger.outcomes.push({ bucket: 'SKIPPED_DUPLICATE', fingerprint: structuralTwinFp, reason: 'structural twin of stored act' });
+            counts.error_count = 0;
+            counts.errors = [];
+            counts.outcomes = [{ bucket: 'SKIPPED_DUPLICATE', fingerprint: structuralTwinFp }];
+          } else {
+            const last = persistLedger.outcomes[persistLedger.outcomes.length - 1];
+            if (last) last.reason = `${String(last.reason ?? '')} [twin_check date=${actDate ?? 'null'} candidates=${(twins ?? []).length} matches=${matches.length} err=${twinErr ? 'y' : 'n'}]`;
+          }
+        } else if ((counts.error_count || 0) > 0 && Array.isArray(counts.outcomes)) {
+          const last = persistLedger.outcomes[persistLedger.outcomes.length - 1];
+          if (last && String(last.reason ?? '').includes('idx_acts_dedupe_structural')) {
+            last.reason = `${String(last.reason)} [twin_check skipped outcomes=${counts.outcomes.length} errors=${counts.error_count}]`;
+          }
+        }
+
         // ITER70 rev.3 — intra-batch candidate registered ONLY after a confirmed
         // write, with the REAL row id read back by fingerprint.
         let persistedAct: Awaited<ReturnType<typeof resolvePersistedAct>> = null;
@@ -3311,7 +3358,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         const rowFailed = !confirmedWrite && ((counts.error_count || 0) > 0 || (counts.rejected_count || 0) > 0);
         if (confirmedWrite || claimsDuplicate) {
           try {
-            const persisted = await resolvePersistedAct(supabase, work_item_id, fingerprint);
+            const persisted = await resolvePersistedAct(supabase, work_item_id, structuralTwinFp ?? fingerprint);
             if (persisted) {
               persistedAct = persisted;
               knownActRows.push(toActIdentityCandidate(persisted, semanticKey));
@@ -3544,7 +3591,21 @@ Deno.serve(withSyncTimeline(async (req) => {
     const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
 
     const persistenceFailed = !persistenceIsComplete(persistLedger);
-    if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
+    if (persistenceFailed) {
+      result.code = 'PERSISTENCE_FAILED';
+      // Sanitized trace: counts and non-persisted buckets only (no payloads).
+      (result as any).persistence_summary = {
+        parsed: persistLedger.parsed, inserted: persistLedger.inserted, updated: persistLedger.updated,
+        skipped_duplicate: persistLedger.skippedDuplicate, skipped_structural: persistLedger.skippedStructural,
+        rejected: persistLedger.rejected, errored: persistLedger.errored,
+        unaccounted: persistLedger.parsed - persistLedger.inserted - persistLedger.updated - persistLedger.skippedDuplicate
+          - persistLedger.skippedStructural - persistLedger.rejected - persistLedger.errored,
+        outcomes: persistLedger.outcomes
+          .filter((o) => !['INSERTED', 'UPDATED', 'SKIPPED_DUPLICATE'].includes(String(o.bucket ?? '').toUpperCase()))
+          .slice(0, 12)
+          .map((o) => ({ bucket: o.bucket ?? null, fingerprint: o.fingerprint ?? null, reason: String(o.reason ?? '').slice(0, 240) })),
+      };
+    }
     // A CPNU snapshot flagged stale by the freshness gate whose live re-read was
     // deferred is NOT evidence of an up-to-date expediente: it must never be
     // stamped as SUCCESS nor advance last_synced_at (silent-failure guard).
