@@ -80,3 +80,11 @@ Web publicada: https://andromeda.legal sirve /assets/main-Bx4I7k9K.js (sin cambi
 - Association (cron_state pub_rescrape:db1b4198…): run 0233cc45, trace 3cd0dab4, backend_admitted_at 20:21:51Z. Admission is preserved for the same run_id (recordRescrapeTrigger + backend_trace use stored value); not renewed per poll.
 - 24h exit: after the deadline ppDurableDeferral returns null → normal RETRY consumes one attempt with PENDING_UPSTREAM (observable), association/run kept; DB also rejects expired PP deferrals.
 - Isolated SQL suite: not run (no empty PostgreSQL cluster available; production not used).
+
+## 2026-10-28 20:36 UTC (15:36 Bogotá) — PP follow-up slot (fix of the 1-slot bottleneck)
+- Trigger cadence (unchanged): process-retry-queue cron 67 `0 5-13 * * *` + cron 95 `0 18 * * *` = 10 drains/day, x-cron-key from Vault. Before: 4 slots/drain, 1 PUB recovery slot → 10 PUB recoveries/day, oldest-first.
+- Now: 2 extra follow-up slots per drain (claim_sync_retry_pp_poll, migration 0091) take only PUB_RETRY tasks whose case has an open stored run (valid run id, not closed, <72h since first app observation, <96 polls), ordered by next_run_at. Extraction slots unchanged. Follow-up = one GET /runs/{id} (+ certified /historico if COMPLETA); never POST.
+- 24h limit replaced: 0–24h PP_RUN_PENDING (≤30 min), 24–72h PP_RUN_OVERDUE (observable, ≤6h, no attempt), ≥72h terminal PP_RUN_FOLLOWUP_EXPIRED in sync_retry_outcomes with run id; ledger keeps run/checkpoint; afterwards normal gate (backend idempotent admission) is the recovery.
+- backend_trace now distinguishes `backend_admitted_at_source=app_first_observed` from `backend_reported_admitted_at` (null: backend sends none) and records live `run_status_polled/http/polled_at`.
+- Deployed: sync-publicaciones-by-work-item 6724984a…, process-retry-queue e34892b1… Tests 16/16.
+- Real worker run (request 2497, targeted pp_poll, same claim/lease/finish): task d84d9222 attempt 1→1, lease null after, next_run_at 06:00→21:06:02 UTC, last_error PENDING_UPSTREAM→PP_RUN_PENDING, no outcome row; live GET /runs 200 estado ADMITIDA at 20:36:01Z; run 0233cc45, trace 3cd0dab4, admission 20:21:51.668Z unchanged; poll_count 1.

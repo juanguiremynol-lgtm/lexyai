@@ -25,6 +25,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
 import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableContract.ts";
+import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
+/** Poll budget per admitted run (hourly drains over the 72h window). */
+const PP_MAX_POLLS_PER_RUN = 96;
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
@@ -202,6 +205,8 @@ type FetchResultV3 = {
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
   historicoRead?: HistoricoRead;
+  /** Live GET /runs/{id} read of THIS pass (follow-up of an admitted run). */
+  runStatusRead?: { run_id: string; http_status: number | null; body: unknown; polled_at: string; error: string | null };
 
   ok: boolean;
   publicaciones: PublicacionV3[];
@@ -361,7 +366,8 @@ type RescrapeDecision = {
     | 'trigger_accepted'
     | 'trigger_error'
     | 'not_evaluated'
-    | 'routing_skip_non_pp_category';
+    | 'routing_skip_non_pp_category'
+    | 'follow_admitted_run';
   httpStatus?: number;
   error?: string;
   backendRunId?: string | null;
@@ -379,7 +385,7 @@ const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
 async function checkRescrapeGate(
   supabase: any,
   workItemId: string,
-): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null }> {
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null; followupClosed?: boolean; pollCount?: number }> {
   const key = `pub_rescrape:${workItemId}`;
   try {
     const { data } = await supabase
@@ -399,6 +405,8 @@ async function checkRescrapeGate(
       hoursSince: Number(hours.toFixed(2)),
       backendRunId: typeof data?.value?.backend_run_id === 'string' ? data.value.backend_run_id : null,
       backendAdmittedAt: typeof data?.value?.backend_admitted_at === 'string' ? data.value.backend_admitted_at : null,
+      followupClosed: data?.value?.followup_closed === true,
+      pollCount: Number(data?.value?.poll_count ?? 0) || 0,
     };
   } catch (_e) {
     return { allow: true, lastTriggeredAt: null, hoursSince: null };
@@ -1210,6 +1218,51 @@ export type HistoricoRead = {
   transport_error: string | null;
 };
 
+/**
+ * Follow-up of an already admitted durable run: one bounded GET /runs/{id}
+ * (plus the certified /historico read when it reports completion). Never
+ * POSTs a new extraction — the stored run is the only work being tracked.
+ */
+export async function followAdmittedRun(
+  radicado: string, baseUrl: string, apiKey: string, runId: string,
+): Promise<FetchResultV3> {
+  const startTime = Date.now();
+  const headers = { 'x-api-key': apiKey, 'Content-Type': 'application/json' };
+  const polledAt = new Date().toISOString();
+  const status = await fetchWithTimeoutAndRetry(`${baseUrl}/runs/${runId}`, headers, 5000, 1);
+  let body: unknown = null;
+  if (status.ok && status.response) { try { body = await status.response.json(); } catch { body = null; } }
+  const runStatusRead = { run_id: runId, http_status: status.httpStatus ?? null, body, polled_at: polledAt,
+    error: status.ok ? (body === null ? 'PP_RUN_STATUS_INVALID_JSON' : null) : (status.error ?? 'unavailable') };
+  const base = { publicaciones: [] as PublicacionV3[], latencyMs: 0, found: false, runStatusRead };
+  const pending = (reason: string): FetchResultV3 => ({ ...base, ok: true, error: reason, latencyMs: Date.now() - startTime,
+    httpStatus: status.httpStatus ?? undefined, resultCode: 'NO_DATA', readIncomplete: true });
+  const failed = (reason: string): FetchResultV3 => ({ ...base, ok: false, error: reason, latencyMs: Date.now() - startTime,
+    httpStatus: status.httpStatus ?? undefined, resultCode: 'ERROR' });
+  if (!status.ok || !status.response) {
+    // 4xx (unknown run, unauthorized) is explicit failure; transport is pending.
+    if (status.httpStatus && status.httpStatus >= 400 && status.httpStatus < 500) return failed(`PP_RUN_STATUS_HTTP ${status.httpStatus}`);
+    return pending(`PP_RUN_STATUS_PENDING: ${status.error ?? 'unavailable'}`);
+  }
+  if (body === null) return failed('PP_RUN_STATUS_INVALID_JSON');
+  const verdict = durableVerdict(status.httpStatus ?? 200, body, runId);
+  if (verdict.kind === 'error') return failed(verdict.reason);
+  if (verdict.kind === 'pending') return pending(verdict.reason);
+  const url = `${baseUrl}/historico/${radicado}`;
+  const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
+  if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
+  let historyData: unknown;
+  try { historyData = await history.response.json(); } catch { return pending('PP_HISTORY_INVALID_JSON'); }
+  if (!matchingCompletedHistory(runId, historyData, radicado) || !publicSnapshotCompleted(historyData))
+    return pending('PP_HISTORY_NOT_CERTIFIED_OR_RUN_MISMATCH');
+  const extracted = extractPublicacionesFromResponse(historyData, Date.now() - startTime);
+  const historicoRead: HistoricoRead = { endpoint: 'GET /historico/{radicado}', url, radicado,
+    http_status: history.httpStatus ?? 200, latency_ms: Date.now() - startTime, body: historyData,
+    body_bytes: JSON.stringify(historyData).length, payload_count: extracted.publicaciones.length,
+    parse_error: null, transport_error: null };
+  return { ...extracted, durableCompleted: true, historicoRead, runStatusRead };
+}
+
 export async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
@@ -1827,6 +1880,14 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ITER55 B1 — the sync cooldown folds into the TRIGGER gate, not the read.
     const triggerAllowed = gateStatus.allow && !readOnlyDueToCooldown;
     let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
+    // A stored, still-open durable run is followed with GET /runs only — no
+    // new POST while its bounded follow-up window (72h from first app
+    // observation) and poll budget last.
+    const admittedMs = Date.parse(gateStatus.backendAdmittedAt ?? '');
+    const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed &&
+      Number.isFinite(admittedMs) && Date.now() - admittedMs < PP_FOLLOWUP_MAX_MS &&
+      (gateStatus.pollCount ?? 0) < PP_MAX_POLLS_PER_RUN ? gateStatus.backendRunId : null;
+    if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
     console.log(
       `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${triggerAllowed} (gate=${gateStatus.allow}, read_only_cooldown=${readOnlyDueToCooldown}) ` +
         `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,
@@ -1849,7 +1910,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     } else {
       try {
         fetchResult = await Promise.race([
-        fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
+        activeRunId
+          ? followAdmittedRun(normalizedRadicado, baseUrl, apiKey, activeRunId)
+          : fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, {
           allow: triggerAllowed,
           onDecision: (d) => { rescrapeDecision = d; },
         }),
@@ -1877,16 +1940,25 @@ Deno.serve(withSyncTimeline(async (req) => {
     // backend_run_id, backend_new_events). Absent fields stay null; nothing
     // is synthesized.
     {
-      const b: any = (fetchResult as any).procesarAck?.body ?? (fetchResult as any).historicoRead?.body ?? null;
+      const runRead = fetchResult.runStatusRead;
+      const b: any = (fetchResult as any).procesarAck?.body ?? runRead?.body ?? (fetchResult as any).historicoRead?.body ?? null;
       const pick = (k: string) => (b && typeof b === 'object' && b[k] != null ? b[k] : null);
-      const backendRunId = pick('backend_run_id');
+      const backendRunId = pick('backend_run_id') ?? (runRead ? runRead.run_id : null);
       const admittedNow = (fetchResult as any).procesarAck?.http_status === 202 && backendRunId;
       const admittedAt = gateStatus.backendRunId === backendRunId ? (gateStatus.backendAdmittedAt ?? gateStatus.lastTriggeredAt)
         : admittedNow ? new Date().toISOString() : null;
+      // The bound uses the app's first observation; a backend admission time
+      // is reported separately only when the backend actually sends one.
+      const backendReported = ['admitida_en', 'admitted_at', 'fecha_admision', 'creado_en', 'created_at']
+        .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
         backend_new_events: pick('backend_new_events'), run_status: pick('run_status'),
         estado: pick('estado'), backend_admitted_at: admittedAt,
+        backend_admitted_at_source: admittedAt ? 'app_first_observed' : null,
+        backend_reported_admitted_at: backendReported,
+        run_status_polled: !!runRead, run_status_http: runRead?.http_status ?? null,
+        run_status_polled_at: runRead?.polled_at ?? null, run_status_error: runRead?.error ?? null,
         procesar_transport_error: (fetchResult as any).procesarAck?.transport_error ?? null,
       };
     }
@@ -1894,6 +1966,29 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ── Persist gate ledger + trace ONLY when we actually fired the trigger ──
     if (rescrapeDecision.triggered) {
       await recordRescrapeTrigger(supabase, work_item_id, normalizedRadicado, rescrapeDecision);
+    } else if (fetchResult.runStatusRead) {
+      // Follow-up ledger: admission/run id are preserved verbatim; only poll
+      // counters move. A completed or definitively failed run closes follow-up.
+      const rr = fetchResult.runStatusRead;
+      const est = rr.body && typeof rr.body === 'object' ? (rr.body as any).estado ?? null : null;
+      const closed = fetchResult.durableCompleted === true ||
+        (!fetchResult.ok && (rr.http_status ?? 0) >= 400 && (rr.http_status ?? 0) < 500) ||
+        (!fetchResult.ok && (est === 'PARCIAL' || est === 'FALLIDA'));
+      try {
+        const key = `pub_rescrape:${work_item_id}`;
+        const { data: cur } = await supabase.from('cron_state').select('value').eq('key', key).maybeSingle();
+        const v = (cur?.value ?? {}) as Record<string, unknown>;
+        if (v.backend_run_id === rr.run_id) {
+          await supabase.from('cron_state').update({
+            value: { ...v, poll_count: (Number(v.poll_count ?? 0) || 0) + 1, last_polled_at: rr.polled_at,
+              last_poll_http: rr.http_status, last_poll_estado: est, last_poll_error: rr.error ?? fetchResult.error ?? null,
+              followup_closed: closed, followup_closed_at: closed ? rr.polled_at : null },
+            updated_at: new Date().toISOString(),
+          }).eq('key', key);
+        }
+      } catch (e) {
+        console.warn('[sync-pub] follow-up ledger update failed', e instanceof Error ? e.message : 'unknown');
+      }
     }
     try {
       await supabase.from('provider_sync_traces' as any).insert({

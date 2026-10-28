@@ -31,9 +31,17 @@ export function breakerDeferral(payload: Record<string, unknown> | null): { dela
   return { code: signal.split(':', 1)[0], delaySeconds: Math.max(5, Math.min(1800, delaySeconds)) };
 }
 
+export const PP_PENDING_WINDOW_MS = 24 * 3600_000;
+export const PP_FOLLOWUP_MAX_MS = 72 * 3600_000;
+const PP_OVERDUE_DELAY_S = 6 * 3600;
+
 /** An admitted PP run is work in progress, not a provider failure. Its budget
- * is bounded by the original admission time, never by the latest poll. */
-export function ppDurableDeferral(payload: Record<string, unknown> | null, now = Date.now()): {delaySeconds: number; code: string} | null {
+ * is bounded by the original admission time, never by the latest poll.
+ * 0–24h: PP_RUN_PENDING (cheap polls). 24–72h: PP_RUN_OVERDUE — observable,
+ * slow follow-up, still no attempt consumed and no new extraction. ≥72h:
+ * terminal PP_RUN_FOLLOWUP_EXPIRED, recorded with run id (never silent). */
+export function ppDurableDeferral(payload: Record<string, unknown> | null, now = Date.now()):
+  {delaySeconds: number; code: string; terminal?: false} | {terminal: true; code: string} | null {
   if (payload?.pending_upstream !== true) return null;
   const trace = payload.backend_trace;
   if (!trace || typeof trace !== 'object' || Array.isArray(trace)) return null;
@@ -41,6 +49,11 @@ export function ppDurableDeferral(payload: Record<string, unknown> | null, now =
   if (typeof b.backend_run_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(b.backend_run_id)) return null;
   if (!['ADMITIDA','EN_CURSO'].includes(String(b.estado ?? '')) && b.run_status !== 'PENDING') return null;
   const admitted = Date.parse(String(b.backend_admitted_at ?? ''));
-  if (!Number.isFinite(admitted) || admitted > now + 60_000 || now - admitted >= 24 * 3600_000) return null;
-  return { code: 'PP_RUN_PENDING', delaySeconds: Math.min(1800, Math.max(5, Math.floor((admitted + 24 * 3600_000 - now)/1000))) };
+  if (!Number.isFinite(admitted) || admitted > now + 60_000) return null;
+  const age = now - admitted;
+  if (age >= PP_FOLLOWUP_MAX_MS) return { terminal: true, code: 'PP_RUN_FOLLOWUP_EXPIRED' };
+  if (age >= PP_PENDING_WINDOW_MS) {
+    return { code: 'PP_RUN_OVERDUE', delaySeconds: Math.max(5, Math.min(PP_OVERDUE_DELAY_S, Math.floor((admitted + PP_FOLLOWUP_MAX_MS - now)/1000))) };
+  }
+  return { code: 'PP_RUN_PENDING', delaySeconds: Math.min(1800, Math.max(5, Math.floor((admitted + PP_PENDING_WINDOW_MS - now)/1000))) };
 }
