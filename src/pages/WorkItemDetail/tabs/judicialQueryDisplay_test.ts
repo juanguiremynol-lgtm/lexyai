@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { incompleteConsultationMessage } from './judicialQueryDisplay.ts';
+declare const Deno: { test(name: string, fn: () => void): void };
 
 Deno.test('not found and partial never appear as a complete empty consultation', () => {
   const notFound = incompleteConsultationMessage('NOT_FOUND');

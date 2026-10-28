@@ -150,7 +150,7 @@ async function fetchFeedMode(
   const data = await response.json();
   const result = (data.result ?? data) as Record<string, unknown>;
   const freshness = assessSamaiFeed(result, radicado);
-  if (!freshness.ok) {
+  if (freshness.ok === false) {
     // The cached rows remain intact in both databases. They are not a new
     // successful consultation of the public source.
     return makeErrorResult(freshness.code, startTime, response.status);
