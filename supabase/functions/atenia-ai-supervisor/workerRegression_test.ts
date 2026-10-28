@@ -12,6 +12,7 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
   (Deno as any).serve = (f: typeof handler) => { handler = f; };
   const updates: Array<{ url: URL; body: any }> = [];
   const invocations: Array<{ url: URL; headers: Headers }> = [];
+  let previews = 0;
   let fetchCount = 0;
   globalThis.fetch = async (input, init) => {
     fetchCount++;
@@ -19,6 +20,10 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     const url = new URL(req.url);
     const j = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     if (url.pathname.endsWith('/rpc/atenia_ai_try_start_task')) return j(true);
+    if (url.pathname.endsWith('/rpc/atenia_ai_preview_supported_queue')) {
+      previews++;
+      return j([{id: 'aged-pub', action_type: 'RETRY_PUBS'}, {id: 'new-act', action_type: 'RETRY_ACTS'}]);
+    }
     if (url.pathname.endsWith('/rpc/atenia_ai_claim_supported_queue')) return j([
       { id: 'task1', work_item_id: 'item1', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3 },
       { id: 'task2', work_item_id: 'item2', action_type: 'RETRY_PUBS', attempts: 1, max_attempts: 3 },
@@ -57,6 +62,17 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     assert.equal(updates[0].url.searchParams.get('attempts'), 'eq.1');
     const payload = await response.json();
     assert.equal(payload.result.results[2].status, 'LEASE_REPLACED');
+    const dry = await handler(new Request('https://mock.invalid/functions/v1/atenia-ai-supervisor', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-service' },
+      body: JSON.stringify({ mode: 'PROCESS_QUEUE', dry_run: true }),
+    }));
+    assert.equal(dry.status, 200);
+    assert.equal(previews, 1);
+    assert.equal(invocations.length, 3);
+    assert.equal(updates.length, 3);
+    const dryPayload = await dry.json();
+    assert.deepEqual(dryPayload.result.results.map((r: any) => r.id), ['aged-pub', 'new-act']);
+    assert.equal(dryPayload.result.claimed, 0);
   } finally {
     (Deno as any).serve = oldServe;
     globalThis.fetch = oldFetch;
