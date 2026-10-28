@@ -3324,6 +3324,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             persistLedger.outcomes.pop();
             persistLedger.outcomes.push({ bucket: 'SKIPPED_DUPLICATE', fingerprint: structuralTwinFp, reason: 'structural twin of stored act' });
             counts.error_count = 0;
+            counts.errors = [];
             counts.outcomes = [{ bucket: 'SKIPPED_DUPLICATE', fingerprint: structuralTwinFp }];
           }
         }
