@@ -766,9 +766,8 @@ async function runCorrectiveSyncs(
     if (Date.now() % 60000 > 48000) break; // crude guard within minute
 
     try {
-      const { data: syncResult } = await supabase.functions.invoke("sync-by-work-item", {
-        body: { work_item_id: item.id, _scheduled: true },
-      });
+      const { data: syncResult } = await invokeInternal("sync-by-work-item",
+        { work_item_id: item.id, _scheduled: true }, "atenia-ai-autopilot");
 
       if (syncResult?.ok === true) {
         actions.push({
