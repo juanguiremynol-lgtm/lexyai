@@ -3544,7 +3544,21 @@ Deno.serve(withSyncTimeline(async (req) => {
     const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
 
     const persistenceFailed = !persistenceIsComplete(persistLedger);
-    if (persistenceFailed) result.code = 'PERSISTENCE_FAILED';
+    if (persistenceFailed) {
+      result.code = 'PERSISTENCE_FAILED';
+      // Sanitized trace: counts and non-persisted buckets only (no payloads).
+      (result as any).persistence_summary = {
+        parsed: persistLedger.parsed, inserted: persistLedger.inserted, updated: persistLedger.updated,
+        skipped_duplicate: persistLedger.skippedDuplicate, skipped_structural: persistLedger.skippedStructural,
+        rejected: persistLedger.rejected, errored: persistLedger.errored,
+        unaccounted: persistLedger.parsed - persistLedger.inserted - persistLedger.updated - persistLedger.skippedDuplicate
+          - persistLedger.skippedStructural - persistLedger.rejected - persistLedger.errored,
+        outcomes: persistLedger.outcomes
+          .filter((o) => !['INSERTED', 'UPDATED', 'SKIPPED_DUPLICATE'].includes(String(o.bucket ?? '').toUpperCase()))
+          .slice(0, 12)
+          .map((o) => ({ bucket: o.bucket ?? null, fingerprint: o.fingerprint ?? null, reason: String(o.reason ?? '').slice(0, 240) })),
+      };
+    }
     // A CPNU snapshot flagged stale by the freshness gate whose live re-read was
     // deferred is NOT evidence of an up-to-date expediente: it must never be
     // stamped as SUCCESS nor advance last_synced_at (silent-failure guard).

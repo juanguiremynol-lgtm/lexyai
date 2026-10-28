@@ -216,6 +216,7 @@ export function withSyncTimeline(
         scheduled_requested: req.headers.get("x-invoker-function") === "process-retry-queue",
         auth_mechanism: req.headers.has("x-cron-key") ? "cron_header" : req.headers.has("authorization") ? "bearer" : "none",
         warnings: parsed?.warnings ?? undefined,
+        persistence_summary: parsed?.persistence_summary ?? undefined,
       },
     }).catch(() => { /* swallowed */ });
 
