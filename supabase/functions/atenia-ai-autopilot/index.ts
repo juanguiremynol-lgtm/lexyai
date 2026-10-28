@@ -8,10 +8,10 @@
  * This function NEVER masks failures: scraping_initiated is always "pending", never "success".
  */
 
+import { invokeInternal } from "../_shared/internalInvoke.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCaller, isPrivileged, canAccessOrg } from "../_shared/callerIdentity.ts";
 import {
-import { invokeInternal } from "../_shared/internalInvoke.ts";
   isTransientError,
   shouldDemonitor,
   buildAuditEvidence,
