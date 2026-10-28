@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { authorizeSupervisor, remediationHeaders, remediationVerdict } from './ateniaRemediationSecurity.ts';
+import { authorizeSupervisor, ineligibleRefusal, remediationHeaders, remediationVerdict } from './ateniaRemediationSecurity.ts';
 
 Deno.test('supervisor requires service, cron key or verified platform administrator', async () => {
   const oldService = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -48,4 +48,7 @@ Deno.test('only explicit complete results are DONE, with nonapplicable kept sepa
   }
   assert.equal(remediationVerdict({ ok: true, status: 'not_applicable' }).outcome, 'SKIPPED');
   assert.equal(remediationVerdict({ ok: true, status: 'skipped_paused' }).outcome, 'SKIPPED');
+  assert.equal(ineligibleRefusal(409, { code: 'MONITORING_DISABLED' }), 'MONITORING_DISABLED');
+  assert.equal(ineligibleRefusal(401, { code: 'MONITORING_DISABLED' }), null);
+  assert.equal(ineligibleRefusal(409, { code: 'PROVIDER_ERROR' }), null);
 });

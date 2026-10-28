@@ -21,7 +21,7 @@
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
-import { authorizeSupervisor, remediationHeaders, remediationVerdict } from "../_shared/ateniaRemediationSecurity.ts";
+import { authorizeSupervisor, ineligibleRefusal, remediationHeaders, remediationVerdict } from "../_shared/ateniaRemediationSecurity.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   bogotaDayBoundsUtc,
@@ -1250,8 +1250,17 @@ async function runQueueWorker(
         throw new Error(`Unknown action_type: ${job.action_type}`);
       }
 
-      if (invokeResult?.error) throw invokeResult.error;
-      const verdict = remediationVerdict(invokeResult.data);
+      let ineligible: string | null = null;
+      if (invokeResult?.error) {
+        const ctx = (invokeResult.error as { context?: unknown }).context;
+        if (ctx instanceof Response && ctx.status === 409) {
+          ineligible = ineligibleRefusal(ctx.status, await ctx.clone().json().catch(() => null));
+        }
+        if (!ineligible) throw invokeResult.error;
+      }
+      const verdict = ineligible
+        ? { outcome: "SKIPPED" as const, code: ineligible }
+        : remediationVerdict(invokeResult.data);
       if (verdict.outcome === "RETRY") throw new Error(verdict.code);
 
       const { data: finished, error: finishError } = await supabase

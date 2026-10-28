@@ -23,6 +23,14 @@ export function remediationHeaders(serviceKey: string, jobId: string): Record<st
     'x-invoker-function': 'atenia-ai-supervisor', 'x-retry-task-id': jobId };
 }
 
+/** Definitive local eligibility refusals need no repeated provider calls. */
+export function ineligibleRefusal(status: number, data: unknown): string | null {
+  if (status !== 409 || !data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const code = (data as Record<string, unknown>).code;
+  return typeof code === 'string' && ['MONITORING_DISABLED', 'MONITORING_PAUSED', 'WORK_ITEM_DELETED'].includes(code)
+    ? code : null;
+}
+
 export function remediationVerdict(data: unknown): { outcome: 'DONE' | 'SKIPPED' | 'RETRY'; code: string } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { outcome: 'RETRY', code: 'INVALID_RESPONSE' };
   const r = data as Record<string, unknown>;
