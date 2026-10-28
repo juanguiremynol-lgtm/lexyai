@@ -202,6 +202,8 @@ type FetchResultV3 = {
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
   historicoRead?: HistoricoRead;
+  /** Live GET /runs/{id} read of THIS pass (follow-up of an admitted run). */
+  runStatusRead?: { run_id: string; http_status: number | null; body: unknown; polled_at: string; error: string | null };
 
   ok: boolean;
   publicaciones: PublicacionV3[];
@@ -1209,6 +1211,51 @@ export type HistoricoRead = {
   parse_error: string | null;
   transport_error: string | null;
 };
+
+/**
+ * Follow-up of an already admitted durable run: one bounded GET /runs/{id}
+ * (plus the certified /historico read when it reports completion). Never
+ * POSTs a new extraction — the stored run is the only work being tracked.
+ */
+export async function followAdmittedRun(
+  radicado: string, baseUrl: string, apiKey: string, runId: string,
+): Promise<FetchResultV3> {
+  const startTime = Date.now();
+  const headers = { 'x-api-key': apiKey, 'Content-Type': 'application/json' };
+  const polledAt = new Date().toISOString();
+  const status = await fetchWithTimeoutAndRetry(`${baseUrl}/runs/${runId}`, headers, 5000, 1);
+  let body: unknown = null;
+  if (status.ok && status.response) { try { body = await status.response.json(); } catch { body = null; } }
+  const runStatusRead = { run_id: runId, http_status: status.httpStatus ?? null, body, polled_at: polledAt,
+    error: status.ok ? (body === null ? 'PP_RUN_STATUS_INVALID_JSON' : null) : (status.error ?? 'unavailable') };
+  const base = { publicaciones: [] as PublicacionV3[], latencyMs: 0, found: false, runStatusRead };
+  const pending = (reason: string): FetchResultV3 => ({ ...base, ok: true, error: reason, latencyMs: Date.now() - startTime,
+    httpStatus: status.httpStatus ?? undefined, resultCode: 'NO_DATA', readIncomplete: true });
+  const failed = (reason: string): FetchResultV3 => ({ ...base, ok: false, error: reason, latencyMs: Date.now() - startTime,
+    httpStatus: status.httpStatus ?? undefined, resultCode: 'ERROR' });
+  if (!status.ok || !status.response) {
+    // 4xx (unknown run, unauthorized) is explicit failure; transport is pending.
+    if (status.httpStatus && status.httpStatus >= 400 && status.httpStatus < 500) return failed(`PP_RUN_STATUS_HTTP ${status.httpStatus}`);
+    return pending(`PP_RUN_STATUS_PENDING: ${status.error ?? 'unavailable'}`);
+  }
+  if (body === null) return failed('PP_RUN_STATUS_INVALID_JSON');
+  const verdict = durableVerdict(status.httpStatus ?? 200, body, runId);
+  if (verdict.kind === 'error') return failed(verdict.reason);
+  if (verdict.kind === 'pending') return pending(verdict.reason);
+  const url = `${baseUrl}/historico/${radicado}`;
+  const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
+  if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
+  let historyData: unknown;
+  try { historyData = await history.response.json(); } catch { return pending('PP_HISTORY_INVALID_JSON'); }
+  if (!matchingCompletedHistory(runId, historyData, radicado) || !publicSnapshotCompleted(historyData))
+    return pending('PP_HISTORY_NOT_CERTIFIED_OR_RUN_MISMATCH');
+  const extracted = extractPublicacionesFromResponse(historyData, Date.now() - startTime);
+  const historicoRead: HistoricoRead = { endpoint: 'GET /historico/{radicado}', url, radicado,
+    http_status: history.httpStatus ?? 200, latency_ms: Date.now() - startTime, body: historyData,
+    body_bytes: JSON.stringify(historyData).length, payload_count: extracted.publicaciones.length,
+    parse_error: null, transport_error: null };
+  return { ...extracted, durableCompleted: true, historicoRead, runStatusRead };
+}
 
 export async function fetchPublicaciones(
   radicado: string,
