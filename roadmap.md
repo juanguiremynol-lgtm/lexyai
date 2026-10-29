@@ -1,5 +1,10 @@
 # Roadmap
 
+## Scoped Tiny optimization and automatic PP acceptance (2026-10-29)
+- [ ] Check equivalent action-list indexes, apply a bounded minimal migration, compare actual plans and timings.
+- [ ] Verify recent Lovable automatic PP follow-up claim/finish, run identity, poll counter, next date and active-run no-POST behavior; fix only demonstrated local defects.
+- [ ] Record applied changes and remaining external blockers without new extractions or compute resize.
+
 ## Production remediation continuation (2026-10-26)
 - [x] Correct explicit retry identity; real rejected401 and legitimate cron source success verified; historical headers remain unavailable.
 - [x] Deploy sync/remisiones/retry/watchdog; Esfinge/Nicholls source success and record preservation read back; Cárdenas replay remains unverified.
