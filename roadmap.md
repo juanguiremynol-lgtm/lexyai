@@ -1,5 +1,10 @@
 # Roadmap
 
+## Scoped Tiny optimization and automatic PP acceptance (2026-10-29)
+- [x] Check equivalent action-list indexes; apply 0092 with 500ms lock/5s statement bounds; verify valid index and before/after rows, buffers and times.
+- [x] Verify live cron99 run520985/response97 (8 finished pp_poll deferrals), run identity, counter, next due date and runtime follow_admitted_run/no new trigger; no blocking local defect demonstrated.
+- [x] Record changes and external worker/extraction limits in docs/monitor-followup-20261028.md; 8 focused regressions pass, Tiny unchanged, no extractions/redeployments.
+
 ## Production remediation continuation (2026-10-26)
 - [x] Correct explicit retry identity; real rejected401 and legitimate cron source success verified; historical headers remain unavailable.
 - [x] Deploy sync/remisiones/retry/watchdog; Esfinge/Nicholls source success and record preservation read back; Cárdenas replay remains unverified.
