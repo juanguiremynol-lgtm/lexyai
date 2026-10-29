@@ -51,3 +51,4 @@
 - A lost SAMAI Estados breaker seal (generation moved by a concurrent worker or expired probe) never discards the source answer obtained under a valid permit; only an unavailable permit defers — avoids fake PROVIDER_BREAKER_LEASE_LOST deferrals.
 - atenia_ai_claim_supported_queue interleaves action types (round-robin by aged priority) so provider-pending PUB retries cannot starve ACT retries.
 - Admitted PP runs are followed only by GET /runs via claim_sync_retry_pp_poll (follow-up-only cron, SQL-gated on due rows, plus slots in regular drains); a run not proven terminal is never re-POSTed, even past the 72h/96-poll budget (flagged for intervention) — keeps extraction slots for new work and never restarts live backend work.
+- The global action listing uses a created_at-leading B-tree; organization-leading indexes are not interchangeable for unfiltered chronological LIMIT queries — keeps bounded listing reads independent of organization filters.
