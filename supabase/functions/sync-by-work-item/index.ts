@@ -3970,7 +3970,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     const newDespacho = fetchResult.caseMetadata?.despacho;
     const previousDespacho = workItem.authority_name;
     
-    if (newDespacho && !previousDespacho) {
+    // Continuations only ingest the stored job result: no enrichment calls.
+    if (newDespacho && !previousDespacho && !isContinuation) {
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
