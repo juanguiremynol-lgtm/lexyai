@@ -267,6 +267,7 @@ Deno.serve(async (req) => {
                   allow_buscar: false, // No volver a disparar buscar
                   _scheduled: true,
                   _continuation: 'cpnu_job', // same admitted daily update, not a new one
+                  _cpnu_job_id: jobId, // identity of the bound durable job
                 }),
               }
             );
