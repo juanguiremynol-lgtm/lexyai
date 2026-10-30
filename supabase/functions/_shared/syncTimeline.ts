@@ -22,6 +22,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { canonicalizeProvider } from "./syncVocabulary.ts";
 import { syncResponseOk } from "./syncResponseVerdict.ts";
+import { dailyChannelStatus } from "./dailyUpdateGate.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -46,6 +47,14 @@ export interface SyncTimelineEvent {
 }
 
 /** Best-effort write. Never throws — failures are logged and swallowed. */
+async function finishDailyUpdate(runDate: string, workItemId: string, channel: string, token: string, status: string, errorCode: string | null) {
+  const url = Deno.env.get("SUPABASE_URL"); const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return;
+  const db = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  await db.rpc("finish_daily_update", { _run_date: runDate, _work_item_id: workItemId, _channel: channel,
+    _token: token, _status: status, _error_code: errorCode });
+}
+
 export async function recordSyncTimelineEvent(
   event: SyncTimelineEvent,
 ): Promise<void> {
@@ -225,8 +234,7 @@ export function withSyncTimeline(
     // only — a terminal status never re-admits the same Bogotá day).
     const du = parsed?.daily_update;
     if (du?.admitted === true && du.mode === "new" && du.token && du.run_date && du.channel) {
-      const { dailyChannelStatus } = await import("./dailyUpdateGate.ts");
-      await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
+            await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
         status === "success" || status === "empty" ? null : (errorCode ?? null)).catch(() => {});
     }
 
