@@ -29,6 +29,7 @@ import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableCo
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
+const PP_MIN_POLL_INTERVAL_S = 600; // never polls faster than cron99 already does
 /** Scalar top-level fields of a /runs body (≤200 chars each, ≤30 keys). */
 export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
@@ -398,14 +399,17 @@ const RESCRAPE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours per work_item
 async function checkRescrapeGate(
   supabase: any,
   workItemId: string,
-): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null; followupClosed?: boolean; pollCount?: number }> {
+): Promise<{ allow: boolean; lastTriggeredAt: string | null; hoursSince: number | null; backendRunId?: string | null; backendAdmittedAt?: string | null; followupClosed?: boolean; pollCount?: number; readFailed?: boolean }> {
   const key = `pub_rescrape:${workItemId}`;
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('cron_state')
       .select('value')
       .eq('key', key)
       .maybeSingle();
+    // Fail closed: an unreadable ledger may hide an open backend run, so it
+    // must never be read as "no run" (which would allow a new POST).
+    if (error) return { allow: false, lastTriggeredAt: null, hoursSince: null, readFailed: true };
     const lastIso = data?.value?.last_triggered_at as string | undefined;
     if (!lastIso) return { allow: true, lastTriggeredAt: null, hoursSince: null };
     const lastMs = Date.parse(lastIso);
@@ -422,7 +426,7 @@ async function checkRescrapeGate(
       pollCount: Number(data?.value?.poll_count ?? 0) || 0,
     };
   } catch (_e) {
-    return { allow: true, lastTriggeredAt: null, hoursSince: null };
+    return { allow: false, lastTriggeredAt: null, hoursSince: null, readFailed: true };
   }
 }
 
@@ -1909,6 +1913,23 @@ Deno.serve(withSyncTimeline(async (req) => {
     // continuation of an earlier update (kept across days), never a new one.
     // Everything else — /historico read, POST trigger, SAMAI Estados — needs
     // the single daily 'pubs' admission shared by every caller, force included.
+    if (gateStatus.readFailed && shouldFetchPP) {
+      const t = req.headers.get('X-Trace-Id') || crypto.randomUUID();
+      return jsonResponse(dailyDuplicateBody(work_item_id, t, { admitted: false, reason: 'DAILY_ADMISSION_UNAVAILABLE' }), 200);
+    }
+    if (activeRunId) {
+      // One GET /runs per run per interval for every caller (cron99, manual,
+      // supervisor). Within next_poll_at the stored state is reused.
+      const { data: claim, error: claimErr } = await supabase.rpc('claim_pp_followup_poll',
+        { _work_item_id: work_item_id, _run_id: activeRunId, _min_interval_seconds: PP_MIN_POLL_INTERVAL_S });
+      if (claimErr || !claim?.claimed) {
+        const t = req.headers.get('X-Trace-Id') || crypto.randomUUID();
+        const body = dailyDuplicateBody(work_item_id, t, { admitted: false,
+          reason: claimErr ? 'DAILY_ADMISSION_UNAVAILABLE' : 'FOLLOWUP_POLL_NOT_DUE',
+          existing: { backend_run_id: activeRunId, ...(claim ?? {}) }, next_eligible_at: claim?.next_poll_at ?? undefined });
+        return jsonResponse({ ...body, rescrape_decision: rescrapeDecision }, 200);
+      }
+    }
     if (!activeRunId) {
       const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
@@ -2090,7 +2111,12 @@ Deno.serve(withSyncTimeline(async (req) => {
         result.warnings.push('SAMAI Estados no está habilitado para este asunto.');
       }
     }
-    if (isCpaca || (isTutelaUnion && tutelaSamaiEnabled)) {
+    // A GET /runs follow-up is not an admitted update: it never opens SAMAI.
+    if (activeRunId && isTutelaUnion && tutelaSamaiEnabled) {
+      fetchResult.readIncomplete = true;
+      result.warnings.push('Seguimiento de corrida: SAMAI Estados se consulta en la próxima actualización diaria.');
+    }
+    if (!activeRunId && (isCpaca || (isTutelaUnion && tutelaSamaiEnabled))) {
       if (isTutelaUnion) {
         console.log(
           `[sync-pub][samai_estados] TUTELA union: querying SAMAI_ESTADOS alongside PP for wi=${work_item_id} ` +

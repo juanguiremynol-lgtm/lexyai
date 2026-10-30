@@ -25923,10 +25923,31 @@ export type Database = {
       }
     }
     Functions: {
+      _admit_daily_update_at: {
+        Args: {
+          _channel: string
+          _d: string
+          _invoker: string
+          _retry_task_id: string
+          _trace_id: string
+          _work_item_id: string
+        }
+        Returns: Json
+      }
       _assert_owner_direct_write: {
         Args: { p_allow_trusted: boolean; p_owner: string }
         Returns: undefined
       }
+      _daily_gate_probe_admit: {
+        Args: {
+          _channel: string
+          _d: string
+          _hold_ms?: number
+          _work_item_id: string
+        }
+        Returns: Json
+      }
+      _daily_gate_probe_cleanup: { Args: never; Returns: number }
       _mcp_apply_stage: {
         Args: {
           p_reason: string
@@ -26148,6 +26169,10 @@ export type Database = {
       admin_archive_record: {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
+      }
+      admit_cpnu_continuation: {
+        Args: { _job_id: string; _trace_id?: string; _work_item_id: string }
+        Returns: Json
       }
       admit_daily_update: {
         Args: {
@@ -26570,6 +26595,14 @@ export type Database = {
           run_id: string
           selected_count: number
         }[]
+      }
+      claim_pp_followup_poll: {
+        Args: {
+          _min_interval_seconds?: number
+          _run_id: string
+          _work_item_id: string
+        }
+        Returns: Json
       }
       claim_public_monitor_items: {
         Args: { _channel: string; _limit?: number; _run_id: string }

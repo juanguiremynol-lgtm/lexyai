@@ -32,6 +32,22 @@ export async function admitDailyUpdate(db: any, workItemId: string, channel: Dai
   return data as DailyAdmission;
 }
 
+/** Ingestion of an existing durable CPNU job result. Admitted only when the
+ *  job is the matter's current IN_PROGRESS job AND bound to the acts admission
+ *  that started it (any age: identity, not date). Never opens a new update. */
+export async function admitCpnuContinuation(db: any, workItemId: string, jobId: unknown, traceId: string): Promise<DailyAdmission> {
+  if (typeof jobId !== 'string' || jobId.length === 0) return { admitted: false, reason: 'JOB_ID_REQUIRED' };
+  const { data, error } = await db.rpc('admit_cpnu_continuation', { _work_item_id: workItemId, _job_id: jobId, _trace_id: traceId });
+  if (error || !data) return { admitted: false, reason: 'DAILY_ADMISSION_UNAVAILABLE' };
+  return data as DailyAdmission;
+}
+
+/** Restrict a continuation to ingestion of the stored CPNU result: no /buscar,
+ *  no forced refresh, no SAMAI/external/fallback, no orchestrator. */
+export function continuationProviders(enabled: Set<string>): Set<string> {
+  return new Set(enabled.has('cpnu') ? ['cpnu'] : []);
+}
+
 /** Body returned instead of a new extraction. Not success, not a failure:
  *  callers must defer without consuming attempts. */
 export function dailyDuplicateBody(workItemId: string, traceId: string, a: DailyAdmission) {

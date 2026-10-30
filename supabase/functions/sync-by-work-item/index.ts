@@ -16,7 +16,7 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
-import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
+import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
@@ -1662,7 +1662,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     // retries, sweep/e2e, manual and force). Only a system continuation of an
     // already admitted CPNU job may proceed without opening a new update.
     const isContinuation = !!_scheduled && (payload as any)?._continuation === 'cpnu_job';
-    const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId, isContinuation);
+    if (isContinuation && (force_refresh === true || allow_buscar !== false)) {
+      return jsonResponse(dailyDuplicateBody(work_item_id, traceId, { admitted: false, reason: 'CONTINUATION_EXTRACTION_FORBIDDEN' }), 200);
+    }
+    const dailyAdmission = isContinuation
+      ? await admitCpnuContinuation(supabase, work_item_id, (payload as any)?._cpnu_job_id, traceId)
+      : await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId);
     if (!dailyAdmission.admitted) {
       console.log(`[sync-by-work-item] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
@@ -1680,13 +1685,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       .from('work_item_provider_enrollment').select('provider_key,enabled')
       .eq('work_item_id', work_item_id);
     if (enrollmentError) return errorResponse('ENROLLMENT_LOOKUP_FAILED', 'No fue posible comprobar las fuentes habilitadas', 503, traceId);
-    const enabledProviders = new Set<string>((enrollmentRows || [])
+    const enrolledProviders = new Set<string>((enrollmentRows || [])
       .filter((row: any) => row.enabled === true)
       .map((row: any) => String(row.provider_key).toLowerCase()));
+    // A continuation only ingests the stored CPNU job result: every other
+    // provider (SAMAI, external connectors, fallbacks) is disabled for it.
+    const enabledProviders = isContinuation ? continuationProviders(enrolledProviders) : enrolledProviders;
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
-    const useOrchestrator = await shouldUseOrchestrator(supabase, workItem.organization_id);
+    const useOrchestrator = isContinuation ? false : await shouldUseOrchestrator(supabase, workItem.organization_id);
     // Orchestrator finalizes its external_sync_runs row at fetch time; we reconcile
     // it with the real ingestion outcome once the persistence loop has finished.
     let orchestratorSyncRunId: string | null = null;
@@ -3962,7 +3970,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     const newDespacho = fetchResult.caseMetadata?.despacho;
     const previousDespacho = workItem.authority_name;
     
-    if (newDespacho && !previousDespacho) {
+    // Continuations only ingest the stored job result: no enrichment calls.
+    if (newDespacho && !previousDespacho && !isContinuation) {
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

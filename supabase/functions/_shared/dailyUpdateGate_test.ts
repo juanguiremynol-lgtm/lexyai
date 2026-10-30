@@ -41,3 +41,27 @@ Deno.test("only a newly admitted channel is sealed, once", () => {
   assertEquals(dailyChannelStatus("pending_upstream"), "PENDING_UPSTREAM");
   assertEquals(dailyChannelStatus("partial"), "PARTIAL");
 });
+
+// ── Job-bound CPNU continuation ──
+import { admitCpnuContinuation, continuationProviders } from "./dailyUpdateGate.ts";
+Deno.test("continuation without job id is refused without calling the database", async () => {
+  let called = 0;
+  const db = { rpc: () => { called++; return Promise.resolve({ data: null, error: null }); } };
+  for (const j of [undefined, "", 42]) {
+    const r = await admitCpnuContinuation(db, "wi", j, "t");
+    assertEquals(r.admitted, false); assertEquals(r.reason, "JOB_ID_REQUIRED");
+  }
+  assertEquals(called, 0);
+});
+Deno.test("continuation passes job identity to the durable check and fails closed", async () => {
+  let args: any = null;
+  const ok = { rpc: (_n: string, a: any) => { args = a; return Promise.resolve({ data: { admitted: false, reason: "JOB_NOT_CURRENT" }, error: null }); } };
+  assertEquals((await admitCpnuContinuation(ok, "wi", "job-x", "t")).reason, "JOB_NOT_CURRENT");
+  assertEquals(args._job_id, "job-x");
+  const down = { rpc: () => Promise.resolve({ data: null, error: { message: "x" } }) };
+  assertEquals((await admitCpnuContinuation(down, "wi", "job-x", "t")).reason, "DAILY_ADMISSION_UNAVAILABLE");
+});
+Deno.test("continuation providers are CPNU only (no SAMAI, external or fallback)", () => {
+  assertEquals([...continuationProviders(new Set(["cpnu", "samai", "ext_x"]))], ["cpnu"]);
+  assertEquals([...continuationProviders(new Set(["samai"]))], []);
+});

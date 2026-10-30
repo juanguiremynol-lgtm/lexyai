@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${serviceKey}`,
         apikey: serviceKey,
+        "x-invoker-function": "admin-force-sync-pub",
       },
       body: JSON.stringify({ work_item_id: workItemId, _scheduled: true }),
     },

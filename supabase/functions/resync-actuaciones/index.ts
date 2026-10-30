@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
       body: { work_item_id, force_refresh: true },
       headers: {
         Authorization: authHeader,
+        'x-invoker-function': 'resync-actuaciones',
         'X-Trace-Id': `resync-${work_item_id.slice(0, 8)}-${Date.now()}`,
       },
     });
