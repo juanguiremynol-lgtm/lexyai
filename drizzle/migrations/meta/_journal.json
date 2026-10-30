@@ -659,6 +659,13 @@
       "when": 1793319139526,
       "tag": "0093_daily_update_admission",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793319291641,
+      "tag": "0094_daily_update_admission_fix",
+      "breakpoints": true
     }
   ]
 }
