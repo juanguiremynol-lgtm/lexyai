@@ -1910,10 +1910,11 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Everything else — /historico read, POST trigger, SAMAI Estados — needs
     // the single daily 'pubs' admission shared by every caller, force included.
     if (!activeRunId) {
-      const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, traceId);
+      const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
+      const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
       if (!dailyAdmission.admitted) {
         console.log(`[sync-pub] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
-        return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
+        return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, dailyAdmission), 200);
       }
       rememberAdmission(req, dailyAdmission);
     }
