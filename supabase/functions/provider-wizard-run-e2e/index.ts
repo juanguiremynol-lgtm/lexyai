@@ -1,3 +1,4 @@
+import { admitDailyUpdate } from "../_shared/dailyUpdateGate.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -82,10 +83,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Step 2: Sync
+    // Step 2: Sync — an external-provider extraction is a logical update of
+    // this matter and shares the single daily 'acts' admission.
     const syncStart = Date.now();
     let syncResult: any = null;
-    try {
+    const daily = await admitDailyUpdate(supabase, work_item_id, 'acts', req, `wizard-${crypto.randomUUID()}`);
+    if (!daily.admitted) {
+      steps.push({ step: "SYNC", status: "OK", detail: { deduplicated: true, code: daily.reason, next_eligible_at: daily.next_eligible_at ?? null }, duration_ms: 0 });
+    } else try {
       const syncResp = await fetch(`${supabaseUrl}/functions/v1/provider-sync-external-provider`, {
         method: "POST",
         headers: {
