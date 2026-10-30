@@ -25938,6 +25938,16 @@ export type Database = {
         Args: { p_allow_trusted: boolean; p_owner: string }
         Returns: undefined
       }
+      _daily_gate_probe_admit: {
+        Args: {
+          _channel: string
+          _d: string
+          _hold_ms?: number
+          _work_item_id: string
+        }
+        Returns: Json
+      }
+      _daily_gate_probe_cleanup: { Args: never; Returns: number }
       _mcp_apply_stage: {
         Args: {
           p_reason: string
