@@ -398,9 +398,9 @@ async function executeServerE2E(
   // Step 2: Sync acts
   const s2 = Date.now();
   try {
-    const { error: syncErr } = await invokeInternal("sync-by-work-item",
+    const { data: syncData, error: syncErr } = await invokeInternal("sync-by-work-item",
       { work_item_id: workItemId, trigger: "E2E_TEST", _scheduled: true }, "atenia-e2e-scheduled");
-    steps.push({ name: "SYNC_ACTS", ok: !syncErr, latency_ms: Date.now() - s2, error: syncErr?.message });
+    steps.push({ name: "SYNC_ACTS", ok: !syncErr, latency_ms: Date.now() - s2, error: syncErr?.message , detail: (syncData as any)?.status === "DAILY_LIMIT" ? { deduplicated: true, code: (syncData as any)?.code } : undefined });
   } catch (err) {
     steps.push({ name: "SYNC_ACTS", ok: false, latency_ms: Date.now() - s2, error: (err as Error).message });
   }
@@ -408,9 +408,9 @@ async function executeServerE2E(
   // Step 3: Sync publicaciones
   const s3 = Date.now();
   try {
-    const { error: pubErr } = await invokeInternal("sync-publicaciones-by-work-item",
+    const { data: pubData, error: pubErr } = await invokeInternal("sync-publicaciones-by-work-item",
       { work_item_id: workItemId, trigger: "E2E_TEST", _scheduled: true }, "atenia-e2e-scheduled");
-    steps.push({ name: "SYNC_PUBS", ok: !pubErr, latency_ms: Date.now() - s3, error: pubErr?.message });
+    steps.push({ name: "SYNC_PUBS", ok: !pubErr, latency_ms: Date.now() - s3, error: pubErr?.message , detail: (pubData as any)?.status === "DAILY_LIMIT" ? { deduplicated: true, code: (pubData as any)?.code } : undefined });
   } catch (err) {
     steps.push({ name: "SYNC_PUBS", ok: false, latency_ms: Date.now() - s3, error: (err as Error).message });
   }
