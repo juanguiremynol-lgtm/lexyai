@@ -673,6 +673,13 @@
       "when": 1793319407271,
       "tag": "0095_daily_update_continuation_any_admitted",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793319882177,
+      "tag": "0096_daily_gate_job_bound_continuation",
+      "breakpoints": true
     }
   ]
 }
