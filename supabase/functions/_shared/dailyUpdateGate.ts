@@ -61,3 +61,9 @@ export function dailyChannelStatus(timelineStatus: string): string {
     default: return 'FAILED';
   }
 }
+
+/** Admission held per request so the timeline wrapper can seal it without
+ *  echoing the fencing token in response bodies. */
+const admissions = new WeakMap<Request, DailyAdmission>();
+export function rememberAdmission(req: Request, a: DailyAdmission) { if (a.admitted && a.mode === 'new') admissions.set(req, a); }
+export function takeAdmission(req: Request): DailyAdmission | undefined { const a = admissions.get(req); admissions.delete(req); return a; }

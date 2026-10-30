@@ -22,7 +22,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { canonicalizeProvider } from "./syncVocabulary.ts";
 import { syncResponseOk } from "./syncResponseVerdict.ts";
-import { dailyChannelStatus } from "./dailyUpdateGate.ts";
+import { dailyChannelStatus, takeAdmission } from "./dailyUpdateGate.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -232,8 +232,8 @@ export function withSyncTimeline(
 
     // Seal the daily channel admitted by this request (token-fenced; evidence
     // only — a terminal status never re-admits the same Bogotá day).
-    const du = parsed?.daily_update;
-    if (du?.admitted === true && du.mode === "new" && du.token && du.run_date && du.channel) {
+    const du = takeAdmission(req);
+    if (du?.token && du.run_date && du.channel) {
             await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
         status === "success" || status === "empty" ? null : (errorCode ?? null)).catch(() => {});
     }
