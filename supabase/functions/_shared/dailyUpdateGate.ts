@@ -65,7 +65,7 @@ export function dailyDuplicateBody(workItemId: string, traceId: string, a: Daily
 /** Seconds until the next Bogotá day, used to defer queued work. */
 export function secondsUntil(iso: string | null | undefined, fallback = 3600): number {
   const t = Date.parse(iso ?? '');
-  return Number.isFinite(t) ? Math.max(60, Math.ceil((t - Date.now()) / 1000) + 60) : fallback;
+  return Number.isFinite(t) ? Math.min(86400, Math.max(60, Math.ceil((t - Date.now()) / 1000) + 60)) : fallback;
 }
 
 /** Map a timeline status to the channel's terminal evidence. */
