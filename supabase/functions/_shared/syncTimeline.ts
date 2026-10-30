@@ -34,7 +34,7 @@ export interface SyncTimelineEvent {
   function_name?: string | null;
   adapter_version?: string | null;
   deploy_sha?: string | null;
-  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected";
+  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected" | "deduplicated";
   error_code?: string | null;
   error_message?: string | null;
   records_inserted?: number;
@@ -174,6 +174,7 @@ export function withSyncTimeline(
 
     let status: SyncTimelineEvent["status"];
     if (authRejected) status = "rejected";
+    else if (strOr(parsed?.status) === "DAILY_LIMIT") status = "deduplicated";
     else if (pendingUpstream) status = "pending_upstream";
     else if (parsed?.partial === true) status = "partial";
     else if (!ok) status = "error";
@@ -219,6 +220,15 @@ export function withSyncTimeline(
         persistence_summary: parsed?.persistence_summary ?? undefined,
       },
     }).catch(() => { /* swallowed */ });
+
+    // Seal the daily channel admitted by this request (token-fenced; evidence
+    // only — a terminal status never re-admits the same Bogotá day).
+    const du = parsed?.daily_update;
+    if (du?.admitted === true && du.mode === "new" && du.token && du.run_date && du.channel) {
+      const { dailyChannelStatus } = await import("./dailyUpdateGate.ts");
+      await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
+        status === "success" || status === "empty" ? null : (errorCode ?? null)).catch(() => {});
+    }
 
     return response;
   };
