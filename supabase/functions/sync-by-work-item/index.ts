@@ -16,6 +16,7 @@
  * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
+import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
@@ -1655,6 +1656,18 @@ Deno.serve(withSyncTimeline(async (req) => {
 
       console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
     }
+
+    // ============= DAILY UPDATE ADMISSION (one per owner+matter per Bogotá day) =============
+    // Shared durable barrier for every caller (cron, supervisor, watchdog,
+    // retries, sweep/e2e, manual and force). Only a system continuation of an
+    // already admitted CPNU job may proceed without opening a new update.
+    const isContinuation = !!_scheduled && (payload as any)?._continuation === 'cpnu_job';
+    const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId, isContinuation);
+    if (!dailyAdmission.admitted) {
+      console.log(`[sync-by-work-item] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
+      return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
+    }
+    rememberAdmission(req, dailyAdmission);
 
     // Record the attempt only after authorizing access to this matter.
     const { error: attemptStampError } = await supabase.from('work_items')

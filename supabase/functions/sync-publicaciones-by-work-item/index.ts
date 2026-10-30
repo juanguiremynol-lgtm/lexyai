@@ -22,6 +22,7 @@
  * Output: { ok, inserted_count, skipped_count, newest_publication_date, warnings, errors }
  */
 
+import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
 import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableContract.ts";
@@ -1903,6 +1904,20 @@ Deno.serve(withSyncTimeline(async (req) => {
     const followupExpired = !!activeRunId && (!Number.isFinite(admittedMs) || Date.now() - admittedMs >= PP_FOLLOWUP_MAX_MS ||
       (gateStatus.pollCount ?? 0) >= PP_MAX_POLLS_PER_RUN);
     if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
+    // ============= DAILY UPDATE ADMISSION (one per owner+matter per Bogotá day) =============
+    // Bounded GET /runs follow-up of an already admitted backend run is the
+    // continuation of an earlier update (kept across days), never a new one.
+    // Everything else — /historico read, POST trigger, SAMAI Estados — needs
+    // the single daily 'pubs' admission shared by every caller, force included.
+    if (!activeRunId) {
+      const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
+      const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
+      if (!dailyAdmission.admitted) {
+        console.log(`[sync-pub] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
+        return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, dailyAdmission), 200);
+      }
+      rememberAdmission(req, dailyAdmission);
+    }
     console.log(
       `[sync-pub][rescrape-gate] wi=${work_item_id} allow=${triggerAllowed} (gate=${gateStatus.allow}, read_only_cooldown=${readOnlyDueToCooldown}) ` +
         `last=${gateStatus.lastTriggeredAt ?? 'never'} hours_since=${gateStatus.hoursSince ?? 'n/a'}`,

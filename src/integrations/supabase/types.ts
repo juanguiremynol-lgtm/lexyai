@@ -6206,6 +6206,81 @@ export type Database = {
           },
         ]
       }
+      daily_update_cycles: {
+        Row: {
+          channels: Json
+          continuations: number
+          created_at: string
+          duplicate_requests: number
+          last_duplicate: Json | null
+          organization_id: string | null
+          owner_id: string
+          run_date: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          channels?: Json
+          continuations?: number
+          created_at?: string
+          duplicate_requests?: number
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id: string
+          run_date: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          channels?: Json
+          continuations?: number
+          created_at?: string
+          duplicate_requests?: number
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id?: string
+          run_date?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_update_cycles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "daily_update_cycles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "daily_update_cycles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_update_cycles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_update_cycles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_welcome_log: {
         Row: {
           activity_count: number | null
@@ -26074,6 +26149,17 @@ export type Database = {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
       }
+      admit_daily_update: {
+        Args: {
+          _channel: string
+          _continuation?: boolean
+          _invoker?: string
+          _retry_task_id?: string
+          _trace_id?: string
+          _work_item_id: string
+        }
+        Returns: Json
+      }
       age_out_pending_review_deadlines: { Args: never; Returns: number }
       alert_breaker_bypass_enabled: { Args: never; Returns: boolean }
       alert_family: {
@@ -26306,6 +26392,7 @@ export type Database = {
           unmapped: number
         }[]
       }
+      bogota_next_midnight: { Args: { _d: string }; Returns: string }
       bridge_gap_summary: {
         Args: { _min_hours?: number }
         Returns: {
@@ -26965,6 +27052,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      finish_daily_update: {
+        Args: {
+          _channel: string
+          _error_code?: string
+          _run_date: string
+          _status: string
+          _token: string
+          _work_item_id: string
+        }
+        Returns: boolean
+      }
       finish_estado_attachment_download: {
         Args: {
           p_attempt: number
@@ -27527,6 +27625,10 @@ export type Database = {
         Returns: string
       }
       party_name_match: { Args: { a: string; b: string }; Returns: number }
+      peek_daily_update: {
+        Args: { _channel: string; _work_item_id: string }
+        Returns: Json
+      }
       peek_samai_estados_breaker: {
         Args: never
         Returns: {

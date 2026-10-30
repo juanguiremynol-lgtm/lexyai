@@ -1,4 +1,5 @@
 /** Bounded retry drain. Cadence remains UTC 05–13 hourly plus 18:00. */
+import { secondsUntil } from "../_shared/dailyUpdateGate.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
@@ -82,6 +83,15 @@ Deno.serve(async req => {
               }
             }
           }
+          // One logical update per matter per Bogotá day: check before invoking
+          // (pp_poll follow-ups of an admitted run are continuations, exempt).
+          if (outcome === "RETRY" && initial !== "pp_poll") {
+            const { data: peek, error: peekError } = await db.rpc("peek_daily_update", {
+              _work_item_id: task.work_item_id, _channel: kind === "ACT_SCRAPE_RETRY" ? "acts" : "pubs" });
+            if (!peekError && peek?.started) {
+              outcome = "DEFERRED"; code = "DAILY_UPDATE_ALREADY_STARTED"; delaySeconds = secondsUntil(peek.next_eligible_at);
+            }
+          }
           if (outcome === "INELIGIBLE" || outcome === "DEFERRED") {
             result = { trace_id: traceId, error_code: code };
           } else {
@@ -99,6 +109,11 @@ Deno.serve(async req => {
           const ppDeferred = kind === "PUB_RETRY" ? ppDurableDeferral(payload) : null;
           if (ppDeferred?.terminal) { outcome = "EXHAUSTED"; code = ppDeferred.code; }
           else if (ppDeferred) { outcome = "DEFERRED"; code = ppDeferred.code; delaySeconds = ppDeferred.delaySeconds; }
+          // Race with another caller: the function's atomic barrier refused it.
+          if (payload?.status === "DAILY_LIMIT") {
+            outcome = "DEFERRED"; code = String(payload.code ?? "DAILY_UPDATE_ALREADY_STARTED");
+            delaySeconds = secondsUntil(payload?.daily_update?.next_eligible_at);
+          }
           result = { trace_id: traceId, http_status: response.status, response: payload };
           }
         } catch {

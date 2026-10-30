@@ -1,4 +1,4 @@
 - Public monitor queue RPCs seed today's snapshot before recovering older work; fenced lease tokens and three attempts own completion — HTTP acceptance is not source success.
 - Public snapshot freshness uses the source observation date in Bogotá; attachment incompleteness is independent of query completion — retained rows never imply a fresh read.
-- Daily source attempts own three fenced, leased attempts per Bogotá day/work item/source; cached success is reused and dispatch acknowledgement never seals ingestion. Ledger run IDs fence late updates.
+- Every new extraction passes public.admit_daily_update (dailyUpdateGate.ts): one logical update per owner+work item per Bogotá day, each channel (acts/pubs) admitted once, no manual/force bypass; only GET /runs follow-ups and cpnu-job continuations skip it, and dedup defers queues without consuming attempts — caps consumption regardless of caller.
 - Document history deduplication canonicalizes each observation once per union and retains every distinct version; this avoids quadratic serialization without changing evidence.

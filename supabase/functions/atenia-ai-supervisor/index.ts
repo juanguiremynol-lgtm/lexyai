@@ -1189,6 +1189,18 @@ async function remediate(
 
 // ─── V2: Queue Worker ────────────────────────────────────────────────
 
+/** Return a claimed job to PENDING until the next Bogotá day, restoring the
+ *  attempt the claim consumed: a daily deduplication is not a failed query. */
+async function deferDailyDuplicate(supabase: SupabaseAdmin, job: any, nextEligibleAt: string | null | undefined) {
+  const runAfter = Number.isFinite(Date.parse(nextEligibleAt ?? "")) ? new Date(Date.parse(nextEligibleAt!) + 60_000).toISOString()
+    : new Date(Date.now() + 3600_000).toISOString();
+  const { data, error } = await supabase.from("atenia_ai_remediation_queue")
+    .update({ status: "PENDING", run_after: runAfter, attempts: Math.max(0, (job.attempts ?? 1) - 1),
+      last_error: "DAILY_UPDATE_ALREADY_STARTED", updated_at: new Date().toISOString() })
+    .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts).select("id").maybeSingle();
+  return { id: job.id, status: error ? "UPDATE_FAILED" : data ? "DEFERRED_DAILY" : "LEASE_REPLACED", code: "DAILY_UPDATE_ALREADY_STARTED", run_after: runAfter };
+}
+
 async function runQueueWorker(
   supabase: SupabaseAdmin,
   dryRun: boolean,
@@ -1213,6 +1225,19 @@ async function runQueueWorker(
     try {
       let invokeResult: { data?: unknown; error?: unknown } = {};
       const headers = remediationHeaders(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", String(job.id));
+
+      // One logical update per matter per Bogotá day: defer (without
+      // consuming the claimed attempt) instead of invoking a duplicate.
+      const dailyChannel = job.action_type === "RETRY_ACTS" ? "acts"
+        : (job.action_type === "RETRY_PUBS" || job.action_type === "RETRY_PUBS_HEAVY") ? "pubs" : null;
+      if (dailyChannel && job.work_item_id) {
+        const { data: peek, error: peekError } = await supabase.rpc("peek_daily_update", {
+          _work_item_id: job.work_item_id, _channel: dailyChannel });
+        if (!peekError && peek?.started) {
+          results.push(await deferDailyDuplicate(supabase, job, peek.next_eligible_at));
+          continue;
+        }
+      }
 
       if (job.action_type === "RETRY_ACTS") {
         invokeResult = await supabase.functions.invoke("sync-by-work-item", {
@@ -1254,6 +1279,11 @@ async function runQueueWorker(
           ineligible = ineligibleRefusal(ctx.status, await ctx.clone().json().catch(() => null));
         }
         if (!ineligible) throw invokeResult.error;
+      }
+      const dailyLimited = (invokeResult.data as any)?.status === "DAILY_LIMIT";
+      if (dailyLimited) {
+        results.push(await deferDailyDuplicate(supabase, job, (invokeResult.data as any)?.daily_update?.next_eligible_at));
+        continue;
       }
       const verdict = ineligible
         ? { outcome: "SKIPPED" as const, code: ineligible }

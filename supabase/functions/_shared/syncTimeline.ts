@@ -22,6 +22,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { canonicalizeProvider } from "./syncVocabulary.ts";
 import { syncResponseOk } from "./syncResponseVerdict.ts";
+import { dailyChannelStatus, takeAdmission } from "./dailyUpdateGate.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -34,7 +35,7 @@ export interface SyncTimelineEvent {
   function_name?: string | null;
   adapter_version?: string | null;
   deploy_sha?: string | null;
-  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected";
+  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected" | "deduplicated";
   error_code?: string | null;
   error_message?: string | null;
   records_inserted?: number;
@@ -46,6 +47,14 @@ export interface SyncTimelineEvent {
 }
 
 /** Best-effort write. Never throws — failures are logged and swallowed. */
+async function finishDailyUpdate(runDate: string, workItemId: string, channel: string, token: string, status: string, errorCode: string | null) {
+  const url = Deno.env.get("SUPABASE_URL"); const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return;
+  const db = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  await db.rpc("finish_daily_update", { _run_date: runDate, _work_item_id: workItemId, _channel: channel,
+    _token: token, _status: status, _error_code: errorCode });
+}
+
 export async function recordSyncTimelineEvent(
   event: SyncTimelineEvent,
 ): Promise<void> {
@@ -174,6 +183,7 @@ export function withSyncTimeline(
 
     let status: SyncTimelineEvent["status"];
     if (authRejected) status = "rejected";
+    else if (strOr(parsed?.status) === "DAILY_LIMIT") status = "deduplicated";
     else if (pendingUpstream) status = "pending_upstream";
     else if (parsed?.partial === true) status = "partial";
     else if (!ok) status = "error";
@@ -219,6 +229,14 @@ export function withSyncTimeline(
         persistence_summary: parsed?.persistence_summary ?? undefined,
       },
     }).catch(() => { /* swallowed */ });
+
+    // Seal the daily channel admitted by this request (token-fenced; evidence
+    // only — a terminal status never re-admits the same Bogotá day).
+    const du = takeAdmission(req);
+    if (du?.token && du.run_date && du.channel) {
+            await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
+        status === "success" || status === "empty" ? null : (errorCode ?? null)).catch(() => {});
+    }
 
     return response;
   };

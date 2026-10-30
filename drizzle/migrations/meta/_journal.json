@@ -652,6 +652,27 @@
       "when": 1793317990026,
       "tag": "0092_atenia_actions_created_at_listing_index",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793319139526,
+      "tag": "0093_daily_update_admission",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793319291641,
+      "tag": "0094_daily_update_admission_fix",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793319407271,
+      "tag": "0095_daily_update_continuation_any_admitted",
+      "breakpoints": true
     }
   ]
 }
