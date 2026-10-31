@@ -1,5 +1,5 @@
 import { sameSamaiGrant } from './samaiGrantIdentity.ts';
-import { documentObservationAt, mergeDocumentObservation, hasArchiveReading } from './actDocumentObservation.ts';
+import { documentObservationAt, mergeDocumentObservation, hasArchiveReading, observationCanonicalizer } from './actDocumentObservation.ts';
 /**
  * actDocumentos.ts — ITERATION 60.
  *
@@ -136,6 +136,7 @@ function stable(value: unknown): string {
 export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDocumento[] | null {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return null;
   const out: ActDocumento[] = [];
+  const canonicalObservation = observationCanonicalizer();
   for (const value of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
     if (!value || typeof value !== 'object') continue;
     const doc = { ...value } as ActDocumento;
@@ -160,7 +161,7 @@ export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDoc
     merged.disponible = !!(merged.url || merged.gcs_url || merged.url_origen);
     if (merged.disponible && merged.estado === 'SIN_ENLACE_DEL_PROVEEDOR') merged.estado = doc.estado === 'SIN_ENLACE_DEL_PROVEEDOR' ? null : doc.estado;
     if (sameSamaiGrant(old,doc) === true) merged.token_aliases = [...new Set([...(Array.isArray(old.token_aliases) ? old.token_aliases : []), ...(Array.isArray(doc.token_aliases) ? doc.token_aliases : []), old.tokenDocumento, doc.tokenDocumento].filter(Boolean))];
-    merged = mergeDocumentObservation(old, doc, merged) as ActDocumento;
+    merged = mergeDocumentObservation(old, doc, merged, canonicalObservation) as ActDocumento;
     if (failedDownload(merged)) merged.disponible = false;
     out[index] = merged;
   }
