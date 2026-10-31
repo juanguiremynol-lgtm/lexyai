@@ -56,6 +56,40 @@ class TransportEpoch(unittest.TestCase):
                 self.assertFalse(c.fetchone()[0])
                 c.execute('SELECT attempts FROM estados_monitor_run_items')
                 self.assertEqual(c.fetchone()[0],2)
+                c.execute('''ALTER TABLE estados_monitor_runs
+                    ADD COLUMN run_date date DEFAULT '2026-10-31',
+                    ADD COLUMN depth_remaining int DEFAULT 0,
+                    ADD COLUMN finished_at timestamptz,
+                    ADD COLUMN attempted_count int DEFAULT 0,
+                    ADD COLUMN failed_count int DEFAULT 0;
+                    INSERT INTO estados_monitor_runs(id,status,lease_expires_at,attempted_count,failed_count)
+                    VALUES('0b335105-c300-4c18-83e2-47c1721e6ff2','PARTIAL',now(),2,2),
+                          ('68f2c917-02ca-4bcd-931c-b912f88f4891','PARTIAL',now(),1,1);
+                    INSERT INTO estados_monitor_run_items(run_id,work_item_id,status,attempts,error_code,result)
+                    SELECT r,gen_random_uuid(),'FAILED',a,'DAILY_UPDATE_ALREADY_STARTED',
+                      jsonb_build_object('deduplicated',true,'daily_update',jsonb_build_object('admitted',false,'next_eligible_at',now()+interval '10 minutes'))
+                    FROM (VALUES('0b335105-c300-4c18-83e2-47c1721e6ff2'::uuid,3),
+                                ('68f2c917-02ca-4bcd-931c-b912f88f4891'::uuid,1)) g(r,a);
+                    INSERT INTO estados_monitor_run_items(run_id,work_item_id,status,attempts,error_code,result)
+                    VALUES('0b335105-c300-4c18-83e2-47c1721e6ff2',gen_random_uuid(),'FAILED',2,'PROVIDER_UNAVAILABLE','{}');''')
+                recovery = (pathlib.Path(__file__).resolve().parents[1] /
+                    'coordination/20261031_recover_monitor_gate_failures.sql').read_text()
+                c.execute(recovery)
+                c.execute('SELECT count(*) FROM monitor_gate_item_backup_20261031')
+                self.assertEqual(c.fetchone()[0],2)
+                c.execute("SELECT attempts FROM estados_monitor_run_items WHERE error_code='DAILY_UPDATE_ALREADY_STARTED' ORDER BY attempts")
+                self.assertEqual(c.fetchall(),[(1,),(2,),(2,)]) # fixture already deferred above plus two recovered
+                c.execute("SELECT status,attempts FROM estados_monitor_run_items WHERE error_code='PROVIDER_UNAVAILABLE'")
+                self.assertEqual(c.fetchone(),('FAILED',2))
+                c.execute('SELECT to_jsonb(i) FROM estados_monitor_run_items i ORDER BY run_id,work_item_id')
+                rows_before_repeat = c.fetchall()
+                c.execute('SELECT to_jsonb(r) FROM estados_monitor_runs r ORDER BY id')
+                runs_before_repeat = c.fetchall()
+                c.execute(recovery)
+                c.execute('SELECT to_jsonb(i) FROM estados_monitor_run_items i ORDER BY run_id,work_item_id')
+                self.assertEqual(c.fetchall(),rows_before_repeat)
+                c.execute('SELECT to_jsonb(r) FROM estados_monitor_runs r ORDER BY id')
+                self.assertEqual(c.fetchall(),runs_before_repeat)
         finally:
             if conn:
                 conn.close()
