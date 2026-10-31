@@ -3,6 +3,25 @@ import { documentObservationAt, mergeAnexosObservation, mergeDocumentObservation
 
 const date = "2026-10-19T20:00:00Z";
 
+Deno.test("document union canonicalizes shared history evidence once without dropping versions", () => {
+  let traversals = 0;
+  const proof = new Proxy({ bytes: 2048, sha256: 'a'.repeat(64) }, {
+    ownKeys(target) { traversals++; return Reflect.ownKeys(target); },
+  });
+  const variants = Array.from({ length: 54 }, (_, index) => ({ index, proof }));
+  const previous = { descarga_observado_en: date, metadata_variants: variants };
+  const incoming = { descarga_observado_en: "2026-10-20T20:00:00Z", metadata_variants: variants };
+  const merged = mergeDocumentObservation(previous, incoming, { ...previous, ...incoming });
+  assertEquals(traversals, 1);
+  assertEquals(merged.metadata_variants, [...variants, { descarga_observado_en: date }]);
+  assertEquals(merged.descarga_observado_en, incoming.descarga_observado_en);
+  proof.bytes = 4096;
+  traversals = 0;
+  const next = mergeDocumentObservation(previous, incoming, { ...previous, ...incoming });
+  assertEquals(traversals, 1);
+  assertEquals(next.metadata_variants[0].proof.bytes, 4096);
+});
+
 Deno.test("large document histories retain every distinct observation and dedupe canonical objects", () => {
   const variants = Array.from({ length: 1000 }, (_, index) => ({ index, proof: { bytes: index + 10 }, metadata_variants: [{ ignored: true }] }));
   const previous = { descarga_observado_en: date, metadata_variants: variants };

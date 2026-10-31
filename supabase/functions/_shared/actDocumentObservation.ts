@@ -5,10 +5,31 @@ const fields = ['gcs', 'gcs_url', 'sha256', 'pdf_verificacion', 'archivo_verific
   'descarga_intentos', 'descarga_observado_en', 'recuperacion_cache', 'disponible', 'url', 'urlDescarga', 'urlVer'];
 const attemptFields = ['descarga_estado', 'descarga_error', 'descarga_intentos', 'descarga_observado_en', 'recuperacion_cache'];
 const invalid = ['stored_object_missing', 'stored_hash_mismatch', 'stored_pdf_invalid'];
-function stable(value: any): string {
-  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
-  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stable(value[k])).join(',') + '}';
-  return JSON.stringify(value) ?? 'null';
+/** Operation-local only: descriptors can change between confirmed writes. */
+export function observationCanonicalizer(): (value: any) => string {
+  const cache = new WeakMap<object, string>();
+  const canonical = (value: any): string => {
+    if (!value || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+    const cached = cache.get(value);
+    if (cached !== undefined) return cached;
+    const key = Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']'
+      : '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}';
+    cache.set(value, key);
+    return key;
+  };
+  return canonical;
+}
+
+/** Same canonical JSON comparison, without allocating strings for unchanged trees. */
+export function sameDocumentObservation(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a !== 'object' || typeof b !== 'object') return JSON.stringify(a) === JSON.stringify(b);
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameDocumentObservation(v, b[i]));
+  }
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameDocumentObservation(a[k], b[k]));
 }
 export function documentObservationAt(value: any): number | null {
   // Older providers persist `intentos` as a counter, not a download log.
@@ -24,12 +45,14 @@ function lastAttemptAt(value: unknown): string | undefined {
 export const hasArchiveReading = (doc: Doc) => doc.archivo_verificacion?.lectura_completa === true
   && doc.archivo_verificacion?.crc_comprobado === true && ['zip', 'xlsx'].includes(doc.archivo_verificacion?.formato);
 const proof = (doc: Doc) => doc.descarga_estado === 'descargado_y_leido' && !!(doc.pdf_verificacion || hasArchiveReading(doc)) && !!(doc.gcs_url || doc.urlDescarga || doc.url);
-function history(values: any[]): any[] {
+function history(values: any[], stable: (value: any) => string): any[] {
   const out: any[] = [];
   const seen = new Set<string>();
   for (const value of values) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    const copy = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'));
+    const copy = Object.prototype.hasOwnProperty.call(value, 'metadata_variants')
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'))
+      : value;
     const key = stable(copy);
     if (!seen.has(key)) {
       seen.add(key);
@@ -54,13 +77,13 @@ function invalidates(previous: Doc, incoming: Doc): boolean {
     (at == null || Number.isFinite(Date.parse(f.observedAt)) && Date.parse(f.observedAt) > at));
 }
 
-export function mergeDocumentObservation(previous: Doc, incoming: Doc, merged: Doc): Doc {
+export function mergeDocumentObservation(previous: Doc, incoming: Doc, merged: Doc, stable = observationCanonicalizer()): Doc {
   const before = documentObservationAt(previous), at = documentObservationAt(incoming);
   if (before == null && at == null) return merged;
-  let variants = history([...(previous.metadata_variants || []), ...(incoming.metadata_variants || [])]);
+  const observations = [...(previous.metadata_variants || []), ...(incoming.metadata_variants || [])];
   if (at == null || before != null && at < before) {
     copyFields(merged, previous, fields);
-    if (at != null) variants = history([...variants, incoming]);
+    if (at != null) observations.push(incoming);
   } else {
     copyFields(merged, incoming, attemptFields);
     if (proof(incoming)) {
@@ -85,8 +108,9 @@ export function mergeDocumentObservation(previous: Doc, incoming: Doc, merged: D
       merged.urlVer = incoming.urlVerOriginal || merged.url;
       merged.disponible = false;
     }
-    if (fields.some(k => stable(previous[k]) !== stable(merged[k]))) variants = history([...variants, previous]);
+    if (fields.some(k => stable(previous[k]) !== stable(merged[k]))) observations.push(previous);
   }
+  const variants = history(observations, stable);
   if (variants.length) merged.metadata_variants = variants;
   return merged;
 }
@@ -96,6 +120,7 @@ export function mergeDocumentObservation(previous: Doc, incoming: Doc, merged: D
 export function mergeAnexosObservation(existingRaw: Doc, incomingObservation: any): Doc {
   if (!incomingObservation || typeof incomingObservation !== 'object' || Array.isArray(incomingObservation)) return { ...existingRaw };
   const previous = existingRaw.anexos_observacion;
+  const stable = observationCanonicalizer();
   const oldAt = documentObservationAt(previous), at = documentObservationAt(incomingObservation);
   const out = { ...existingRaw };
   const variants = [...(Array.isArray(existingRaw.anexos_observacion_historial) ? existingRaw.anexos_observacion_historial : [])];

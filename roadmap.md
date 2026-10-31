@@ -1,5 +1,11 @@
 # Roadmap
 
+## Scoped request961 CPU repair (2026-10-31)
+- [x] Confirm runtime CPU kill; profile stored evidence only; preserve main15844b42 safeguards and owner-managed recovery.
+- [x] Reduce repeated document canonicalization, add one regression; 55 tests and Deno check pass; 230-row differential equivalent.
+- [x] Deploy only sync-by-work-item; source hash recorded; health short circuit200, no providers/cycle changes.
+- [ ] Hosted completion of the failed matter — owner controls recovery; no extraction authorized for this validation.
+
 ## Scoped Tiny optimization and automatic PP acceptance (2026-10-29)
 - [x] Check equivalent action-list indexes; apply 0092 with 500ms lock/5s statement bounds; verify valid index and before/after rows, buffers and times.
 - [x] Verify live cron99 run520985/response97 (8 finished pp_poll deferrals), run identity, counter, next due date and runtime follow_admitted_run/no new trigger; no blocking local defect demonstrated.
