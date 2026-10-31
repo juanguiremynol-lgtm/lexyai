@@ -9,7 +9,7 @@ REVOKE ALL ON public.monitor_gate_cpu_backup_20261031 FROM PUBLIC,anon,authentic
 WITH recovered AS (
   UPDATE public.daily_update_cycles d SET
     channels=(channels-'acts') || jsonb_build_object('acts_cpu_recovery_previous',
-      (channels->'acts'-'token') || jsonb_build_object(
+      ((channels->'acts')-'token') || jsonb_build_object(
         'status','FAILED','error_code','WORKER_RESOURCE_LIMIT','failed_http_request',961,
         'recovery_source_revision','13792536ec9a1a631c9c295981b7f1c63d90e486')),
     continuations=continuations+1,updated_at=now()
