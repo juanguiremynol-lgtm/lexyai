@@ -1,8 +1,12 @@
 export function sourceGrantToken(doc: Record<string, any>) {
   if (typeof doc.tokenDocumento === 'string' && doc.tokenDocumento) return doc.tokenDocumento;
   for (const key of ['urlDescargaOriginal','url_origen','urlDescarga','url','urlVerOriginal','urlVer']) {
+    const raw=doc[key];
+    // Skip values that cannot be this host's URL without constructing (and
+    // throwing) a URL: exception capture dominated pairwise matching CPU.
+    if (typeof raw!=='string' || !raw.startsWith('https://samaicore.consejodeestado.gov.co')) continue;
     try {
-      const url=new URL(doc[key]);
+      const url=new URL(raw);
       if(url.protocol!=='https:' || url.hostname!=='samaicore.consejodeestado.gov.co') continue;
       for(const [name,value] of url.searchParams) if (['tokendoc','tokendocumento'].includes(name.toLowerCase())) return value;
     } catch { /* Legacy descriptor without a source URL. */ }
