@@ -3,6 +3,8 @@ import { strict as assert } from 'node:assert';
 Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial without marking done', async () => {
   const oldServe = Deno.serve;
   const oldFetch = globalThis.fetch;
+  const oldNow = Date.now;
+  Date.now = () => Date.parse('2026-10-31T19:00:00Z');
   const envKeys = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'CRON_SERVICE_KEY'];
   const oldValues = envKeys.map(k => Deno.env.get(k));
   Deno.env.set('SUPABASE_URL', 'https://mock.invalid');
@@ -25,9 +27,9 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
       return j([{id: 'aged-pub', action_type: 'RETRY_PUBS'}, {id: 'new-act', action_type: 'RETRY_ACTS'}]);
     }
     if (url.pathname.endsWith('/rpc/atenia_ai_claim_supported_queue')) return j([
-      { id: 'task1', work_item_id: 'item1', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3 },
-      { id: 'task2', work_item_id: 'item2', action_type: 'RETRY_PUBS', attempts: 1, max_attempts: 3 },
-      { id: 'task3', work_item_id: 'item3', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3 },
+      { id: 'task1', work_item_id: 'item1', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3, updated_at: new Date(Date.now()).toISOString() },
+      { id: 'task2', work_item_id: 'item2', action_type: 'RETRY_PUBS', attempts: 1, max_attempts: 3, updated_at: new Date(Date.now()).toISOString() },
+      { id: 'task3', work_item_id: 'item3', action_type: 'RETRY_ACTS', attempts: 1, max_attempts: 3, updated_at: new Date(Date.now()).toISOString() },
     ]);
     if (url.pathname.includes('/functions/v1/sync-')) {
       invocations.push({ url, headers: req.headers });
@@ -37,7 +39,8 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
       updates.push({ url, body: await req.json() });
       // Model real PostgREST: zero rows under a single-object Accept is 406
       // PGRST116, which maybeSingle() maps to data=null (lease replaced).
-      if (url.searchParams.get('id') === 'eq.task3') {
+      if (url.searchParams.get('id') === 'eq.task3' && url.searchParams.has('updated_at') &&
+          url.searchParams.get('updated_at') !== 'eq.' + new Date(Date.now() + 1000).toISOString()) {
         return (req.headers.get('accept') ?? '').includes('vnd.pgrst.object')
           ? j({ code: 'PGRST116', details: 'The result contains 0 rows', hint: null, message: 'JSON object requested, multiple (or no) rows returned' }, 406)
           : j([]);
@@ -66,6 +69,7 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     assert.equal(updates[1].body.last_error, 'PENDING_UPSTREAM');
     assert.equal(updates[0].url.searchParams.get('status'), 'eq.RUNNING');
     assert.equal(updates[0].url.searchParams.get('attempts'), 'eq.1');
+    assert.equal(updates[0].url.searchParams.get('updated_at'), 'eq.2026-10-31T19:00:00.000Z');
     const payload = await response.json();
     assert.equal(payload.result.results[2].status, 'LEASE_REPLACED');
     const dry = await handler(new Request('https://mock.invalid/functions/v1/atenia-ai-supervisor', {
@@ -79,9 +83,20 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     const dryPayload = await dry.json();
     assert.deepEqual(dryPayload.result.results.map((r: any) => r.id), ['aged-pub', 'new-act']);
     assert.equal(dryPayload.result.claimed, 0);
+    // A retry before the GCP refresh defers ACTs with the claim attempt restored;
+    // publication follow-ups remain runnable and no ACT function is invoked.
+    Date.now = () => Date.parse('2026-11-01T06:00:00Z');
+    const oldCalls = invocations.length, oldUpdates = updates.length;
+    await handler(makeReq('Bearer synthetic-service'));
+    assert.equal(invocations.length, oldCalls + 1);
+    assert.equal(invocations.at(-1)?.url.pathname, '/functions/v1/sync-publicaciones-by-work-item');
+    assert.equal(updates[oldUpdates].body.attempts, 0);
+    assert.equal(updates[oldUpdates].body.last_error, 'BACKEND_REFRESH_NOT_DUE');
+    assert.equal(updates[oldUpdates].body.run_after, '2026-11-01T08:01:00.000Z');
   } finally {
     (Deno as any).serve = oldServe;
     globalThis.fetch = oldFetch;
+    Date.now = oldNow;
     envKeys.forEach((k, i) => oldValues[i] === undefined ? Deno.env.delete(k) : Deno.env.set(k, oldValues[i]!));
   }
 });
