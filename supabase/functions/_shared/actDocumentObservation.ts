@@ -50,7 +50,9 @@ function history(values: any[], stable: (value: any) => string): any[] {
   const seen = new Set<string>();
   for (const value of values) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    const copy = Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'));
+    const copy = Object.prototype.hasOwnProperty.call(value, 'metadata_variants')
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'metadata_variants'))
+      : value;
     const key = stable(copy);
     if (!seen.has(key)) {
       seen.add(key);
