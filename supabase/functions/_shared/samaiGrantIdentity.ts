@@ -4,7 +4,7 @@ export function sourceGrantToken(doc: Record<string, any>) {
     const raw=doc[key];
     // Skip values that cannot be this host's URL without constructing (and
     // throwing) a URL: exception capture dominated pairwise matching CPU.
-    if (typeof raw!=='string' || !raw.startsWith('https://samaicore.consejodeestado.gov.co')) continue;
+    if (typeof raw!=='string' || !/^https:/i.test(raw) || !/samaicore\.consejodeestado\.gov\.co/i.test(raw)) continue;
     try {
       const url=new URL(raw);
       if(url.protocol!=='https:' || url.hostname!=='samaicore.consejodeestado.gov.co') continue;
