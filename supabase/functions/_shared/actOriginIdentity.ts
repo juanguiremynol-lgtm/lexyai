@@ -398,9 +398,22 @@ export interface EnrichmentPlan {
   anotacion_grew: boolean;
 }
 
-function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** JSON-value equality independent of object key order. jsonb returns keys in
+ * its own order, so an order-sensitive comparison reported every stored
+ * inventory as changed and rewrote unchanged rows on every sync. Keys holding
+ * `undefined` are absent in JSON and are ignored, as JSON.stringify did. */
+export function sameJsonValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a !== 'object' || typeof b !== 'object') return JSON.stringify(a) === JSON.stringify(b);
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameJsonValue(v, b[i]));
+  }
+  const ka = Object.keys(a).filter(k => (a as any)[k] !== undefined);
+  const kb = Object.keys(b).filter(k => (b as any)[k] !== undefined);
+  return ka.length === kb.length && ka.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameJsonValue((a as any)[k], (b as any)[k]));
 }
+const same = sameJsonValue;
 
 /**
  * Patch for a matched row. Origin components and inventory are refreshed on

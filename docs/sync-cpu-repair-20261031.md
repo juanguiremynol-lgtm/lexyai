@@ -29,3 +29,11 @@ Measured local stored-row enrichment: baseline 1080/1087/1100 ms; corrected 547/
 No migrations, cycle resets/readmissions, provider enrollment changes, RLS changes, identity/fingerprint edits, historical repairs, document generation, alerts/terms changes, UI/MCP work, retries or judicial portal queries. Tiny unchanged. No durable continuation added: the demonstrated cause is CPU work; its necessity is not proved after this correction.
 
 The owner's controlled recovery remains necessary to establish hosted end-to-end completion. This intervention does not certify that the case is complete or that the 546 cannot recur under a different workload. No daily-gate state was repaired or declared successful.
+## Second repair (after pg_net 965 still returned HTTP546)
+
+- Full matched-act loop profiled offline on the 230 stored rows (identity resolution, enrichment, hearing extraction), with jsonb key ordering simulated. No portal calls.
+- Proven hotspot: `planEnrichment` compared raw_data with order-sensitive `JSON.stringify`. jsonb returns keys in its own order, so `anexos_inventario` always looked changed: 228/230 stored rows planned a write, and 116/147 acts issued a full CAS enrichment write on every run (never converging). Each write serializes expected raw_data + documentos + patch and parses the returned row.
+- Fix: order-insensitive `sameJsonValue` (undefined keys ignored, as JSON did). Offline: writes 116 -> 8 on the first run, 1 on the next; real changes still write. Identity, CAS, read-back, documents and fencing unchanged.
+- One regression in `actOriginIdentity_test.ts`; 56 tests PASS; deno check PASS.
+- Deployed only `sync-by-work-item`, source_sha256 `a23dad57d97efb91c4f33253df2c2f661ec314dee10d1cbc956396e01441b254`.
+- Not verified hosted. No durable continuation was added: it is not yet shown to be needed. If the next controlled run still exceeds CPU, the remaining cost is the per-act fresh read (one full row parse per act, about 500 ms locally across 147 acts).
