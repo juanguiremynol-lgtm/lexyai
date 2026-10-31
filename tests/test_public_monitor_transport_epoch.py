@@ -88,6 +88,22 @@ class TransportEpoch(unittest.TestCase):
                 c.execute(recovery)
                 c.execute('SELECT to_jsonb(i) FROM estados_monitor_run_items i ORDER BY run_id,work_item_id')
                 self.assertEqual(c.fetchall(),rows_before_repeat)
+                c.execute('''CREATE FUNCTION start_public_monitor_run(text,date,text[]) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN RETURN; END $p$;
+                  CREATE FUNCTION claim_public_monitor_items(uuid,text,integer) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN RETURN; END $p$;
+                  CREATE FUNCTION finish_public_monitor_hop(uuid,text) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN RETURN; END $p$;
+                  CREATE FUNCTION dispatch_public_monitors(boolean) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN RETURN; END $p$;
+                  GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon,authenticated;''')
+                permission_sql = (pathlib.Path(__file__).resolve().parents[1] /
+                    'coordination/20261031_monitor_rpc_service_permissions.sql').read_text()
+                c.execute(permission_sql)
+                c.execute(permission_sql)
+                c.execute("""SELECT count(*) FROM pg_proc p WHERE p.proname IN
+                    ('start_public_monitor_run','claim_public_monitor_items','finish_public_monitor_hop','dispatch_public_monitors')
+                    AND NOT has_function_privilege('anon',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
+                    AND has_function_privilege('service_role',p.oid,'EXECUTE')
+                    AND has_function_privilege(current_user,p.oid,'EXECUTE')""")
+                self.assertEqual(c.fetchone()[0],4)
                 c.execute('SELECT to_jsonb(r) FROM estados_monitor_runs r ORDER BY id')
                 self.assertEqual(c.fetchall(),runs_before_repeat)
                 base = (pathlib.Path(__file__).resolve().parents[1] /
