@@ -74,6 +74,7 @@ import {
   type ProviderAdapterResult,
 } from '../_shared/providerAdapters/index.ts';
 import { toOrchestratorResult, type OrchestratorFetchResult } from '../_shared/providerAdapters/bridge.ts';
+import { emptyReadPersistence } from '../_shared/emptyReadPersistence.ts';
 
 // ============= FEATURE FLAG =============
 // Orchestrator sync can be enabled globally via env var or per-org via atenia_ai_config.
@@ -2892,7 +2893,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       result.ok = !incompleteEmpty;
       result.partial = incompleteEmpty;
       result.code = incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT';
-      result.warnings.push('Provider returned valid response with zero actuaciones — case may not yet be indexed');
+      result.warnings.push(incompleteEmpty
+        ? 'La consulta quedó parcial; las fuentes no devolvieron actuaciones verificadas.'
+        : 'La consulta finalizó sin actuaciones reportadas por la fuente.');
       
       // Fetch current consecutive_failures for increment
       const { data: currentItemEmpty } = await supabase
@@ -2904,13 +2907,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       const { error: emptyUpdateError } = await supabase
         .from('work_items')
         .update({
-          scrape_status: incompleteEmpty ? 'PARTIAL_SUCCESS' : 'EMPTY',
+          ...emptyReadPersistence(incompleteEmpty, currentItemEmpty?.consecutive_failures),
           last_crawled_at: new Date().toISOString(),
           last_checked_at: new Date().toISOString(),
-          // Clear transient error codes so UI badge resets (no "retry scheduled" spinner)
-          last_error_code: incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT',
-          // Increment consecutive_failures to surface patterns, but NOT consecutive_404_count
-          consecutive_failures: ((currentItemEmpty as any)?.consecutive_failures || 0) + 1,
           provider_reachable: true,
         })
         .eq('id', work_item_id);
