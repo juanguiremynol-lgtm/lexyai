@@ -103,6 +103,19 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       errorCode = verdict.code;
     } catch (error) { errorCode = error instanceof Error ? error.message.slice(0, 200) : "SYNC_FAILED"; }
     const providerMessage = String((result.samai_estados_summary as Record<string, unknown> | undefined)?.error ?? "");
+    const daily = result.daily_update as Record<string, unknown> | undefined;
+    if (result.result_code === "DAILY_UPDATE_ALREADY_STARTED" && result.deduplicated === true && daily?.admitted === false) {
+      const next = Date.parse(String(daily.next_eligible_at ?? ""));
+      const retryAt = new Date(Number.isFinite(next) ? next : Date.now() + 30 * 60_000).toISOString();
+      const { data: deferred, error: deferError } = await db.rpc("defer_public_monitor_read", {
+        _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token,
+        _retry_at: retryAt, _result: result,
+      });
+      if (deferError || deferred !== true) return response({ error: "READ_DEFER_FAILED", run_id: runId }, 503);
+      // This gate performed no source read: preserve its pending evidence,
+      // attempt budget and both the source-success and source-attempt clocks.
+      continue;
+    }
     if (channel === "samai_estados" && providerMessage.startsWith("PROVIDER_BREAKER_")) {
       const retryText = providerMessage.startsWith("PROVIDER_BREAKER_OPEN:") ? providerMessage.slice("PROVIDER_BREAKER_OPEN:".length) : "";
       const breakerCode = providerMessage.startsWith("PROVIDER_BREAKER_OPEN:") ? "PROVIDER_BREAKER_OPEN" : providerMessage;
@@ -143,7 +156,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   const { data: finish, error: finishError } = await db.rpc("finish_public_monitor_hop", { _run_id: runId, _channel: channel });
   if (finishError) return response({ error: finishError.message }, 500);
   const state = finish?.[0];
-  if (state?.remaining_count > 0 && state.depth_remaining > 0) {
+  if (state?.remaining_count > 0 && state.depth_remaining > 0 && (claimed ?? []).length > 0) {
     const nextHop = async () => {
       const endpoint = channel === "publicaciones" ? "scheduled-publicaciones-monitor" : "scheduled-samai-estados-monitor";
       // Retry transient hop failures (e.g. gateway 504). Batch claims are leased,
