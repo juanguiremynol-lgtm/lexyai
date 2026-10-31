@@ -100,6 +100,21 @@ export function originFromRow(row: {
 function norm(v: unknown): string {
   return String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
+
+/** A legacy display ellipsis is not a new judicial event. Require the entire
+ * retained annotation to equal the source, corroborated by the protected
+ * description prefix. Never match on the prefix or date/title alone. */
+function sameStoredEvidence(row: CandidateRow, evidence: string | null | undefined): boolean {
+  const source = clean(evidence), description = clean(row.description);
+  if (!source || !description) return false;
+  if (description === source) return true;
+  if (!/(?:\.\.\.|…)\s*$/.test(description)) return false;
+  const prefix = description.replace(/(?:\.\.\.|…)\s*$/, '');
+  if (!prefix || !source.startsWith(prefix)) return false;
+  const rd = row.raw_data ?? {};
+  const act = clean(rd.actuacion), annotation = clean(rd.anotacion);
+  return !!act && `${act}${annotation ? ` - ${annotation}` : ''}` === source;
+}
 /** An absorbed entry may be a DIFFERENT act (other anotación, same day); its
  * id is used only when its own text equals the active row's description. */
 function consolidatedIndice(rd: Record<string, unknown>, description?: string | null): string | null {
@@ -240,7 +255,7 @@ export function resolveActIdentity(input: {
     const stable = input.rows.filter(r => (!input.provider || r.source === input.provider)
       && origin(r).solicitud === incoming.solicitud
       && compareOrigins(origin(r), incoming) !== 'conflict'
-      && clean(r.description) === clean(input.evidence));
+      && sameStoredEvidence(r, input.evidence));
     const indexed = stable.filter(r => incoming.indice && origin(r).indice === incoming.indice);
     const candidate = indexed.length === 1 ? indexed[0] : stable.length === 1 ? stable[0] : null;
     if (candidate) return { kind: 'match', row: candidate, relation: 'equivalent', via: 'semantic' };
@@ -262,19 +277,26 @@ export function resolveActIdentity(input: {
     const owners = providerRows.filter(r => {
       const own = clean((r.raw_data as any)?.origen_indice);
       return own && own.replace(/^0+(?=\d)/, '') === incoming.indice
-        && compareProviderOrigins(origin(r), incoming, input.provider) === 'equivalent';
+        && compareProviderOrigins(origin(r), incoming, input.provider) === 'equivalent'
+        // SAMAI grid positions are not global native ids. A later snapshot
+        // may reuse one for another event; retain its date/content scope.
+        && (input.provider?.toLowerCase() !== 'samai'
+          || ((byFp.includes(r) || bySem.includes(r)) && sameStoredEvidence(r, input.evidence)));
     });
     if (owners.length === 1) return { kind: 'match', row: owners[0], relation: 'equivalent', via: byFp.includes(owners[0]) ? 'fingerprint' : 'semantic' };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
-    const eq = list.find((r) => compareProviderOrigins(origin(r), incoming, input.provider) === "equivalent");
+    const eq = list.find((r) => compareProviderOrigins(origin(r), incoming, input.provider) === "equivalent"
+      && (input.provider?.toLowerCase() !== 'samai'
+        || hasStableOrigin(origin(r)) && hasStableOrigin(incoming)
+        || sameStoredEvidence(r, input.evidence)));
     if (eq) return { kind: "match", row: eq, relation: "equivalent", via };
   }
   for (const [list, via] of [[fpSorted, "fingerprint"], [bySem, "semantic"]] as const) {
     const ind = list.find((r) => {
       const stored = origin(r);
       return compareProviderOrigins(stored, incoming, input.provider) !== 'conflict' && !hasStableOrigin(stored) && !hasStableOrigin(incoming) &&
-        (input.evidence === undefined || clean(r.description) === clean(input.evidence));
+        (input.evidence === undefined || sameStoredEvidence(r, input.evidence));
     });
     if (ind) return { kind: "match", row: ind, relation: "indeterminate", via };
   }
