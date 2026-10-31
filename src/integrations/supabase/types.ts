@@ -12547,6 +12547,45 @@ export type Database = {
           },
         ]
       }
+      monitor_cpnu_empty_backup_20261031: {
+        Row: {
+          channels: Json | null
+          continuations: number | null
+          created_at: string | null
+          duplicate_requests: number | null
+          last_duplicate: Json | null
+          organization_id: string | null
+          owner_id: string | null
+          run_date: string | null
+          updated_at: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          channels?: Json | null
+          continuations?: number | null
+          created_at?: string | null
+          duplicate_requests?: number | null
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          run_date?: string | null
+          updated_at?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          channels?: Json | null
+          continuations?: number | null
+          created_at?: string | null
+          duplicate_requests?: number | null
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          run_date?: string | null
+          updated_at?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       monitor_gate_backup_20261031: {
         Row: {
           channels: Json | null
@@ -12667,6 +12706,27 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_gate_item_backup_20261031: {
+        Row: {
+          before_record: Json
+          recovered_at: string
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          before_record: Json
+          recovered_at?: string
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          before_record?: Json
+          recovered_at?: string
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_gate_json_cpu_backup_20261031: {
         Row: {
           channels: Json | null
@@ -12742,6 +12802,63 @@ export type Database = {
           run_date?: string | null
           updated_at?: string | null
           work_item_id?: string | null
+        }
+        Relationships: []
+      }
+      monitor_gate_run_backup_20261031: {
+        Row: {
+          before_record: Json
+          recovered_at: string
+          run_id: string
+        }
+        Insert: {
+          before_record: Json
+          recovered_at?: string
+          run_id: string
+        }
+        Update: {
+          before_record?: Json
+          recovered_at?: string
+          run_id?: string
+        }
+        Relationships: []
+      }
+      monitor_wait_item_backup_20261031: {
+        Row: {
+          before_record: Json
+          recovered_at: string
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          before_record: Json
+          recovered_at?: string
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          before_record?: Json
+          recovered_at?: string
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      monitor_wait_run_backup_20261031: {
+        Row: {
+          before_record: Json
+          recovered_at: string
+          run_id: string
+        }
+        Insert: {
+          before_record: Json
+          recovered_at?: string
+          run_id: string
+        }
+        Update: {
+          before_record?: Json
+          recovered_at?: string
+          run_id?: string
         }
         Relationships: []
       }
