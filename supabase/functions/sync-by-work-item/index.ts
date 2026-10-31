@@ -1665,9 +1665,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (isContinuation && (force_refresh === true || allow_buscar !== false)) {
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, { admitted: false, reason: 'CONTINUATION_EXTRACTION_FORBIDDEN' }), 200);
     }
+    console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_start', trace_id: traceId, work_item_id }));
     const dailyAdmission = isContinuation
       ? await admitCpnuContinuation(supabase, work_item_id, (payload as any)?._cpnu_job_id, traceId)
       : await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId);
+    console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_finish', trace_id: traceId,
+      work_item_id, admitted: dailyAdmission.admitted, reason: dailyAdmission.reason ?? null }));
     if (!dailyAdmission.admitted) {
       console.log(`[sync-by-work-item] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
@@ -1677,6 +1680,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Record the attempt only after authorizing access to this matter.
     const { error: attemptStampError } = await supabase.from('work_items')
       .update({ last_attempted_sync_at: new Date().toISOString() }).eq('id', work_item_id);
+    console.info('[sync.phase]', JSON.stringify({ phase: 'attempt_stamp_finish', trace_id: traceId,
+      work_item_id, persisted: !attemptStampError }));
     if (attemptStampError) return errorResponse('ATTEMPT_PERSIST_FAILED', 'No fue posible registrar el intento', 503, traceId);
 
     // A fallback is a real provider call and needs its own enabled enrollment.
@@ -1688,6 +1693,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     const enrolledProviders = new Set<string>((enrollmentRows || [])
       .filter((row: any) => row.enabled === true)
       .map((row: any) => String(row.provider_key).toLowerCase()));
+    console.info('[sync.phase]', JSON.stringify({ phase: 'enrollment_finish', trace_id: traceId,
+      work_item_id, enabled_sources: [...enrolledProviders] }));
     // A continuation only ingests the stored CPNU job result: every other
     // provider (SAMAI, external connectors, fallbacks) is disabled for it.
     const enabledProviders = isContinuation ? continuationProviders(enrolledProviders) : enrolledProviders;
@@ -1695,6 +1702,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
     const useOrchestrator = isContinuation ? false : await shouldUseOrchestrator(supabase, workItem.organization_id);
+    console.info('[sync.phase]', JSON.stringify({ phase: 'orchestrator_config_finish', trace_id: traceId,
+      work_item_id, use_orchestrator: useOrchestrator }));
     // Orchestrator finalizes its external_sync_runs row at fetch time; we reconcile
     // it with the real ingestion outcome once the persistence loop has finished.
     let orchestratorSyncRunId: string | null = null;
@@ -1704,6 +1713,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       dbMaxActDate: await getDbMaxActDate(supabase, work_item_id),
       historicalRecordCount: await getHistoricalRecordCount(supabase, work_item_id),
     };
+    console.info('[sync.phase]', JSON.stringify({ phase: 'freshness_context_finish', trace_id: traceId, work_item_id }));
 
     console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
 
