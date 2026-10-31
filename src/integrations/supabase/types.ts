@@ -12589,6 +12589,45 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_gate_cpu_backup_20261031: {
+        Row: {
+          channels: Json | null
+          continuations: number | null
+          created_at: string | null
+          duplicate_requests: number | null
+          last_duplicate: Json | null
+          organization_id: string | null
+          owner_id: string | null
+          run_date: string | null
+          updated_at: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          channels?: Json | null
+          continuations?: number | null
+          created_at?: string | null
+          duplicate_requests?: number | null
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          run_date?: string | null
+          updated_at?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          channels?: Json | null
+          continuations?: number | null
+          created_at?: string | null
+          duplicate_requests?: number | null
+          last_duplicate?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          run_date?: string | null
+          updated_at?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       monitoring_reconciliation_log: {
         Row: {
           detail: Json
