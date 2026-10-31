@@ -19,6 +19,18 @@ export function observationCanonicalizer(): (value: any) => string {
   };
   return canonical;
 }
+
+/** Same canonical JSON comparison, without allocating strings for unchanged trees. */
+export function sameDocumentObservation(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a !== 'object' || typeof b !== 'object') return JSON.stringify(a) === JSON.stringify(b);
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameDocumentObservation(v, b[i]));
+  }
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameDocumentObservation(a[k], b[k]));
+}
 export function documentObservationAt(value: any): number | null {
   // Older providers persist `intentos` as a counter, not a download log.
   // Only an actual log can supply a dated observation; do not invent one

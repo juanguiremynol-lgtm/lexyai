@@ -1,5 +1,5 @@
 import { sameSamaiGrant } from './samaiGrantIdentity.ts';
-import { documentObservationAt, mergeDocumentObservation, hasArchiveReading, observationCanonicalizer } from './actDocumentObservation.ts';
+import { documentObservationAt, mergeDocumentObservation, hasArchiveReading, observationCanonicalizer, sameDocumentObservation } from './actDocumentObservation.ts';
 /**
  * actDocumentos.ts — ITERATION 60.
  *
@@ -126,12 +126,6 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
   return mergeActDocumentos([], out) ?? [];
 }
 
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => `${JSON.stringify(k)}:${stable(v)}`).join(',')}}`;
-  return JSON.stringify(value) ?? 'null';
-}
-
 /** Additive union: filenames alone cannot identify two different documents. */
 export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDocumento[] | null {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return null;
@@ -148,7 +142,7 @@ export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDoc
       if (old.id && doc.id && old.id !== doc.id) return false;
       if (old.id && doc.id) return old.id === doc.id;
       const links = [old.url, old.gcs_url, old.url_origen].filter(Boolean);
-      return [doc.url, doc.gcs_url, doc.url_origen].some((url) => url && links.includes(url)) || stable(old) === stable(doc);
+      return [doc.url, doc.gcs_url, doc.url_origen].some((url) => url && links.includes(url)) || sameDocumentObservation(old, doc);
     });
     if (index < 0) { out.push(doc); continue; }
     const old = out[index];
@@ -210,8 +204,9 @@ export function documentosEnrichmentPatch(
     ? (normalizeActDocumentos(existing) ?? [])
     : null;
 
-  const merged = mergeActDocumentos(current, incoming)!;
-  const improves = current === null || stable(merged) !== stable(current);
+  const merged = mergeActDocumentos(current, incoming);
+  if (merged === null) return null;
+  const improves = current === null || !sameDocumentObservation(merged, current);
 
   if (!improves) return null;
 
