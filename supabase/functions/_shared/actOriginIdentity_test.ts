@@ -364,3 +364,15 @@ Deno.test("origin cache is decision-local and sees confirmed candidate changes",
   assertEquals(resolveActIdentity(input).kind, 'insert');
   assertEquals(resolveActIdentity({ ...input, incoming: extractActOrigin({ indice: '101' }) }).kind, 'match');
 });
+
+Deno.test("unchanged stored act in jsonb key order is not rewritten; a real change still is", () => {
+  const inc = { actuacion: "AUTO", anotacion: "Auto admite", indice: "7", anexos: 0, documentos: null };
+  const first = planEnrichment({ id: "r", source: "samai", hash_fingerprint: "h", semantic_key: "k", description: "AUTO - Auto admite", raw_data: { anotacion: "Auto admite" } } as CandidateRow, inc, "equivalent", "t");
+  assert(first);
+  // Reverse every object's key order, as jsonb reorders keys on storage.
+  const reorder = (v: any): any => Array.isArray(v) ? v.map(reorder)
+    : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).reverse().map((k) => [k, reorder(v[k])])) : v;
+  const stored = { id: "r", source: "samai", hash_fingerprint: "h", semantic_key: "k", description: "AUTO - Auto admite", raw_data: reorder(JSON.parse(JSON.stringify(first.raw_data))) } as CandidateRow;
+  assertEquals(planEnrichment(stored, inc, "equivalent", "t"), null);
+  assert(planEnrichment(stored, { ...inc, anexos: 1 }, "equivalent", "t"));
+});
