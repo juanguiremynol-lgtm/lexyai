@@ -16577,21 +16577,27 @@ export type Database = {
       public_monitor_dispatch_requests: {
         Row: {
           channel: string
+          dispatch_id: string
           request_id: number
           requested_at: string
           start_new: boolean
+          transport_epoch: string | null
         }
         Insert: {
           channel: string
+          dispatch_id?: string
           request_id: number
           requested_at?: string
           start_new: boolean
+          transport_epoch?: string | null
         }
         Update: {
           channel?: string
+          dispatch_id?: string
           request_id?: number
           requested_at?: string
           start_new?: boolean
+          transport_epoch?: string | null
         }
         Relationships: []
       }
@@ -27082,6 +27088,16 @@ export type Database = {
         Args: {
           _error_code: string
           _lease_token: string
+          _retry_at: string
+          _run_id: string
+          _work_item_id: string
+        }
+        Returns: boolean
+      }
+      defer_public_monitor_read: {
+        Args: {
+          _lease_token: string
+          _result: Json
           _retry_at: string
           _run_id: string
           _work_item_id: string
