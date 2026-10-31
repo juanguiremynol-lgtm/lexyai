@@ -20,6 +20,7 @@
  */
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
+import { actsRetryReadyAt, dailyRetryRunAfter } from "../_shared/dailyRetryWindow.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { authorizeSupervisor, ineligibleRefusal, remediationHeaders, remediationVerdict } from "../_shared/ateniaRemediationSecurity.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -1191,14 +1192,13 @@ async function remediate(
 
 /** Return a claimed job to PENDING until the next Bogotá day, restoring the
  *  attempt the claim consumed: a daily deduplication is not a failed query. */
-async function deferDailyDuplicate(supabase: SupabaseAdmin, job: any, nextEligibleAt: string | null | undefined) {
-  const runAfter = Number.isFinite(Date.parse(nextEligibleAt ?? "")) ? new Date(Date.parse(nextEligibleAt!) + 60_000).toISOString()
-    : new Date(Date.now() + 3600_000).toISOString();
+async function deferDailyDuplicate(supabase: SupabaseAdmin, job: any, nextEligibleAt: string | null | undefined, code = "DAILY_UPDATE_ALREADY_STARTED") {
+  const runAfter = dailyRetryRunAfter(job.action_type, nextEligibleAt, new Date(Date.now()));
   const { data, error } = await supabase.from("atenia_ai_remediation_queue")
     .update({ status: "PENDING", run_after: runAfter, attempts: Math.max(0, (job.attempts ?? 1) - 1),
-      last_error: "DAILY_UPDATE_ALREADY_STARTED", updated_at: new Date().toISOString() })
-    .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts).select("id").maybeSingle();
-  return { id: job.id, status: error ? "UPDATE_FAILED" : data ? "DEFERRED_DAILY" : "LEASE_REPLACED", code: "DAILY_UPDATE_ALREADY_STARTED", run_after: runAfter };
+      last_error: code, updated_at: new Date().toISOString() })
+    .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts).eq("updated_at", job.updated_at).select("id").maybeSingle();
+  return { id: job.id, status: error ? "UPDATE_FAILED" : data ? "DEFERRED_DAILY" : "LEASE_REPLACED", code, run_after: runAfter };
 }
 
 async function runQueueWorker(
@@ -1222,9 +1222,20 @@ async function runQueueWorker(
   const results: unknown[] = [];
 
   for (const job of jobs ?? []) {
+    // Counter restoration can reuse an attempt number. The timestamp minted
+    // atomically by claim is also required on every terminal/defer write.
+    if (typeof job.updated_at !== 'string' || !Number.isFinite(Date.parse(job.updated_at))) {
+      results.push({ id: job.id, status: "LEASE_REPLACED" });
+      continue;
+    }
     try {
       let invokeResult: { data?: unknown; error?: unknown } = {};
       const headers = remediationHeaders(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", String(job.id));
+      const readyAt = actsRetryReadyAt(new Date(Date.now()));
+      if (job.action_type === "RETRY_ACTS" && Date.now() < readyAt.getTime()) {
+        results.push(await deferDailyDuplicate(supabase, job, readyAt.toISOString(), "BACKEND_REFRESH_NOT_DUE"));
+        continue;
+      }
 
       // One logical update per matter per Bogotá day: defer (without
       // consuming the claimed attempt) instead of invoking a duplicate.
@@ -1297,7 +1308,7 @@ async function runQueueWorker(
           updated_at: new Date().toISOString(),
           last_error: verdict.outcome === "SKIPPED" ? verdict.code : null,
         })
-        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts)
+        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts).eq("updated_at", job.updated_at)
         .select("id").maybeSingle();
       if (finishError) throw finishError;
       if (!finished) {
@@ -1343,7 +1354,7 @@ async function runQueueWorker(
           run_after: terminal ? job.run_after : nextRun.toISOString(),
           last_error: errorMsg,
         })
-        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts)
+        .eq("id", job.id).eq("status", "RUNNING").eq("attempts", job.attempts).eq("updated_at", job.updated_at)
         .select("id").maybeSingle();
       if (retryError || !retried) {
         results.push({ id: job.id, status: retryError ? "UPDATE_FAILED" : "LEASE_REPLACED" });
