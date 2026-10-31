@@ -34,7 +34,11 @@ class Recovery(unittest.TestCase):
             original=(ROOT/'drizzle/migrations/0093_daily_update_admission.sql').read_text()
             finish=original[original.index('CREATE FUNCTION public.finish_daily_update'):]
             c.execute(finish[:finish.index('REVOKE ALL')].replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION',1))
-            c.execute((ROOT/'coordination/20261031_samai_stale_feed_readmission.sql').read_text())
+            release=(ROOT/'coordination/20261031_samai_stale_feed_readmission.sql').read_text()
+            # Production's before-image/hash guard is checked against its live
+            # definition. This isolated schema exercises the identical new
+            # function and grants, without pretending it has that before-image.
+            c.execute('BEGIN;\n'+release[release.index('CREATE OR REPLACE FUNCTION public.admit_daily_update'):])
 
     def setUp(self):
         with self.db.cursor() as c:
