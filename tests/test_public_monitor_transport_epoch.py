@@ -9,6 +9,54 @@ SQL = (pathlib.Path(__file__).resolve().parents[1] /
 
 
 class TransportEpoch(unittest.TestCase):
+    def test_resume_budget_and_oldest_due_prevent_starvation(self):
+        admin = psycopg2.connect(host='127.0.0.1',port=55439,dbname='postgres',user='ejcs1499');admin.autocommit=True
+        name='test_resume_'+uuid.uuid4().hex[:10]
+        with admin.cursor() as c:c.execute('CREATE DATABASE '+name)
+        conn=None
+        try:
+            conn=psycopg2.connect(host='127.0.0.1',port=55439,dbname=name,user='ejcs1499');conn.autocommit=True
+            with conn.cursor() as c:
+                c.execute('''DO $r$ BEGIN
+                  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
+                  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
+                  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
+                  END $r$;
+                  CREATE TABLE estados_monitor_runs(id uuid PRIMARY KEY,channel text,run_date date,status text,
+                    lease_expires_at timestamptz,depth_remaining int,finished_at timestamptz);
+                  CREATE TABLE estados_monitor_run_items(run_id uuid,work_item_id uuid,ordinal int,status text,
+                    attempts int,claimed_at timestamptz,lease_token uuid,next_attempt_at timestamptz,finished_at timestamptz,error_code text);
+                  CREATE TABLE public_monitor_dispatch_requests(request_id bigint PRIMARY KEY,channel text,start_new boolean);
+                  CREATE SCHEMA vault;
+                  CREATE TABLE vault.decrypted_secrets(name text,decrypted_secret text);
+                  INSERT INTO vault.decrypted_secrets VALUES('CRON_SERVICE_KEY','isolated-test-only'),('SUPABASE_URL','https://example.invalid');
+                  CREATE SCHEMA net;CREATE SEQUENCE net.test_request;
+                  CREATE FUNCTION net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds int) RETURNS bigint
+                    LANGUAGE sql AS $net$ SELECT nextval('net.test_request') $net$;''')
+                root=pathlib.Path(__file__).resolve().parents[1]
+                base=(root/'drizzle/migrations/0046_public_monitor_durable.sql').read_text()
+                start=base.index('CREATE FUNCTION public.claim_public_monitor_items(')
+                c.execute(base[start:base.index('$$;',start)+3])
+                c.execute((root/'coordination/public-monitor-dispatch-current-first.sql').read_text())
+                c.execute((root/'coordination/20261031_monitor_resume_fairness.sql').read_text())
+                run,a,b=str(uuid.uuid4()),str(uuid.uuid4()),str(uuid.uuid4())
+                c.execute("INSERT INTO estados_monitor_runs VALUES(%s,'publicaciones',(now() AT TIME ZONE 'America/Bogota')::date,'PARTIAL',now()-interval '1 second',0,NULL)",(run,))
+                c.execute("INSERT INTO estados_monitor_run_items(run_id,work_item_id,ordinal,status,attempts,next_attempt_at) VALUES(%s,%s,1,'PENDING',0,now()-interval '1 minute'),(%s,%s,2,'PENDING',0,now()-interval '2 hours')",(run,a,run,b))
+                c.execute("SELECT work_item_id FROM claim_public_monitor_items(%s,'publicaciones',1)",(run,));self.assertEqual(str(c.fetchone()[0]),b)
+                c.execute("SELECT work_item_id FROM claim_public_monitor_items(%s,'publicaciones',1)",(run,));self.assertEqual(str(c.fetchone()[0]),a)
+                c.execute("UPDATE estados_monitor_run_items SET status='PENDING',lease_token=NULL,next_attempt_at=now()+interval '10 minutes'")
+                c.execute('SELECT dispatch_public_monitors(false)');self.assertEqual(c.fetchone()[0],0)
+                c.execute('SELECT count(*) FROM public_monitor_dispatch_requests');self.assertEqual(c.fetchone()[0],0)
+                c.execute("UPDATE estados_monitor_run_items SET next_attempt_at=now()-interval '1 second' WHERE work_item_id=%s",(b,))
+                c.execute('SELECT dispatch_public_monitors(false)');self.assertEqual(c.fetchone()[0],1)
+                c.execute('SELECT depth_remaining,lease_expires_at>now() FROM estados_monitor_runs');self.assertEqual(c.fetchone(),(60,True))
+                c.execute('SELECT dispatch_public_monitors(false)');self.assertEqual(c.fetchone()[0],0)
+                c.execute('SELECT count(*) FROM public_monitor_dispatch_requests');self.assertEqual(c.fetchone()[0],1)
+        finally:
+            if conn:conn.close()
+            with admin.cursor() as c:c.execute('DROP DATABASE '+name)
+            admin.close()
+
     def test_deferred_read_is_neutral_and_fenced(self):
         admin = psycopg2.connect(host='127.0.0.1', port=55439, dbname='postgres', user='ejcs1499')
         admin.autocommit = True
