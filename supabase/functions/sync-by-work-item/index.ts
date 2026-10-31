@@ -1715,6 +1715,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     };
     console.info('[sync.phase]', JSON.stringify({ phase: 'freshness_context_finish', trace_id: traceId, work_item_id }));
 
+    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}, dbMaxActDate=${cpnuFreshnessCtx.dbMaxActDate}`);
+
     // Hearing backfill runs after the persistence loop. A pre-fetch write could
     // produce effects for an act whose later conditional enrichment fails.
 
