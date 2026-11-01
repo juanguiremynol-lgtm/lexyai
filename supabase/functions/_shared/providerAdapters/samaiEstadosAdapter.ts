@@ -34,6 +34,7 @@ import {
 } from '../radicadoUtils.ts';
 import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { internalBreakerRpc, isSharedSessionBlock, withSamaiEstadosBreaker } from './samaiEstadosBreaker.ts';
+import { validStoredSamaiRead } from '../storedSamaiRead.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -75,10 +76,11 @@ export async function fetchFromSamaiEstados(
   if (!supabaseUrl || !serviceKey) return emptyResult('ERROR', Date.now() - startTime, 'PROVIDER_BREAKER_UNAVAILABLE');
 
   try {
+    // The daily Cloud Run worker owns provider queries. Reading its persisted
+    // certificate remains possible while the portal session breaker is open.
+    if (mode === 'monitoring') return await fetchMonitoring(radicado, baseUrl, apiKeyInfo, options, startTime);
     return await withSamaiEstadosBreaker(internalBreakerRpc(supabaseUrl, serviceKey), () =>
-      mode === 'monitoring'
-        ? fetchMonitoring(radicado, baseUrl, apiKeyInfo, options, startTime)
-        : fetchDiscovery(radicado, baseUrl, apiKeyInfo, options, startTime));
+      fetchDiscovery(radicado, baseUrl, apiKeyInfo, options, startTime));
   } catch (err: any) {
     const isTimeout = err instanceof DOMException && err.name === 'AbortError';
     return emptyResult(
@@ -104,14 +106,11 @@ async function fetchMonitoring(
   const headers = buildHeaders(apiKeyInfo);
   const timeout = options.timeoutMs || 90_000;
 
-  // POST /snapshot { radicado } — live, fresh data from samai-estados-api.
-  const url = `${cleanBase}/snapshot`;
-  const result = await fetchEndpoint(url, headers, timeout, options.signal, {
-    method: 'POST',
-    body: JSON.stringify({ radicado }),
-  });
+  // Read an already persisted source result; this route cannot open SAMAI.
+  const url = `${cleanBase}/persistido/${encodeURIComponent(radicado)}`;
+  const result = await fetchEndpoint(url, headers, timeout, options.signal);
 
-  if (result.ok && result.data && hasPublicationInventory(result.data)) {
+  if (result.ok && validStoredSamaiRead(result.data, radicado)) {
     const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
     const rowOutcomes: NonNullable<ProviderAdapterResult['rowOutcomes']> = [];
     const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches, rowOutcomes);
@@ -135,7 +134,7 @@ async function fetchMonitoring(
   return emptyResult(
     'ERROR',
     Date.now() - startTime,
-    result.error || 'INVALID_PUBLICATION_INVENTORY',
+    result.error || result.data?.motivo_parcial || 'INCOMPLETE_STORED_PUBLICATION_INVENTORY',
     result.httpStatus,
   );
 }

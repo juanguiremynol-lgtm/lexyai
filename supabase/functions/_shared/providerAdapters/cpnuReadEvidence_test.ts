@@ -31,6 +31,12 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
     const empty = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
     assert.equal(empty.status,'EMPTY');
     assert.equal(empty.sourceObservedAt,observed);
+    const legacyEmpty = toOrchestratorResult(empty);
+    assert.equal(legacyEmpty.ok,true);
+    assert.equal(legacyEmpty.sourceObservedAt,observed);
+    assert.equal(legacyEmpty.sourceReadComplete,true);
+    assert.equal(toOrchestratorResult({...empty,sourceObservedAt:undefined,sourceReadComplete:false}).ok,false);
+    assert.equal(toOrchestratorResult({...empty,sourceReadComplete:false}).ok,false);
     const negative = {success:false,motivo:'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR',
       interpretacion:'PROVEEDOR_NO_TIENE_EL_PROCESO',proveedor_consultado:true,ultima_consulta_proveedor_en:observed};
     globalThis.fetch = async () => Response.json(negative,{status:410});
