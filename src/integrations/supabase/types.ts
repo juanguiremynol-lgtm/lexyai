@@ -5811,6 +5811,33 @@ export type Database = {
           },
         ]
       }
+      cpnu_stored_consumer_acceptance_20261101: {
+        Row: {
+          before_acts: Json
+          before_timeline: Json | null
+          key: string
+          recorded_at: string
+          request_id: number | null
+          work_item_id: string
+        }
+        Insert: {
+          before_acts: Json
+          before_timeline?: Json | null
+          key: string
+          recorded_at?: string
+          request_id?: number | null
+          work_item_id: string
+        }
+        Update: {
+          before_acts?: Json
+          before_timeline?: Json | null
+          key?: string
+          recorded_at?: string
+          request_id?: number | null
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       cpnu_stored_queue_acceptance_20261101: {
         Row: {
           ordinal: number
@@ -11797,6 +11824,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      lifecycle_delivery_backup_20261101: {
+        Row: {
+          before_job: Json
+          key: string
+          recorded_at: string
+        }
+        Insert: {
+          before_job: Json
+          key: string
+          recorded_at?: string
+        }
+        Update: {
+          before_job?: Json
+          key?: string
+          recorded_at?: string
+        }
+        Relationships: []
+      }
+      lifecycle_delivery_kicks_20261101: {
+        Row: {
+          error_state: string | null
+          queued: boolean
+          recorded_at: string
+          transaction_id: number
+        }
+        Insert: {
+          error_state?: string | null
+          queued?: boolean
+          recorded_at?: string
+          transaction_id: number
+        }
+        Update: {
+          error_state?: string | null
+          queued?: boolean
+          recorded_at?: string
+          transaction_id?: number
+        }
+        Relationships: []
       }
       lifecycle_pause_refusals: {
         Row: {
