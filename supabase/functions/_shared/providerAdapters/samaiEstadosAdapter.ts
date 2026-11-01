@@ -124,6 +124,9 @@ async function fetchMonitoring(
       parties: null,
       durationMs: Date.now() - startTime,
       httpStatus: result.httpStatus,
+      sourceObservedAt: typeof result.data.consultado_en === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(result.data.consultado_en)
+        && Number.isFinite(Date.parse(result.data.consultado_en)) ? new Date(result.data.consultado_en).toISOString() : undefined,
+      sourceReadComplete: true,
       identityMismatches,
       rowOutcomes,
     };
