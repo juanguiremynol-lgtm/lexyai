@@ -94,7 +94,7 @@ function failedDownload(doc: Record<string, unknown>): boolean {
  * Returns `null` when the provider did not express the field at all — that is
  * "not observed", and it must never be flattened into an empty array.
  */
-export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
+export function normalizeActDocumentos(raw: unknown, canonical: (value: any) => string = observationCanonicalizer()): ActDocumento[] | null {
   if (raw === null || raw === undefined) return null;
   if (!Array.isArray(raw)) return null;
   const out: ActDocumento[] = [];
@@ -123,14 +123,16 @@ export function normalizeActDocumentos(raw: unknown): ActDocumento[] | null {
   }
   // Preserve uncertain name-only announcements; a filename cannot establish
   // that a later linked descriptor is the same document.
-  return mergeActDocumentos([], out) ?? [];
+  return mergeActDocumentos([], out, canonical) ?? [];
 }
 
 /** Additive union: filenames alone cannot identify two different documents. */
-export function mergeActDocumentos(existing: unknown, incoming: unknown): ActDocumento[] | null {
+/** `canonicalObservation` may be shared only by merges over the same immutable
+ * fresh read (one enrichment attempt); stored variant histories are then
+ * canonicalized once instead of once per merge. */
+export function mergeActDocumentos(existing: unknown, incoming: unknown, canonicalObservation: (value: any) => string = observationCanonicalizer()): ActDocumento[] | null {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return null;
   const out: ActDocumento[] = [];
-  const canonicalObservation = observationCanonicalizer();
   for (const value of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
     if (!value || typeof value !== 'object') continue;
     const doc = { ...value } as ActDocumento;
@@ -196,15 +198,16 @@ export function documentosEnrichmentPatch(
   incomingRaw: unknown,
   providerObservedAt: unknown,
   now: string = new Date().toISOString(),
+  canonical: (value: any) => string = observationCanonicalizer(),
 ): { documentos: ActDocumento[]; documentos_observados_en: string | null } | null {
-  const incoming = normalizeActDocumentos(incomingRaw);
+  const incoming = normalizeActDocumentos(incomingRaw, canonical);
   if (!incoming) return null;
 
   const current = Array.isArray(existing)
-    ? (normalizeActDocumentos(existing) ?? [])
+    ? (normalizeActDocumentos(existing, canonical) ?? [])
     : null;
 
-  const merged = mergeActDocumentos(current, incoming);
+  const merged = mergeActDocumentos(current, incoming, canonical);
   if (merged === null) return null;
   const improves = current === null || !sameDocumentObservation(merged, current);
 
