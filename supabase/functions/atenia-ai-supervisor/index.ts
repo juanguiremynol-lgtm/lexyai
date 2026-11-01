@@ -1244,7 +1244,10 @@ async function runQueueWorker(
       if (dailyChannel && job.work_item_id) {
         const { data: peek, error: peekError } = await supabase.rpc("peek_daily_update", {
           _work_item_id: job.work_item_id, _channel: dailyChannel });
-        if (!peekError && peek?.started) {
+        // Acts can consume a later stored CPNU snapshot without a new source
+        // query. The callee enforces that read-only continuation. Publication
+        // continuations are owned by their independent durable monitors.
+        if (!peekError && peek?.started && job.action_type !== 'RETRY_ACTS') {
           results.push(await deferDailyDuplicate(supabase, job, peek.next_eligible_at));
           continue;
         }
@@ -1256,6 +1259,7 @@ async function runQueueWorker(
           body: {
             work_item_id: job.work_item_id,
             force_refresh: false,
+            allow_buscar: false,
             _scheduled: true,
           },
         });
