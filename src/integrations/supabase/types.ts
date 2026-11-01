@@ -15112,6 +15112,39 @@ export type Database = {
         }
         Relationships: []
       }
+      pp_completed_reader_recovery_20261101: {
+        Row: {
+          gate_before: Json
+          item_before: Json
+          native_observed_at: string
+          native_run_id: string
+          recovered_at: string
+          run_before: Json
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          gate_before: Json
+          item_before: Json
+          native_observed_at: string
+          native_run_id: string
+          recovered_at?: string
+          run_before: Json
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          gate_before?: Json
+          item_before?: Json
+          native_observed_at?: string
+          native_run_id?: string
+          recovered_at?: string
+          run_before?: Json
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       pp_uuid_acceptance_20261101: {
         Row: {
           accepted_at: string
@@ -17062,6 +17095,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      samai_cpu_delivery_recovery_20261101: {
+        Row: {
+          channels_before: Json
+          failed_request_id: number
+          recovered_at: string
+          request_id: number | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          channels_before: Json
+          failed_request_id: number
+          recovered_at?: string
+          request_id?: number | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Update: {
+          channels_before?: Json
+          failed_request_id?: number
+          recovered_at?: string
+          request_id?: number | null
+          run_date?: string
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
       }
       samai_delivery_acceptance_20261101: {
         Row: {
