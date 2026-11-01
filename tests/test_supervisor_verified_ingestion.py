@@ -54,6 +54,10 @@ def test_verified_ingestion_and_independent_monitor_ownership():
                 c.execute('SELECT status,attempts FROM atenia_ai_remediation_queue WHERE id=%s',(qid,));assert c.fetchone()==('PENDING',0)
             c.execute('SELECT * FROM atenia_ai_claim_supported_queue(5)');c.fetchall()
             c.execute('SELECT count(*) FROM supervisor_verified_ingestion_20261101');assert c.fetchone()[0]==1
+            c.execute("UPDATE work_items SET monitoring_enabled=true WHERE id=%s",(paused,))
+            c.execute("UPDATE work_item_sync_timeline SET metadata=metadata||jsonb_build_object('source_observed_at',now()-interval '25 hours') WHERE work_item_id=%s",(paused,))
+            c.execute('SELECT * FROM atenia_ai_claim_supported_queue(5)');reactivated=c.fetchall()
+            assert any(str(x[0])==pausedq for x in reactivated)
             c.execute('SAVEPOINT noauth');c.execute("SET LOCAL test.auth_role='authenticated'")
             try:c.execute('SELECT * FROM atenia_ai_claim_supported_queue(5)')
             except psycopg2.errors.InsufficientPrivilege:c.execute('ROLLBACK TO SAVEPOINT noauth')
