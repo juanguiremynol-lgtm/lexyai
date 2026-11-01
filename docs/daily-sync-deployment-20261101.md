@@ -1,3 +1,5 @@
+> Continuación posterior: [aceptación del 1/11](daily-sync-acceptance-20261101.md). El despliegue pendiente por UUID y la corrección de CPU ya se publicaron; este documento conserva su corte histórico.
+
 # Coordinación del consumidor diario — 1 de noviembre de 2026
 
 Corte de resultados: **31 de octubre de 2026, 21:42:19 America/Bogota**.
