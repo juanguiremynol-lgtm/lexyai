@@ -107,14 +107,38 @@ export function calendarDaysBetween(baseYmd: string, cutYmd: string): number {
 
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
-/** A row is attributed to the matter when it carries no foreign radicado. */
-function attributed(sourceRadicado: unknown, radicado: string | null): boolean {
-  const src = digits(sourceRadicado);
-  if (!src) return true;
+/**
+ * Known judicial provider sources. A row from one of these with no
+ * source_radicado is native to the matter's own provider read (CPNU/SAMAI
+ * rows are fetched by the matter's radicado). Any other source (unknown,
+ * manual, email, joint-PDF extracts) must carry an explicit, matching
+ * source_radicado — absence of a foreign radicado is not attribution.
+ */
+const NATIVE_ACT_SOURCES = new Set(["cpnu", "samai", "samai_estados", "icarus_import"]);
+
+function attributed(
+  sourceRadicado: unknown,
+  radicado: string | null,
+  source: unknown,
+  allowNative: boolean,
+): boolean {
   const own = digits(radicado);
   if (!own) return false;
+  const src = digits(sourceRadicado);
+  if (!src) return allowNative && NATIVE_ACT_SOURCES.has(String(source ?? "").toLowerCase());
   return src.slice(0, 21) === own.slice(0, 21);
 }
+
+/** Recognised successful read states (scrape_status enum / work_item_sources enum). */
+const SUCCESS_STATES = new Set(["SUCCESS", "OK"]);
+/** States that mean the CURRENT read is not complete; they override older successes. */
+const INCOMPLETE_STATES = new Set(["FAILED", "PARTIAL_SUCCESS", "ERROR", "IN_PROGRESS", "SCRAPING_PENDING"]);
+/**
+ * Coverage recency: the existing 3-day estados ingestion SLA
+ * (mem: estados-staleness-alert-rules). A success older than this cannot
+ * certify silence up to today's cut.
+ */
+export const COVERAGE_SLA_DAYS = 3;
 
 export interface SilenceActRow {
   act_date: string | null;
@@ -122,6 +146,8 @@ export interface SilenceActRow {
   source_radicado?: string | null;
   is_archived?: boolean | null;
   is_future_dated?: boolean | null;
+  is_canonical?: boolean | null;
+  requiere_revision_manual?: boolean | null;
 }
 export interface SilencePubRow {
   fecha_fijacion: string | null;
@@ -131,12 +157,24 @@ export interface SilencePubRow {
   source_radicado?: string | null;
   is_archived?: boolean | null;
   is_future_dated?: boolean | null;
+  is_canonical?: boolean | null;
+  requiere_revision_manual?: boolean | null;
 }
 export interface SilenceSourceRow {
   source_input_type?: string | null;
   scrape_status?: string | null;
   last_error_code?: string | null;
   last_synced_at?: string | null;
+}
+/**
+ * Lawyer-verified last providencia (REFERENCIA MANUAL, never CPNU). Read from
+ * manual_court_findings once a dedicated finding_kind is allowed there.
+ */
+export interface SilenceManualReference {
+  finding_id: string;
+  fecha_providencia: string;
+  verified_on: string;
+  verified_by: string | null;
 }
 
 export interface SilenceEvaluationInput {
@@ -150,9 +188,12 @@ export interface SilenceEvaluationInput {
   fecha_ingreso?: string | null;
   acts: SilenceActRow[];
   pubs: SilencePubRow[];
+  /** First row should be the work-item level read state. */
   sources: SilenceSourceRow[];
-  /** Manual portal findings for this matter (finding_kind). */
   manual_findings?: string[];
+  manual_references?: SilenceManualReference[];
+  /** Internal query failures; any entry makes the result not verifiable. */
+  read_errors?: string[];
 }
 
 export type SilenceKind = "EXCLUDED" | "NO_VERIFICABLE" | "SIN_ACTUACIONES" | "SILENCIO";
@@ -160,15 +201,29 @@ export type SilenceKind = "EXCLUDED" | "NO_VERIFICABLE" | "SIN_ACTUACIONES" | "S
 export interface SilenceEvaluation {
   kind: SilenceKind;
   excluded_reason?: string;
+  /** Why it is not verifiable (NO_VERIFICABLE only). */
+  causa?: string;
   corte: string;
-  /** Most recent valid judicial date, and which one it is. */
+  /** Last date our reads were complete; silence is certified only up to it. */
+  ultima_verificacion: string | null;
   fecha_base: string | null;
-  fuente_base: "actuacion" | "estado" | null;
+  fuente_base: "actuacion" | "estado" | "referencia_manual" | null;
   dias: number | null;
   ultima_actuacion: { fecha: string; fuente: string; dias: number } | null;
   ultimo_estado: { fecha_estado: string; fecha_providencia: string | null; fuente: string; dias: number } | null;
+  referencia_manual: { fecha_providencia: string; verificado_el: string; finding_id: string; dias: number } | null;
   fecha_ficha: string;
   fecha_ingreso: string | null;
+}
+
+function validRow(r: {
+  is_archived?: boolean | null;
+  is_future_dated?: boolean | null;
+  is_canonical?: boolean | null;
+  requiere_revision_manual?: boolean | null;
+}): boolean {
+  // Archived, superseded (non-canonical) and under-review rows never count.
+  return !r.is_archived && !r.is_future_dated && r.is_canonical !== false && !r.requiere_revision_manual;
 }
 
 export function evaluateSilence(input: SilenceEvaluationInput, now = new Date()): SilenceEvaluation {
@@ -176,11 +231,13 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
   const base: SilenceEvaluation = {
     kind: "EXCLUDED",
     corte,
+    ultima_verificacion: null,
     fecha_base: null,
     fuente_base: null,
     dias: null,
     ultima_actuacion: null,
     ultimo_estado: null,
+    referencia_manual: null,
     fecha_ficha: bogotaDate(input.created_at),
     fecha_ingreso: input.fecha_ingreso ? bogotaDate(input.fecha_ingreso) : null,
   };
@@ -189,6 +246,10 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
   if (input.deleted_at) return { ...base, excluded_reason: "DELETED" };
   if (state !== "ACTIVE" || EXCLUDED_LIFECYCLE.has(state)) return { ...base, excluded_reason: state || "UNKNOWN" };
   if (input.monitoring_enabled !== true) return { ...base, excluded_reason: "MONITORING_OFF" };
+
+  if (input.read_errors && input.read_errors.length > 0) {
+    return { ...base, kind: "NO_VERIFICABLE", causa: `LECTURA_INTERNA_FALLIDA: ${input.read_errors.join(", ")}` };
+  }
 
   const restricted =
     input.sources.some((s) =>
@@ -199,21 +260,22 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
 
   let lastAct: SilenceEvaluation["ultima_actuacion"] = null;
   for (const a of input.acts) {
-    if (!a.act_date || a.is_archived || a.is_future_dated) continue;
+    if (!a.act_date || !validRow(a)) continue;
     if (NON_JUDICIAL_ACT_SOURCES.has(String(a.source ?? "").toLowerCase())) continue;
-    if (!attributed(a.source_radicado, input.radicado)) continue;
+    if (!attributed(a.source_radicado, input.radicado, a.source, true)) continue;
     const f = bogotaDate(a.act_date);
     if (f > corte) continue;
     if (!lastAct || f > lastAct.fecha) {
-      lastAct = { fecha: f, fuente: String(a.source ?? "desconocida"), dias: calendarDaysBetween(f, corte) };
+      lastAct = { fecha: f, fuente: String(a.source), dias: calendarDaysBetween(f, corte) };
     }
   }
 
   let lastPub: SilenceEvaluation["ultimo_estado"] = null;
   for (const p of input.pubs) {
-    if (!p.fecha_fijacion || p.is_archived || p.is_future_dated) continue;
+    if (!p.fecha_fijacion || !validRow(p)) continue;
     if (NON_JUDICIAL_DATE_SOURCES.has(String(p.date_source ?? "").toLowerCase())) continue;
-    if (!attributed(p.source_radicado, input.radicado)) continue;
+    // Estados (incl. joint-PDF packages) always need an explicit matching radicado.
+    if (!attributed(p.source_radicado, input.radicado, p.source, false)) continue;
     const f = bogotaDate(p.fecha_fijacion);
     if (f > corte) continue;
     if (!lastPub || f > lastPub.fecha_estado) {
@@ -226,47 +288,89 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
     }
   }
 
-  const out = { ...base, ultima_actuacion: lastAct, ultimo_estado: lastPub };
-  if (restricted) return { ...out, kind: "NO_VERIFICABLE" };
-
-  const coverage = input.sources.some((s) =>
-    !!s.last_synced_at && !["FAILED", "ERROR", "IN_PROGRESS", "NOT_ATTEMPTED", "PARTIAL_SUCCESS"].includes(String(s.scrape_status ?? "").toUpperCase())
-  );
-  if (!lastAct && !lastPub) {
-    return { ...out, kind: coverage ? "SIN_ACTUACIONES" : "NO_VERIFICABLE" };
+  let manual: SilenceEvaluation["referencia_manual"] = null;
+  for (const m of input.manual_references ?? []) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.fecha_providencia) || m.fecha_providencia > corte) continue;
+    if (!manual || m.fecha_providencia > manual.fecha_providencia) {
+      manual = {
+        fecha_providencia: m.fecha_providencia,
+        verificado_el: m.verified_on,
+        finding_id: m.finding_id,
+        dias: calendarDaysBetween(m.fecha_providencia, corte),
+      };
+    }
   }
-  if (!coverage) return { ...out, kind: "NO_VERIFICABLE" };
 
-  const useEstado = !!lastPub && (!lastAct || lastPub.fecha_estado >= lastAct.fecha);
-  const fecha_base = useEstado ? lastPub!.fecha_estado : lastAct!.fecha;
-  return {
-    ...out,
-    kind: "SILENCIO",
-    fecha_base,
-    fuente_base: useEstado ? "estado" : "actuacion",
-    dias: calendarDaysBetween(fecha_base, corte),
-  };
+  // Coverage: the current state of every reported source must be a recognised
+  // success; any current incomplete source wins over older successes.
+  const states = input.sources.filter((s) => s.scrape_status != null || s.last_synced_at != null);
+  const incomplete = states.find((s) => INCOMPLETE_STATES.has(String(s.scrape_status ?? "").toUpperCase()));
+  const successes = states
+    .filter((s) => SUCCESS_STATES.has(String(s.scrape_status ?? "").toUpperCase()) && s.last_synced_at)
+    .map((s) => bogotaDate(s.last_synced_at!));
+  const allRecognised = states.length > 0 &&
+    states.every((s) => SUCCESS_STATES.has(String(s.scrape_status ?? "").toUpperCase()) && s.last_synced_at);
+  // Silence is certified only up to the OLDEST current success.
+  const ultima_verificacion = allRecognised ? successes.sort()[0] : (successes.sort().pop() ?? null);
+
+  const out = { ...base, ultima_actuacion: lastAct, ultimo_estado: lastPub, referencia_manual: manual, ultima_verificacion };
+  if (restricted) return { ...out, kind: "NO_VERIFICABLE", causa: "PROCESO_PRIVADO" };
+  if (incomplete) {
+    return { ...out, kind: "NO_VERIFICABLE", causa: `LECTURA_ACTUAL_${String(incomplete.scrape_status).toUpperCase()}` };
+  }
+  if (!allRecognised) return { ...out, kind: "NO_VERIFICABLE", causa: "SIN_LECTURA_EXITOSA_RECONOCIDA" };
+  if (calendarDaysBetween(ultima_verificacion!, corte) > COVERAGE_SLA_DAYS) {
+    return { ...out, kind: "NO_VERIFICABLE", causa: "LECTURA_FUERA_DE_SLA" };
+  }
+
+  const candidates: Array<{ f: string; s: "actuacion" | "estado" | "referencia_manual" }> = [];
+  if (lastAct) candidates.push({ f: lastAct.fecha, s: "actuacion" });
+  if (lastPub) candidates.push({ f: lastPub.fecha_estado, s: "estado" });
+  if (manual) candidates.push({ f: manual.fecha_providencia, s: "referencia_manual" });
+  if (candidates.length === 0) return { ...out, kind: "SIN_ACTUACIONES" };
+  // Latest date wins; on ties prefer provider estado > actuación > manual.
+  const rank = { estado: 0, actuacion: 1, referencia_manual: 2 };
+  candidates.sort((a, b) => (a.f === b.f ? rank[a.s] - rank[b.s] : a.f < b.f ? 1 : -1));
+  const top = candidates[0];
+  return { ...out, kind: "SILENCIO", fecha_base: top.f, fuente_base: top.s, dias: calendarDaysBetween(top.f, corte) };
 }
 
 /** Whether the sweep should emit a notice (informational only). */
-export function shouldNotify(ev: SilenceEvaluation, silenceDays = SILENCE_DAYS): boolean {
+export function shouldNotify(ev: SilenceEvaluation, silenceDays = SILENCE_DAYS, minAgeDays = MIN_AGE_DAYS): boolean {
   if (ev.kind === "EXCLUDED") return false;
+  // Internal read failures are reported, never written as a notice.
+  if (ev.causa?.startsWith("LECTURA_INTERNA_FALLIDA")) return false;
+  // IT1(d) — never on a newly registered card, for every notice kind.
+  if (calendarDaysBetween(ev.fecha_ficha, ev.corte) < minAgeDays) return false;
   if (ev.kind === "SILENCIO") return (ev.dias ?? 0) >= silenceDays;
-  // No-verifiable / no-publications: never on a newly registered card.
-  return calendarDaysBetween(ev.fecha_ficha, ev.corte) >= MIN_AGE_DAYS;
+  return true;
+}
+
+const CAUSA_ES: Record<string, string> = {
+  PROCESO_PRIVADO: "expediente con reserva o acceso restringido",
+  SIN_LECTURA_EXITOSA_RECONOCIDA: "no hay una lectura exitosa reconocida",
+  LECTURA_FUERA_DE_SLA: `la última lectura exitosa supera ${COVERAGE_SLA_DAYS} días`,
+};
+function causaEs(c?: string): string {
+  if (!c) return "";
+  if (c.startsWith("LECTURA_ACTUAL_")) return `la lectura actual está incompleta (${c.slice(15).toLowerCase()})`;
+  if (c.startsWith("LECTURA_INTERNA_FALLIDA")) return "falló la consulta interna de Andrómeda";
+  return CAUSA_ES[c] ?? c;
 }
 
 /** One human line with base, source and cut — shared by UI and backend. */
 export function describeSilence(ev: SilenceEvaluation): string {
   const ficha = `ficha creada el ${ev.fecha_ficha} (no es una actuación)`;
   const ingreso = ev.fecha_ingreso ? `; fecha de ingreso/reparto ${ev.fecha_ingreso} (no es una actuación)` : "";
+  const verif = ev.ultima_verificacion ? `última verificación completa ${ev.ultima_verificacion}` : "sin verificación completa";
   switch (ev.kind) {
     case "EXCLUDED":
       return `Sin aviso: asunto excluido (${ev.excluded_reason}).`;
     case "NO_VERIFICABLE":
-      return `${ESTADO_NO_VERIFICABLE}. No se afirma inactividad. Corte ${ev.corte}; ${ficha}${ingreso}.`;
+      return `${ESTADO_NO_VERIFICABLE}. Causa: ${causaEs(ev.causa)}. No se afirma inactividad. ` +
+        `Corte ${ev.corte}; ${verif}; ${ficha}${ingreso}.`;
     case "SIN_ACTUACIONES":
-      return `${SIN_ACTUACIONES_VERIFICABLES}. Corte ${ev.corte}; ${ficha}${ingreso}.`;
+      return `${SIN_ACTUACIONES_VERIFICABLES}. Corte ${ev.corte}; ${verif}; ${ficha}${ingreso}.`;
     case "SILENCIO": {
       const parts: string[] = [];
       if (ev.ultima_actuacion) {
@@ -276,9 +380,23 @@ export function describeSilence(ev: SilenceEvaluation): string {
         const prov = ev.ultimo_estado.fecha_providencia ? `, providencia ${ev.ultimo_estado.fecha_providencia}` : "";
         parts.push(`último estado ${ev.ultimo_estado.fecha_estado}${prov} (${ev.ultimo_estado.fuente}): ${ev.ultimo_estado.dias} días`);
       }
-      return `Fecha base ${ev.fecha_base} (${ev.fuente_base}); corte ${ev.corte} (America/Bogota, días calendario). ${parts.join("; ")}.`;
+      if (ev.referencia_manual) {
+        parts.push(`referencia manual verificada por el abogado el ${ev.referencia_manual.verificado_el}: providencia ` +
+          `${ev.referencia_manual.fecha_providencia} (no proviene del proveedor): ${ev.referencia_manual.dias} días`);
+      }
+      return `Fecha base ${ev.fecha_base} (${ev.fuente_base}); corte ${ev.corte} (America/Bogota, días calendario); ` +
+        `${verif}. ${parts.join("; ")}.`;
     }
   }
+}
+
+/** Channel lines from work-item level coverage evidence (never "sin lectura" when a read exists). */
+export function channelEvidence(ev: SilenceEvaluation, scrapeStatus: string | null): SilenceChannelEvidence[] {
+  const respuesta = scrapeStatus ? `lectura de la ficha: ${String(scrapeStatus).toLowerCase()}` : "sin lectura registrada en la ficha";
+  return [
+    { canal: "Actuaciones", ultimo_dato: ev.ultima_actuacion?.fecha ?? null, ultima_respuesta: respuesta, ultima_lectura: ev.ultima_verificacion },
+    { canal: "Estados", ultimo_dato: ev.ultimo_estado?.fecha_estado ?? null, ultima_respuesta: respuesta, ultima_lectura: ev.ultima_verificacion },
+  ];
 }
 
 export interface SilenceNoticeInput {
@@ -298,7 +416,7 @@ export function buildSilenceNotice(input: SilenceNoticeInput): { title: string; 
       (c) =>
         `• ${c.canal}: último dato ${c.ultimo_dato ?? "ninguno"}; ` +
         `última respuesta del proveedor: ${c.ultima_respuesta}` +
-        (c.ultima_lectura ? ` (leído el ${bogotaDate(c.ultima_lectura)})` : " (sin lectura concluida)"),
+        (c.ultima_lectura ? ` (última lectura completa ${c.ultima_lectura})` : ""),
     )
     .join("\n");
 
