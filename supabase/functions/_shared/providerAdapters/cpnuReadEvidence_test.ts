@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { cpnuSourceObservation, cpnuNegativeEvidence } from './cpnuReadEvidence.ts';
+import { cpnuSourceObservation, cpnuNegativeEvidence, cpnuObservedSnapshotIsCurrent } from './cpnuReadEvidence.ts';
 import { fetchFromCpnu } from './cpnuAdapter.ts';
 import { toOrchestratorResult } from './bridge.ts';
 
@@ -37,6 +37,21 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
     assert.equal(legacyEmpty.sourceReadComplete,true);
     assert.equal(toOrchestratorResult({...empty,sourceObservedAt:undefined,sourceReadComplete:false}).ok,false);
     assert.equal(toOrchestratorResult({...empty,sourceReadComplete:false}).ok,false);
+    const now = Date.now();
+    const current = {observedAt:new Date(now-1000).toISOString(),complete:true,
+      snapshotMaxDate:'2026-04-17',dbMaxDate:'2026-04-17',count:25,historicalCount:25};
+    assert.equal(cpnuObservedSnapshotIsCurrent(current,now),true);
+    assert.equal(cpnuObservedSnapshotIsCurrent({...current,complete:false},now),false);
+    assert.equal(cpnuObservedSnapshotIsCurrent({...current,observedAt:new Date(now-86400001).toISOString()},now),false);
+    assert.equal(cpnuObservedSnapshotIsCurrent({...current,observedAt:new Date(now+1).toISOString()},now),false);
+    assert.equal(cpnuObservedSnapshotIsCurrent({...current,dbMaxDate:'2026-10-20'},now),false);
+    assert.equal(cpnuObservedSnapshotIsCurrent({...current,count:2},now),false);
+    globalThis.fetch = async () => Response.json({found:true,fetchedAt:current.observedAt,
+      actuaciones:[{actuacion:'Acta de audiencia',fechaActuacion:'2026-04-17'}]});
+    const quiet = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false,dbMaxActDate:'2026-04-17'});
+    assert.equal(quiet.sourceReadComplete,true);
+    assert.equal(quiet.cpnuIngestionMeta?.buscar_deferred,undefined);
+    assert.equal(quiet.cpnuIngestionMeta?.source_mode,'SNAPSHOT');
     const negative = {success:false,motivo:'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR',
       interpretacion:'PROVEEDOR_NO_TIENE_EL_PROCESO',proveedor_consultado:true,ultima_consulta_proveedor_en:observed};
     globalThis.fetch = async () => Response.json(negative,{status:410});
