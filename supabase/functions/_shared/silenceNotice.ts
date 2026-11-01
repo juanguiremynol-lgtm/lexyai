@@ -230,7 +230,7 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
   if (restricted) return { ...out, kind: "NO_VERIFICABLE" };
 
   const coverage = input.sources.some((s) =>
-    !!s.last_synced_at && !["FAILED", "ERROR", "IN_PROGRESS", "NOT_ATTEMPTED"].includes(String(s.scrape_status ?? "").toUpperCase())
+    !!s.last_synced_at && !["FAILED", "ERROR", "IN_PROGRESS", "NOT_ATTEMPTED", "PARTIAL_SUCCESS"].includes(String(s.scrape_status ?? "").toUpperCase())
   );
   if (!lastAct && !lastPub) {
     return { ...out, kind: coverage ? "SIN_ACTUACIONES" : "NO_VERIFICABLE" };

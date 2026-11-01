@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
 
   const { data: items, error } = await supabase
     .from("work_items")
-    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled")
+    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled, scrape_status, last_error_code, last_successful_sync_at, provider_detail_exposure")
     .is("deleted_at", null)
     .eq("lifecycle_state", "ACTIVE")
     .eq("monitoring_enabled", true);
@@ -110,7 +110,17 @@ Deno.serve(async (req) => {
       created_at: wi.created_at,
       acts: acts ?? [],
       pubs: pubs ?? [],
-      sources: sources ?? [],
+      // Work-item level read state is the primary coverage evidence;
+      // work_item_sources rows are sparse.
+      sources: [
+        {
+          source_input_type: "WORK_ITEM",
+          scrape_status: wi.scrape_status,
+          last_error_code: wi.provider_detail_exposure === "PROCESO_PRIVADO" ? "PROCESO_PRIVADO" : wi.last_error_code,
+          last_synced_at: wi.last_successful_sync_at,
+        },
+        ...(sources ?? []),
+      ],
       manual_findings: (findings ?? []).map((f) => String(f.finding_kind)),
     }, now);
 
