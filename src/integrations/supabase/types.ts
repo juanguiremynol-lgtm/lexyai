@@ -15085,6 +15085,33 @@ export type Database = {
           },
         ]
       }
+      pp_amaga_attachment_recovery_20261101: {
+        Row: {
+          native_article_id: string
+          native_asset_id: string
+          publicacion_id: string
+          publication_before: Json
+          recovered_at: string
+          remote_url: string
+        }
+        Insert: {
+          native_article_id: string
+          native_asset_id: string
+          publicacion_id: string
+          publication_before: Json
+          recovered_at?: string
+          remote_url: string
+        }
+        Update: {
+          native_article_id?: string
+          native_asset_id?: string
+          publicacion_id?: string
+          publication_before?: Json
+          recovered_at?: string
+          remote_url?: string
+        }
+        Relationships: []
+      }
       privacy_policy_versions: {
         Row: {
           active: boolean
