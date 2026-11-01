@@ -10,6 +10,8 @@ import {
   evaluateSilence,
   shouldNotify,
   isSilenceCandidate,
+  describeSilence,
+  channelEvidence,
   ESTADO_NO_VERIFICABLE,
   SIN_ACTUACIONES_VERIFICABLES,
   SILENCIO_ES_NORMAL,
@@ -39,7 +41,7 @@ describe("silence · judicial base dates", () => {
     for (const cut of [CUT, CUT_LATE]) {
       const ev = evaluateSilence(base({
         acts: [{ act_date: "2025-07-09", source: "cpnu" }],
-        pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: "2025-07-09T05:00:00Z", source: "publicaciones" }],
+        pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: "2025-07-09T05:00:00Z", source: "publicaciones", source_radicado: RAD }],
       }), cut);
       expect(ev.corte).toBe("2026-11-01");
       expect(ev.ultima_actuacion?.dias).toBe(480);
@@ -64,7 +66,7 @@ describe("silence · judicial base dates", () => {
 
   it("no UTC truncation off-by-one: estado fijado 2025-07-10 00:00 Bogotá", () => {
     const ev = evaluateSilence(base({
-      pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: null }],
+      pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: null, source_radicado: RAD }],
     }), CUT_LATE);
     expect(ev.dias).toBe(479);
     expect(calendarDaysBetween("2025-07-10", "2026-11-01")).toBe(479);
@@ -150,5 +152,80 @@ describe("IT1 · copy", () => {
   });
   it("offers the pause as the lawyer's option only", () => {
     expect(notice.message).toContain(DECISION_ES_SUYA);
+  });
+});
+
+describe("silence · review risks (2026-11-01)", () => {
+  const act = [{ act_date: "2025-07-09", source: "cpnu" }];
+
+  it("(1) internal read failure is not verifiable and never notifies", () => {
+    const ev = evaluateSilence(base({ read_errors: ["work_item_acts"] }), CUT);
+    expect(ev.kind).toBe("NO_VERIFICABLE");
+    expect(ev.causa).toContain("LECTURA_INTERNA_FALLIDA");
+    expect(shouldNotify(ev)).toBe(false);
+  });
+
+  it("(2) null status, unknown status and stale success do not certify silence", () => {
+    for (const s of [
+      { scrape_status: null, last_synced_at: "2026-10-31T12:00:00Z" },
+      { scrape_status: "WHATEVER", last_synced_at: "2026-10-31T12:00:00Z" },
+    ]) {
+      expect(evaluateSilence(base({ acts: act, sources: [s] }), CUT).kind).toBe("NO_VERIFICABLE");
+    }
+    const stale = evaluateSilence(base({ acts: act, sources: [{ scrape_status: "SUCCESS", last_synced_at: "2026-10-20T12:00:00Z" }] }), CUT);
+    expect(stale.kind).toBe("NO_VERIFICABLE");
+    expect(stale.causa).toBe("LECTURA_FUERA_DE_SLA");
+    expect(stale.ultima_verificacion).toBe("2026-10-20");
+  });
+
+  it("(2) a current partial/failed source is not hidden by an older success", () => {
+    const ev = evaluateSilence(base({
+      acts: act,
+      sources: [
+        { scrape_status: "SUCCESS", last_synced_at: "2026-10-31T12:00:00Z" },
+        { scrape_status: "PARTIAL_SUCCESS", last_synced_at: "2026-10-01T12:00:00Z" },
+      ],
+    }), CUT);
+    expect(ev.kind).toBe("NO_VERIFICABLE");
+    expect(ev.causa).toBe("LECTURA_ACTUAL_PARTIAL_SUCCESS");
+  });
+
+  it("(3) superseded, under-review, unknown-source and unattributed estado rows are not valid acts", () => {
+    const ev = evaluateSilence(base({
+      acts: [
+        { act_date: "2026-10-30", source: "cpnu", is_canonical: false },
+        { act_date: "2026-10-29", source: "cpnu", requiere_revision_manual: true },
+        { act_date: "2026-10-28", source: null },
+        { act_date: "2026-10-27", source: "publicaciones" },
+        { act_date: "2026-03-12", source: "cpnu" },
+      ],
+      pubs: [{ fecha_fijacion: "2026-10-31T12:00:00Z", fecha_providencia: null, source: "publicaciones" }],
+    }), CUT);
+    expect(ev.fecha_base).toBe("2026-03-12");
+    expect(ev.dias).toBe(234);
+  });
+
+  it("(4) minimum card age still applies to SILENCIO", () => {
+    const ev = evaluateSilence(base({ created_at: "2026-10-01T12:00:00Z", acts: act }), CUT);
+    expect(ev.kind).toBe("SILENCIO");
+    expect(shouldNotify(ev)).toBe(false);
+  });
+
+  it("(5) lawyer-verified manual reference is labelled and never reported as CPNU", () => {
+    const ev = evaluateSilence(base({
+      acts: act,
+      manual_references: [{ finding_id: "f1", fecha_providencia: "2026-03-12", verified_on: "2026-10-30", verified_by: "abogado" }],
+    }), CUT);
+    expect(ev.fuente_base).toBe("referencia_manual");
+    expect(ev.dias).toBe(234);
+    expect(ev.ultima_actuacion?.fecha).toBe("2025-07-09");
+    expect(describeSilence(ev)).toContain("no proviene del proveedor");
+  });
+
+  it("(6) channel lines reflect card-level coverage, no contradictory 'sin lectura'", () => {
+    const ev = evaluateSilence(base({ acts: act }), CUT);
+    const lines = channelEvidence(ev, "SUCCESS");
+    expect(lines[0].ultima_lectura).toBe("2026-10-31");
+    expect(lines.every((l) => !l.ultima_respuesta.includes("sin lectura"))).toBe(true);
   });
 });
