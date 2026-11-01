@@ -157,6 +157,7 @@ export interface OrchestratorFetchResult {
   latencyMs?: number;
   httpStatus?: number;
   sourceObservedAt?: string;
+  sourceReadComplete?: boolean;
   scrapingInitiated?: boolean;
   scrapingJobId?: string;
   scrapingPollUrl?: string;
@@ -416,6 +417,7 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     latencyMs: result.durationMs,
     httpStatus: result.httpStatus,
     sourceObservedAt: result.sourceObservedAt,
+    sourceReadComplete: result.sourceReadComplete,
     scrapingInitiated: result.scrapingJobId ? true : false,
     scrapingJobId: result.scrapingJobId,
     scrapingPollUrl: result.scrapingPollUrl,

@@ -133,7 +133,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     if (sealError || sealed !== true) return response({ error: sealError?.message ?? "Lease expired before completion", run_id: runId }, 503);
     const label = ppLabelFromResult(success, errorCode, result);
     const stampedAt = new Date().toISOString();
-    const patch: Record<string, unknown> = {
+    const patch: Record<string, unknown> = result.reused_completed_read === true ? {} : {
       // YY4 — every attempt moves the attempt clock, whatever the outcome.
       last_sync_attempt_at: stampedAt,
     };
@@ -149,8 +149,10 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       // A skip is not a read: it may relabel, but it must not move the clock.
       if (success) patch.pp_ultima_sync = stampedAt;
     }
-    const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
-    if (labelError) console.error("[estadosMonitor] no se pudo refrescar el estado de lectura", labelError.message);
+    if (Object.keys(patch).length) {
+      const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);
+      if (labelError) console.error("[estadosMonitor] no se pudo refrescar el estado de lectura", labelError.message);
+    }
   }
 
   const { data: finish, error: finishError } = await db.rpc("finish_public_monitor_hop", { _run_id: runId, _channel: channel });

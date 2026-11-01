@@ -44,6 +44,7 @@ import { parseCpnuSujetos } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { extractClaseProveedor, type ClaseProcesoContract } from '../claseProcesoContract.ts';
 import { classifyEmptyActuaciones, snapshotOrigenIsAuthoritative } from '../providerStrategy.ts';
+import { cpnuNegativeEvidence, cpnuSourceObservation } from './cpnuReadEvidence.ts';
 
 
 import {
@@ -313,6 +314,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     } catch {
       return makeErrorResult('INVALID_JSON_RESPONSE', startTime, snapshotResponse.status);
     }
+    if (!snapshotResponse.ok && snapshotResponse.status !== 404)
+      return makeErrorResult(`UPSTREAM_HTTP_${snapshotResponse.status}`, startTime, snapshotResponse.status);
 
     // ITER42: the clase contract is read ONCE, here, from the snapshot payload,
     // and then carried down every return path below. Before this, only the
@@ -320,9 +323,11 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     // last act was >7 days old (the overwhelming majority) went down /buscar and
     // the class was never read at all.
     const snapshotClase = extractClaseProveedor(snapshotData);
+    const sourceObservedAt = cpnuSourceObservation(snapshotData);
 
     // JSON 404 or not-found indicator → trigger scraping
     if (snapshotResponse.status === 404 || snapshotData.expediente_encontrado === false || snapshotData.found === false) {
+      if (!allowBuscar) return withClase(makeErrorResult('RECORD_NOT_FOUND', startTime, snapshotResponse.status), snapshotClase);
       console.log(`[cpnuAdapter] Record not found, triggering scraping...`);
       return await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime, snapshotClase);
     }
@@ -388,12 +393,15 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
         );
       }
 
-      return withClase(makeEmptyResult('No actuaciones found', startTime, snapshotResponse.status), snapshotClase);
+      const negative = cpnuNegativeEvidence(snapshotData);
+      if (negative) return withClase(makeErrorResult(negative, startTime, snapshotResponse.status), snapshotClase);
+      return withClase({ ...makeEmptyResult('No actuaciones found', startTime, snapshotResponse.status), sourceObservedAt }, snapshotClase);
     }
 
 
     // Handle pagination
     let allActuaciones = [...actuaciones];
+    let sourceReadComplete = cpnuNegativeEvidence(snapshotData) === undefined;
     const pagination = (nestedData?.paginacionActuaciones || snapshotData.paginacionActuaciones) as Record<string, unknown> | undefined;
     const totalPages = pagination ? parseInt(String(pagination.totalPaginas || '1')) : 1;
 
@@ -405,11 +413,13 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
           const pageResponse = await fetch(pageUrl, { method: 'GET', headers });
           if (pageResponse.ok) {
             const pageData = await pageResponse.json();
+            if (cpnuNegativeEvidence(pageData)) sourceReadComplete = false;
             const pageNested = pageData.data as Record<string, unknown> | undefined;
             const pageActs = (pageNested?.actuaciones || pageData.actuaciones || []) as Record<string, unknown>[];
             allActuaciones = [...allActuaciones, ...pageActs];
-          }
+          } else sourceReadComplete = false;
         } catch (e) {
+          sourceReadComplete = false;
           console.warn(`[cpnuAdapter] Page ${page} error:`, e);
         }
       }
@@ -451,6 +461,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
         return {
           provider: PROVIDER_KEY,
           status: 'SUCCESS',
+          sourceObservedAt,
+          sourceReadComplete,
           actuaciones: normalized,
           publicaciones: [],
           metadata: {
@@ -508,6 +520,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     return {
       provider: PROVIDER_KEY,
       status: 'SUCCESS',
+      sourceObservedAt,
+      sourceReadComplete,
       actuaciones: normalized,
       publicaciones: [],
       metadata,
@@ -543,6 +557,7 @@ async function handleScrapingFallback(
   carriedClase?: ClaseProcesoContract,
 ): Promise<ProviderAdapterResult> {
   const carry = (r: ProviderAdapterResult) => withClase(r, carriedClase);
+  if (options.allowBuscar === false) return carry(makeErrorResult('CPNU_BUSCAR_DEFERRED', startTime));
   // Trigger /buscar
   const buscarUrl = joinUrl(baseUrl, pathPrefix, `/buscar?numero_radicacion=${radicado}`);
   try {
@@ -550,14 +565,14 @@ async function handleScrapingFallback(
     const buscarResp = await fetch(buscarUrl, { method: 'GET', headers: buscarHeaders });
 
     if (!buscarResp.ok) {
-      return carry(makeEmptyResult('Scraping trigger failed', startTime, buscarResp.status));
+      return carry(makeErrorResult('Scraping trigger failed', startTime, buscarResp.status));
     }
 
     const buscarData = await buscarResp.json();
     const jobId = String(buscarData.jobId || buscarData.job_id || buscarData.id || '');
 
     if (!jobId) {
-      return carry(makeEmptyResult('RECORD_NOT_FOUND', startTime, 404));
+      return carry(makeErrorResult('INVALID_SCRAPING_ADMISSION', startTime, buscarResp.status));
     }
 
     // Build absolute poll URL
@@ -578,9 +593,13 @@ async function handleScrapingFallback(
       const polledSujetos = (resultData.sujetos || nestedResultData.sujetos || []) as Record<string, unknown>[];
 
       if (polledActs.length === 0) {
-        return withClase(makeEmptyResult('Scraping completed but no actuaciones', startTime, 200), polledClase);
+        const negative = cpnuNegativeEvidence(resultData);
+        if (negative) return withClase(makeErrorResult(negative, startTime, 200), polledClase);
+        return withClase({ ...makeEmptyResult('Scraping completed but no actuaciones', startTime, 200),
+          sourceObservedAt: cpnuSourceObservation(resultData) }, polledClase);
       }
 
+      let polledComplete = cpnuNegativeEvidence(resultData) === undefined;
       const despacho = String(resultData.despacho || nestedResultData.despacho || '');
 
       // ═══ PAGINATION: /buscar results may also be paginated (same as /snapshot) ═══
@@ -596,12 +615,14 @@ async function handleScrapingFallback(
             const pageResponse = await fetch(pageUrl, { method: 'GET', headers });
             if (pageResponse.ok) {
               const pageData = await pageResponse.json();
+              if (cpnuNegativeEvidence(pageData)) polledComplete = false;
               const pageNested = pageData.data as Record<string, unknown> | undefined;
               const pageActs = (pageNested?.actuaciones || pageData.actuaciones || []) as Record<string, unknown>[];
               polledActs = [...polledActs, ...pageActs];
               console.log(`[cpnuAdapter] /buscar page ${page}: +${pageActs.length} actuaciones (total: ${polledActs.length})`);
-            }
+            } else polledComplete = false;
           } catch (e) {
+            polledComplete = false;
             console.warn(`[cpnuAdapter] /buscar pagination page ${page} error:`, e);
           }
         }
@@ -629,6 +650,8 @@ async function handleScrapingFallback(
           tipo_proceso: (resultData.tipoProceso as string) || null,
           clase_proveedor: polledClase,
         },
+        sourceObservedAt: cpnuSourceObservation(resultData),
+        sourceReadComplete: polledComplete,
         parties,
         durationMs: Date.now() - startTime,
         httpStatus: 200,
@@ -681,7 +704,7 @@ async function handleScrapingFallback(
     });
 
   } catch (err) {
-    return carry(makeEmptyResult('RECORD_NOT_FOUND', startTime, 404));
+    return carry(makeErrorResult(err instanceof Error ? err.message : 'CPNU_QUERY_FAILED', startTime));
   }
 }
 
