@@ -407,7 +407,11 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
   }));
 
   return {
-    ok: result.status === 'SUCCESS',
+    // A certified CPNU zero-row response is still a successful source read.
+    // Otherwise the orchestrator synthesizes an empty result and loses the
+    // original observation clock. Uncertified empties remain incomplete.
+    ok: result.status === 'SUCCESS' || (result.provider === 'cpnu' &&
+      result.status === 'EMPTY' && result.sourceReadComplete === true && !!result.sourceObservedAt),
     actuaciones,
     caseMetadata: Object.keys(caseMetadata).length > 0 ? caseMetadata : undefined,
     sujetos,

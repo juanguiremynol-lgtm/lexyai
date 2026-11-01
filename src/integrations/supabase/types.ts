@@ -5811,6 +5811,24 @@ export type Database = {
           },
         ]
       }
+      cpnu_stored_queue_acceptance_20261101: {
+        Row: {
+          ordinal: number
+          request_id: number
+          requested_at: string
+        }
+        Insert: {
+          ordinal: number
+          request_id: number
+          requested_at?: string
+        }
+        Update: {
+          ordinal?: number
+          request_id?: number
+          requested_at?: string
+        }
+        Relationships: []
+      }
       crawler_run_steps: {
         Row: {
           created_at: string
@@ -17678,6 +17696,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      supervisor_claim_backup_20261101: {
+        Row: {
+          acl: string | null
+          applied_md5: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+        }
+        Insert: {
+          acl?: string | null
+          applied_md5?: string | null
+          definition: string
+          key: string
+          owner_name?: unknown
+        }
+        Update: {
+          acl?: string | null
+          applied_md5?: string | null
+          definition?: string
+          key?: string
+          owner_name?: unknown
+        }
+        Relationships: []
+      }
+      supervisor_verified_ingestion_20261101: {
+        Row: {
+          before_image: Json
+          confirmed_at: string
+          queue_id: string
+          source_observed_at: string
+          timeline_id: string
+        }
+        Insert: {
+          before_image: Json
+          confirmed_at?: string
+          queue_id: string
+          source_observed_at: string
+          timeline_id: string
+        }
+        Update: {
+          before_image?: Json
+          confirmed_at?: string
+          queue_id?: string
+          source_observed_at?: string
+          timeline_id?: string
+        }
+        Relationships: []
       }
       support_access_grants: {
         Row: {

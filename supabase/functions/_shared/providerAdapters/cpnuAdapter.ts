@@ -399,7 +399,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
 
       const negative = cpnuNegativeEvidence(snapshotData);
       if (negative) return withClase(makeErrorResult(negative, startTime, snapshotResponse.status), snapshotClase);
-      return withClase({ ...makeEmptyResult('No actuaciones found', startTime, snapshotResponse.status), sourceObservedAt }, snapshotClase);
+      return withClase({ ...makeEmptyResult('No actuaciones found', startTime, snapshotResponse.status),
+        sourceObservedAt, sourceReadComplete: !!sourceObservedAt }, snapshotClase);
     }
 
 
