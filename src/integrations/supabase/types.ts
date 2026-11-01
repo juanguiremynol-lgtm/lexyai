@@ -12649,6 +12649,48 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_cpnu_negative_recovery_20261101: {
+        Row: {
+          cycle_before: Json
+          recovered_at: string
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          cycle_before: Json
+          recovered_at?: string
+          run_date: string
+          transport_epoch?: string
+          work_item_id: string
+        }
+        Update: {
+          cycle_before?: Json
+          recovered_at?: string
+          run_date?: string
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      monitor_effect_recheck_20261101: {
+        Row: {
+          cycle_before: Json
+          recovered_at: string
+          work_item_id: string
+        }
+        Insert: {
+          cycle_before: Json
+          recovered_at?: string
+          work_item_id: string
+        }
+        Update: {
+          cycle_before?: Json
+          recovered_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_gate_backup_20261031: {
         Row: {
           channels: Json | null
@@ -12883,6 +12925,33 @@ export type Database = {
           before_record?: Json
           recovered_at?: string
           run_id?: string
+        }
+        Relationships: []
+      }
+      monitor_pp_reader_recovery_20261101: {
+        Row: {
+          backend_run_id: string
+          gate_before: Json
+          item_before: Json
+          recovered_at: string
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          backend_run_id: string
+          gate_before: Json
+          item_before: Json
+          recovered_at?: string
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          backend_run_id?: string
+          gate_before?: Json
+          item_before?: Json
+          recovered_at?: string
+          run_id?: string
+          work_item_id?: string
         }
         Relationships: []
       }
