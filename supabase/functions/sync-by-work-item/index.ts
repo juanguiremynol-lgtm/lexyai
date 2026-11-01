@@ -840,6 +840,8 @@ function classifyProviderError(
 
   const httpStatus = fetchResult.httpStatus;
   const errorMsg = (fetchResult.error || '').toLowerCase();
+  if (fetchResult.error === 'CPNU_PROVIDER_NOT_FOUND' && fetchResult.httpStatus === 410) return 'PROVIDER_NOT_FOUND';
+  if (fetchResult.error === 'CPNU_SNAPSHOT_MISSING') return 'PENDING_UPSTREAM';
   const samaiCode = (fetchResult.error || '').match(/^SAMAI_[A-Z_]+/);
   if (samaiCode) return samaiCode[0];
 
@@ -2832,6 +2834,20 @@ Deno.serve(withSyncTimeline(async (req) => {
       // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read that
       // sealReadOutcome already stamped. It must not be rewritten here as a
       // failure: carry the provider's code, not a transport code.
+      if (fetchResult?.provider === 'cpnu' && fetchResult.error === 'CPNU_PROVIDER_NOT_FOUND' &&
+          fetchResult.httpStatus === 410 && fetchResult.sourceObservedAt) {
+        result.code = 'PROVIDER_NOT_FOUND';
+        result.ok = false;
+        result.partial = true;
+        result.source_complete = false;
+        result.source_observed_at = fetchResult.sourceObservedAt;
+        await supabase.from('work_items').update({
+          scrape_status: 'PARTIAL_SUCCESS', last_error_code: 'PROVIDER_NOT_FOUND',
+          last_checked_at: new Date().toISOString(), provider_reachable: true, consecutive_failures: 0,
+        }).eq('id', work_item_id);
+        result.trace_id = traceId;
+        return jsonResponse(result);
+      }
       if (!fetchResult?.scrapingInitiated && result.provider_attempts.some((a) => a.status === 'restricted')) {
         result.code = 'PROCESO_PRIVADO';
         await supabase
