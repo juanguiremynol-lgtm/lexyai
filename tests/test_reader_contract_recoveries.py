@@ -125,3 +125,43 @@ def test_partial_effect_recheck_keeps_other_channels_and_is_once_only():
         db.close()
         with admin.cursor() as c:c.execute('DROP DATABASE '+name)
         admin.close()
+
+def test_edu_schema_cache_followup_is_exact_cache_only_and_once():
+    admin,db,name=isolated()
+    sql=(ROOT/'coordination/20261101_edu_schema_cache_followup.sql').read_text()
+    ident='e4e761ac-9984-462d-ae6e-a25b244f79ea'
+    try:
+        with db.cursor() as c:
+            c.execute('''CREATE TABLE work_items(id uuid PRIMARY KEY,radicado text,monitoring_enabled bool,lifecycle_state text,deleted_at timestamptz);
+             CREATE TABLE daily_update_cycles(work_item_id uuid,run_date date,channels jsonb,continuations int,updated_at timestamptz);
+             CREATE TABLE work_item_provider_enrollment(work_item_id uuid,provider_key text,scope text,enabled bool);
+             CREATE TABLE monitor_effect_recheck_20261101(work_item_id uuid PRIMARY KEY,cycle_before jsonb);
+             CREATE SCHEMA vault;CREATE TABLE vault.decrypted_secrets(name text,decrypted_secret text);
+             INSERT INTO vault.decrypted_secrets VALUES('SUPABASE_URL','https://fixture.invalid'),('CRON_SERVICE_KEY','local-fixture');
+             CREATE SCHEMA net;CREATE TABLE net.fake_queue(id bigserial,body jsonb);
+             CREATE TABLE net._http_response(id int,status_code int,created timestamptz,content text);
+             CREATE FUNCTION net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) RETURNS bigint LANGUAGE sql AS $$
+              INSERT INTO net.fake_queue(body) VALUES(body) RETURNING id $$;''')
+            c.execute("INSERT INTO work_items VALUES(%s,'05001333301020230019900',true,'ACTIVE',NULL)",(ident,))
+            c.execute("INSERT INTO work_item_provider_enrollment VALUES(%s,'samai','ACTS',true)",(ident,))
+            ch={'acts':{'status':'PARTIAL','error_code':'PERSISTENCE_FAILED','trace_id':'ae9774a4-8375-44c0-bb04-a1eaf9702ddc'},'pubs':{'status':'DONE'}}
+            c.execute("INSERT INTO daily_update_cycles VALUES(%s,'2026-10-31',%s,10,now())",(ident,json.dumps(ch)))
+            c.execute("INSERT INTO monitor_effect_recheck_20261101 VALUES(%s,'{\"original_audit\":\"preserved\"}')",(ident,))
+            outcome={'bucket':'ERROR','fingerprint':'wi_e4e761ac_1ffd535075b83e1a','reason':'enrichment fresh read failed: Could not query the database for the schema cache. Retrying.'}
+            c.execute("INSERT INTO net._http_response VALUES(240,500,'2026-11-01T01:12:02Z',%s)",(json.dumps({'persistence_summary':{'outcomes':[outcome]}}),))
+        db.commit()
+        with db.cursor() as c:
+            c.execute(sql)
+            c.execute('SELECT channels,continuations FROM daily_update_cycles');ch,n=c.fetchone()
+            assert ch['pubs']['status']=='DONE' and 'acts' not in ch and n==11
+            assert ch['acts_before_schema_cache_followup_20261101']['error_code']=='PERSISTENCE_FAILED'
+            c.execute('SELECT cycle_before FROM monitor_effect_recheck_20261101');audit=c.fetchone()[0]
+            assert audit['original_audit']=='preserved' and audit['schema_cache_followup']['before']['channels']['acts']['status']=='PARTIAL'
+            c.execute(sql)
+            c.execute('SELECT count(*) FROM net.fake_queue');assert c.fetchone()[0]==1
+            c.execute('SELECT body FROM net.fake_queue');b=c.fetchone()[0];assert b['allow_buscar'] is False and b['force_refresh'] is False
+        db.commit()
+    finally:
+        db.close()
+        with admin.cursor() as c:c.execute('DROP DATABASE '+name)
+        admin.close()

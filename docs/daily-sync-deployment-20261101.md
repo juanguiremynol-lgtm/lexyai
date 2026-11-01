@@ -1,6 +1,6 @@
 # Coordinación del consumidor diario — 1 de noviembre de 2026
 
-Corte de resultados: **31 de octubre de 2026, 21:20:58 America/Bogota**.
+Corte de resultados: **31 de octubre de 2026, 21:42:19 America/Bogota**.
 Este registro continúa la intervención existente. No certifica el 99 %, la
 publicación de interfaz ni la recuperación de los seis memoriales SAMAI.
 
@@ -59,7 +59,8 @@ colas o contratos, no reparación de decisiones judiciales:
    recibos RECIENTE completos; la historia y el plan completo no se reclasifican.
 5. `20261101_recheck_existing_hearing_evidence.sql`: una comprobación de dos
    parciales; no cambió el estado de las audiencias. EDU conserva
-   `PERSISTENCE_FAILED`; el otro caso conserva el efecto pendiente ambiguo.
+   `PERSISTENCE_FAILED` en ese primer intento; el otro caso conserva el efecto
+   pendiente ambiguo. El seguimiento selectivo posterior se detalla abajo.
 6. `drizzle/migrations/0099_publication_persistence_receipt_id.sql`: el RPC retorna
    `persisted_publicacion_id` solo cuando hay un registro único confirmado.
 7. `20261101_amaga_attachment_delivery_recovery.sql`: ocho asociaciones ausentes
@@ -70,6 +71,11 @@ colas o contratos, no reparación de decisiones judiciales:
    deja de ser ejecutable por PUBLIC/anon/authenticated; service_role conserva
    ejecución. El único caller del repositorio es de servidor con service_role.
    RLS y permisos de lectura no se relajaron. No es una migración Drizzle 0100.
+10. `20261101_edu_schema_cache_followup.sql`: una sola relectura cache-only del
+    error transitorio exacto de EDU, con antes-imagen y recibo 240 acreditados.
+    Petición 287: HTTP 200, 76 existentes, cero inserciones, source clock original
+    y DONE persistido. Las tres audiencias y su hash permanecen iguales. Repetir
+    el ajuste afecta cero filas y no genera otra petición.
 
 Las repeticiones de las reparaciones selectivas no agregaron filas a sus planes.
 Se conservan auditorías privadas, intentos anteriores, huellas y documentos. No
@@ -142,4 +148,5 @@ El desglose por los 138 pares asunto–fuente, sus relojes y pendientes está en
 el repositorio backend, `docs/evidence/daily-sync-20261101/`. PP pasa de 1 a 8
 incorporaciones completas en aplicación; su número de ventanas completas en
 fuente sigue siendo 8/54. SAMAI Estados pasa de 3 a 15 incorporaciones completas.
+SAMAI actuaciones pasa de 14 completas y una parcial a 15 completas.
 La meta 99 % y la continuidad diaria global **no están acreditadas**.
