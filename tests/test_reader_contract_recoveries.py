@@ -93,3 +93,35 @@ def test_certified_reader_switches_only_unleased_pending_and_preserves_old_poll_
         db.close()
         with admin.cursor() as c:c.execute('DROP DATABASE '+name)
         admin.close()
+
+def test_partial_effect_recheck_keeps_other_channels_and_is_once_only():
+    admin,db,name=isolated()
+    sql=(ROOT/'coordination/20261101_recheck_existing_hearing_evidence.sql').read_text()
+    ident='e4e761ac-9984-462d-ae6e-a25b244f79ea'
+    try:
+        with db.cursor() as c:
+            c.execute('''CREATE TABLE work_items(id uuid PRIMARY KEY,radicado text,monitoring_enabled bool,lifecycle_state text,deleted_at timestamptz);
+             CREATE TABLE daily_update_cycles(work_item_id uuid,run_date date,channels jsonb,continuations int,updated_at timestamptz);
+             CREATE TABLE work_item_provider_enrollment(work_item_id uuid,provider_key text,scope text,enabled bool);
+             CREATE SCHEMA vault;CREATE TABLE vault.decrypted_secrets(name text,decrypted_secret text);
+             INSERT INTO vault.decrypted_secrets VALUES('SUPABASE_URL','https://fixture.invalid'),('CRON_SERVICE_KEY','local-fixture');
+             CREATE SCHEMA net;CREATE TABLE net.fake_queue(id bigserial,body jsonb);
+             CREATE FUNCTION net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) RETURNS bigint LANGUAGE sql AS $$
+              INSERT INTO net.fake_queue(body) VALUES(body) RETURNING id $$;''')
+            c.execute("INSERT INTO work_items VALUES(%s,'05001333301020230019900',true,'ACTIVE',NULL)",(ident,))
+            c.execute("INSERT INTO work_item_provider_enrollment VALUES(%s,'samai','ACTS',true)",(ident,))
+            ch={'acts':{'status':'PARTIAL','error_code':'POST_INGEST_EFFECTS_PENDING','trace_id':'68f875ef-1dab-4529-ac92-d9c38096e89e'},'pubs':{'status':'DONE'}}
+            c.execute("INSERT INTO daily_update_cycles VALUES(%s,'2026-10-31',%s,9,now())",(ident,json.dumps(ch)))
+        db.commit()
+        with db.cursor() as c:
+            c.execute(sql)
+            c.execute('SELECT channels,continuations FROM daily_update_cycles');ch,n=c.fetchone()
+            assert ch['pubs']['status']=='DONE' and ch['acts_before_effect_evidence_20261101']['status']=='PARTIAL' and n==10
+            c.execute(sql)
+            c.execute('SELECT count(*) FROM net.fake_queue');assert c.fetchone()[0]==1
+            c.execute('SELECT body FROM net.fake_queue');b=c.fetchone()[0];assert b['allow_buscar'] is False and b['force_refresh'] is False
+        db.commit()
+    finally:
+        db.close()
+        with admin.cursor() as c:c.execute('DROP DATABASE '+name)
+        admin.close()
