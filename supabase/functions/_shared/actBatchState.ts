@@ -12,7 +12,7 @@
 
 import { compareProviderOrigins, extractActOrigin, hasStableOrigin, originFromRow, planEnrichment, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
 import { documentosEnrichmentPatch, normalizeActDocumentos, mergeActDocumentos } from './actDocumentos.ts';
-import { observationCanonicalizer } from './actDocumentObservation.ts';
+import { observationCanonicalizer, sameDocumentObservation } from './actDocumentObservation.ts';
 
 export const ACT_SELECT_COLUMNS =
   "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en";
@@ -126,9 +126,15 @@ export async function enrichPersistedAct(
     // One canonicalizer per fresh read: the merges below share immutable stored
     // histories, which previously were re-serialized by every merge (CPU limit).
     const canonical = observationCanonicalizer();
+    // The documentos column and raw_data.documentos are normally two parsed
+    // copies of one value; reuse a single tree when they are structurally equal
+    // so the identity-keyed cache applies to both. Different values stay apart.
+    const rawDocs = row.raw_data?.documentos;
+    const storedDocs = Array.isArray(row.documentos) && Array.isArray(rawDocs) && sameDocumentObservation(row.documentos, rawDocs)
+      ? rawDocs : row.documentos;
     const normalized = { ...incoming, documentos: normalizeActDocumentos(incoming.documentos, canonical) };
-    const plan = planEnrichment(row, normalized, relation, undefined, { ...opts, canonical });
-    const docs = documentosEnrichmentPatch(row.documentos, row.documentos_observados_en, mergeActDocumentos(row.raw_data?.documentos, incoming.documentos, canonical), incoming.documentos_observados_en, undefined, canonical);
+    const plan = planEnrichment({ ...row, documentos: storedDocs }, normalized, relation, undefined, { ...opts, canonical });
+    const docs = documentosEnrichmentPatch(storedDocs, row.documentos_observados_en, mergeActDocumentos(rawDocs, incoming.documentos, canonical), incoming.documentos_observados_en, undefined, canonical);
     const dates: Record<string, string> = {};
     for (const [column, input] of [['fecha_registro_source', 'fecha_registro'], ['inicia_termino', 'fecha_inicia_termino']]) {
       const value = incoming[input];
