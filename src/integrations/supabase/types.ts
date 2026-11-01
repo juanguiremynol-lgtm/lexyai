@@ -12955,6 +12955,30 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_wait_function_backup_20261101: {
+        Row: {
+          acl: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+          recorded_at: string
+        }
+        Insert: {
+          acl?: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+          recorded_at?: string
+        }
+        Update: {
+          acl?: string | null
+          definition?: string
+          key?: string
+          owner_name?: unknown
+          recorded_at?: string
+        }
+        Relationships: []
+      }
       monitor_wait_item_backup_20261031: {
         Row: {
           before_record: Json
