@@ -44,7 +44,7 @@ import { parseCpnuSujetos } from '../partyNormalization.ts';
 import { canonicalActFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { extractClaseProveedor, type ClaseProcesoContract } from '../claseProcesoContract.ts';
 import { classifyEmptyActuaciones, snapshotOrigenIsAuthoritative } from '../providerStrategy.ts';
-import { cpnuNegativeEvidence, cpnuSourceObservation } from './cpnuReadEvidence.ts';
+import { cpnuNegativeEvidence, cpnuSourceObservation, cpnuObservedSnapshotIsCurrent } from './cpnuReadEvidence.ts';
 
 
 import {
@@ -448,7 +448,11 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       forceRefresh: false, // Already handled above
     });
 
-    if (freshnessCheck.isStale) {
+    const requiresProviderRefresh = freshnessCheck.isStale && !cpnuObservedSnapshotIsCurrent({
+      observedAt: sourceObservedAt, complete: sourceReadComplete, snapshotMaxDate: snapshotMaxActDate,
+      dbMaxDate: options.dbMaxActDate, count: normalized.length, historicalCount: options.historicalRecordCount,
+    });
+    if (requiresProviderRefresh) {
       console.warn(
         `[cpnuAdapter] ⚠️ SNAPSHOT STALE DETECTED: ${freshnessCheck.explanation}`,
         `reason=${freshnessCheck.reason}, snapshotMax=${snapshotMaxActDate}, dbMax=${options.dbMaxActDate}`,
@@ -534,9 +538,9 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
       durationMs: Date.now() - startTime,
       httpStatus: snapshotResponse.status,
       cpnuIngestionMeta: {
-        source_mode: freshnessCheck.isStale ? 'BUSCAR' : 'SNAPSHOT',
+        source_mode: requiresProviderRefresh ? 'BUSCAR' : 'SNAPSHOT',
         snapshot_max_act_date: snapshotMaxActDate,
-        stale_reason: freshnessCheck.reason,
+        stale_reason: requiresProviderRefresh ? freshnessCheck.reason : null,
         force_refresh: false,
       },
     };
