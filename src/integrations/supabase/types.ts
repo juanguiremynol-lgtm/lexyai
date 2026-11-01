@@ -14516,6 +14516,27 @@ export type Database = {
         }
         Relationships: []
       }
+      pinar_attachment_acceptance_20261101: {
+        Row: {
+          ordinal: number
+          request_id: number
+          requested_at: string
+          work_item_id: string
+        }
+        Insert: {
+          ordinal: number
+          request_id: number
+          requested_at?: string
+          work_item_id: string
+        }
+        Update: {
+          ordinal?: number
+          request_id?: number
+          requested_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       plan_limits: {
         Row: {
           created_at: string
