@@ -43,7 +43,8 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
   return out;
 }
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
-import { completedSamaiRead } from "../_shared/completedPublicRead.ts";
+import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
+import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
@@ -119,6 +120,8 @@ type SyncResult = {
   provider_latency_ms?: number;
   daily_trace_id?: string;
   source_observed_at?: string;
+  source_complete?: boolean;
+  provider_used?: string;
   samai_estados_summary?: {
     called: boolean;
     status?: string;
@@ -137,26 +140,7 @@ type SyncResult = {
   };
 };
 
-type SamaiPersistBucket =
-  | 'INSERTED'
-  | 'SKIPPED_DUPLICATE'
-  | 'SKIPPED_CROSS_SOURCE'
-  | 'REJECTED_PARTIES'
-  | 'REJECTED_TRIGGER'
-  | 'ERROR';
-
 type SamaiBucketExample = { radicado: string; title: string; reason: string };
-
-function emptySamaiBuckets(): Record<SamaiPersistBucket, number> {
-  return {
-    INSERTED: 0,
-    SKIPPED_DUPLICATE: 0,
-    SKIPPED_CROSS_SOURCE: 0,
-    REJECTED_PARTIES: 0,
-    REJECTED_TRIGGER: 0,
-    ERROR: 0,
-  };
-}
 
 function recordSamaiOutcome(
   summary: NonNullable<SyncResult['samai_estados_summary']>,
@@ -1952,10 +1936,16 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
           }
         }
-        console.log(`[sync-pub] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
-        return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, dailyAdmission), 200);
+        if (mayReadStoredSamai(dailyAdmission, workItem.workflow_type)) {
+          // The monitoring adapter is GET /persistido only. No provider session,
+          // new daily admission or freshness stamp is created by this recovery.
+          result.daily_trace_id = String(dailyAdmission.existing?.trace_id ?? dailyTraceId);
+        } else {
+          console.log(`[sync-pub] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
+          return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, dailyAdmission), 200);
+        }
       }
-      result.daily_trace_id = dailyTraceId;
+      result.daily_trace_id ??= dailyTraceId;
       rememberAdmission(req, dailyAdmission);
     }
     console.log(
@@ -3066,6 +3056,15 @@ Deno.serve(withSyncTimeline(async (req) => {
       await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
     }
 
+    if (workItem.workflow_type === 'CPACA') {
+      result.provider_used = 'samai_estados';
+      result.source_complete = result.ok && result.samai_estados_summary?.source_query_complete === true
+        && samaiAccountingComplete(result.samai_estados_summary);
+      if (!result.source_complete && result.ok) {
+        result.ok = false;
+        result.result_code = 'PENDING_UPSTREAM';
+      }
+    }
     // Set initial sync completion marker only on a completed read.
     if (result.ok) try {
       await supabase

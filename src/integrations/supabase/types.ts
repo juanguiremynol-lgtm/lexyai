@@ -12691,6 +12691,33 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_expired_wait_recovery_20261101: {
+        Row: {
+          gate_before: Json
+          item_before: Json
+          native_run_id: string
+          recovered_at: string
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          gate_before: Json
+          item_before: Json
+          native_run_id: string
+          recovered_at?: string
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          gate_before?: Json
+          item_before?: Json
+          native_run_id?: string
+          recovered_at?: string
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_gate_backup_20261031: {
         Row: {
           channels: Json | null
