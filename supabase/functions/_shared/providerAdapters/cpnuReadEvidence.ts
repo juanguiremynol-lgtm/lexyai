@@ -1,13 +1,18 @@
 /** Source outcomes are independent of HTTP success and cache ingestion time. */
 export function cpnuSourceObservation(data: Record<string, unknown>): string | undefined {
   const nested = (data.data ?? {}) as Record<string, unknown>;
-  const value = data.fetchedAt ?? nested.fetchedAt;
+  const value = data.fetchedAt ?? nested.fetchedAt ??
+    (data.proveedor_consultado === true ? data.ultima_consulta_proveedor_en : undefined);
   if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/i.test(value)) return undefined;
   return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
 
 export function cpnuNegativeEvidence(data: Record<string, unknown>): string | undefined {
   const nested = (data.data ?? {}) as Record<string, unknown>;
+  if (data.motivo === 'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR' &&
+      data.interpretacion === 'PROVEEDOR_NO_TIENE_EL_PROCESO' &&
+      data.proveedor_consultado === true && cpnuSourceObservation(data))
+    return 'CPNU_PROVIDER_NOT_FOUND';
   if (data.found === false || data.expediente_encontrado === false || nested.found === false)
     return 'RECORD_NOT_FOUND';
   if (data.restringido === true || nested.restringido === true || data.contractStatus === 'RESTRICTED_BY_PROVIDER')
