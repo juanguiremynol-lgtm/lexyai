@@ -2773,6 +2773,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           unique_violation_count?: number;
           errors?: string[];
           outcomes?: Array<{ bucket: SamaiPersistBucket; title?: string; reason?: string }>;
+          persisted_publicacion_id?: string | null;
         };
 
         // Ledger accumulation (per-row buckets straight from the RPC).
@@ -2864,14 +2865,19 @@ Deno.serve(withSyncTimeline(async (req) => {
         // title/date or borrowed from another publication.
         let persistedPub: { id: string; raw_data?: unknown } | null = null;
         if (rowExists) {
-          const { data, error } = await supabase.from('work_item_publicaciones')
+          const persistedId = typeof counts.persisted_publicacion_id === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(counts.persisted_publicacion_id)
+            ? counts.persisted_publicacion_id : null;
+          let persistedQuery = supabase.from('work_item_publicaciones')
             .select('id,raw_data')
             .eq('work_item_id', work_item_id)
-            .eq('organization_id', workItem.organization_id)
-            .eq('hash_fingerprint', fingerprint)
-            .maybeSingle();
+            .eq('organization_id', workItem.organization_id);
+          persistedQuery = persistedId ? persistedQuery.eq('id', persistedId)
+            : persistedQuery.eq('hash_fingerprint', fingerprint);
+          const { data, error } = await persistedQuery.maybeSingle();
           if (error || !data?.id) {
             result.attachment_enqueue_failed = (result.attachment_enqueue_failed || 0) + 1;
+            result.warnings.push('Documentos pendientes: no se confirmó la identidad persistida de una publicación.');
             console.warn(JSON.stringify({ tag: '[sync-pub]', event: 'attachment_enqueue_failed', reason: 'publicacion_lookup_failed', work_item_id, fingerprint, error: error?.message || 'row_not_found' }));
           } else persistedPub = data;
         }
