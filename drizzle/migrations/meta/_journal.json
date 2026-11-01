@@ -694,6 +694,13 @@
       "when": 1793362926166,
       "tag": "0098_retry_daily_limit_deferral",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793495893795,
+      "tag": "0099_publication_persistence_receipt_id",
+      "breakpoints": true
     }
   ]
 }
