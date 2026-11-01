@@ -341,7 +341,7 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     const proceso = snapshotData.proceso as Record<string, unknown> | undefined;
 
     const rawActuaciones = nestedData?.actuaciones ?? snapshotData.actuaciones ?? proceso?.actuaciones;
-    if (!Array.isArray(rawActuaciones)) return withClase(makeErrorResult('UNCLASSIFIED_PROVIDER_SHAPE', startTime, snapshotResponse.status), snapshotClase);
+    if (!Array.isArray(rawActuaciones)) return withClase(makeErrorResult(cpnuNegativeEvidence(snapshotData) || 'UNCLASSIFIED_PROVIDER_SHAPE', startTime, snapshotResponse.status), snapshotClase);
     const actuaciones = rawActuaciones as Record<string, unknown>[];
 
     const sujetos = (
