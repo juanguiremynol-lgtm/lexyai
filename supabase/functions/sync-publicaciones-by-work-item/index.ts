@@ -25,7 +25,7 @@
 import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
-import { durableVerdict, matchingCompletedHistory } from "../_shared/ppDurableContract.ts";
+import { durableVerdict, matchingCompletedHistory, completedDailyReference } from "../_shared/ppDurableContract.ts";
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
@@ -1082,7 +1082,7 @@ export async function tryProcesarFallback(
       if (verdict.kind === 'pending') return pending(verdict.reason);
       // A finished job is not enough: the matching persisted reader result is
       // what the application must actually ingest before claiming completion.
-      const url = `${baseUrl}/historico/${radicado}`;
+      const url = `${baseUrl}/historico/${radicado}?backend_run_id=${admittedRun}`;
       const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
       if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
       let historyData: unknown;
@@ -1267,15 +1267,17 @@ export async function followAdmittedRun(
     return pending(`PP_RUN_STATUS_PENDING: ${status.error ?? 'unavailable'}`);
   }
   if (body === null) return failed('PP_RUN_STATUS_INVALID_JSON');
-  const verdict = durableVerdict(status.httpStatus ?? 200, body, runId);
+  const daily = completedDailyReference(body, radicado);
+  const readRunId = daily ? String(daily.backend_run_id) : runId;
+  const verdict = durableVerdict(status.httpStatus ?? 200, daily ?? body, readRunId);
   if (verdict.kind === 'error') return failed(verdict.reason);
   if (verdict.kind === 'pending') return pending(verdict.reason);
-  const url = `${baseUrl}/historico/${radicado}`;
+  const url = `${baseUrl}/historico/${radicado}?backend_run_id=${readRunId}`;
   const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
   if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
   let historyData: unknown;
   try { historyData = await history.response.json(); } catch { return pending('PP_HISTORY_INVALID_JSON'); }
-  if (!matchingCompletedHistory(runId, historyData, radicado) || !publicSnapshotCompleted(historyData))
+  if (!matchingCompletedHistory(readRunId, historyData, radicado) || !publicSnapshotCompleted(historyData))
     return pending('PP_HISTORY_NOT_CERTIFIED_OR_RUN_MISMATCH');
   const extracted = extractPublicacionesFromResponse(historyData, Date.now() - startTime);
   const historicoRead: HistoricoRead = { endpoint: 'GET /historico/{radicado}', url, radicado,
@@ -2009,7 +2011,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // is synthesized.
     {
       const runRead = fetchResult.runStatusRead;
-      const b: any = (fetchResult as any).procesarAck?.body ?? runRead?.body ?? (fetchResult as any).historicoRead?.body ?? null;
+      const b: any = fetchResult.durableCompleted && fetchResult.historicoRead
+        ? fetchResult.historicoRead.body
+        : (fetchResult as any).procesarAck?.body ?? runRead?.body ?? (fetchResult as any).historicoRead?.body ?? null;
       const pick = (k: string) => (b && typeof b === 'object' && b[k] != null ? b[k] : null);
       const backendRunId = pick('backend_run_id') ?? (runRead ? runRead.run_id : null);
       const admittedNow = (fetchResult as any).procesarAck?.http_status === 202 && backendRunId;
@@ -2021,6 +2025,12 @@ Deno.serve(withSyncTimeline(async (req) => {
         .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
+        followed_run_id: runRead?.run_id ?? null,
+        consulta_completa: pick('consulta_completa'),
+        consulta_completa_plan_diario: pick('consulta_completa_plan_diario'),
+        alcance_consulta_completa: pick('alcance_consulta_completa'),
+        ventana_solicitada: pick('ventana_solicitada'),
+        intento_observado_en: pick('intento_observado_en'),
         backend_new_events: pick('backend_new_events'), run_status: pick('run_status'),
         estado: pick('estado'), backend_admitted_at: admittedAt,
         backend_admitted_at_source: admittedAt ? 'app_first_observed' : null,
