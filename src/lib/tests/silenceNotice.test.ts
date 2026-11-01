@@ -41,7 +41,7 @@ describe("silence · judicial base dates", () => {
     for (const cut of [CUT, CUT_LATE]) {
       const ev = evaluateSilence(base({
         acts: [{ act_date: "2025-07-09", source: "cpnu" }],
-        pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: "2025-07-09T05:00:00Z", source: "publicaciones" }],
+        pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: "2025-07-09T05:00:00Z", source: "publicaciones", source_radicado: RAD }],
       }), cut);
       expect(ev.corte).toBe("2026-11-01");
       expect(ev.ultima_actuacion?.dias).toBe(480);
@@ -66,7 +66,7 @@ describe("silence · judicial base dates", () => {
 
   it("no UTC truncation off-by-one: estado fijado 2025-07-10 00:00 Bogotá", () => {
     const ev = evaluateSilence(base({
-      pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: null }],
+      pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: null, source_radicado: RAD }],
     }), CUT_LATE);
     expect(ev.dias).toBe(479);
     expect(calendarDaysBetween("2025-07-10", "2026-11-01")).toBe(479);
