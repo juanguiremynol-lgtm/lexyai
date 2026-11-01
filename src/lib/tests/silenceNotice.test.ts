@@ -143,8 +143,8 @@ describe("IT1 · copy", () => {
   const notice = buildSilenceNotice({ radicado: RAD, titulo: "Asunto sintético", evaluation: ev, canales: [], perfil_despacho: "x" });
 
   it("shows base date, source and cut", () => {
-    expect(notice.title).toContain("Sin novedades hace 234 días");
-    expect(notice.message).toContain("Fecha base 2026-03-12 (actuacion); corte 2026-11-01");
+    expect(notice.title).toContain("Último registro judicial conocido hace 234 días");
+    expect(notice.message).toContain("Fecha base 2026-03-12 (actuacion). Corte de cómputo 2026-11-01");
   });
   it("states plainly that silence is normal and does not warn", () => {
     expect(notice.message).toContain(SILENCIO_ES_NORMAL);
@@ -219,7 +219,8 @@ describe("silence · review risks (2026-11-01)", () => {
     expect(ev.fuente_base).toBe("referencia_manual");
     expect(ev.dias).toBe(234);
     expect(ev.ultima_actuacion?.fecha).toBe("2025-07-09");
-    expect(describeSilence(ev)).toContain("no proviene del proveedor");
+    expect(describeSilence(ev)).toContain("no constatada por Andrómeda ni por el proveedor");
+    expect(describeSilence(ev)).not.toContain("verificada por el abogado");
   });
 
   it("(6) channel lines reflect card-level coverage, no contradictory 'sin lectura'", () => {
@@ -227,5 +228,29 @@ describe("silence · review risks (2026-11-01)", () => {
     const lines = channelEvidence(ev, "SUCCESS");
     expect(lines[0].ultima_lectura).toBe("2026-10-31");
     expect(lines.every((l) => !l.ultima_respuesta.includes("sin lectura"))).toBe(true);
+  });
+
+  it("(c2) copy never claims silence up to today; cut and last verification shown apart", () => {
+    const ev = evaluateSilence(base({ acts: [{ act_date: "2026-03-12", source: "cpnu" }] }), CUT);
+    const n = buildSilenceNotice({ radicado: RAD, evaluation: ev, canales: [], perfil_despacho: "x" });
+    expect(n.message).not.toMatch(/lleva \d+ días/);
+    expect(n.message).not.toContain("sin actuaciones ni estados judiciales nuevos");
+    expect(n.message).toContain("última verificación completa 2026-10-31");
+    expect(n.message).toContain("no se certifica el intervalo posterior");
+  });
+
+  it("(c3) neutral copy: no absolute 'every process publishes' claim", () => {
+    expect(SILENCIO_ES_NORMAL).not.toMatch(/TODO proceso|no hay excepción|nunca a que el despacho/);
+    expect(SILENCIO_ES_NORMAL).toContain("no prueba");
+  });
+
+  it("(c4) manual-only base is distinguishable and coverage gaps stay NO_VERIFICABLE", () => {
+    const refs = [{ finding_id: "f1", fecha_providencia: "2026-03-12", verified_on: "2026-10-30", verified_by: "x" }];
+    const ev = evaluateSilence(base({ manual_references: refs }), CUT);
+    const n = buildSilenceNotice({ radicado: RAD, evaluation: ev, canales: [], perfil_despacho: "x" });
+    expect(n.title).toContain("referencia manual");
+    expect(n.message).toContain("no es silencio verificado");
+    const gap = evaluateSilence(base({ manual_references: refs, sources: [{ scrape_status: "PARTIAL_SUCCESS", last_synced_at: "2026-10-31T12:00:00Z" }] }), CUT);
+    expect(gap.kind).toBe("NO_VERIFICABLE");
   });
 });
