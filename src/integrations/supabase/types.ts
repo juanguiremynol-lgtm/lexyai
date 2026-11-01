@@ -16916,6 +16916,33 @@ export type Database = {
           },
         ]
       }
+      samai_monitor_contract_recovery_20261101: {
+        Row: {
+          cycle_before: Json
+          item_before: Json
+          recovered_at: string
+          run_id: string
+          source_revision: string
+          work_item_id: string
+        }
+        Insert: {
+          cycle_before: Json
+          item_before: Json
+          recovered_at?: string
+          run_id: string
+          source_revision: string
+          work_item_id: string
+        }
+        Update: {
+          cycle_before?: Json
+          item_before?: Json
+          recovered_at?: string
+          run_id?: string
+          source_revision?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       scraping_jobs: {
         Row: {
           actuaciones_found: number | null
