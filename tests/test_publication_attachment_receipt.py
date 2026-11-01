@@ -54,6 +54,11 @@ def test_rpc_returns_exact_persisted_id_for_retained_fingerprint_without_privile
             row['published_at']='not-a-date'
             c.execute('SELECT rpc_upsert_work_item_publicaciones(%s::jsonb)',(json.dumps([row]),));bad=c.fetchone()[0]
             assert bad['error_count']==1 and bad['persisted_publicacion_id'] is None
+            c.execute('GRANT EXECUTE ON FUNCTION rpc_upsert_work_item_publicaciones(jsonb) TO PUBLIC,anon,authenticated')
+            c.execute((ROOT/'coordination/20261101_publication_ingestion_permissions.sql').read_text())
+            c.execute("SELECT has_function_privilege('anon','rpc_upsert_work_item_publicaciones(jsonb)','EXECUTE'),has_function_privilege('authenticated','rpc_upsert_work_item_publicaciones(jsonb)','EXECUTE'),has_function_privilege('service_role','rpc_upsert_work_item_publicaciones(jsonb)','EXECUTE')")
+            assert c.fetchone()==(False,False,True)
+            c.execute('SELECT rpc_upsert_work_item_publicaciones(\'[]\'::jsonb)');assert c.fetchone()[0]['parsed_count']==0
         db.commit()
     finally:
         db.close()

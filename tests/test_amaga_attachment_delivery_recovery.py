@@ -38,3 +38,33 @@ def test_exact_native_recovery_preserves_existing_copy_attempts_and_repeats_with
         db.close()
         with admin.cursor() as c:c.execute('DROP DATABASE '+name)
         admin.close()
+
+def test_descriptor_followup_preserves_poll_count_and_original_audit_once():
+    sql=(ROOT/'coordination/20261101_amaga_derived_binding_followup.sql').read_text()
+    admin,db,name=isolated()
+    try:
+        with db.cursor() as c:
+            c.execute('''CREATE TABLE cron_state(key text,value jsonb,updated_at timestamptz);
+             CREATE TABLE monitor_pp_reader_recovery_20261101(run_id uuid,work_item_id uuid,gate_before jsonb);
+             CREATE SCHEMA vault;CREATE TABLE vault.decrypted_secrets(name text,decrypted_secret text);
+             INSERT INTO vault.decrypted_secrets VALUES('SUPABASE_URL','https://fixture.invalid'),('CRON_SERVICE_KEY','local-fixture');
+             CREATE SCHEMA net;CREATE TABLE net.fake_queue(id bigserial,body jsonb);
+             CREATE FUNCTION net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) RETURNS bigint LANGUAGE sql AS $$
+               INSERT INTO net.fake_queue(body) VALUES(body) RETURNING id $$;
+             INSERT INTO monitor_pp_reader_recovery_20261101 VALUES(gen_random_uuid(),'75b1625c-69e4-40f7-849f-63f6a9b775e6','{"original_audit":"preserved"}');
+             INSERT INTO cron_state VALUES('pub_rescrape:75b1625c-69e4-40f7-849f-63f6a9b775e6',
+               '{"backend_run_id":"1eddbd28-202a-4f94-b7be-260705f7858a","followup_closed":true,"poll_count":19,"attempts":5}',now());''')
+        db.commit()
+        with db.cursor() as c:
+            c.execute(sql)
+            c.execute('SELECT value FROM cron_state');v=c.fetchone()[0]
+            assert v['followup_closed'] is False and v['poll_count']==19 and v['attempts']==5
+            c.execute('SELECT gate_before FROM monitor_pp_reader_recovery_20261101');a=c.fetchone()[0]
+            assert a['original_audit']=='preserved' and a['derived_binding_followup']['gate_before']['value']['poll_count']==19
+            c.execute(sql)
+            c.execute('SELECT count(*) FROM net.fake_queue');assert c.fetchone()[0]==1
+        db.commit()
+    finally:
+        db.close()
+        with admin.cursor() as c:c.execute('DROP DATABASE '+name)
+        admin.close()
