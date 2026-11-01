@@ -17,6 +17,7 @@
  */
 
 import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
+import { mayConsumeStoredCpnu } from '../_shared/storedActAdmission.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
@@ -1435,7 +1436,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
-    const { work_item_id, _scheduled, release_gate, force_refresh, allow_buscar } = payload;
+    const { work_item_id, _scheduled, release_gate } = payload;
+    let { force_refresh, allow_buscar } = payload;
     traceWorkItemId = work_item_id;
     
     if (!work_item_id) {
@@ -1677,10 +1679,19 @@ Deno.serve(withSyncTimeline(async (req) => {
       : await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId);
     console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_finish', trace_id: traceId,
       work_item_id, admitted: dailyAdmission.admitted, reason: dailyAdmission.reason ?? null }));
-    if (!dailyAdmission.admitted) {
+    const isStoredSnapshotRead = !isContinuation && !dailyAdmission.admitted
+      && mayConsumeStoredCpnu(dailyAdmission, workItem.workflow_type);
+    if (!dailyAdmission.admitted && !isStoredSnapshotRead) {
       console.log(`[sync-by-work-item] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
     }
+    if (isStoredSnapshotRead) {
+      // This continuation cannot start a source query, even for a manual
+      // force request. It only ingests an already persisted CPNU snapshot.
+      force_refresh = false;
+      allow_buscar = false;
+    }
+    const isCpnuReadOnly = isContinuation || isStoredSnapshotRead;
     rememberAdmission(req, dailyAdmission);
 
     // Record the attempt only after authorizing access to this matter.
@@ -1703,11 +1714,11 @@ Deno.serve(withSyncTimeline(async (req) => {
       work_item_id, enabled_sources: [...enrolledProviders] }));
     // A continuation only ingests the stored CPNU job result: every other
     // provider (SAMAI, external connectors, fallbacks) is disabled for it.
-    const enabledProviders = isContinuation ? continuationProviders(enrolledProviders) : enrolledProviders;
+    const enabledProviders = isCpnuReadOnly ? continuationProviders(enrolledProviders) : enrolledProviders;
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
-    const useOrchestrator = isContinuation ? false : await shouldUseOrchestrator(supabase, workItem.organization_id);
+    const useOrchestrator = isCpnuReadOnly ? false : await shouldUseOrchestrator(supabase, workItem.organization_id);
     console.info('[sync.phase]', JSON.stringify({ phase: 'orchestrator_config_finish', trace_id: traceId,
       work_item_id, use_orchestrator: useOrchestrator }));
     // Orchestrator finalizes its external_sync_runs row at fetch time; we reconcile
@@ -4008,7 +4019,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const previousDespacho = workItem.authority_name;
     
     // Continuations only ingest the stored job result: no enrichment calls.
-    if (newDespacho && !previousDespacho && !isContinuation) {
+    if (newDespacho && !previousDespacho && !isCpnuReadOnly) {
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -4060,6 +4071,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ============= EXTERNAL PROVIDER ENRICHMENT (data_kind-aware subchains) =============
     // This entry point certifies ACTUACIONES only. Estados have their own
     // durable monitor and independent outcome; never start them indirectly.
+    if (!isCpnuReadOnly) {
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -4323,6 +4335,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       console.warn(`[sync-by-work-item] External provider enrichment failed (non-blocking):`, extEnrichErr?.message);
       result.warnings.push(`External provider enrichment error: ${extEnrichErr?.message}`);
       result.provider_attempts.push({ provider: 'ext:route_lookup', status: 'error', latencyMs: 0, message: 'PROVIDER_ROUTE_LOOKUP_FAILED' });
+    }
     }
 
     const completeAfterEnrichment = requiredSourcesComplete(syncOk, result.provider_attempts);

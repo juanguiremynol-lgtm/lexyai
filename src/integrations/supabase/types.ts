@@ -12982,6 +12982,33 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_stored_read_repair_20261101: {
+        Row: {
+          item_before: Json
+          key: string
+          recorded_at: string
+          request_id: number | null
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          item_before: Json
+          key: string
+          recorded_at?: string
+          request_id?: number | null
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          item_before?: Json
+          key?: string
+          recorded_at?: string
+          request_id?: number | null
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_wait_function_backup_20261101: {
         Row: {
           acl: string | null
