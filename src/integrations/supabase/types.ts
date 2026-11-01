@@ -5811,6 +5811,24 @@ export type Database = {
           },
         ]
       }
+      cpnu_stored_queue_acceptance_20261101: {
+        Row: {
+          ordinal: number
+          request_id: number
+          requested_at: string
+        }
+        Insert: {
+          ordinal: number
+          request_id: number
+          requested_at?: string
+        }
+        Update: {
+          ordinal?: number
+          request_id?: number
+          requested_at?: string
+        }
+        Relationships: []
+      }
       crawler_run_steps: {
         Row: {
           created_at: string
@@ -12691,6 +12709,33 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_expired_wait_recovery_20261101: {
+        Row: {
+          gate_before: Json
+          item_before: Json
+          native_run_id: string
+          recovered_at: string
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          gate_before: Json
+          item_before: Json
+          native_run_id: string
+          recovered_at?: string
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          gate_before?: Json
+          item_before?: Json
+          native_run_id?: string
+          recovered_at?: string
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_gate_backup_20261031: {
         Row: {
           channels: Json | null
@@ -12950,6 +12995,33 @@ export type Database = {
           gate_before?: Json
           item_before?: Json
           recovered_at?: string
+          run_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      monitor_stored_read_repair_20261101: {
+        Row: {
+          item_before: Json
+          key: string
+          recorded_at: string
+          request_id: number | null
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          item_before: Json
+          key: string
+          recorded_at?: string
+          request_id?: number | null
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          item_before?: Json
+          key?: string
+          recorded_at?: string
+          request_id?: number | null
           run_id?: string
           work_item_id?: string
         }
@@ -17624,6 +17696,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      supervisor_claim_backup_20261101: {
+        Row: {
+          acl: string | null
+          applied_md5: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+        }
+        Insert: {
+          acl?: string | null
+          applied_md5?: string | null
+          definition: string
+          key: string
+          owner_name?: unknown
+        }
+        Update: {
+          acl?: string | null
+          applied_md5?: string | null
+          definition?: string
+          key?: string
+          owner_name?: unknown
+        }
+        Relationships: []
+      }
+      supervisor_verified_ingestion_20261101: {
+        Row: {
+          before_image: Json
+          confirmed_at: string
+          queue_id: string
+          source_observed_at: string
+          timeline_id: string
+        }
+        Insert: {
+          before_image: Json
+          confirmed_at?: string
+          queue_id: string
+          source_observed_at: string
+          timeline_id: string
+        }
+        Update: {
+          before_image?: Json
+          confirmed_at?: string
+          queue_id?: string
+          source_observed_at?: string
+          timeline_id?: string
+        }
+        Relationships: []
       }
       support_access_grants: {
         Row: {
