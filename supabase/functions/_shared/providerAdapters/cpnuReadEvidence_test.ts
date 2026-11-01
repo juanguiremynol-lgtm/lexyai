@@ -31,6 +31,17 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
     const empty = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
     assert.equal(empty.status,'EMPTY');
     assert.equal(empty.sourceObservedAt,observed);
+    const negative = {success:false,motivo:'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR',
+      interpretacion:'PROVEEDOR_NO_TIENE_EL_PROCESO',proveedor_consultado:true,ultima_consulta_proveedor_en:observed};
+    globalThis.fetch = async () => Response.json(negative,{status:410});
+    const absent = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
+    assert.equal(absent.status,'ERROR');assert.equal(absent.errorMessage,'CPNU_PROVIDER_NOT_FOUND');
+    assert.equal(absent.sourceObservedAt,observed);
+    assert.equal(cpnuNegativeEvidence({...negative,proveedor_consultado:false}),'PENDING_UPSTREAM');
+    globalThis.fetch = async () => Response.json({error:'Gone'},{status:410});
+    assert.equal((await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false})).errorMessage,'UPSTREAM_HTTP_410');
+    globalThis.fetch = async () => Response.json({status:'ok'});
+    assert.equal((await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false})).errorMessage,'UNCLASSIFIED_PROVIDER_SHAPE');
     globalThis.fetch = async u => String(u).includes('pagina=2')
       ? new Response('unavailable',{status:503})
       : Response.json({found:true,fetchedAt:observed,actuaciones:[{actuacion:'Auto',fechaActuacion:'2026-10-30'}],paginacionActuaciones:{totalPaginas:2}});

@@ -314,6 +314,9 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     } catch {
       return makeErrorResult('INVALID_JSON_RESPONSE', startTime, snapshotResponse.status);
     }
+    if (snapshotResponse.status === 410 && cpnuNegativeEvidence(snapshotData) === 'CPNU_PROVIDER_NOT_FOUND')
+      return withClase({ ...makeErrorResult('CPNU_PROVIDER_NOT_FOUND', startTime, 410),
+        sourceObservedAt: cpnuSourceObservation(snapshotData) }, extractClaseProveedor(snapshotData));
     if (!snapshotResponse.ok && snapshotResponse.status !== 404)
       return makeErrorResult(`UPSTREAM_HTTP_${snapshotResponse.status}`, startTime, snapshotResponse.status);
 
@@ -327,7 +330,8 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
 
     // JSON 404 or not-found indicator → trigger scraping
     if (snapshotResponse.status === 404 || snapshotData.expediente_encontrado === false || snapshotData.found === false) {
-      if (!allowBuscar) return withClase(makeErrorResult('RECORD_NOT_FOUND', startTime, snapshotResponse.status), snapshotClase);
+      if (!allowBuscar) return withClase(makeErrorResult(snapshotResponse.status === 404 && snapshotData.proveedor_consultado !== true
+        ? 'CPNU_SNAPSHOT_MISSING' : 'RECORD_NOT_FOUND', startTime, snapshotResponse.status), snapshotClase);
       console.log(`[cpnuAdapter] Record not found, triggering scraping...`);
       return await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime, snapshotClase);
     }
@@ -336,9 +340,9 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     const nestedData = snapshotData.data as Record<string, unknown> | undefined;
     const proceso = snapshotData.proceso as Record<string, unknown> | undefined;
 
-    const actuaciones = (
-      nestedData?.actuaciones || snapshotData.actuaciones || proceso?.actuaciones || []
-    ) as Record<string, unknown>[];
+    const rawActuaciones = nestedData?.actuaciones ?? snapshotData.actuaciones ?? proceso?.actuaciones;
+    if (!Array.isArray(rawActuaciones)) return withClase(makeErrorResult('UNCLASSIFIED_PROVIDER_SHAPE', startTime, snapshotResponse.status), snapshotClase);
+    const actuaciones = rawActuaciones as Record<string, unknown>[];
 
     const sujetos = (
       nestedData?.sujetos || snapshotData.sujetos || []
