@@ -12625,6 +12625,30 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_cpnu_enum_recovery_20261101: {
+        Row: {
+          cycle_before: Json
+          recovered_at: string
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          cycle_before: Json
+          recovered_at?: string
+          run_date: string
+          transport_epoch?: string
+          work_item_id: string
+        }
+        Update: {
+          cycle_before?: Json
+          recovered_at?: string
+          run_date?: string
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       monitor_gate_backup_20261031: {
         Row: {
           channels: Json | null
