@@ -16,8 +16,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   buildSilenceNotice,
-  days,
-  isSilenceCandidate,
+  describeSilence,
+  evaluateSilence,
+  shouldNotify,
   MIN_AGE_DAYS,
   SILENCE_DAYS,
   type SilenceChannelEvidence,
@@ -75,7 +76,7 @@ Deno.serve(async (req) => {
 
   const { data: items, error } = await supabase
     .from("work_items")
-    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled")
+    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled, scrape_status, last_error_code, last_successful_sync_at, provider_detail_exposure")
     .is("deleted_at", null)
     .eq("lifecycle_state", "ACTIVE")
     .eq("monitoring_enabled", true);
@@ -84,36 +85,53 @@ Deno.serve(async (req) => {
   const avisos: Array<Record<string, unknown>> = [];
 
   for (const wi of items ?? []) {
-    const [{ data: acts }, { data: pubs }, { data: sources }] = await Promise.all([
-      supabase.from("work_item_acts").select("detected_at").eq("work_item_id", wi.id)
-        .order("detected_at", { ascending: false }).limit(1),
-      supabase.from("work_item_publicaciones").select("detected_at").eq("work_item_id", wi.id)
-        .order("detected_at", { ascending: false }).limit(1),
+    const prefix = String(wi.radicado ?? "").slice(0, 12);
+    const [{ data: acts }, { data: pubs }, { data: sources }, { data: findings }] = await Promise.all([
+      // Judicial dates only: act_date / fecha_fijacion. Never detected_at/created_at.
+      supabase.from("work_item_acts")
+        .select("act_date, source, source_radicado, is_archived, is_future_dated")
+        .eq("work_item_id", wi.id).not("act_date", "is", null)
+        .order("act_date", { ascending: false }).limit(50),
+      supabase.from("work_item_publicaciones")
+        .select("fecha_fijacion, fecha_providencia, date_source, source, source_radicado, is_archived, is_future_dated")
+        .eq("work_item_id", wi.id).not("fecha_fijacion", "is", null)
+        .order("fecha_fijacion", { ascending: false }).limit(50),
       supabase.from("work_item_sources")
         .select("source_input_type, scrape_status, last_error_code, last_synced_at")
         .eq("work_item_id", wi.id),
+      supabase.from("manual_court_findings").select("finding_kind").eq("work_item_id", wi.id),
     ]);
 
-    const lastAct = acts?.[0]?.detected_at ?? null;
-    const lastPub = pubs?.[0]?.detected_at ?? null;
-    const lastSignal = [lastAct, lastPub].filter(Boolean).sort().pop() ?? null;
+    const evaluation = evaluateSilence({
+      radicado: wi.radicado,
+      lifecycle_state: wi.lifecycle_state,
+      monitoring_enabled: wi.monitoring_enabled,
+      deleted_at: null,
+      created_at: wi.created_at,
+      acts: acts ?? [],
+      pubs: pubs ?? [],
+      // Work-item level read state is the primary coverage evidence;
+      // work_item_sources rows are sparse.
+      sources: [
+        {
+          source_input_type: "WORK_ITEM",
+          scrape_status: wi.scrape_status,
+          last_error_code: wi.provider_detail_exposure === "PROCESO_PRIVADO" ? "PROCESO_PRIVADO" : wi.last_error_code,
+          last_synced_at: wi.last_successful_sync_at,
+        },
+        ...(sources ?? []),
+      ],
+      manual_findings: (findings ?? []).map((f) => String(f.finding_kind)),
+    }, now);
 
-    if (!isSilenceCandidate(
-      {
-        created_at: wi.created_at,
-        last_signal_at: lastSignal,
-        lifecycle_state: wi.lifecycle_state,
-        monitoring_enabled: wi.monitoring_enabled,
-      },
-      now,
-      umbral,
-    )) continue;
+    if (!shouldNotify(evaluation, umbral.silence_days)) continue;
+    const lastAct = evaluation.ultima_actuacion?.fecha ?? null;
+    const lastPub = evaluation.ultimo_estado?.fecha_estado ?? null;
 
     // Despacho profile: what do we know about this court, stated as knowledge
     // or as its absence. A manual finding (IT2) is quoted as a human check and
     // is kept apart from the derived profile.
     let perfil = "Sin evidencia suficiente sobre este despacho.";
-    const prefix = String(wi.radicado ?? "").slice(0, 12);
     const { data: derived } = await supabase
       .from("despacho_profiles")
       .select("publishes_estados, feeds_actuaciones, evidence_sufficient, evidence_note")
@@ -153,16 +171,16 @@ Deno.serve(async (req) => {
     const notice = buildSilenceNotice({
       radicado: wi.radicado,
       titulo: wi.title,
-      dias_en_silencio: lastSignal ? days(lastSignal, now) : days(wi.created_at, now),
-      registrado_hace_dias: days(wi.created_at, now),
+      evaluation,
       canales,
       perfil_despacho: perfil,
     });
 
-    avisos.push({ work_item_id: wi.id, radicado: wi.radicado, ...notice });
+    avisos.push({ work_item_id: wi.id, radicado: wi.radicado, tipo: evaluation.kind, criterio: describeSilence(evaluation), ...notice });
 
     if (!dryRun && wi.owner_id) {
-      // Monthly cadence: one notice per matter per calendar month.
+      // Monthly cadence (Bogotá month): one notice per matter per month; same key
+      // format as before so prior notices keep blocking duplicates.
       await supabase.rpc("rpc_insert_notification", {
         p_audience_scope: "USER",
         p_user_id: wi.owner_id,
@@ -171,8 +189,20 @@ Deno.serve(async (req) => {
         p_title: notice.title,
         p_body: notice.message,
         p_severity: "info",
-        p_metadata: { informativo: true, umbral_dias: SILENCE_DAYS, canales },
-        p_dedupe_key: `SILENCIO_PROLONGADO_${wi.id}_${now.toISOString().slice(0, 7)}`,
+        p_metadata: {
+          informativo: true,
+          umbral_dias: SILENCE_DAYS,
+          canales,
+          criterio_version: "2026-11-01",
+          tipo: evaluation.kind,
+          fecha_base: evaluation.fecha_base,
+          fuente_base: evaluation.fuente_base,
+          corte: evaluation.corte,
+          dias: evaluation.dias,
+          ultima_actuacion: evaluation.ultima_actuacion,
+          ultimo_estado: evaluation.ultimo_estado,
+        },
+        p_dedupe_key: `SILENCIO_PROLONGADO_${wi.id}_${evaluation.corte.slice(0, 7)}`,
         p_deep_link: `/app/work-items/${wi.id}`,
         p_work_item_id: wi.id,
       });

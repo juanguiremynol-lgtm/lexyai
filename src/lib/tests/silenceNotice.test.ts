@@ -1,66 +1,154 @@
 /**
  * IT1 — the silence notice informs the lawyer and can never act.
+ * 2026-11-01 contrast: silence is measured from judicial dates only, in
+ * Bogotá calendar days. All fixtures are synthetic.
  */
 import { describe, it, expect } from "vitest";
 import {
   buildSilenceNotice,
+  calendarDaysBetween,
+  evaluateSilence,
+  shouldNotify,
   isSilenceCandidate,
-  SILENCE_DAYS,
+  ESTADO_NO_VERIFICABLE,
+  SIN_ACTUACIONES_VERIFICABLES,
   SILENCIO_ES_NORMAL,
   DECISION_ES_SUYA,
+  type SilenceEvaluationInput,
 } from "../../../supabase/functions/_shared/silenceNotice.ts";
 
-const NOW = new Date("2026-08-29T00:00:00Z");
-const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
+const RAD = "99999999999920250000100"; // synthetic
+// 2026-11-01 08:00 Bogotá == 13:00 UTC. Also test a late-evening cut.
+const CUT = new Date("2026-11-01T13:00:00Z");
+const CUT_LATE = new Date("2026-11-02T03:30:00Z"); // still 2026-11-01 in Bogotá
+const OK_SOURCE = [{ source_input_type: "RADICADO", scrape_status: "SUCCESS", last_synced_at: "2026-10-31T12:00:00Z" }];
 
-describe("IT1 · eligibility", () => {
-  it("never fires on a newly registered matter (IT1d)", () => {
-    expect(
-      isSilenceCandidate(
-        { created_at: daysAgo(5), last_signal_at: null, lifecycle_state: "ACTIVE", monitoring_enabled: true },
-        NOW,
-      ),
-    ).toBe(false);
+const base = (over: Partial<SilenceEvaluationInput> = {}): SilenceEvaluationInput => ({
+  radicado: RAD,
+  lifecycle_state: "ACTIVE",
+  monitoring_enabled: true,
+  created_at: "2026-07-27T15:00:00Z",
+  acts: [],
+  pubs: [],
+  sources: OK_SOURCE,
+  ...over,
+});
+
+describe("silence · judicial base dates", () => {
+  it("auto 2025-07-09 / estado 2025-07-10, ficha 2026-07-27 → 480 / 479, never 96/97", () => {
+    for (const cut of [CUT, CUT_LATE]) {
+      const ev = evaluateSilence(base({
+        acts: [{ act_date: "2025-07-09", source: "cpnu" }],
+        pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: "2025-07-09T05:00:00Z", source: "publicaciones" }],
+      }), cut);
+      expect(ev.corte).toBe("2026-11-01");
+      expect(ev.ultima_actuacion?.dias).toBe(480);
+      expect(ev.ultimo_estado?.dias).toBe(479);
+      expect(ev.ultimo_estado?.fecha_providencia).toBe("2025-07-09");
+      expect(ev.kind).toBe("SILENCIO");
+      expect(ev.fuente_base).toBe("estado");
+      expect(ev.dias).toBe(479);
+      expect(ev.dias).not.toBe(96);
+      expect(ev.dias).not.toBe(97);
+    }
   });
 
-  it("fires on an old monitored matter with no signal", () => {
-    expect(
-      isSilenceCandidate(
-        { created_at: daysAgo(200), last_signal_at: daysAgo(SILENCE_DAYS + 1), lifecycle_state: "ACTIVE", monitoring_enabled: true },
-        NOW,
-      ),
-    ).toBe(true);
+  it("auto 2026-03-12, ficha 2026-01-25 → 234, never 280", () => {
+    const ev = evaluateSilence(base({
+      created_at: "2026-01-25T12:00:00Z",
+      acts: [{ act_date: "2026-03-12", source: "samai" }],
+    }), CUT);
+    expect(ev.dias).toBe(234);
+    expect(ev.fuente_base).toBe("actuacion");
   });
 
-  it("ignores matters the lawyer already paused", () => {
-    expect(
-      isSilenceCandidate(
-        { created_at: daysAgo(200), last_signal_at: daysAgo(200), lifecycle_state: "PAUSED", monitoring_enabled: false },
-        NOW,
-      ),
-    ).toBe(false);
+  it("no UTC truncation off-by-one: estado fijado 2025-07-10 00:00 Bogotá", () => {
+    const ev = evaluateSilence(base({
+      pubs: [{ fecha_fijacion: "2025-07-10T05:00:00Z", fecha_providencia: null }],
+    }), CUT_LATE);
+    expect(ev.dias).toBe(479);
+    expect(calendarDaysBetween("2025-07-10", "2026-11-01")).toBe(479);
+  });
+
+  it("ignores email acts, inferred-sync dates and rows attributed to another radicado", () => {
+    const ev = evaluateSilence(base({
+      acts: [
+        { act_date: "2026-10-30", source: "email" },
+        { act_date: "2026-10-29", source: "cpnu", source_radicado: "11111111111120240000100" },
+        { act_date: "2026-03-12", source: "cpnu" },
+      ],
+      pubs: [{ fecha_fijacion: "2026-10-31T12:00:00Z", fecha_providencia: null, date_source: "inferred_sync" }],
+    }), CUT);
+    expect(ev.fecha_base).toBe("2026-03-12");
+    expect(ev.dias).toBe(234);
+  });
+});
+
+describe("silence · semantics", () => {
+  it("private process has no verifiable silence figure", () => {
+    const ev = evaluateSilence(base({
+      acts: [{ act_date: "2025-07-09", source: "cpnu" }],
+      sources: [{ source_input_type: "RADICADO", last_error_code: "PROCESO_PRIVADO", last_synced_at: "2026-10-31T12:00:00Z" }],
+    }), CUT);
+    expect(ev.kind).toBe("NO_VERIFICABLE");
+    expect(ev.dias).toBeNull();
+    const n = buildSilenceNotice({ radicado: RAD, evaluation: ev, canales: [], perfil_despacho: "x" });
+    expect(n.title).toContain(ESTADO_NO_VERIFICABLE);
+    expect(n.title).not.toMatch(/hace \d+ días/);
+  });
+
+  it("no judicial acts never measures from created_at", () => {
+    const ev = evaluateSilence(base({ created_at: "2026-01-25T12:00:00Z" }), CUT);
+    expect(ev.kind).toBe("SIN_ACTUACIONES");
+    expect(ev.dias).toBeNull();
+    expect(ev.fecha_base).toBeNull();
+    const n = buildSilenceNotice({ radicado: RAD, evaluation: ev, canales: [], perfil_despacho: "x" });
+    expect(n.title).toContain(SIN_ACTUACIONES_VERIFICABLES);
+    expect(n.message).toContain("(no es una actuación)");
+  });
+
+  it("no successful read = not verifiable, not silence", () => {
+    const ev = evaluateSilence(base({
+      acts: [{ act_date: "2025-07-09", source: "cpnu" }],
+      sources: [{ source_input_type: "RADICADO", scrape_status: "FAILED", last_synced_at: null }],
+    }), CUT);
+    expect(ev.kind).toBe("NO_VERIFICABLE");
+  });
+
+  it("archived, trashed, paused and monitoring-off matters never alert", () => {
+    for (const over of [
+      { lifecycle_state: "ARCHIVED" },
+      { lifecycle_state: "TRASHED" },
+      { lifecycle_state: "PAUSED" },
+      { monitoring_enabled: false },
+    ]) {
+      const ev = evaluateSilence(base({ acts: [{ act_date: "2025-07-09", source: "cpnu" }], ...over }), CUT);
+      expect(ev.kind).toBe("EXCLUDED");
+      expect(shouldNotify(ev)).toBe(false);
+    }
+  });
+
+  it("legacy helper never falls back to the card date", () => {
+    expect(isSilenceCandidate(
+      { created_at: "2025-01-01T00:00:00Z", last_signal_at: null, lifecycle_state: "ACTIVE", monitoring_enabled: true },
+      CUT,
+    )).toBe(false);
   });
 });
 
 describe("IT1 · copy", () => {
-  const notice = buildSilenceNotice({
-    radicado: "05376408900220250066300",
-    titulo: "Cifuentes vs Verde PH",
-    dias_en_silencio: 60,
-    registrado_hace_dias: 90,
-    canales: [
-      { canal: "Actuaciones (CPNU)", ultimo_dato: null, ultima_respuesta: "leído y vacío", ultima_lectura: daysAgo(1) },
-    ],
-    perfil_despacho: "Sin evidencia suficiente sobre este despacho.",
-  });
+  const ev = evaluateSilence(base({ acts: [{ act_date: "2026-03-12", source: "cpnu" }] }), CUT);
+  const notice = buildSilenceNotice({ radicado: RAD, titulo: "Asunto sintético", evaluation: ev, canales: [], perfil_despacho: "x" });
 
+  it("shows base date, source and cut", () => {
+    expect(notice.title).toContain("Sin novedades hace 234 días");
+    expect(notice.message).toContain("Fecha base 2026-03-12 (actuacion); corte 2026-11-01");
+  });
   it("states plainly that silence is normal and does not warn", () => {
     expect(notice.message).toContain(SILENCIO_ES_NORMAL);
     expect(notice.message).toContain("no es una advertencia");
   });
-
   it("offers the pause as the lawyer's option only", () => {
     expect(notice.message).toContain(DECISION_ES_SUYA);
-    expect(notice.message).toContain("Andrómeda nunca lo pausará por silencio");
   });
 });
