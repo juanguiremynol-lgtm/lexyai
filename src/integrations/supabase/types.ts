@@ -12955,6 +12955,30 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_wait_function_backup_20261101: {
+        Row: {
+          acl: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+          recorded_at: string
+        }
+        Insert: {
+          acl?: string | null
+          definition: string
+          key: string
+          owner_name: unknown
+          recorded_at?: string
+        }
+        Update: {
+          acl?: string | null
+          definition?: string
+          key?: string
+          owner_name?: unknown
+          recorded_at?: string
+        }
+        Relationships: []
+      }
       monitor_wait_item_backup_20261031: {
         Row: {
           before_record: Json
@@ -14516,6 +14540,27 @@ export type Database = {
         }
         Relationships: []
       }
+      pinar_attachment_acceptance_20261101: {
+        Row: {
+          ordinal: number
+          request_id: number
+          requested_at: string
+          work_item_id: string
+        }
+        Insert: {
+          ordinal: number
+          request_id: number
+          requested_at?: string
+          work_item_id: string
+        }
+        Update: {
+          ordinal?: number
+          request_id?: number
+          requested_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       plan_limits: {
         Row: {
           created_at: string
@@ -15109,6 +15154,39 @@ export type Database = {
           publication_before?: Json
           recovered_at?: string
           remote_url?: string
+        }
+        Relationships: []
+      }
+      pp_completed_reader_recovery_20261101: {
+        Row: {
+          gate_before: Json
+          item_before: Json
+          native_observed_at: string
+          native_run_id: string
+          recovered_at: string
+          run_before: Json
+          run_id: string
+          work_item_id: string
+        }
+        Insert: {
+          gate_before: Json
+          item_before: Json
+          native_observed_at: string
+          native_run_id: string
+          recovered_at?: string
+          run_before: Json
+          run_id: string
+          work_item_id: string
+        }
+        Update: {
+          gate_before?: Json
+          item_before?: Json
+          native_observed_at?: string
+          native_run_id?: string
+          recovered_at?: string
+          run_before?: Json
+          run_id?: string
+          work_item_id?: string
         }
         Relationships: []
       }
@@ -17062,6 +17140,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      samai_cpu_delivery_recovery_20261101: {
+        Row: {
+          channels_before: Json
+          failed_request_id: number
+          recovered_at: string
+          request_id: number | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          channels_before: Json
+          failed_request_id: number
+          recovered_at?: string
+          request_id?: number | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Update: {
+          channels_before?: Json
+          failed_request_id?: number
+          recovered_at?: string
+          request_id?: number | null
+          run_date?: string
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
       }
       samai_delivery_acceptance_20261101: {
         Row: {
