@@ -1,4 +1,12 @@
 import type { DailyAdmission } from './dailyUpdateGate.ts';
+import { samaiAccountingComplete } from './samaiPublicationAccounting.ts';
+
+/** A terminal daily admission bars a new extraction, not a read of a certified
+ * later backend snapshot. An active extraction is never displaced. */
+export function mayReadStoredSamai(admission: DailyAdmission, workflow: string) {
+  return workflow === 'CPACA' && admission.reason === 'DAILY_UPDATE_ALREADY_STARTED'
+    && ['DONE', 'PARTIAL', 'FAILED', 'PENDING_UPSTREAM'].includes(String(admission.existing?.status));
+}
 
 /** Reuse a proved persisted read; a DONE label alone is insufficient. */
 export function completedSamaiRead(admission: DailyAdmission, history: any, workItemId: string) {
@@ -12,12 +20,11 @@ export function completedSamaiRead(admission: DailyAdmission, history: any, work
       summary?.source_query_complete !== true || summary?.contract_mismatch === true ||
       !Number.isFinite(timestamp) || timestamp > Date.now() + 60_000 ||
       new Date(timestamp - 5 * 3600_000).toISOString().slice(0, 10) !== admission.run_date ||
-      !Number.isInteger(summary.parsed_count) || summary.parsed_count < 0 ||
-      summary.accounted_count !== summary.parsed_count ||
-      ['ERROR', 'REJECTED_PARTIES', 'REJECTED_TRIGGER'].some(k => summary.buckets?.[k] !== 0)) return null;
+      !samaiAccountingComplete(summary)) return null;
   return { ok: true, work_item_id: workItemId, result_code: summary.parsed_count ? 'SUCCESS_WITH_DATA' : 'SUCCESS_EMPTY',
     reused_completed_read: true, external_sync_run_id: history.id,
-    source_observed_at: observed, consulta_completa: true, persistencia_completa: true,
+    source_observed_at: observed, source_complete: true, provider_used: 'samai_estados',
+    consulta_completa: true, persistencia_completa: true,
     inserted_count: 0, skipped_count: summary.parsed_count,
     samai_estados_summary: { ...summary, called: false }, errors: [], warnings: [] };
 }
