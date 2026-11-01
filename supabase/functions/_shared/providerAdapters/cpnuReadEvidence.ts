@@ -7,6 +7,19 @@ export function cpnuSourceObservation(data: Record<string, unknown>): string | u
   return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
 
+/** An old judicial event is compatible with a fresh complete source read.
+ * Keep regression/count guards: a recent clock cannot cure missing rows.
+ */
+export function cpnuObservedSnapshotIsCurrent(input: {
+  observedAt?: string; complete: boolean; snapshotMaxDate: string | null;
+  dbMaxDate?: string | null; count: number; historicalCount?: number;
+}, now = Date.now()): boolean {
+  const at = input.observedAt ? Date.parse(input.observedAt) : NaN;
+  return input.complete && Number.isFinite(at) && now >= at && now-at <= 86400000 &&
+    !(input.dbMaxDate && (!input.snapshotMaxDate || input.snapshotMaxDate < input.dbMaxDate)) &&
+    !(input.historicalCount && input.historicalCount > 10 && input.count < input.historicalCount*0.5);
+}
+
 export function cpnuNegativeEvidence(data: Record<string, unknown>): string | undefined {
   const nested = (data.data ?? {}) as Record<string, unknown>;
   if (data.motivo === 'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR' &&
