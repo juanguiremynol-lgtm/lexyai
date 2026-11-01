@@ -287,6 +287,9 @@ function manualReferences(rows: Array<Record<string, unknown>>): SilenceManualRe
       fecha_providencia: String((r.evidence as Record<string, unknown> | null)?.fecha_providencia ?? ""),
       verified_on: String(r.verified_on ?? ""),
       verified_by: (r.verified_by as string) ?? null,
+      procedencia: (r.evidence as Record<string, unknown> | null)?.procedencia === "VERIFICACION_DIRECTA_ABOGADO"
+        ? "VERIFICACION_DIRECTA_ABOGADO" as const
+        : "INFORME_APORTADO" as const,
     }))
     .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.fecha_providencia) && !!r.verified_on);
 }
