@@ -250,6 +250,8 @@ export interface ProviderAdapterResult {
   httpStatus?: number;
   /** Time of the verified public-source observation, not the cached feed read. */
   sourceObservedAt?: string;
+  /** False preserves extracted rows while preventing a complete-read claim. */
+  sourceReadComplete?: boolean;
   /** Raw provider response for debugging (only if requested) */
   rawResponse?: unknown;
   /** Filas descartadas por no corroborar la identidad de las partes */

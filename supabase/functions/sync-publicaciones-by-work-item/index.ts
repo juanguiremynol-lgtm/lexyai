@@ -43,6 +43,7 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
   return out;
 }
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
+import { completedSamaiRead } from "../_shared/completedPublicRead.ts";
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
@@ -116,6 +117,8 @@ type SyncResult = {
     | 'PROVIDER_NO_DOCUMENT'
     | 'ERROR';
   provider_latency_ms?: number;
+  daily_trace_id?: string;
+  source_observed_at?: string;
   samai_estados_summary?: {
     called: boolean;
     status?: string;
@@ -127,6 +130,8 @@ type SyncResult = {
     error?: string;
     parsed_count?: number;
     accounted_count?: number;
+    source_observed_at?: string;
+    source_query_complete?: boolean;
     buckets?: Record<SamaiPersistBucket, number>;
     examples?: Partial<Record<SamaiPersistBucket, SamaiBucketExample[]>>;
   };
@@ -576,7 +581,7 @@ async function writePublicacionesAttemptRow(
       total_skipped_pubs: result?.skipped_count || 0,
       error_message: result?.errors?.length ? result.errors.join('; ').slice(0, 500) : null,
       details: result?.samai_estados_summary
-        ? { samai_estados: result.samai_estados_summary }
+        ? { samai_estados: result.samai_estados_summary, daily_trace_id: result.daily_trace_id }
         : {},
     });
   } catch (_e) { /* best-effort */ }
@@ -1934,9 +1939,21 @@ Deno.serve(withSyncTimeline(async (req) => {
       const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
       if (!dailyAdmission.admitted) {
+        if (workItem.workflow_type === 'CPACA' && dailyAdmission.existing?.status === 'DONE') {
+          const { data: histories, error: historyError } = await supabase.from('external_sync_runs')
+            .select('id,work_item_id,status,details').eq('work_item_id', work_item_id)
+            .order('created_at', { ascending: false }).limit(6);
+          if (!historyError) {
+            for (const history of histories ?? []) {
+              const completed = completedSamaiRead(dailyAdmission, history, work_item_id);
+              if (completed) return jsonResponse(completed, 200);
+            }
+          }
+        }
         console.log(`[sync-pub] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
         return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, dailyAdmission), 200);
       }
+      result.daily_trace_id = dailyTraceId;
       rememberAdmission(req, dailyAdmission);
     }
     console.log(
@@ -2185,6 +2202,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           }
 
           samaiSummary.status = samaiRes.status;
+          samaiSummary.source_observed_at = samaiRes.sourceObservedAt;
+          samaiSummary.source_query_complete = samaiRes.sourceReadComplete === true;
+          result.source_observed_at = samaiRes.sourceObservedAt;
           samaiSummary.http_status = samaiRes.httpStatus;
           samaiSummary.duration_ms = samaiRes.durationMs;
           samaiSummary.raw_count = samaiRes.publicaciones.length;
@@ -3213,7 +3233,7 @@ Deno.serve(withSyncTimeline(async (req) => {
               ? `CONTRACT_MISMATCH: SAMAI Estados EMPTY with recent Fijación actuaciones (${result.samai_estados_summary.raw_count ?? 0} raw)`
               : null),
         details: result.samai_estados_summary
-          ? { samai_estados: result.samai_estados_summary }
+          ? { samai_estados: result.samai_estados_summary, daily_trace_id: result.daily_trace_id }
           : {},
       }).select('id').single();
 

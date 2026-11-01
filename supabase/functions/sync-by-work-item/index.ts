@@ -341,6 +341,7 @@ interface FetchResult {
   latencyMs?: number;
   httpStatus?: number;
   sourceObservedAt?: string;
+  sourceReadComplete?: boolean;
   // Auto-scraping fields
   scrapingInitiated?: boolean;
   scrapingJobId?: string;
@@ -1096,6 +1097,7 @@ function sharedResultToFetchResult(result: ProviderAdapterResult): FetchResult {
     latencyMs: bridged.latencyMs,
     httpStatus: bridged.httpStatus,
     sourceObservedAt: bridged.sourceObservedAt,
+    sourceReadComplete: bridged.sourceReadComplete,
     scrapingInitiated: bridged.scrapingInitiated,
     scrapingJobId: bridged.scrapingJobId,
     scrapingPollUrl: bridged.scrapingPollUrl,
@@ -2889,7 +2891,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // BUG FIX 2.2: This is expected for newly filed cases. Treat as ok=true with status 'empty'.
     // This is non-transient (no retry needed) and non-404 (no demonitor).
     if (fetchResult.actuaciones.length === 0) {
-      const incompleteEmpty = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
+      const incompleteEmpty = fetchResult.sourceReadComplete === false || result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
       result.ok = !incompleteEmpty;
       result.partial = incompleteEmpty;
       result.code = incompleteEmpty ? 'PARTIAL_SOURCE' : 'PROVIDER_EMPTY_RESULT';
@@ -3618,7 +3620,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Validate sync integrity before setting last_synced_at
     const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
     const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout');
-    const anyProviderIncomplete = result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
+    const anyProviderIncomplete = fetchResult.sourceReadComplete === false || result.provider_attempts.some(a => ['error', 'timeout', 'not_found', 'restricted', 'skipped'].includes(a.status));
 
     const persistenceFailed = !persistenceIsComplete(persistLedger);
     if (persistenceFailed) {
