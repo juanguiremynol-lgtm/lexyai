@@ -15112,6 +15112,33 @@ export type Database = {
         }
         Relationships: []
       }
+      pp_uuid_acceptance_20261101: {
+        Row: {
+          accepted_at: string
+          association_ids_before: Json
+          backend_run_id: string
+          gate_before: Json
+          publication_ids_before: Json
+          work_item_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          association_ids_before: Json
+          backend_run_id: string
+          gate_before: Json
+          publication_ids_before: Json
+          work_item_id: string
+        }
+        Update: {
+          accepted_at?: string
+          association_ids_before?: Json
+          backend_run_id?: string
+          gate_before?: Json
+          publication_ids_before?: Json
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       privacy_policy_versions: {
         Row: {
           active: boolean
@@ -17035,6 +17062,90 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      samai_delivery_acceptance_20261101: {
+        Row: {
+          act_ids_before: Json
+          admitted_at: string
+          native_run_id: number
+          radicado: string
+          source_read_at: string
+          work_item_id: string
+        }
+        Insert: {
+          act_ids_before: Json
+          admitted_at?: string
+          native_run_id: number
+          radicado: string
+          source_read_at: string
+          work_item_id: string
+        }
+        Update: {
+          act_ids_before?: Json
+          admitted_at?: string
+          native_run_id?: number
+          radicado?: string
+          source_read_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      samai_delivery_transport_20261101: {
+        Row: {
+          prior_admission: string
+          reason: string
+          replayed_at: string
+          request_id: number | null
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          prior_admission: string
+          reason: string
+          replayed_at?: string
+          request_id?: number | null
+          transport_epoch: string
+          work_item_id: string
+        }
+        Update: {
+          prior_admission?: string
+          reason?: string
+          replayed_at?: string
+          request_id?: number | null
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
+      samai_interrupted_admission_20261101: {
+        Row: {
+          channels_before: Json
+          recovered_at: string
+          request_id: number | null
+          requested_at: string | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Insert: {
+          channels_before: Json
+          recovered_at?: string
+          request_id?: number | null
+          requested_at?: string | null
+          run_date: string
+          transport_epoch: string
+          work_item_id: string
+        }
+        Update: {
+          channels_before?: Json
+          recovered_at?: string
+          request_id?: number | null
+          requested_at?: string | null
+          run_date?: string
+          transport_epoch?: string
+          work_item_id?: string
+        }
+        Relationships: []
       }
       samai_monitor_contract_recovery_20261101: {
         Row: {

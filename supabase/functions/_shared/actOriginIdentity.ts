@@ -461,7 +461,7 @@ export function planEnrichment(
   incoming: IncomingAct,
   relation: OriginRelation,
   now: string = new Date().toISOString(),
-  opts: { provider?: string | null; repair?: HistoricalRepairScope | null } = {},
+  opts: { provider?: string | null; repair?: HistoricalRepairScope | null; canonical?: (value: any) => string } = {},
 ): EnrichmentPlan | null {
   const repairAllowed = !!opts.repair &&
     (opts.provider ?? "").toLowerCase() === opts.repair.provider &&
@@ -483,7 +483,7 @@ export function planEnrichment(
   }
 
   const prevInv = (rd.anexos_inventario ?? null) as AnexosInventario | null;
-  const documentos = mergeActDocumentos(row.documentos ?? rd.documentos, incoming.documentos);
+  const documentos = mergeActDocumentos(row.documentos ?? rd.documentos, incoming.documentos, opts.canonical);
   if (documentos !== null) next.documentos = documentos;
   next.anexos_inventario = buildAnexosInventario({
     anexos: incoming.anexos ?? prevInv?.anunciados,
