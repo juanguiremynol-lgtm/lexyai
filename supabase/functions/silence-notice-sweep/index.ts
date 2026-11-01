@@ -71,10 +71,14 @@ Deno.serve(async (req) => {
     ? { silence_days: previewDays, min_age_days: previewDays }
     : {};
 
-  // Bounded inspection: ?limite=N (max 500) and ?work_item_id=UUID; ?resumen=1
-  // returns only kind/criterio per matter.
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limite") ?? "500") || 500, 1), 500);
-  const onlyId = url.searchParams.get("work_item_id");
+  // Bounded inspection is DRY-RUN ONLY: ?limite=N and ?work_item_id=UUID[,UUID].
+  // The productive run (dry_run=0) ignores both and pages through every
+  // eligible matter so later matters are never left out.
+  const limitParam = url.searchParams.get("limite");
+  const limit = dryRun && limitParam ? Math.min(Math.max(Number(limitParam) || 1, 1), 1000) : null;
+  const onlyIds = dryRun
+    ? (url.searchParams.get("work_item_id") ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
   const resumen = url.searchParams.get("resumen") === "1";
 
   const supabase = createClient(
@@ -82,21 +86,31 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  let query = supabase
-    .from("work_items")
-    .select("id, radicado, title, workflow_type, authority_name, owner_id, created_at, lifecycle_state, monitoring_enabled, scrape_status, last_error_code, last_successful_sync_at, provider_detail_exposure")
-    .is("deleted_at", null)
-    .eq("lifecycle_state", "ACTIVE")
-    .eq("monitoring_enabled", true)
-    .order("id")
-    .limit(limit);
-  if (onlyId) query = query.eq("id", onlyId);
-  const { data: items, error } = await query;
-  if (error) return json({ ok: false, error: error.message }, 500);
+  const COLS = "id, radicado, title, workflow_type, authority_name, owner_id, created_at, deleted_at, lifecycle_state, monitoring_enabled, scrape_status, last_error_code, last_successful_sync_at, provider_detail_exposure";
+  const items: any[] = [];
+  if (onlyIds.length > 0) {
+    // Explicit ids: fetch without lifecycle filters so exclusions are reported
+    // by the shared criterion (archived/trashed/monitoring off → EXCLUDED).
+    const { data, error } = await supabase.from("work_items").select(COLS).in("id", onlyIds);
+    if (error) return json({ ok: false, error: error.message }, 500);
+    items.push(...(data ?? []));
+  } else {
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const size = limit != null ? Math.min(PAGE, limit - items.length) : PAGE;
+      if (size <= 0) break;
+      const { data, error } = await supabase.from("work_items").select(COLS)
+        .is("deleted_at", null).eq("lifecycle_state", "ACTIVE").eq("monitoring_enabled", true)
+        .order("id").range(from, from + size - 1);
+      if (error) return json({ ok: false, error: error.message }, 500);
+      items.push(...(data ?? []));
+      if (!data || data.length < size) break;
+    }
+  }
 
   const avisos: Array<Record<string, unknown>> = [];
 
-  for (const wi of items ?? []) {
+  for (const wi of items) {
     const prefix = String(wi.radicado ?? "").slice(0, 12);
     const [actsQ, pubsQ, sourcesQ, findingsQ] = await Promise.all([
       // Judicial dates only: act_date / fecha_fijacion. Never detected_at/created_at.
@@ -128,7 +142,7 @@ Deno.serve(async (req) => {
       radicado: wi.radicado,
       lifecycle_state: wi.lifecycle_state,
       monitoring_enabled: wi.monitoring_enabled,
-      deleted_at: null,
+      deleted_at: wi.deleted_at ?? null,
       created_at: wi.created_at,
       acts: actsQ.data ?? [],
       pubs: pubsQ.data ?? [],
@@ -152,7 +166,16 @@ Deno.serve(async (req) => {
       avisos.push({ work_item_id: wi.id, tipo: evaluation.kind, criterio: describeSilence(evaluation), escrito: false });
       continue;
     }
-    if (!shouldNotify(evaluation, umbral.silence_days)) continue;
+    if (onlyIds.length > 0 && evaluation.kind === "EXCLUDED") {
+      avisos.push({ work_item_id: wi.id, tipo: "EXCLUDED", criterio: describeSilence(evaluation), escrito: false });
+      continue;
+    }
+    if (!shouldNotify(evaluation, umbral.silence_days)) {
+      if (onlyIds.length > 0) {
+        avisos.push({ work_item_id: wi.id, tipo: evaluation.kind, sin_aviso: true, criterio: describeSilence(evaluation), escrito: false });
+      }
+      continue;
+    }
 
     // Despacho profile: what do we know about this court, stated as knowledge
     // or as its absence. A manual finding (IT2) is quoted as a human check and
@@ -264,6 +287,9 @@ function manualReferences(rows: Array<Record<string, unknown>>): SilenceManualRe
       fecha_providencia: String((r.evidence as Record<string, unknown> | null)?.fecha_providencia ?? ""),
       verified_on: String(r.verified_on ?? ""),
       verified_by: (r.verified_by as string) ?? null,
+      procedencia: (r.evidence as Record<string, unknown> | null)?.procedencia === "VERIFICACION_DIRECTA_ABOGADO"
+        ? "VERIFICACION_DIRECTA_ABOGADO" as const
+        : "INFORME_APORTADO" as const,
     }))
     .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.fecha_providencia) && !!r.verified_on);
 }

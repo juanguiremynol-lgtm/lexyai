@@ -35,13 +35,10 @@ export const SILENCE_DAYS = 45;
 export const MIN_AGE_DAYS = SILENCE_DAYS;
 
 export const SILENCIO_ES_NORMAL =
-  "Un radicado puede pasar meses sin actuación: los juzgados suelen demorarse en " +
-  "admitir, inadmitir o rechazar una demanda. En cambio, TODO proceso debe publicar " +
-  "sus estados en publicacionesprocesales.ramajudicial.gov.co (familia CGP) o en " +
-  "SAMAI Estados (CPACA); no hay excepción. Si tampoco llegan estados, la ausencia " +
-  "apunta a la lectura o al proveedor, nunca a que el despacho no publique. Esto NO " +
-  "significa que el expediente esté cerrado, ni que no exista, ni que Andrómeda haya " +
-  "dejado de leerlo.";
+  "La ausencia de registros en las fuentes públicas consultadas no prueba que no existan " +
+  "actuaciones en el expediente ni demuestra mora del despacho. Puede deberse a reserva o " +
+  "acceso restringido, a falta de cobertura de la fuente o a que el asunto haya terminado. " +
+  "Valorarlo requiere revisar el acceso al expediente y la cobertura de la lectura."
 
 export const NO_ES_ADVERTENCIA =
   "Este aviso informa; no es una advertencia ni una alerta de riesgo.";
@@ -175,6 +172,8 @@ export interface SilenceManualReference {
   fecha_providencia: string;
   verified_on: string;
   verified_by: string | null;
+  /** Default INFORME_APORTADO: the lawyer supplied a (possibly third-party) report. */
+  procedencia?: "INFORME_APORTADO" | "VERIFICACION_DIRECTA_ABOGADO";
 }
 
 export interface SilenceEvaluationInput {
@@ -211,7 +210,7 @@ export interface SilenceEvaluation {
   dias: number | null;
   ultima_actuacion: { fecha: string; fuente: string; dias: number } | null;
   ultimo_estado: { fecha_estado: string; fecha_providencia: string | null; fuente: string; dias: number } | null;
-  referencia_manual: { fecha_providencia: string; verificado_el: string; finding_id: string; dias: number } | null;
+  referencia_manual: { fecha_providencia: string; verificado_el: string; finding_id: string; dias: number; procedencia: "INFORME_APORTADO" | "VERIFICACION_DIRECTA_ABOGADO" } | null;
   fecha_ficha: string;
   fecha_ingreso: string | null;
 }
@@ -296,6 +295,7 @@ export function evaluateSilence(input: SilenceEvaluationInput, now = new Date())
         fecha_providencia: m.fecha_providencia,
         verificado_el: m.verified_on,
         finding_id: m.finding_id,
+        procedencia: m.procedencia ?? "INFORME_APORTADO",
         dias: calendarDaysBetween(m.fecha_providencia, corte),
       };
     }
@@ -381,11 +381,17 @@ export function describeSilence(ev: SilenceEvaluation): string {
         parts.push(`último estado ${ev.ultimo_estado.fecha_estado}${prov} (${ev.ultimo_estado.fuente}): ${ev.ultimo_estado.dias} días`);
       }
       if (ev.referencia_manual) {
-        parts.push(`referencia manual verificada por el abogado el ${ev.referencia_manual.verificado_el}: providencia ` +
-          `${ev.referencia_manual.fecha_providencia} (no proviene del proveedor): ${ev.referencia_manual.dias} días`);
+        const r = ev.referencia_manual;
+        const quien = r.procedencia === "VERIFICACION_DIRECTA_ABOGADO"
+          ? "constatada directamente por el abogado"
+          : "aportada por el abogado a partir de un informe (no constatada por Andrómeda ni por el proveedor)";
+        parts.push(`referencia manual ${quien}, registrada el ${r.verificado_el}: providencia ` +
+          `${r.fecha_providencia}: ${r.dias} días`);
       }
-      return `Fecha base ${ev.fecha_base} (${ev.fuente_base}); corte ${ev.corte} (America/Bogota, días calendario); ` +
-        `${verif}. ${parts.join("; ")}.`;
+      const baseLbl = ev.fuente_base === "referencia_manual" ? "referencia manual, no registro del proveedor" : ev.fuente_base;
+      return `Fecha base ${ev.fecha_base} (${baseLbl}). Corte de cómputo ${ev.corte} (America/Bogota, días calendario). ` +
+        `Última verificación completa de las fuentes: ${ev.ultima_verificacion ?? "ninguna"}; ` +
+        `no se certifica el intervalo posterior a esa fecha. ${parts.join("; ")}.`;
     }
   }
 }
@@ -423,9 +429,15 @@ export function buildSilenceNotice(input: SilenceNoticeInput): { title: string; 
   let title: string;
   let lead: string;
   if (ev.kind === "SILENCIO") {
-    title = `🕰️ Sin novedades hace ${ev.dias} días — ${rad}`;
-    lead = `El asunto ${rad}${input.titulo ? ` — ${input.titulo}` : ""} lleva ${ev.dias} días calendario ` +
-      `sin actuaciones ni estados judiciales nuevos.`;
+    const manualBase = ev.fuente_base === "referencia_manual";
+    title = manualBase
+      ? `🕰️ Último registro conocido (referencia manual) hace ${ev.dias} días — ${rad}`
+      : `🕰️ Último registro judicial conocido hace ${ev.dias} días — ${rad}`;
+    lead = `El asunto ${rad}${input.titulo ? ` — ${input.titulo}` : ""}: ` +
+      (manualBase
+        ? `último registro conocido hace ${ev.dias} días calendario, según referencia manual (no es silencio verificado en las fuentes).`
+        : `último registro judicial conocido hace ${ev.dias} días calendario.`) +
+      ` Corte de cómputo ${ev.corte}; última verificación completa ${ev.ultima_verificacion ?? "ninguna"}.`;
   } else if (ev.kind === "NO_VERIFICABLE") {
     title = `${ESTADO_NO_VERIFICABLE} — ${rad}`;
     lead = `El asunto ${rad}${input.titulo ? ` — ${input.titulo}` : ""}: ${ESTADO_NO_VERIFICABLE}.`;
