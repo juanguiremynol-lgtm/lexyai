@@ -19,5 +19,5 @@ export function completedSamaiRead(admission: DailyAdmission, history: any, work
     reused_completed_read: true, external_sync_run_id: history.id,
     source_observed_at: observed, consulta_completa: true, persistencia_completa: true,
     inserted_count: 0, skipped_count: summary.parsed_count,
-    samai_estados_summary: summary, errors: [], warnings: [] };
+    samai_estados_summary: { ...summary, called: false }, errors: [], warnings: [] };
 }

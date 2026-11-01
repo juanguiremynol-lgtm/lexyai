@@ -74,6 +74,7 @@ import {
   type ProviderAdapterResult,
 } from '../_shared/providerAdapters/index.ts';
 import { toOrchestratorResult, type OrchestratorFetchResult } from '../_shared/providerAdapters/bridge.ts';
+import { hearingAlreadyResolved, type VerifiedHearingEvidence } from '../_shared/verifiedHearingEvidence.ts';
 import { emptyReadPersistence } from '../_shared/emptyReadPersistence.ts';
 
 // ============= FEATURE FLAG =============
@@ -3012,6 +3013,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const knownActRows: CandidateRow[] = (existingActsForDedup || []).map((a: any) => toActIdentityCandidate(a));
 
     const failedEnrichmentIds = new Set<string>();
+    let verifiedHearingRowsPromise: Promise<VerifiedHearingEvidence[]> | undefined;
 
     // Called only with a confirmed persisted row.
     const applyPersistedHearing = async (persisted: any): Promise<void> => {
@@ -3027,6 +3029,14 @@ Deno.serve(withSyncTimeline(async (req) => {
           });
           for (const candidate of candidates) {
             if (candidate.time_inferred) {
+              verifiedHearingRowsPromise ??= (async () => {
+                const { data, error } = await supabase.from('work_item_hearings')
+                  .select('source_act_id,scheduled_at,time_inferred')
+                  .eq('work_item_id', work_item_id).eq('time_inferred', false);
+                if (error) throw new Error(error.message);
+                return (data ?? []) as VerifiedHearingEvidence[];
+              })();
+              if (hearingAlreadyResolved(await verifiedHearingRowsPromise, persisted.id, candidate.local_date)) continue;
               result.errors.push(`Hearing date ${candidate.local_date} needs a verified time from source act ${persisted.id}`);
               continue;
             }

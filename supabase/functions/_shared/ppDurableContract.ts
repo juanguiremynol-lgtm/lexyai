@@ -38,3 +38,19 @@ export function matchingCompletedHistory(runId: string, data: unknown, radicado?
     /^(SUCCESS_EMPTY|SUCCESS_WITH_DATA)$/.test(String(b.run_status ?? '')) &&
     b.persistencia_completa !== false;
 }
+
+/** An implicit historical caller may consume a separately certified daily
+ * window. This never completes or erases the historical caller's own range. */
+export function completedDailyReference(data: unknown, radicado: string, now = Date.now()): Record<string, unknown> | null {
+  if (!data || typeof data !== 'object') return null;
+  const parent = data as Record<string, any>;
+  const daily = parent.consulta_diaria;
+  if (parent.radicado !== radicado || !daily || typeof daily !== 'object' ||
+      daily.radicado !== radicado || daily.tipo_cobertura !== 'RECIENTE' ||
+      daily.alcance_efectivo_acreditado !== true) return null;
+  const day = new Date(now - 5 * 3600_000).toISOString().slice(0, 10);
+  const floor = new Date(Date.parse(day + 'T00:00:00Z') - 14 * 86400_000).toISOString().slice(0, 10);
+  if (daily.checkpoint?.hasta !== day || typeof daily.checkpoint?.desde !== 'string' || daily.checkpoint.desde > floor ||
+      durableVerdict(200, daily, daily.backend_run_id).kind !== 'complete') return null;
+  return daily;
+}
