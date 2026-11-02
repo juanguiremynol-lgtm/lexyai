@@ -25,7 +25,7 @@
 import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
-import { durableVerdict, matchingCompletedHistory, completedDailyReference, mayReadPartialHistory, matchingPartialHistory } from "../_shared/ppDurableContract.ts";
+import { durableVerdict, matchingCompletedHistory, completedDailyReference, mayReadPartialHistory, matchingPartialHistory, terminalDurableRun } from "../_shared/ppDurableContract.ts";
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
@@ -2106,7 +2106,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const est = rr.body && typeof rr.body === 'object' ? (rr.body as any).estado ?? null : null;
       const closed = fetchResult.durableCompleted === true ||
         (!fetchResult.ok && (rr.http_status ?? 0) >= 400 && (rr.http_status ?? 0) < 500) ||
-        (!fetchResult.ok && (est === 'PARCIAL' || est === 'FALLIDA'));
+        terminalDurableRun(rr.body, normalizedRadicado, rr.run_id);
       try {
         const key = `pub_rescrape:${work_item_id}`;
         const { data: cur } = await supabase.from('cron_state').select('value').eq('key', key).maybeSingle();
