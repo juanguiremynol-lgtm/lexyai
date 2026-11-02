@@ -54,3 +54,41 @@ export function completedDailyReference(data: unknown, radicado: string, now = D
       durableVerdict(200, daily, daily.backend_run_id).kind !== 'complete') return null;
   return daily;
 }
+
+/** Partial source coverage may still deliver already persisted positive rows.
+ * This permits a stored GET, never certifies coverage or starts a new scrape. */
+export function mayReadPartialHistory(data: unknown, radicado: string, runId: string): boolean {
+  if (!data || typeof data !== 'object' || !UUID.test(runId) || !/^\d{23}$/.test(radicado)) return false;
+  const b = data as Record<string, unknown>;
+  const observed = Date.parse(String(b.intento_observado_en ?? ''));
+  return b.backend_run_id === runId && b.radicado === radicado && b.consulta_completa === false &&
+    (b.estado === 'PARCIAL' || b.estado === 'ADMITIDA') && Number.isFinite(observed) && observed <= Date.now() + 60_000 &&
+    (Number(b.backend_new_events ?? 0) > 0 || Number(b.eventos_detectados ?? 0) > 0);
+}
+
+/** Identity and persistence are mandatory even when no completeness is claimed.
+ * Return the accepted native rows plus explicit rejected indices; the original
+ * reader body stays in the trace. Historical rows retain their own dates. */
+export function matchingPartialHistory(data: unknown, radicado: string, runId: string) {
+  if (!data || typeof data !== 'object') return null;
+  const b = data as Record<string, any>;
+  if (b.backend_run_id !== runId || b.radicado !== radicado || b.consulta_completa !== false ||
+      b.persistencia_completa !== true || !Number.isFinite(Date.parse(String(b.intento_observado_en ?? '')))) return null;
+  const rows = Array.isArray(b.actuaciones) ? b.actuaciones : Array.isArray(b.publicaciones) ? b.publicaciones : null;
+  if (!rows) return null;
+  const rejected: number[] = [];
+  const accepted = rows.filter((row: any, i: number) => {
+    const a = row?.documento_atribucion;
+    const pages = a?.paginas_fuente ?? a?.paquete?.paginas_caso ?? row?.paquete?.paginas_caso;
+    const validPages = (v: unknown): boolean => Array.isArray(v) && v.length > 0 &&
+      v.every((x) => typeof x === 'number' ? Number.isInteger(x) && x > 0 :
+        Array.isArray(x) && x.length === 2 && x.every((n) => Number.isInteger(n) && n > 0) && x[1] >= x[0]);
+    const exactRad = a?.radicado === radicado && (!a?.paquete?.radicado || a.paquete.radicado === radicado);
+    const nativeArticle = /^\d+$/.test(String(row?.estado?.article_id ?? ''));
+    const ok = exactRad && nativeArticle && validPages(pages);
+    if (!ok) rejected.push(i);
+    return ok;
+  });
+  return { body: { ...b, actuaciones: accepted, ...(Array.isArray(b.publicaciones) ? { publicaciones: accepted } : {}) },
+    accepted: accepted.length, rejected, sourceObservedAt: String(b.intento_observado_en) };
+}

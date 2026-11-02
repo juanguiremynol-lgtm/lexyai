@@ -25,7 +25,7 @@
 import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
-import { durableVerdict, matchingCompletedHistory, completedDailyReference } from "../_shared/ppDurableContract.ts";
+import { durableVerdict, matchingCompletedHistory, completedDailyReference, mayReadPartialHistory, matchingPartialHistory } from "../_shared/ppDurableContract.ts";
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
@@ -210,6 +210,7 @@ export type ProcesarAck = {
 type FetchResultV3 = {
   readIncomplete?: boolean;
   durableCompleted?: boolean;
+  persistedPartial?: { accepted: number; rejected: number[]; sourceObservedAt: string };
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
   /** KJ3 — the literal /historico read of THIS pass, always captured. */
@@ -377,7 +378,7 @@ type RescrapeDecision = {
     | 'not_evaluated'
     | 'routing_skip_non_pp_category'
     | 'follow_admitted_run'
-    | 'consume_certified_stored_read';
+    | 'consume_certified_stored_read' | 'consume_persisted_partial_read';
   httpStatus?: number;
   error?: string;
   backendRunId?: string | null;
@@ -1261,21 +1262,27 @@ export async function followAdmittedRun(
   const daily = completedDailyReference(body, radicado);
   const readRunId = daily ? String(daily.backend_run_id) : runId;
   const verdict = durableVerdict(status.httpStatus ?? 200, daily ?? body, readRunId);
-  if (verdict.kind === 'error') return failed(verdict.reason);
-  if (verdict.kind === 'pending') return pending(verdict.reason);
+  const partial = !daily && mayReadPartialHistory(body, radicado, runId);
+  if (!partial && verdict.kind === 'error') return failed(verdict.reason);
+  if (!partial && verdict.kind === 'pending') return pending(verdict.reason);
   const url = `${baseUrl}/historico/${radicado}?backend_run_id=${readRunId}`;
   const history = await fetchWithTimeoutAndRetry(url, headers, 5000, 1);
   if (!history.ok || !history.response) return pending(`PP_HISTORY_PENDING: ${history.error ?? 'unavailable'}`);
   let historyData: unknown;
   try { historyData = await history.response.json(); } catch { return pending('PP_HISTORY_INVALID_JSON'); }
-  if (!matchingCompletedHistory(readRunId, historyData, radicado) || !publicSnapshotCompleted(historyData))
+  const persistedPartial = partial ? matchingPartialHistory(historyData, radicado, readRunId) : null;
+  if (partial ? !persistedPartial : (!matchingCompletedHistory(readRunId, historyData, radicado) || !publicSnapshotCompleted(historyData)))
     return pending('PP_HISTORY_NOT_CERTIFIED_OR_RUN_MISMATCH');
-  const extracted = extractPublicacionesFromResponse(historyData, Date.now() - startTime);
+  const extracted = extractPublicacionesFromResponse(persistedPartial?.body ?? historyData, Date.now() - startTime);
   const historicoRead: HistoricoRead = { endpoint: 'GET /historico/{radicado}', url, radicado,
     http_status: history.httpStatus ?? 200, latency_ms: Date.now() - startTime, body: historyData,
     body_bytes: JSON.stringify(historyData).length, payload_count: extracted.publicaciones.length,
     parse_error: null, transport_error: null };
-  return { ...extracted, durableCompleted: true, historicoRead, runStatusRead };
+  return persistedPartial
+    ? { ...extracted, readIncomplete: true, durableCompleted: false, historicoRead, runStatusRead,
+        error: 'PP_PERSISTED_POSITIVES_WITH_INCOMPLETE_COVERAGE',
+        persistedPartial: { accepted: persistedPartial.accepted, rejected: persistedPartial.rejected, sourceObservedAt: persistedPartial.sourceObservedAt } }
+    : { ...extracted, durableCompleted: true, historicoRead, runStatusRead };
 }
 
 export async function fetchPublicaciones(
@@ -1968,22 +1975,23 @@ Deno.serve(withSyncTimeline(async (req) => {
             if (daily) stored = await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, String(daily.backend_run_id));
           }
           const certificate = certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date);
-          if (!certificate) {
+          if (!certificate && !stored.persistedPartial) {
             return jsonResponse({ ...dailyDuplicateBody(work_item_id, dailyTraceId, { ...dailyAdmission,
               reason: 'STORED_PP_CERTIFICATE_NOT_AVAILABLE', next_eligible_at: nextRead }),
               source_complete: false, source_query_attempted: false,
               stored_result_read: { backend_run_id: stored.runStatusRead?.run_id ?? null,
                 reason: stored.error ?? 'PP_CERTIFICATE_NOT_VALID_FOR_CURRENT_WINDOW' } }, 200);
           }
-          certifiedStoredResult = { ...stored, durableCompleted: true };
+          certifiedStoredResult = certificate ? { ...stored, durableCompleted: true } : stored;
           // Same reuse contract SAMAI already stamps; consumed by estadosMonitor.ts
           // so the monitor does not stamp a fresh source attempt on reingestion.
-          result.reused_completed_read = true;
+          result.reused_completed_read = !!certificate;
           result.source_query_attempted = false;
-          result.source_observed_at = String(certificate.intento_observado_en);
+          result.source_observed_at = certificate ? String(certificate.intento_observado_en) : stored.persistedPartial!.sourceObservedAt;
+          if (stored.persistedPartial) result.source_complete = false;
           result.daily_trace_id = String(dailyAdmission.existing?.trace_id ?? dailyTraceId);
-          rescrapeDecision = { triggered: false, reason: 'consume_certified_stored_read',
-            backendRunId: String(certificate.backend_run_id) };
+          rescrapeDecision = { triggered: false, reason: certificate ? 'consume_certified_stored_read' : 'consume_persisted_partial_read',
+            backendRunId: certificate ? String(certificate.backend_run_id) : stored.runStatusRead?.run_id };
         } else if (mayReadStoredSamai(dailyAdmission, workItem.workflow_type)) {
           // The monitoring adapter is GET /persistido only. No provider session,
           // new daily admission or freshness stamp is created by this recovery.
@@ -2050,6 +2058,11 @@ Deno.serve(withSyncTimeline(async (req) => {
     // backend_run_id, backend_new_events). Absent fields stay null; nothing
     // is synthesized.
     {
+      if (fetchResult.persistedPartial) {
+        result.source_complete = false;
+        result.source_query_attempted = false;
+        result.source_observed_at = fetchResult.persistedPartial.sourceObservedAt;
+      }
       const runRead = fetchResult.runStatusRead;
       const b: any = fetchResult.durableCompleted && fetchResult.historicoRead
         ? fetchResult.historicoRead.body
@@ -2065,6 +2078,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
+        persisted_partial_read: fetchResult.persistedPartial ?? null,
         followed_run_id: runRead?.run_id ?? null,
         consulta_completa: pick('consulta_completa'),
         consulta_completa_plan_diario: pick('consulta_completa_plan_diario'),
@@ -3130,6 +3144,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     if (fetchResult.readIncomplete || result.result_code === 'CONTRACT_MISMATCH') {
       result.ok = false;
+      result.source_complete = false;
       result.result_code = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
       (result as any).status = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
       if (fetchResult.readIncomplete) (result as any).pending_upstream = true;
