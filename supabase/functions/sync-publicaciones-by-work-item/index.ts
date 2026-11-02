@@ -44,6 +44,7 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
 }
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
+import { certifiedStoredPPHistory, mayReadStoredPP } from '../_shared/storedPublicationRead.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
@@ -1896,6 +1897,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // expiry of the app's follow-up budget, a cooldown lapse or a new day
     // never authorizes a new POST while the backend run may still be alive.
     const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed ? gateStatus.backendRunId : null;
+    let certifiedStoredResult: FetchResultV3 | null = null;
     const followupExpired = !!activeRunId && (!Number.isFinite(admittedMs) || Date.now() - admittedMs >= PP_FOLLOWUP_MAX_MS ||
       (gateStatus.pollCount ?? 0) >= PP_MAX_POLLS_PER_RUN);
     if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
@@ -1936,7 +1938,43 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
           }
         }
-        if (mayReadStoredSamai(dailyAdmission, workItem.workflow_type)) {
+        if (shouldFetchPP && mayReadStoredPP(dailyAdmission, workItem.workflow_type)) {
+          // Auth, membership, eligibility and configured-provider checks already
+          // ran above. The shared SQL limiter bounds this stored-only recovery
+          // across manual, cron and retry callers, including closed ledgers.
+          const { data: readClaim, error: readClaimError } = await supabase.rpc('claim_pp_stored_result_read',
+            { _work_item_id: work_item_id, _min_interval_seconds: 3600 });
+          const nextRead = readClaim?.next_read_at ?? new Date(Date.now() + 3600_000).toISOString();
+          if (readClaimError || !readClaim?.claimed) {
+            return jsonResponse(dailyDuplicateBody(work_item_id, dailyTraceId, { ...dailyAdmission,
+              reason: readClaimError ? 'DAILY_ADMISSION_UNAVAILABLE' : 'STORED_PP_READ_NOT_DUE',
+              next_eligible_at: nextRead }), 200);
+          }
+          let stored = gateStatus.backendRunId
+            ? await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, gateStatus.backendRunId)
+            : await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, { allow: false });
+          // A legacy ledger may have no UUID. Its stored feed can advertise a
+          // separate current daily certificate; follow that exact UUID only.
+          if (!certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date)) {
+            const body = stored.historicoRead?.body as Record<string, any> | undefined;
+            const daily = completedDailyReference({ radicado: normalizedRadicado,
+              consulta_diaria: body?.plan_diario?.publica }, normalizedRadicado);
+            if (daily) stored = await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, String(daily.backend_run_id));
+          }
+          const certificate = certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date);
+          if (!certificate) {
+            return jsonResponse({ ...dailyDuplicateBody(work_item_id, dailyTraceId, { ...dailyAdmission,
+              reason: 'STORED_PP_CERTIFICATE_NOT_AVAILABLE', next_eligible_at: nextRead }),
+              source_complete: false, source_query_attempted: false,
+              stored_result_read: { backend_run_id: stored.runStatusRead?.run_id ?? null,
+                reason: stored.error ?? 'PP_CERTIFICATE_NOT_VALID_FOR_CURRENT_WINDOW' } }, 200);
+          }
+          certifiedStoredResult = { ...stored, durableCompleted: true };
+          result.source_observed_at = String(certificate.intento_observado_en);
+          result.daily_trace_id = String(dailyAdmission.existing?.trace_id ?? dailyTraceId);
+          rescrapeDecision = { triggered: false, reason: 'consume_certified_stored_read',
+            backendRunId: String(certificate.backend_run_id) };
+        } else if (mayReadStoredSamai(dailyAdmission, workItem.workflow_type)) {
           // The monitoring adapter is GET /persistido only. No provider session,
           // new daily admission or freshness stamp is created by this recovery.
           result.daily_trace_id = String(dailyAdmission.existing?.trace_id ?? dailyTraceId);
@@ -1954,7 +1992,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     );
 
     let fetchResult: FetchResultV3;
-    if (!shouldFetchPP) {
+    if (certifiedStoredResult) {
+      fetchResult = certifiedStoredResult;
+    } else if (!shouldFetchPP) {
       // ROUTING_SKIP: synthesize an empty, ok PP result so downstream merge
       // logic runs unchanged. For CPACA the SAMAI Estados block below fills
       // in the real estados data; for other non-PP categories nothing is
