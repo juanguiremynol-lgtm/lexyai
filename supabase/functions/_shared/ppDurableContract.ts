@@ -92,3 +92,12 @@ export function matchingPartialHistory(data: unknown, radicado: string, runId: s
   return { body: { ...b, actuaciones: accepted, ...(Array.isArray(b.publicaciones) ? { publicaciones: accepted } : {}) },
     accepted: accepted.length, rejected, sourceObservedAt: String(b.intento_observado_en) };
 }
+
+/** Delivering partial positives does not keep a terminal extraction alive.
+ * Closing follow-up is distinct from completing coverage or the daily job. */
+export function terminalDurableRun(data: unknown, radicado: string, runId: string): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const b=data as Record<string, unknown>;
+  return b.backend_run_id===runId && b.radicado===radicado && b.consulta_completa===false &&
+    (b.estado==='PARCIAL' || b.estado==='FALLIDA');
+}
