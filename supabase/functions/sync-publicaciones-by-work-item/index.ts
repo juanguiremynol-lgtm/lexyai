@@ -1971,6 +1971,10 @@ Deno.serve(withSyncTimeline(async (req) => {
                 reason: stored.error ?? 'PP_CERTIFICATE_NOT_VALID_FOR_CURRENT_WINDOW' } }, 200);
           }
           certifiedStoredResult = { ...stored, durableCompleted: true };
+          // Same reuse contract SAMAI already stamps; consumed by estadosMonitor.ts
+          // so the monitor does not stamp a fresh source attempt on reingestion.
+          result.reused_completed_read = true;
+          result.source_query_attempted = false;
           result.source_observed_at = String(certificate.intento_observado_en);
           result.daily_trace_id = String(dailyAdmission.existing?.trace_id ?? dailyTraceId);
           rescrapeDecision = { triggered: false, reason: 'consume_certified_stored_read',
