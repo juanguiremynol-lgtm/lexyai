@@ -65,6 +65,7 @@ import {
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 import { publicationDownloadUrls, samaiEstadosToProviderUnits } from "../_shared/samaiEstadosIngestion.ts";
 import { withRetainedOfficialPublicationUrls } from "../_shared/publicationRecoveryUrls.ts";
+import { ppExplicitPublicationDates, hasExplicitPPDates, conflictingPPNativeRows } from '../_shared/ppExplicitPublicationDates.ts';
 import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
@@ -2723,13 +2724,43 @@ Deno.serve(withSyncTimeline(async (req) => {
       // the fingerprint we compare are produced by the SAME shared mapper the
       // adapters and `bridge-reconcile` use, and the identity is recomputable
       // from the stored row (fecha_fijacion ?? published_at + tipo + title).
-      const canonicalRow = toCanonicalPubRow(pub as unknown as ProviderPubUnit, {
+      const canonicalRow = ppExplicitPublicationDates(pub as unknown as ProviderPubUnit, {
         work_item_id,
         organization_id: workItem.organization_id,
         source: (pub as any)._source_provider || 'publicaciones',
         source_radicado: workItem.radicado ?? null,
       });
       const fingerprint = canonicalRow.hash_fingerprint;
+
+      // Only additive PP dates require this guard. A previous native article
+      // must not become a new publication just because its date changed.
+      if (canonicalRow.source === 'publicaciones' && hasExplicitPPDates(pub as unknown as ProviderPubUnit)) {
+        const articleId = (canonicalRow.raw_data as ProviderPubUnit).article_id;
+        if (articleId && /^\d+$/.test(articleId)) {
+          const { data: nativeRows, error: nativeError } = await supabase
+            .from('work_item_publicaciones')
+            .select('id,raw_data,tipo_publicacion,hash_fingerprint')
+            .eq('work_item_id', work_item_id)
+            .eq('organization_id', workItem.organization_id)
+            .eq('source', 'publicaciones')
+            .or(`raw_data->>article_id.eq.${articleId},raw_data->estado->>article_id.eq.${articleId},raw_data->raw_data->estado->>article_id.eq.${articleId},raw_data->>key.like.estado:${articleId}:*,raw_data->>key.like.individual:${articleId}:*`);
+          const conflicts = nativeError ? [] : conflictingPPNativeRows(canonicalRow, nativeRows ?? []);
+          if (nativeError || conflicts.length > 0) {
+            const reason = nativeError ? 'PP_NATIVE_IDENTITY_LOOKUP_FAILED' : 'PP_NATIVE_DATE_CONFLICT';
+            result.errors.push(`${reason}: ${articleId}${conflicts.length ? `; referencias conservadas: ${conflicts.join(',')}` : ''}`);
+            pubLedger.parsed++;
+            pubLedger.errored++;
+            pubLedger.outcomes.push({ bucket: 'ERROR', title: pub.titulo || null, reason });
+            continue;
+          }
+        } else {
+          result.errors.push('PP_NATIVE_IDENTITY_MISSING: fechas explícitas sin artículo nativo válido.');
+          pubLedger.parsed++;
+          pubLedger.errored++;
+          pubLedger.outcomes.push({ bucket: 'ERROR', title: pub.titulo || null, reason: 'PP_NATIVE_IDENTITY_MISSING' });
+          continue;
+        }
+      }
 
       // NOTE: Inline dedup removed — the RPC handles dedup internally via
       // (work_item_id, hash_fingerprint) lookup. The previous inline check caused
@@ -2755,7 +2786,8 @@ Deno.serve(withSyncTimeline(async (req) => {
         ? canonicalRow.fecha_fijacion.slice(0, 10)
         : null;
 
-      const refreshedLegacyIds = await refreshLegacyPdfRowsForProxy(
+      const refreshedLegacyIds = canonicalRow.source === 'publicaciones' && hasExplicitPPDates(pub as unknown as ProviderPubUnit)
+        ? [] : await refreshLegacyPdfRowsForProxy(
         supabase,
         work_item_id,
         workItem.organization_id,
