@@ -371,7 +371,8 @@ type RescrapeDecision = {
     | 'trigger_error'
     | 'not_evaluated'
     | 'routing_skip_non_pp_category'
-    | 'follow_admitted_run';
+    | 'follow_admitted_run'
+    | 'consume_certified_stored_read';
   httpStatus?: number;
   error?: string;
   backendRunId?: string | null;
