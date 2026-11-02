@@ -15328,6 +15328,33 @@ export type Database = {
         }
         Relationships: []
       }
+      pp_laboral_consumer_resume_20261101: {
+        Row: {
+          backend_run_id: string
+          gate_before: Json
+          item_before: Json
+          publications_before: Json
+          recorded_at: string
+          work_item_id: string
+        }
+        Insert: {
+          backend_run_id: string
+          gate_before: Json
+          item_before: Json
+          publications_before: Json
+          recorded_at?: string
+          work_item_id: string
+        }
+        Update: {
+          backend_run_id?: string
+          gate_before?: Json
+          item_before?: Json
+          publications_before?: Json
+          recorded_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       pp_uuid_acceptance_20261101: {
         Row: {
           accepted_at: string
@@ -27514,6 +27541,10 @@ export type Database = {
           _run_id: string
           _work_item_id: string
         }
+        Returns: Json
+      }
+      claim_pp_stored_result_read: {
+        Args: { _min_interval_seconds?: number; _work_item_id: string }
         Returns: Json
       }
       claim_public_monitor_items: {
