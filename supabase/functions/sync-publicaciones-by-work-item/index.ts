@@ -107,6 +107,10 @@ type SyncResult = {
   newest_publication_date: string | null;
   warnings: string[];
   errors: string[];
+  // Reuse contract shared with SAMAI; consumed by estadosMonitor.ts so a
+  // monitor reingestion never stamps a fresh source attempt.
+  reused_completed_read?: boolean;
+  source_query_attempted?: boolean;
   inserted: InsertedPublication[];
   status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR';
   // New canonical taxonomy — replaces the ambiguous SUCCESS + 0/0 outcome
