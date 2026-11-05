@@ -142,3 +142,46 @@ Deno.test("wrapper: ok:true + known provider + PROVIDER_UNRESOLVED keeps the cod
 Deno.test("pure: empty-string error code is not null (SQL IS NULL parity)", () => {
   assertEquals(enforceVerifiedOutcome({ status: "success", providers: ["publicaciones"], error_code: "" }).status, "partial");
 });
+
+Deno.test("actual wrapper: EMPTY producer names only real PP/SAMAI attempts and retains errors", async () => {
+  for (const [attempts, provider] of [
+    [{ publicaciones: true }, "publicaciones"],
+    [{ samai_estados: true }, "samai_estados"],
+    [{ publicaciones: true, samai_estados: true }, "publicaciones+samai_estados"],
+    [{}, undefined],
+  ] as const) {
+    const body = { ok: true, status: "EMPTY", inserted_count: 0, skipped_count: 0,
+      result_code: "SUCCESS_EMPTY", provider_used: attributeAttemptedProviders(attempts) };
+    const { rows, text, original } = await run(body);
+    assertEquals(text, original);
+    assertEquals(rows[0].provider, provider ?? "unknown");
+    assertEquals(rows[0].status, provider ? "empty" : "skipped");
+    noContradiction(rows[0]);
+    if (provider) {
+      const failed = await run({ ...body, error_code: "SOURCE_CERTIFICATE_FAILED" });
+      assertEquals([failed.rows[0].status, failed.rows[0].error_code], ["partial", "SOURCE_CERTIFICATE_FAILED"]);
+    }
+  }
+});
+
+Deno.test("actual wrapper: GET-only follow-up without origin token never seals a guessed daily cycle (repeat-safe)", async () => {
+  const seals: unknown[] = [];
+  const previous = globalThis.fetch;
+  globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/rpc/finish_daily_update")) seals.push(init?.body);
+    return new Response("[]", { status: 201, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const body = JSON.stringify({ ok: true, provider_used: "publicaciones", inserted_count: 0, skipped_count: 2,
+    rescrape_decision: { triggered: false, reason: "follow_admitted_run", backendRunId: "00000000-0000-4000-8000-000000000002" } });
+  const h = withSyncTimeline(() => new Response(body, { headers: { "content-type": "application/json" } }),
+    { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" });
+  try {
+    for (let n = 0; n < 2; n++) {
+      const response = await h(new Request("http://x/", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ work_item_id: WI }) }));
+      assertEquals(await response.text(), body);
+    }
+  } finally { globalThis.fetch = previous; }
+  assertEquals(seals.length, 0);
+});
