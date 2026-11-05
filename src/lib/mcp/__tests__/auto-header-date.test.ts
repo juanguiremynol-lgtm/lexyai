@@ -61,6 +61,27 @@ describe("auto header date quality signal", () => {
     expect(extractAutoHeaderDate(texto)).toBeNull();
   });
 
+  it("no delimiting field inside the prefix → null even with context and dateline", () => {
+    // Tribunal context, place+comma and a single valid date, but no procedural
+    // identification field: the segment is not delimited, so the date could be
+    // a body citation and must not qualify.
+    const texto =
+      "JUZGADO 11 ADMINISTRATIVO. Bogotá, D.C., 22 de abril de 2026. Se ordena remitir copias a las partes dentro del término de ley para su traslado.";
+    expect(extractAutoHeaderDate(texto)).toBeNull();
+    expect(autoHeaderDateCandidates(texto)).toEqual([]);
+  });
+
+  it("delimiting field only beyond the 600-char prefix → null", () => {
+    const texto = `JUZGADO 11. Bogotá, 22 de abril de 2026. ${"x".repeat(700)} Radicación: 123.`;
+    expect(extractAutoHeaderDate(texto)).toBeNull();
+  });
+
+  it("«proceso» delimits the header segment", () => {
+    const texto =
+      "JUZGADO 11. Bogotá, 22 de abril de 2026. Proceso: ejecutivo singular. Se cita el auto del 10 de marzo de 2026.";
+    expect(extractAutoHeaderDate(texto)).toBe("2026-04-22");
+  });
+
   it("dateline without tribunal/despacho context in the segment → null", () => {
     // The procedural field "AUTO No." ends the segment before "Magistrado", so
     // no recognizable header context remains.

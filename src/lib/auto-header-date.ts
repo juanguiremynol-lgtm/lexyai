@@ -7,7 +7,8 @@
  * A date counts only in a RECOGNIZABLE, DELIMITED header segment: tribunal/
  * despacho context, before the first procedural identification field,
  * exactly one distinct valid date introduced as a dateline (place + comma).
- * Citations, multiple dates or doubtful linkage return null ("desconocido").
+ * A prefix with no delimiting field, citations, multiple dates or doubtful
+ * linkage return null ("desconocido").
  */
 
 const HEADER_SCAN_CHARS = 600;
@@ -26,7 +27,7 @@ const CONTEXT_RE =
 
 // First procedural identification field: a reliable end of the header.
 const FIELD_RE =
-  /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto)\b/;
+  /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto|proceso)\b/;
 
 // Dateline linkage: a place word (dots/spaces allowed, e.g. "d.c.") followed
 // by a comma immediately introduces the date; citations lack it.
@@ -75,8 +76,9 @@ function collectDates(segment: string): { date: string; index: number }[] {
 
 /**
  * Candidate dates from a RECOGNIZABLE, DELIMITED header segment only.
- * Returns the single dateline date, or an empty array when the segment is
- * not recognizable (no tribunal/despacho context), when it holds zero or
+ * Returns the single dateline date, or an empty array when no delimiting
+ * procedural field exists inside the prefix, when the segment is not
+ * recognizable (no tribunal/despacho context), when it holds zero or
  * two+ distinct dates (citations/ambiguity), or when the only date is not
  * introduced as a dateline (doubtful linkage).
  */
@@ -88,7 +90,8 @@ export function autoHeaderDateCandidates(texto: unknown): string[] {
   const context = CONTEXT_RE.exec(src);
   if (!context) return [];
   const field = FIELD_RE.exec(src);
-  const end = field ? field.index : src.length;
+  if (!field) return [];
+  const end = field.index;
   if (context.index >= end) return [];
   const segment = src.slice(0, end);
 
