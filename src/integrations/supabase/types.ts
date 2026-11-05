@@ -28682,6 +28682,13 @@ export type Database = {
         Args: { p_text: string }
         Returns: boolean
       }
+      publicacion_auto_text_prefix: {
+        Args: { p_ids: string[] }
+        Returns: {
+          id: string
+          texto_prefix: string
+        }[]
+      }
       purge_old_data_access_logs: {
         Args: { p_retention_days?: number }
         Returns: number
