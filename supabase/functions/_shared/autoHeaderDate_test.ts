@@ -71,6 +71,27 @@ Deno.test("a date after the first procedural identification field → null", () 
   assertEquals(extractAutoHeaderDate(texto), null);
 });
 
+Deno.test("no delimiting field inside the prefix → null even with context and dateline", () => {
+  // Tribunal context, place+comma and a single valid date, but no procedural
+  // identification field: the segment is not delimited, so the date could be
+  // a body citation and must not qualify.
+  const texto =
+    "JUZGADO 11 ADMINISTRATIVO. Bogotá, D.C., 22 de abril de 2026. Se ordena remitir copias a las partes dentro del término de ley para su traslado.";
+  assertEquals(extractAutoHeaderDate(texto), null);
+  assertEquals(autoHeaderDateCandidates(texto), []);
+});
+
+Deno.test("delimiting field only beyond the 600-char prefix → null", () => {
+  const texto = `JUZGADO 11. Bogotá, 22 de abril de 2026. ${"x".repeat(700)} Radicación: 123.`;
+  assertEquals(extractAutoHeaderDate(texto), null);
+});
+
+Deno.test("«proceso» delimits the header segment", () => {
+  const texto =
+    "JUZGADO 11. Bogotá, 22 de abril de 2026. Proceso: ejecutivo singular. Se cita el auto del 10 de marzo de 2026.";
+  assertEquals(extractAutoHeaderDate(texto), "2026-04-22");
+});
+
 Deno.test("dateline without tribunal/despacho context in the segment → null", () => {
   // The procedural field "AUTO No." ends the segment before "Magistrado", so
   // no recognizable header context remains.
