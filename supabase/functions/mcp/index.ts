@@ -515,18 +515,19 @@ var list_recent_estados_default = defineTool3({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const since = new Date(Date.now() - (days ?? 3) * 864e5).toISOString();
-    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source").gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
+    const { data, error } = await sb.from("work_item_publicaciones").select(`id, work_item_id, title, annotation, tipo_publicacion, despacho, fecha_fijacion, detected_at, source, ${PUBLICATION_ASSOCIATION_SELECT}`).gte("detected_at", since).or("is_archived.is.null,is_archived.eq.false").order("detected_at", { ascending: false }).limit(limit ?? 25);
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
-    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids) : { data: [] };
+    const { data: items, error: itemsError } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids) : { data: [], error: null };
+    if (itemsError) return errorResult(itemsError.message);
     const byId = new Map(
       (items ?? []).map((i) => [i.id, i])
     );
     const estados = (data ?? []).map((r) => ({
-      ...r,
+      ...publicationAssociation(r, byId.get(r.work_item_id)?.radicado),
       work_item: byId.get(r.work_item_id) ?? null
     }));
-    return textResult(`${estados.length} novedades en los \xFAltimos ${days ?? 3} d\xEDas.`, { estados });
+    return textResult(`${estados.length} registros de historial en la muestra de los \xFAltimos ${days ?? 3} d\xEDas; no acredita asociaci\xF3n documental.`, { estados, resumen_publicaciones: publicationPageSummary(estados) });
   }
 });
 
@@ -765,15 +766,16 @@ var get_estados_hoy_default = defineTool7({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const day = date ?? bogotaToday();
-    const { data, error } = await sb.from("work_item_publicaciones").select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source").gte("fecha_fijacion", bogotaDayStartUTC(day)).lt("fecha_fijacion", bogotaDayStartUTC(day, 1)).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
+    const { data, error } = await sb.from("work_item_publicaciones").select(`id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, ${PUBLICATION_ASSOCIATION_SELECT}`).gte("fecha_fijacion", bogotaDayStartUTC(day)).lt("fecha_fijacion", bogotaDayStartUTC(day, 1)).or("is_archived.is.null,is_archived.eq.false").order("despacho", { ascending: true }).limit(limit ?? 100);
     if (error) return errorResult(error.message);
     const ids = [...new Set((data ?? []).map((r) => r.work_item_id))];
-    const { data: items } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [] };
+    const { data: items, error: itemsError } = ids.length ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null) : { data: [], error: null };
+    if (itemsError) return errorResult(itemsError.message);
     const byId = new Map(
       (items ?? []).map((i) => [i.id, i])
     );
-    const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get(r.work_item_id) ?? null }));
-    return textResult(`${rows.length} estados fijados el ${day} (America/Bogota).`, { date: day, estados: rows });
+    const rows = (data ?? []).map((r) => ({ ...publicationAssociation(r, byId.get(r.work_item_id)?.radicado), work_item: byId.get(r.work_item_id) ?? null }));
+    return textResult(`${rows.length} registros de historial en la muestra del ${day} (America/Bogota); no acredita asociaci\xF3n documental.`, { date: day, estados: rows, resumen_publicaciones: publicationPageSummary(rows) });
   }
 });
 
