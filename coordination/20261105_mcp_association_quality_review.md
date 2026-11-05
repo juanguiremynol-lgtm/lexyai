@@ -3,7 +3,7 @@
 ## Baseline and isolation
 - Started at clean `847e833818dd34ad7be3782671987a43df97f2be`.
 - No deployment, app publication, SQL/migration, judicial mutation, sync/job, portal, paid call or message.
-- SAMAI act continuation and all other Edge Functions remain byte-identical to baseline. Existing MCP date extractor and 0.6.9 marker remain unchanged; artifact generated normally, not hand-edited.
+- SAMAI act continuation and all other Edge Functions except the explicitly authorized PP consumer remain byte-identical to baseline. Existing MCP date extractor and 0.6.9 marker remain unchanged; artifact generated normally, not hand-edited.
 
 ## Demonstrated APP defect and correction
 UI `EstadosTab` and `PublicacionesPpTab` use the truthiness of `raw_data.asociacion_no_acreditada`; MCP publication projections omitted it. Two authorized metadata-only SQL reads confirmed both named rows have that object, including source/article/check timestamp/original-providencia hash. No case body or PDF was fetched; no new documentary conclusion was drawn.
@@ -16,7 +16,12 @@ Generic `query_table` and database feed RPC semantics are unchanged: this scoped
 
 ## APP/GCP boundary
 ### A — initial PP range
-`sync-publicaciones-by-work-item/index.ts` POST `/procesar-radicado` sends only `{radicado}` (around lines 999–1007). The repo does not establish a supported initial/historical mode parameter. `ppDurableContract.ts` explicitly separates certified `consulta_diaria` RECIENTE from the historical caller's range: recent completeness does not complete historical coverage. No speculative parameter or extraction was added. Root/GCP must establish the supported initial request/response contract before any APP payload amendment; daily admission must remain unchanged. The reported Tofan evidence and run were not re-queried or repaired.
+`sync-publicaciones-by-work-item/index.ts` POST `/procesar-radicado` currently sends only `{radicado}` (around lines 999–1007). This is the APP payload, NOT a claim that the backend accepts only radicado. Root's current public OpenAPI review confirms ProcesarRequest supports fecha_inicio, fecha_fin, fecha_min_radicado, fechas_objetivo, despachos_adicionales, gestionado_por_job, job_run_type (daily/full_sweep/manual), backend_request_id and backend_trace_id. `ppDurableContract.ts` separates certified `consulta_diaria` RECIENTE from historical range: recent completeness does not complete historical coverage. `initialRequestPreparation.ts` prepares an explicit validated historical date range using supported fields, with no defaults, no job flags and no runtime fetch integration. Two tests cover preservation and invalid ranges. Root must confirm the appropriate initial range from stored-info/historico before runtime wiring; no global daily range or extraction was changed. The reported Tofan evidence and run were not re-queried or repaired.
+
+### Additional authorized APP fixes
+- `linea-procesal/index.tsx` projects the association flag only and excludes flagged rows from phase/term-event derivation through `publication-quality.ts`, shared with the MCP truthiness check. History/TimelineFeed and original stream metadata remain untouched; no suffix filter or confirmation from absence. Three synthetic tests cover flagged inference exclusion, retained distinct events/dates and archived/undated rows.
+- PP EMPTY branch now assigns attempt-based provider_used before every empty/pending early return, preserving error codes. Actual withSyncTimeline tests intercept database writes for PP, SAMAI, combined and no attempts plus explicit-error downgrades.
+- **Daily PP closure remains blocked, not fabricated:** active-run follow-up skips rememberAdmission; it has no verified original-cycle token/run binding. `drizzle/migrations/0096_daily_gate_job_bound_continuation.sql` binds CPNU only. claim_pp_followup_poll atomically throttles the matching ledger run but returns claimed:true without origin date/token; it is not authority to finish a daily cycle. No guessed rememberAdmission/new admission/DONE/SQL was added. A repeat-safe actual-wrapper regression verifies tokenless follow-up never calls finish_daily_update. Safe completion needs an authoritative durable PP run→original pubs admission binding and fenced completion; root owns that contract before implementation.
 
 ### B — SAMAI estado date evidence
 `canonicalPublicacionMapper.ts` `samaiFechaEstado` (around lines 437–457) requires explicit date provenance and document linkage. Missing source fecha_estado_iso/procedencia is a source capture issue; no auto+1/date substitution/category change is justified. GCP owns hash/URL-linked date capture. No seven-row ingestion or trigger bypass was attempted.
@@ -25,6 +30,7 @@ No assumption was made that six external discrepancies were all real; no additio
 
 ## Technical verification and cost
 - 45/45 focused Vitest checks: actual mocked tool handlers (14), unchanged date extractor (17), provider-verification presentation (5), legitimate recurso streams (9).
+- Additional scoped run: 26/26 Vitest (3 procedural guard, 14 MCP, 9 streams); 15/15 Deno (13 actual-writer/pure checks including two new regressions, 2 initial-request preparation checks); Deno check of PP consumer passed.
 - Synthetic fixtures only: flag vs normal, 00/01 retained, page lookahead/final-empty page, query and enrichment failures, prefix failure without erasing flag, no private flag narrative/body output.
 - Normal generator `scripts/build-mcp.mjs`; artifact loaded/registered successfully; manifest extracted with 50 tools. Harness build result checked separately.
 - No paid/provider calls; two metadata-only database reads and local tests. No new infrastructure, migration or scheduled cost. Platform credit accounting was not queried.
