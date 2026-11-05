@@ -701,6 +701,13 @@
       "when": 1793495893795,
       "tag": "0099_publication_persistence_receipt_id",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1793884931763,
+      "tag": "0100_publicacion_auto_text_prefix",
+      "breakpoints": true
     }
   ]
 }
