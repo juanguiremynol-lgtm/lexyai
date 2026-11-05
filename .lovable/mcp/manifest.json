@@ -189,7 +189,7 @@
       {
         "name": "list_publicaciones",
         "title": "Estados electrónicos de un asunto",
-        "description": "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y añade una señal de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un encabezado inequívoco del texto del auto, o null=desconocido), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
+        "description": "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y añade una señal de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto —contexto de despacho/tribunal, antes del primer campo de identificación procesal y una única fecha válida en línea de lugar y fecha; citas, fechas múltiples o vinculación dudosa dan null=desconocido—), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
