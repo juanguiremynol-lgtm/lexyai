@@ -145,7 +145,8 @@ export function withSyncTimeline(
     const clone = response.clone();
     let parsed: any = null;
     try {
-      const ct = clone.headers.get("content-type") ?? "";
+      // Read the header from the original: some runtimes drop headers on clone().
+      const ct = response.headers.get("content-type") ?? clone.headers.get("content-type") ?? "";
       if (ct.includes("json")) {
         parsed = await clone.json().catch(() => null);
       }
