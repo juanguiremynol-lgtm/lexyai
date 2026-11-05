@@ -45,9 +45,55 @@ export default defineTool({
 
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
+    const rows = data ?? [];
+
+    // Quality signal: candidate date from the auto's header text only. The
+    // SECURITY INVOKER RPC returns a short prefix for RLS-visible rows, so the
+    // full text never leaves the database. An extraction failure degrades to
+    // "no_verificable" — never to a reliable-looking date.
+    let headerState: "ok" | "no_verificable" = "ok";
+    const headerDates = new Map<string, string | null>();
+    if (rows.length) {
+      const { data: prefixes, error: pErr } = await sb.rpc("publicacion_auto_text_prefix", {
+        p_ids: rows.map((r) => r.id as string),
+      });
+      if (pErr) {
+        headerState = "no_verificable";
+      } else {
+        for (const p of prefixes ?? []) {
+          headerDates.set(p.id as string, extractAutoHeaderDate(p.texto_prefix));
+        }
+      }
+    }
+
+    const publicaciones = rows.map((r) => {
+      const candidate = headerDates.get(r.id as string) ?? null;
+      const structured = typeof r.fecha_providencia === "string"
+        ? (r.fecha_providencia as string).slice(0, 10)
+        : null;
+      const discrepancia = structured && candidate && structured !== candidate
+        ? {
+          fecha_estructurada: structured,
+          fecha_encabezado: candidate,
+          procedencia_estructurada: "fuente",
+          procedencia_encabezado: "texto_auto_encabezado",
+        }
+        : null;
+      return {
+        ...r,
+        fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
+        fecha_auto_encabezado_estado: headerState === "no_verificable"
+          ? "no_verificable"
+          : candidate
+          ? "detectada"
+          : "desconocida",
+        discrepancia_fecha_providencia: discrepancia,
+      };
+    });
+
     return textResult(
-      `${resolved.note ? `${resolved.note}\n` : ""}${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
-      { resolucion: resolved.note ?? null, work_item: item, publicaciones: data ?? [] },
+      `${resolved.note ? `${resolved.note}\n` : ""}${rows.length} estados para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones },
     );
   },
 });
