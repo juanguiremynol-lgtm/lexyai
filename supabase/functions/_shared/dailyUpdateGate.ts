@@ -48,6 +48,12 @@ export function continuationProviders(enabled: Set<string>): Set<string> {
   return new Set(enabled.has('cpnu') ? ['cpnu'] : []);
 }
 
+/** Restrict a stored-read continuation to the certified SAMAI feed only: no
+ *  /buscar, no forced refresh, no CPNU/external/fallback, no orchestrator. */
+export function samaiContinuationProviders(enabled: Set<string>): Set<string> {
+  return new Set(enabled.has('samai') ? ['samai'] : []);
+}
+
 /** Body returned instead of a new extraction. Not success, not a failure:
  *  callers must defer without consuming attempts. */
 export function dailyDuplicateBody(workItemId: string, traceId: string, a: DailyAdmission) {
