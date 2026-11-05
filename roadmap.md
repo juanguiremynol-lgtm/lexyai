@@ -6,7 +6,8 @@
 - [x] Document PP bootstrap contract and APP/GCP boundary in coordination/20261105_mcp_association_quality_review.md; leave deployment to root review.
 - [x] Add procedural derivation guard and PP EMPTY real-attempt attribution; focused synthetic tests, no runtime operations.
 - [x] Remove unused historical-request scaffolding; document exact pending POST payload boundary for CloudShell/root contract review.
-- [ ] Release 0.6.10 verification: truthiness, source/UI types, artifact, real RLS PostgREST projection when supported; no publication until root indication.
+- [x] Release 0.6.10: 35 focused Vitest/13 Deno checks, artifact/manifest and full harness build OK; unused scaffolding removed, no deploy.
+- [ ] Positive RLS-visible PostgREST alias acceptance — anonymous metadata projection returned HTTP200/zero rows; root will verify authenticated live MCP after authorized publication.
 - [ ] Close original PP daily cycle from follow-up — blocked: no verified durable run-to-origin-admission token binding; no guessed DONE or new admission permitted.
 
 ## Scoped request961 CPU repair (2026-10-31)

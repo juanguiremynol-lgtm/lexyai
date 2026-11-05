@@ -35,3 +35,12 @@ No assumption was made that six external discrepancies were all real; no additio
 - Normal generator `scripts/build-mcp.mjs`; artifact loaded/registered successfully; manifest extracted with 50 tools. Harness build result checked separately.
 - No paid/provider calls; two metadata-only database reads and local tests. No new infrastructure, migration or scheduled cost. Platform credit accounting was not queried.
 - Prepared only. Root review remains the release gate; no new revision is claimed live.
+
+## Release closure — 20:12 UTC request
+- Source/public descriptor/generated artifact/manifest aligned to 0.6.10 with resource marker mcp-rev-0-6-10. Inventory remains 50 tools; list_publicaciones inputs including offset pagination retained. No dependency change.
+- Unused initial historical request source/test removed from runtime tree; bootstrap payload amendment remains with CloudShell/root contract review, not solved by scaffolding.
+- Focused rerun: 35/35 Vitest (14 actual MCP handlers, 12 phase/truthiness cases, 9 stream cases); 13/13 Deno writer/EMPTY/follow-up checks; PP Deno check passed. Shared-helper truthiness covers false/0/empty string/null/undefined vs object/array/string/true.
+- Normal MCP generator and artifact check passed; manifest extraction lists 50 tools. The harness's full app typecheck/build entry at 20:12:57 UTC is build OK; no manual project build/typecheck was run.
+- Real PostgREST read with `select=id,association_flag:raw_data->asociacion_no_acreditada`, only the two authorized IDs and limit 2, returned HTTP 200 and zero rows through the anonymous public client. This validates syntax/access handling, NOT the alias value on a visible authenticated row. No user session was available or minted; root's authorized live MCP read after publication remains necessary for positive RLS-visible projection acceptance. No JWT or row body printed.
+- Runtime hashes: MCP SHA256 `655000aa2ec4dcb9a162506760a60c569d557fc51f79e9a6242fe0e5e0e5a9ad`; PP SHA256 `88c7ec52d5360a59e5002a5fb2186f7843cb7549dbb1ff3fbaf945e62bef9c69`.
+- `847e8338` is root-confirmed published baseline; sync-by-work-item and its SAMAI/shared admission files have zero delta and must not be redeployed by this repair. Daily PP original-cycle completion is still unresolved; no origin guessed. No publication/deployment occurred.
