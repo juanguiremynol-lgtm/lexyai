@@ -571,6 +571,9 @@ var MONTHS = {
   diciembre: 12
 };
 var MONTH_RE = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
+var CONTEXT_RE = /\b(juzgado|tribunal|corte|sala|despacho|magistrad[oa]s?|juez|consejo\s+(?:de\s+estado|seccional|superior)|rama\s+judicial)\b/;
+var FIELD_RE = /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto)\b/;
+var DATELINE_RE = /[a-z][a-z.\s]*,\s*$/;
 function maxYear() {
   return (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
 }
@@ -582,26 +585,42 @@ function isRealDate(y, m, d) {
 function iso(y, m, d) {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
-function autoHeaderDateCandidates(texto) {
-  if (typeof texto !== "string" || !texto.trim()) return [];
-  const src = texto.slice(0, HEADER_SCAN_CHARS).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const found = /* @__PURE__ */ new Set();
-  const add = (y, m, d) => {
-    if (isRealDate(y, m, d)) found.add(iso(y, m, d));
+function collectDates(segment) {
+  const found = /* @__PURE__ */ new Map();
+  const add = (y, m, d, index) => {
+    if (!isRealDate(y, m, d)) return;
+    const key = iso(y, m, d);
+    if (!found.has(key)) found.set(key, index);
   };
   const wordsRe = new RegExp(
     `[a-z]+\\s*\\((\\d{1,2})\\)\\s+de\\s+(${MONTH_RE})\\s+de\\s+(?:[a-z]+\\s+)*?\\(?\\b(\\d{4})\\b\\)?`,
     "g"
   );
-  for (const m of src.matchAll(wordsRe)) add(+m[3], MONTHS[m[2]], +m[1]);
+  for (const m of segment.matchAll(wordsRe)) add(+m[3], MONTHS[m[2]], +m[1], m.index);
   const longRe = new RegExp(
     `(?<!\\d)(\\d{1,2})\\s+de\\s+(${MONTH_RE})\\s+de\\s+(\\d{4})(?!\\d)`,
     "g"
   );
-  for (const m of src.matchAll(longRe)) add(+m[3], MONTHS[m[2]], +m[1]);
+  for (const m of segment.matchAll(longRe)) add(+m[3], MONTHS[m[2]], +m[1], m.index);
   const shortRe = /(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)/g;
-  for (const m of src.matchAll(shortRe)) add(+m[3], +m[2], +m[1]);
-  return [...found];
+  for (const m of segment.matchAll(shortRe)) add(+m[3], +m[2], +m[1], m.index);
+  return [...found.entries()].map(([date, index]) => ({ date, index }));
+}
+function autoHeaderDateCandidates(texto) {
+  if (typeof texto !== "string" || !texto.trim()) return [];
+  const src = texto.slice(0, HEADER_SCAN_CHARS).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const context = CONTEXT_RE.exec(src);
+  if (!context) return [];
+  const field = FIELD_RE.exec(src);
+  const end = field ? field.index : src.length;
+  if (context.index >= end) return [];
+  const segment = src.slice(0, end);
+  const dates = collectDates(segment);
+  if (dates.length !== 1) return [];
+  const only = dates[0];
+  const before = segment.slice(Math.max(0, only.index - 60), only.index);
+  if (!DATELINE_RE.test(before)) return [];
+  return [only.date];
 }
 function extractAutoHeaderDate(texto) {
   const candidates = autoHeaderDateCandidates(texto);
@@ -612,7 +631,7 @@ function extractAutoHeaderDate(texto) {
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
   title: "Estados electr\xF3nicos de un asunto",
-  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un encabezado inequ\xEDvoco del texto del auto, o null=desconocido), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
   inputSchema: {
     radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
