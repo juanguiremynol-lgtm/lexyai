@@ -4,52 +4,88 @@ import { autoHeaderDateCandidates, extractAutoHeaderDate } from "../../auto-head
 // Mirror of supabase/functions/_shared/autoHeaderDate_test.ts — same cases,
 // synthetic text only.
 describe("auto header date quality signal", () => {
-  it("words with parenthesized digits and year words", () => {
+  it("tribunal header + words with parenthesized digits and year words", () => {
     const texto =
-      "BOGOTÁ, D.C., VEINTIDÓS (22) DE ABRIL DE DOS MIL VEINTISÉIS (2026). AUTO No. 123. Magistrado Ponente: ...";
+      "JUZGADO 11 ADMINISTRATIVO DE BOGOTÁ. Bogotá, D.C., VEINTIDÓS (22) DE ABRIL DE DOS MIL VEINTISÉIS (2026). Radicación: 05001-23-45-678-2026-00123-00. Demandante: ...";
     expect(extractAutoHeaderDate(texto)).toBe("2026-04-22");
   });
 
-  it("word day with numeric year without year words", () => {
-    expect(extractAutoHeaderDate("Medellín, veintidós (22) de abril de 2026. Se resuelve.")).toBe("2026-04-22");
+  it("tribunal header + word day with numeric year without year words", () => {
+    const texto =
+      "TRIBUNAL ADMINISTRATIVO DE CUNDINAMARCA. Medellín, veintidós (22) de abril de 2026. Expediente: 2026-00123.";
+    expect(extractAutoHeaderDate(texto)).toBe("2026-04-22");
   });
 
-  it("numeric long format", () => {
-    expect(extractAutoHeaderDate("Medellín, 22 de abril de 2026. AUTO")).toBe("2026-04-22");
-    expect(extractAutoHeaderDate("a las 9:00 a.m. del 10 de noviembre de 2026")).toBe("2026-11-10");
+  it("tribunal header + numeric long format", () => {
+    const texto = "SALA ÚNICA DE DECISIÓN. Bogotá, D.C., 22 de abril de 2026. Radicado: 123.";
+    expect(extractAutoHeaderDate(texto)).toBe("2026-04-22");
   });
 
-  it("numeric short formats dd/mm/yyyy", () => {
-    expect(extractAutoHeaderDate("Fijado: 22/04/2026 en el despacho.")).toBe("2026-04-22");
-    expect(extractAutoHeaderDate("Fijado: 22-04-2026 en el despacho.")).toBe("2026-04-22");
+  it("despacho header + numeric short formats dd/mm/yyyy", () => {
+    expect(extractAutoHeaderDate("DESPACHO DEL JUZGADO 5. Bogotá, 22/04/2026. Auto No. 45."))
+      .toBe("2026-04-22");
+    expect(extractAutoHeaderDate("DESPACHO DEL JUZGADO 5. Bogotá, 22-04-2026. Auto No. 45."))
+      .toBe("2026-04-22");
   });
 
   it("same date repeated in two formats stays unambiguous", () => {
-    const texto = "Bogotá, veintidós (22) de abril de dos mil veintiséis (2026). En fecha 22/04/2026 se ordena.";
+    const texto =
+      "JUZGADO 11. Bogotá, veintidós (22) de abril de dos mil veintiséis (2026). En fecha 22/04/2026 se ordena. Radicación: 123.";
     expect(extractAutoHeaderDate(texto)).toBe("2026-04-22");
   });
 
-  it("two distinct dates in the header are ambiguous → null", () => {
+  it("two distinct dates in the header segment are ambiguous → null", () => {
     const texto =
-      "Bogotá, veintidós (22) de abril de dos mil veintiséis (2026). Contra el auto del 10 de marzo de 2026 se procede.";
+      "JUZGADO 11. Bogotá, 22 de abril de 2026. Se cita el auto del 10 de marzo de 2026. Radicación: 123.";
     expect(extractAutoHeaderDate(texto)).toBeNull();
-    expect(autoHeaderDateCandidates(texto).sort()).toEqual(["2026-03-10", "2026-04-22"]);
+    expect(autoHeaderDateCandidates(texto)).toEqual([]);
+  });
+
+  it("a lone citation in a paragraph without a recognizable header → null", () => {
+    // No tribunal/despacho context at all.
+    expect(extractAutoHeaderDate("El auto del 10 de marzo de 2026 ordenó remitir copias."))
+      .toBeNull();
+    // Context present but the date is a citation, not a dateline.
+    expect(extractAutoHeaderDate("El juzgado citó el auto del 10 de marzo de 2026 para aclaración."))
+      .toBeNull();
+    // Hearing time citation is not a header dateline.
+    expect(
+      extractAutoHeaderDate(
+        "JUZGADO 11. Se señala audiencia a las 9:00 a.m. del 10 de noviembre de 2026. Radicación: 123.",
+      ),
+    ).toBeNull();
+  });
+
+  it("a date after the first procedural identification field → null", () => {
+    const texto = "JUZGADO 11. Radicación: 05001-123. Bogotá, 22 de abril de 2026.";
+    expect(extractAutoHeaderDate(texto)).toBeNull();
+  });
+
+  it("dateline without tribunal/despacho context in the segment → null", () => {
+    // The procedural field "AUTO No." ends the segment before "Magistrado", so
+    // no recognizable header context remains.
+    const texto =
+      "BOGOTÁ, D.C., VEINTIDÓS (22) DE ABRIL DE DOS MIL VEINTISÉIS (2026). AUTO No. 123. Magistrado Ponente: ...";
+    expect(extractAutoHeaderDate(texto)).toBeNull();
   });
 
   it("invalid calendar dates are rejected", () => {
-    expect(extractAutoHeaderDate("Bogotá, 31 de febrero de 2026.")).toBeNull();
-    expect(extractAutoHeaderDate("Bogotá, treinta (30) de febrero de dos mil veintiséis (2026).")).toBeNull();
-    expect(extractAutoHeaderDate("Fijado: 45/13/2026.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 11. Bogotá, 31 de febrero de 2026.")).toBeNull();
+    expect(
+      extractAutoHeaderDate("JUZGADO 11. Bogotá, treinta (30) de febrero de dos mil veintiséis (2026)."),
+    ).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 11. Bogotá, 45/13/2026.")).toBeNull();
   });
 
   it("a date cited only beyond the header prefix is not used", () => {
     const relleno = "x".repeat(700);
-    const texto = `Bogotá, sin fecha en encabezado. ${relleno} auto del 10 de marzo de 2026 citado.`;
+    const texto = `JUZGADO 11. Sin fecha en encabezado. ${relleno} Bogotá, 10 de marzo de 2026.`;
     expect(extractAutoHeaderDate(texto)).toBeNull();
   });
 
   it("year in words only, without digits, is not recognized", () => {
-    expect(extractAutoHeaderDate("Bogotá, veintidós de abril de dos mil veintiséis.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 11. Bogotá, veintidós de abril de dos mil veintiséis."))
+      .toBeNull();
   });
 
   it("non-string and empty input", () => {
@@ -60,7 +96,7 @@ describe("auto header date quality signal", () => {
   });
 
   it("implausible years are rejected", () => {
-    expect(extractAutoHeaderDate("Bogotá, 22 de abril de 1999.")).toBeNull();
-    expect(extractAutoHeaderDate("Bogotá, 22 de abril de 2999.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 11. Bogotá, 22 de abril de 1999.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 11. Bogotá, 22 de abril de 2999.")).toBeNull();
   });
 });
