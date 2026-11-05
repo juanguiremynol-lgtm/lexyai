@@ -26,7 +26,7 @@ async function capture(fn: () => Promise<unknown>): Promise<Row[]> {
 async function run(body: Record<string, unknown>, httpStatus = 200): Promise<{ rows: Row[]; text: string; original: string }> {
   const original = JSON.stringify(body);
   const h = withSyncTimeline(() => new Response(original, { status: httpStatus, headers: { "content-type": "application/json" } }),
-    { function_name: "sync-publicaciones-by-work-item", default_operation: "pubs" });
+    { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" });
   let text = "";
   const rows = await capture(async () => {
     const res = await h(new Request("http://x/", { method: "POST", headers: { "content-type": "application/json" },
