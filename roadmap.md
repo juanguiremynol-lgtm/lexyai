@@ -5,7 +5,8 @@
 - [x] Test real tool handlers with synthetic flagged/normal rows, legitimate 00/01 streams, pagination and read errors; validate generated MCP artifact (45 focused checks pass).
 - [x] Document PP bootstrap contract and APP/GCP boundary in coordination/20261105_mcp_association_quality_review.md; leave deployment to root review.
 - [x] Add procedural derivation guard and PP EMPTY real-attempt attribution; focused synthetic tests, no runtime operations.
-- [x] Prepare explicit historical request/test only; root confirms supported initial range before wiring.
+- [x] Remove unused historical-request scaffolding; document exact pending POST payload boundary for CloudShell/root contract review.
+- [ ] Release 0.6.10 verification: truthiness, source/UI types, artifact, real RLS PostgREST projection when supported; no publication until root indication.
 - [ ] Close original PP daily cycle from follow-up — blocked: no verified durable run-to-origin-admission token binding; no guessed DONE or new admission permitted.
 
 ## Scoped request961 CPU repair (2026-10-31)

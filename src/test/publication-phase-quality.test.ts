@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { proceduralPublicationEvents } from "@/lib/publication-quality";
+import { hasUnaccreditedAssociation, proceduralPublicationEvents } from "@/lib/publication-quality";
 import { inferPhaseFromText } from "@/lib/workflow-phases";
 
 describe("publication procedural attribution", () => {
+  it.each([
+    [false, false], [0, false], ["", false], [null, false], [undefined, false],
+    [{}, true], [[], true], ["flag", true], [true, true],
+  ])("matches UI truthiness for %j", (flag, expected) => {
+    expect(hasUnaccreditedAssociation(flag)).toBe(expected);
+  });
   const base = { fecha_fijacion: "2026-10-15", fecha_providencia: "2026-10-14", title: "Auto libra mandamiento de pago" };
   it("flagged publication cannot derive a phase or term event", () => {
     const rows = [{ ...base, association_flag: { causa: "unrelated official document" } }];
