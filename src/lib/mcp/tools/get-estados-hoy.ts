@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { bogotaDayStartUTC, bogotaToday, errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 
 export default defineTool({
   name: "get_estados_hoy",
@@ -22,7 +23,7 @@ export default defineTool({
     // Bogota calendar day, never an equality against a midnight-UTC cast.
     const { data, error } = await sb
       .from("work_item_publicaciones")
-      .select("id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source")
+      .select(`id, work_item_id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, ${PUBLICATION_ASSOCIATION_SELECT}`)
       .gte("fecha_fijacion", bogotaDayStartUTC(day))
       .lt("fecha_fijacion", bogotaDayStartUTC(day, 1))
       .or("is_archived.is.null,is_archived.eq.false")
@@ -31,14 +32,15 @@ export default defineTool({
     if (error) return errorResult(error.message);
 
     const ids = [...new Set((data ?? []).map((r) => (r as { work_item_id: string }).work_item_id))];
-    const { data: items } = ids.length
+    const { data: items, error: itemsError } = ids.length
       ? await sb.from("work_items").select("id, radicado, title, workflow_type").in("id", ids).is("deleted_at", null)
-      : { data: [] as Array<Record<string, unknown>> };
-    const byId = new Map<string, unknown>(
-      (items ?? []).map((i) => [(i as { id: string }).id, i] as [string, unknown]),
+      : { data: [] as Array<Record<string, unknown>>, error: null };
+    if (itemsError) return errorResult(itemsError.message);
+    const byId = new Map<string, Record<string, unknown>>(
+      (items ?? []).map((i) => [(i as { id: string }).id, i] as [string, Record<string, unknown>]),
     );
-    const rows = (data ?? []).map((r) => ({ ...r, work_item: byId.get((r as { work_item_id: string }).work_item_id) ?? null }));
+    const rows = (data ?? []).map((r) => ({ ...publicationAssociation(r, byId.get((r as { work_item_id: string }).work_item_id)?.radicado), work_item: byId.get((r as { work_item_id: string }).work_item_id) ?? null }));
 
-    return textResult(`${rows.length} estados fijados el ${day} (America/Bogota).`, { date: day, estados: rows });
+    return textResult(`${rows.length} registros de historial en la muestra del ${day} (America/Bogota); no acredita asociación documental.`, { date: day, estados: rows, resumen_publicaciones: publicationPageSummary(rows) });
   },
 });
