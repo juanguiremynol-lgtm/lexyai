@@ -10,7 +10,7 @@ vi.mock("../shared", () => ({
   resolveWorkItem: async () => ({ item: { id: "synthetic-matter", radicado: mock.radicado } }),
   sbForUser: () => ({ rpc: mock.rpc, from: (table: string) => {
     const q: Record<string, any> = {};
-    for (const method of ["select", "eq", "or", "order", "limit", "range", "gte", "lt"]) q[method] = vi.fn(() => q);
+    for (const method of ["select", "eq", "or", "order", "limit", "range", "gte", "lt", "in", "is"]) q[method] = vi.fn(() => q);
     q.then = (resolve: (v: unknown) => unknown) => resolve(mock.results[table] ?? { data: [], error: null });
     mock.queries[table] = q;
     return q;
@@ -18,9 +18,12 @@ vi.mock("../shared", () => ({
   errorResult: (message: string) => ({ isError: true, message }),
   textResult: (text: string, data: unknown) => ({ text, structuredContent: data }),
   bogotaDayStartUTC: (day: string, plus = 0) => `${day}:${plus}`,
+  bogotaToday: () => "2026-11-05",
 }));
 import list from "../tools/list-publicaciones";
 import detail from "../tools/get-work-item";
+import recent from "../tools/list-recent-estados";
+import today from "../tools/get-estados-hoy";
 import { publicationAssociation } from "../publication-association";
 const ctx = {} as never;
 const flag = { causa: "private third-party narrative", fuente: "official check", articulo: "123",
@@ -30,14 +33,14 @@ beforeEach(() => {
   mock.rpc.mockResolvedValue({ data: [], error: null });
 });
 describe("publication association through real MCP handlers", () => {
-  it.each([list, detail])("exposes flagged history without promoting normal rows or leaking flag bodies", async (tool) => {
+  it.each([list, detail, recent, today])("exposes flagged history without promoting normal rows or leaking flag bodies", async (tool) => {
     mock.results.work_item_publicaciones = { data: [
       { id: "flagged", fecha_fijacion: "2026-10-15", association_flag: flag },
       { id: "normal", fecha_fijacion: "2026-10-14", association_flag: null },
     ], error: null };
     const result = await tool.handler({ id: "synthetic-matter" } as never, ctx) as any;
     const payload = result.structuredContent;
-    const rows = payload.publicaciones ?? payload.recent_estados;
+    const rows = payload.publicaciones ?? payload.recent_estados ?? payload.estados;
     expect(rows.map((r: any) => r.calidad_asociacion.acreditada)).toEqual([false, null]);
     expect(rows[0].calidad_asociacion.sha256_original_providencia).toBe("a".repeat(64));
     expect(payload.resumen_publicaciones).toMatchObject({ registros_crudos: 2, asociacion_no_acreditada: 1, ultimo_estado_acreditado: null });
@@ -72,11 +75,17 @@ describe("publication association through real MCP handlers", () => {
     expect(result.structuredContent).toMatchObject({ has_more: false, next_offset: null, resumen_publicaciones: { registros_crudos: 0, alcance: "pagina_devuelta" } });
     expect(mock.rpc).not.toHaveBeenCalled();
   });
-  it.each([list, detail])("returns publication read errors instead of empty/accredited history", async (tool) => {
+  it.each([list, detail, recent, today])("returns publication read errors instead of empty/accredited history", async (tool) => {
     mock.results.work_item_publicaciones = { data: null, error: { message: "synthetic read failure" } };
     const result = await tool.handler({ id: "synthetic-matter" } as never, ctx) as any;
     expect(result.isError).toBe(true); expect(result.message).toContain("synthetic read failure");
     expect(result.structuredContent).toBeUndefined();
+  });
+  it.each([recent, today])("does not hide matter enrichment errors", async (tool) => {
+    mock.results.work_item_publicaciones = { data: [{ id: "a", work_item_id: "synthetic-matter", association_flag: flag }], error: null };
+    mock.results.work_items = { data: null, error: { message: "synthetic identity read error" } };
+    const result = await tool.handler({} as never, ctx) as any;
+    expect(result.isError).toBe(true); expect(result.message).toContain("synthetic identity read error");
   });
   it("preserves flag despite date-prefix failure and reports date not verifiable", async () => {
     mock.results.work_item_publicaciones = { data: [{ id: "a", association_flag: flag }], error: null };
