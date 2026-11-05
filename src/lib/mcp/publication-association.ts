@@ -1,3 +1,4 @@
+import { hasUnaccreditedAssociation } from "../publication-quality";
 /** Project only the existing UI quality flag, never the enclosing raw_data. */
 export const PUBLICATION_ASSOCIATION_SELECT = "association_flag:raw_data->asociacion_no_acreditada";
 
@@ -15,7 +16,7 @@ export function publicationAssociation(row: Record<string, unknown>, workItemRad
   const { association_flag: _privateFlag, raw_data: _raw, ...publicRow } = row;
   return {
     ...publicRow,
-    asociacion_no_acreditada: Boolean(flag),
+    asociacion_no_acreditada: hasUnaccreditedAssociation(flag),
     calidad_asociacion: {
       estado: flag ? "no_acreditada" : "sin_alerta_registrada",
       acreditada: flag ? false : null,

@@ -340,6 +340,11 @@ function syncCheckState(radicado, row) {
   return { state, label: JUDICIAL_QUERY_LABELS[state] };
 }
 
+// src/lib/publication-quality.ts
+function hasUnaccreditedAssociation(flag) {
+  return Boolean(flag);
+}
+
 // src/lib/mcp/publication-association.ts
 var PUBLICATION_ASSOCIATION_SELECT = "association_flag:raw_data->asociacion_no_acreditada";
 var objectOf = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -351,7 +356,7 @@ function publicationAssociation(row, workItemRadicado) {
   const { association_flag: _privateFlag, raw_data: _raw, ...publicRow } = row;
   return {
     ...publicRow,
-    asociacion_no_acreditada: Boolean(flag),
+    asociacion_no_acreditada: hasUnaccreditedAssociation(flag),
     calidad_asociacion: {
       estado: flag ? "no_acreditada" : "sin_alerta_registrada",
       acreditada: flag ? false : null,

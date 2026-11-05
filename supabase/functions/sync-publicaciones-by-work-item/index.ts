@@ -2397,6 +2397,9 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // Handle empty result (valid response but no publications)
     if (fetchResult.publicaciones.length === 0) {
+      // Name only sources actually attempted, including stored-result reads.
+      // Set before every empty/pending return; never infer from routing/name.
+      { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
       result.ok = true;
       result.status = fetchResult.resultCode === 'NO_DATA' ? 'NO_DATA' : 'EMPTY';
       // Canonical taxonomy:

@@ -19,6 +19,7 @@ import { useResolvedTracks } from "@/hooks/use-work-item-tracks";
 import { activeTrack } from "@/lib/tracks/procedural-tracks";
 import { inferPhaseFromText, mapStageToCanonicalPhase } from "@/lib/workflow-phases";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
+import { proceduralPublicationEvents } from "@/lib/publication-quality";
 
 interface LineaProcesalProps {
   workItemId: string;
@@ -93,10 +94,11 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
           // `fecha_providencia` is the date of the auto the estado publishes.
           // Without it the estado-only mandamiento carries no providencia date
           // and its reposición / pagar-excepcionar anchors are never emitted.
-          .select("id, title, annotation, fecha_fijacion, fecha_providencia, published_at, created_at, is_archived")
+          .select("id, title, annotation, fecha_fijacion, fecha_providencia, published_at, created_at, is_archived, association_flag:raw_data->asociacion_no_acreditada" as string)
           .eq("work_item_id", workItemId)
           .order("fecha_fijacion", { ascending: true })
-          .limit(300),
+          .limit(300)
+          .overrideTypes<Array<Parameters<typeof proceduralPublicationEvents>[0][number]>, { merge: false }>(),
       ]);
       if (acts.error) console.error("[linea-procesal] acts", acts.error);
       if (pubs.error) console.error("[linea-procesal] pubs", pubs.error);
@@ -109,19 +111,10 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
         if (!at) continue;
         evs.push({ at, text: `${a.description ?? ""} ${a.act_type ?? ""}`, source: "ACTUACION" });
       }
-      for (const p of pubs.data ?? []) {
-        if (p.is_archived) continue;
-        const at = p.fecha_fijacion ?? p.published_at ?? p.created_at;
-        if (!at) continue;
-        // ITER53/B1 — an estado carries TWO dates: its fijación (`at`) and the
-        // date of the providencia it publishes. They are not interchangeable.
-        evs.push({
-          at,
-          text: `${p.title ?? ""} ${p.annotation ?? ""}`,
-          source: "ESTADO",
-          docDate: (p as { fecha_providencia?: string | null }).fecha_providencia ?? null,
-        });
-      }
+      // Flagged history remains in TimelineFeed / Estados tabs, but cannot
+      // derive phase reaches or suggested term anchors for this expediente.
+      // No 23-digit/suffix filter: legitimate base-21 streams remain intact.
+      evs.push(...proceduralPublicationEvents(pubs.data ?? []));
       evs.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
       const first = new Map<string, PhaseReach>();
