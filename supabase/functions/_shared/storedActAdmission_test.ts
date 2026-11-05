@@ -80,7 +80,7 @@ Deno.test('adapter keeps a row-count-mismatched stored read partial (SAMAI_SOURC
     const { fetchFromSamai } = await import('./providerAdapters/samaiAdapter.ts');
     const result = await fetchFromSamai({ radicado, mode: 'monitoring' });
     assert.equal(result.status, 'ERROR');
-    assert.match(String(result.error ?? ''), /^SAMAI_SOURCE_FEED_PARTIAL/);
+    assert.match(String(result.errorMessage ?? ''), /^SAMAI_SOURCE_FEED_PARTIAL/);
     assert.equal(result.actuaciones.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
