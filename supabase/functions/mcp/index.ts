@@ -143,9 +143,9 @@ function businessDaysBetween(fromISO, toISO, holidays = /* @__PURE__ */ new Set(
   const stop = sign > 0 ? end : start;
   while (cursor < stop) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
-    const iso2 = cursor.toISOString().slice(0, 10);
+    const iso = cursor.toISOString().slice(0, 10);
     const dow = cursor.getUTCDay();
-    if (dow !== 0 && dow !== 6 && !holidays.has(iso2)) count += 1;
+    if (dow !== 0 && dow !== 6 && !holidays.has(iso)) count += 1;
   }
   return count * sign;
 }
@@ -552,86 +552,10 @@ var list_actuaciones_default = defineTool5({
 // src/lib/mcp/tools/list-publicaciones.ts
 import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z5 } from "npm:zod@^3.25.76";
-
-// src/lib/auto-header-date.ts
-var HEADER_SCAN_CHARS = 600;
-var MIN_YEAR = 2e3;
-var MONTHS = {
-  enero: 1,
-  febrero: 2,
-  marzo: 3,
-  abril: 4,
-  mayo: 5,
-  junio: 6,
-  julio: 7,
-  agosto: 8,
-  septiembre: 9,
-  octubre: 10,
-  noviembre: 11,
-  diciembre: 12
-};
-var MONTH_RE = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
-var CONTEXT_RE = /\b(juzgado|tribunal|corte|sala|despacho|magistrad[oa]s?|juez|consejo\s+(?:de\s+estado|seccional|superior)|rama\s+judicial)\b/;
-var FIELD_RE = /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto)\b/;
-var DATELINE_RE = /[a-z][a-z.\s]*,\s*$/;
-function maxYear() {
-  return (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
-}
-function isRealDate(y, m, d) {
-  if (y < MIN_YEAR || y > maxYear() || m < 1 || m > 12 || d < 1 || d > 31) return false;
-  const t = new Date(Date.UTC(y, m - 1, d));
-  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
-}
-function iso(y, m, d) {
-  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-function collectDates(segment) {
-  const found = /* @__PURE__ */ new Map();
-  const add = (y, m, d, index) => {
-    if (!isRealDate(y, m, d)) return;
-    const key = iso(y, m, d);
-    if (!found.has(key)) found.set(key, index);
-  };
-  const wordsRe = new RegExp(
-    `[a-z]+\\s*\\((\\d{1,2})\\)\\s+de\\s+(${MONTH_RE})\\s+de\\s+(?:[a-z]+\\s+)*?\\(?\\b(\\d{4})\\b\\)?`,
-    "g"
-  );
-  for (const m of segment.matchAll(wordsRe)) add(+m[3], MONTHS[m[2]], +m[1], m.index);
-  const longRe = new RegExp(
-    `(?<!\\d)(\\d{1,2})\\s+de\\s+(${MONTH_RE})\\s+de\\s+(\\d{4})(?!\\d)`,
-    "g"
-  );
-  for (const m of segment.matchAll(longRe)) add(+m[3], MONTHS[m[2]], +m[1], m.index);
-  const shortRe = /(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)/g;
-  for (const m of segment.matchAll(shortRe)) add(+m[3], +m[2], +m[1], m.index);
-  return [...found.entries()].map(([date, index]) => ({ date, index }));
-}
-function autoHeaderDateCandidates(texto) {
-  if (typeof texto !== "string" || !texto.trim()) return [];
-  const src = texto.slice(0, HEADER_SCAN_CHARS).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const context = CONTEXT_RE.exec(src);
-  if (!context) return [];
-  const field = FIELD_RE.exec(src);
-  const end = field ? field.index : src.length;
-  if (context.index >= end) return [];
-  const segment = src.slice(0, end);
-  const dates = collectDates(segment);
-  if (dates.length !== 1) return [];
-  const only = dates[0];
-  const before = segment.slice(Math.max(0, only.index - 60), only.index);
-  if (!DATELINE_RE.test(before)) return [];
-  return [only.date];
-}
-function extractAutoHeaderDate(texto) {
-  const candidates = autoHeaderDateCandidates(texto);
-  return candidates.length === 1 ? candidates[0] : null;
-}
-
-// src/lib/mcp/tools/list-publicaciones.ts
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
   title: "Estados electr\xF3nicos de un asunto",
-  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id.",
   inputSchema: {
     radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
@@ -652,41 +576,10 @@ var list_publicaciones_default = defineTool6({
     if (date_to) q = q.lt("fecha_fijacion", bogotaDayStartUTC(date_to, 1));
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
-    const rows = data ?? [];
-    let headerState = "ok";
-    const headerDates = /* @__PURE__ */ new Map();
-    if (rows.length) {
-      const { data: prefixes, error: pErr } = await sb.rpc("publicacion_auto_text_prefix", {
-        p_ids: rows.map((r) => r.id)
-      });
-      if (pErr) {
-        headerState = "no_verificable";
-      } else {
-        for (const p of prefixes ?? []) {
-          headerDates.set(p.id, extractAutoHeaderDate(p.texto_prefix));
-        }
-      }
-    }
-    const publicaciones = rows.map((r) => {
-      const candidate = headerDates.get(r.id) ?? null;
-      const structured = typeof r.fecha_providencia === "string" ? r.fecha_providencia.slice(0, 10) : null;
-      const discrepancia = structured && candidate && structured !== candidate ? {
-        fecha_estructurada: structured,
-        fecha_encabezado: candidate,
-        procedencia_estructurada: "fuente",
-        procedencia_encabezado: "texto_auto_encabezado"
-      } : null;
-      return {
-        ...r,
-        fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
-        fecha_auto_encabezado_estado: headerState === "no_verificable" ? "no_verificable" : candidate ? "detectada" : "desconocida",
-        discrepancia_fecha_providencia: discrepancia
-      };
-    });
     return textResult(
       `${resolved.note ? `${resolved.note}
-` : ""}${rows.length} estados para ${item.radicado ?? item.id}.`,
-      { resolucion: resolved.note ?? null, work_item: item, publicaciones }
+` : ""}${data?.length ?? 0} estados para ${item.radicado ?? item.id}.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones: data ?? [] }
     );
   }
 });
@@ -3532,7 +3425,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.9",
+  version: "0.6.8",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3560,7 +3453,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-9"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-8"
   }),
   tools: [
     get_user_context_default,
