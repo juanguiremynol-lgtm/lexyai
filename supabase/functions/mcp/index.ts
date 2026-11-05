@@ -18,23 +18,23 @@ function digitsOf(value) {
   return String(value ?? "").replace(/\D/g, "");
 }
 function radicadoQueryVariants(query) {
-  const digits = digitsOf(query);
-  if (digits.length >= 23) {
-    const d23 = digits.slice(0, 23);
-    return { digits, canonical23: d23, base21: d23.slice(0, 21), partial: false };
+  const digits2 = digitsOf(query);
+  if (digits2.length >= 23) {
+    const d23 = digits2.slice(0, 23);
+    return { digits: digits2, canonical23: d23, base21: d23.slice(0, 21), partial: false };
   }
-  if (digits.length === 22) {
-    const padded = `0${digits}`;
-    return { digits, canonical23: padded, base21: padded.slice(0, 21), partial: false };
+  if (digits2.length === 22) {
+    const padded = `0${digits2}`;
+    return { digits: digits2, canonical23: padded, base21: padded.slice(0, 21), partial: false };
   }
-  if (digits.length === 21) {
-    return { digits, canonical23: `${digits}00`, base21: digits, partial: false };
+  if (digits2.length === 21) {
+    return { digits: digits2, canonical23: `${digits2}00`, base21: digits2, partial: false };
   }
   return {
-    digits,
+    digits: digits2,
     canonical23: null,
     base21: null,
-    partial: digits.length >= MIN_PARTIAL_DIGITS
+    partial: digits2.length >= MIN_PARTIAL_DIGITS
   };
 }
 
@@ -340,11 +340,51 @@ function syncCheckState(radicado, row) {
   return { state, label: JUDICIAL_QUERY_LABELS[state] };
 }
 
+// src/lib/mcp/publication-association.ts
+var PUBLICATION_ASSOCIATION_SELECT = "association_flag:raw_data->asociacion_no_acreditada";
+var objectOf = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+var bounded = (value, max = 240) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+var digits = (value) => typeof value === "string" && /^\d{23}$/.test(value) ? value : null;
+function publicationAssociation(row, workItemRadicado) {
+  const flag = row.association_flag;
+  const metadata = objectOf(flag);
+  const { association_flag: _privateFlag, raw_data: _raw, ...publicRow } = row;
+  return {
+    ...publicRow,
+    asociacion_no_acreditada: Boolean(flag),
+    calidad_asociacion: {
+      estado: flag ? "no_acreditada" : "sin_alerta_registrada",
+      acreditada: flag ? false : null,
+      procedencia: flag ? "raw_data.asociacion_no_acreditada" : null,
+      radicado_asunto: bounded(workItemRadicado, 23),
+      // Never infer document identity from date/title or the stream suffix.
+      radicado_documento: digits(metadata.radicado_documento),
+      documento_id: typeof metadata.documento_id === "string" && /^[0-9a-f-]{36}$/i.test(metadata.documento_id) ? metadata.documento_id : null,
+      fuente: bounded(metadata.fuente),
+      articulo: bounded(metadata.articulo),
+      marcado_en: bounded(metadata.marcado_en, 64),
+      sha256_original_providencia: typeof metadata.sha256_original_providencia === "string" && /^[0-9a-f]{64}$/i.test(metadata.sha256_original_providencia) ? metadata.sha256_original_providencia : null
+    }
+  };
+}
+function publicationPageSummary(rows) {
+  const flagged = rows.filter((r) => r.asociacion_no_acreditada === true).length;
+  return {
+    alcance: "pagina_devuelta",
+    registros_crudos: rows.length,
+    asociacion_no_acreditada: flagged,
+    sin_alerta_registrada: rows.length - flagged,
+    registros_acreditados: null,
+    ultimo_estado_acreditado: null,
+    acreditacion_estado: "no_determinada_por_ausencia_de_alerta"
+  };
+}
+
 // src/lib/mcp/tools/get-work-item.ts
 var get_work_item_default = defineTool2({
   name: "get_work_item",
   title: "Detalle de asunto",
-  description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
+  description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
   inputSchema: {
     id: z2.string().uuid().optional().describe("work_item UUID."),
     radicado: z2.string().trim().optional().describe(
@@ -375,12 +415,18 @@ var get_work_item_default = defineTool2({
       const { state, label } = syncCheckState(item.radicado, c);
       return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
     });
-    const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
+    const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
-      sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(20),
+      sb.from("work_item_publicaciones").select(`id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at, ${PUBLICATION_ASSOCIATION_SELECT}`).eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).order("id", { ascending: false }).limit(20),
       sb.from("work_item_deadlines").select("id, deadline_type, label, trigger_date, deadline_date, business_days_count, status").eq("work_item_id", item.id).eq("status", "PENDING").order("deadline_date", { ascending: true }).limit(20),
       sb.from("work_item_hearings").select("id, custom_name, status, scheduled_at, modality, location").eq("work_item_id", item.id).order("scheduled_at", { ascending: true }).limit(10)
     ]);
+    const failedRead = [actsResult, estadosResult, deadlinesResult, hearingsResult].find((r) => r.error);
+    if (failedRead?.error) return errorResult(`No se pudo leer el detalle del asunto: ${failedRead.error.message}`);
+    const acts = actsResult.data;
+    const estados = (estadosResult.data ?? []).map((r) => publicationAssociation(r, item.radicado));
+    const deadlines = deadlinesResult.data;
+    const hearings = hearingsResult.data;
     const resumen = {
       radicado: item.radicado ?? null,
       titulo: item.title ?? null,
@@ -435,13 +481,14 @@ var get_work_item_default = defineTool2({
     }
     return textResult(
       `${resolved.note ? `${resolved.note}
-` : ""}Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} t\xE9rminos activos.`,
+` : ""}Asunto ${item.radicado ?? item.id} \u2014 ${item.workflow_type} \u2014 ${item.authority_name ?? "despacho sin registrar"} \u2014 muestra acotada: ${acts?.length ?? 0} actuaciones, ${estados.length} registros de estados (historial, no acreditaci\xF3n), ${deadlines?.length ?? 0} t\xE9rminos activos.`,
       {
         resolucion: resolved.note ?? null,
         resumen,
         item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
+        resumen_publicaciones: publicationPageSummary(estados),
         terminos_activos: deadlines ?? [],
         audiencias: hearings ?? [],
         consultas: queryStates,
@@ -632,28 +679,30 @@ function extractAutoHeaderDate(texto) {
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
   title: "Estados electr\xF3nicos de un asunto",
-  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. Incluye historial con asociaci\xF3n no acreditada se\xF1alada y procedencia; sin alerta no prueba acreditaci\xF3n. Conteos de p\xE1gina, no totales ni \xFAltimo estado acreditado. Contin\xFAa con next_offset.",
   inputSchema: {
     radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
     date_from: z5.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
     date_to: z5.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
-    limit: z5.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+    limit: z5.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50)."),
+    offset: z5.number().int().min(0).max(1e5).optional().describe("Desplazamiento de p\xE1gina (default 0); usa next_offset. No es un snapshot.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
+  handler: async ({ radicado, id, date_from, date_to, limit, offset }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
     const resolved = await resolveWorkItem(sb, { id, radicado });
     const item = resolved.item;
     if (resolved.error || !item) return errorResult(resolved.error ?? "Asunto no encontrado.");
-    let q = sb.from("work_item_publicaciones").select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).limit(limit ?? 50);
+    let q = sb.from("work_item_publicaciones").select(`id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at, ${PUBLICATION_ASSOCIATION_SELECT}`).eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("fecha_fijacion", { ascending: false }).order("id", { ascending: false }).range(offset ?? 0, (offset ?? 0) + (limit ?? 50));
     if (date_from) q = q.gte("fecha_fijacion", bogotaDayStartUTC(date_from));
     if (date_to) q = q.lt("fecha_fijacion", bogotaDayStartUTC(date_to, 1));
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
-    const rows = data ?? [];
+    const hasMore = (data?.length ?? 0) > (limit ?? 50);
+    const rows = (data ?? []).slice(0, limit ?? 50);
     let headerState = "ok";
     const headerDates = /* @__PURE__ */ new Map();
     if (rows.length) {
@@ -678,7 +727,7 @@ var list_publicaciones_default = defineTool6({
         procedencia_encabezado: "texto_auto_encabezado"
       } : null;
       return {
-        ...r,
+        ...publicationAssociation(r, item.radicado),
         fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
         fecha_auto_encabezado_estado: headerState === "no_verificable" ? "no_verificable" : candidate ? "detectada" : "desconocida",
         discrepancia_fecha_providencia: discrepancia
@@ -686,8 +735,15 @@ var list_publicaciones_default = defineTool6({
     });
     return textResult(
       `${resolved.note ? `${resolved.note}
-` : ""}${rows.length} estados para ${item.radicado ?? item.id}.`,
-      { resolucion: resolved.note ?? null, work_item: item, publicaciones }
+` : ""}${rows.length} registros de historial en esta p\xE1gina para ${item.radicado ?? item.id}; no acredita asociaci\xF3n documental.`,
+      {
+        resolucion: resolved.note ?? null,
+        work_item: item,
+        publicaciones,
+        resumen_publicaciones: publicationPageSummary(publicaciones),
+        has_more: hasMore,
+        next_offset: hasMore ? (offset ?? 0) + rows.length : null
+      }
     );
   }
 });

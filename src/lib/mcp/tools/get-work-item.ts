@@ -3,12 +3,13 @@ import { z } from "zod";
 import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
 import { isVerifiedSuccess, syncCheckState } from "../sync-check-state";
+import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 
 export default defineTool({
   name: "get_work_item",
   title: "Detalle de asunto",
   description:
-    "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados.",
+    "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
     radicado: z
@@ -48,7 +49,7 @@ export default defineTool({
       return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
     });
 
-    const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
+    const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([
       sb.from("work_item_acts")
         .select("id, act_date, act_type, description, despacho, source, detected_at")
         .eq("work_item_id", item.id)
@@ -56,10 +57,11 @@ export default defineTool({
         .order("act_date", { ascending: false })
         .limit(20),
       sb.from("work_item_publicaciones")
-        .select("id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at")
+        .select(`id, fecha_fijacion, fecha_desfijacion, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at, ${PUBLICATION_ASSOCIATION_SELECT}`)
         .eq("work_item_id", item.id)
         .or("is_archived.is.null,is_archived.eq.false")
         .order("fecha_fijacion", { ascending: false })
+        .order("id", { ascending: false })
         .limit(20),
       sb.from("work_item_deadlines")
         .select("id, deadline_type, label, trigger_date, deadline_date, business_days_count, status")
@@ -73,6 +75,12 @@ export default defineTool({
         .order("scheduled_at", { ascending: true })
         .limit(10),
     ]);
+    const failedRead = [actsResult, estadosResult, deadlinesResult, hearingsResult].find((r) => r.error);
+    if (failedRead?.error) return errorResult(`No se pudo leer el detalle del asunto: ${failedRead.error.message}`);
+    const acts = actsResult.data;
+    const estados = (estadosResult.data ?? []).map((r) => publicationAssociation(r, item.radicado));
+    const deadlines = deadlinesResult.data;
+    const hearings = hearingsResult.data;
 
     const resumen = {
       radicado: item.radicado ?? null,
@@ -108,13 +116,14 @@ export default defineTool({
     }
 
     return textResult(
-      `${resolved.note ? `${resolved.note}\n` : ""}Asunto ${item.radicado ?? item.id} — ${item.workflow_type} — ${item.authority_name ?? "despacho sin registrar"} — ${acts?.length ?? 0} actuaciones, ${estados?.length ?? 0} estados, ${deadlines?.length ?? 0} términos activos.`,
+      `${resolved.note ? `${resolved.note}\n` : ""}Asunto ${item.radicado ?? item.id} — ${item.workflow_type} — ${item.authority_name ?? "despacho sin registrar"} — muestra acotada: ${acts?.length ?? 0} actuaciones, ${estados.length} registros de estados (historial, no acreditación), ${deadlines?.length ?? 0} términos activos.`,
       {
         resolucion: resolved.note ?? null,
         resumen,
         item: verbose ? item : slimItem,
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
+        resumen_publicaciones: publicationPageSummary(estados),
         terminos_activos: deadlines ?? [],
         audiencias: hearings ?? [],
         consultas: queryStates,

@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { extractAutoHeaderDate } from "../../auto-header-date";
+import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 import { bogotaDayStartUTC, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 
 export default defineTool({
@@ -13,7 +14,8 @@ export default defineTool({
     "del texto del auto —contexto de despacho/tribunal, antes del primer campo de identificación procesal y una " +
     "única fecha válida en línea de lugar y fecha; citas, fechas múltiples o vinculación dudosa dan null=desconocido—), " +
     "su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia " +
-    "con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
+    "con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. " +
+    "Incluye historial con asociación no acreditada señalada y procedencia; sin alerta no prueba acreditación. Conteos de página, no totales ni último estado acreditado. Continúa con next_offset.",
   inputSchema: {
     radicado: z
       .string()
@@ -24,9 +26,10 @@ export default defineTool({
     date_from: z.string().optional().describe("Fecha inicial YYYY-MM-DD (sobre fecha_fijacion)."),
     date_to: z.string().optional().describe("Fecha final YYYY-MM-DD (sobre fecha_fijacion)."),
     limit: z.number().int().min(1).max(200).optional().describe("Máximo de filas (default 50)."),
+    offset: z.number().int().min(0).max(100000).optional().describe("Desplazamiento de página (default 0); usa next_offset. No es un snapshot.") ,
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ radicado, id, date_from, date_to, limit }, ctx) => {
+  handler: async ({ radicado, id, date_from, date_to, limit, offset }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
@@ -36,18 +39,20 @@ export default defineTool({
 
     let q = sb
       .from("work_item_publicaciones")
-      .select("id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at")
+      .select(`id, fecha_fijacion, fecha_desfijacion, fecha_providencia, tipo_publicacion, title, annotation, despacho, source, pdf_available, detected_at, ${PUBLICATION_ASSOCIATION_SELECT}`)
       .eq("work_item_id", item.id as string)
       .or("is_archived.is.null,is_archived.eq.false")
       .order("fecha_fijacion", { ascending: false })
-      .limit(limit ?? 50);
+      .order("id", { ascending: false })
+      .range(offset ?? 0, (offset ?? 0) + (limit ?? 50));
     // timestamptz column: bound by Bogota day instants, not date strings.
     if (date_from) q = q.gte("fecha_fijacion", bogotaDayStartUTC(date_from));
     if (date_to) q = q.lt("fecha_fijacion", bogotaDayStartUTC(date_to, 1));
 
     const { data, error: qErr } = await q;
     if (qErr) return errorResult(qErr.message);
-    const rows = data ?? [];
+    const hasMore = (data?.length ?? 0) > (limit ?? 50);
+    const rows = (data ?? []).slice(0, limit ?? 50);
 
     // Quality signal: candidate date from the auto's header text only. The
     // SECURITY INVOKER RPC returns a short prefix for RLS-visible rows, so the
@@ -82,7 +87,7 @@ export default defineTool({
         }
         : null;
       return {
-        ...r,
+        ...publicationAssociation(r, item.radicado),
         fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
         fecha_auto_encabezado_estado: headerState === "no_verificable"
           ? "no_verificable"
@@ -94,8 +99,10 @@ export default defineTool({
     });
 
     return textResult(
-      `${resolved.note ? `${resolved.note}\n` : ""}${rows.length} estados para ${item.radicado ?? item.id}.`,
-      { resolucion: resolved.note ?? null, work_item: item, publicaciones },
+      `${resolved.note ? `${resolved.note}\n` : ""}${rows.length} registros de historial en esta página para ${item.radicado ?? item.id}; no acredita asociación documental.`,
+      { resolucion: resolved.note ?? null, work_item: item, publicaciones,
+        resumen_publicaciones: publicationPageSummary(publicaciones),
+        has_more: hasMore, next_offset: hasMore ? (offset ?? 0) + rows.length : null },
     );
   },
 });
