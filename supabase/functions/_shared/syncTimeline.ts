@@ -200,6 +200,12 @@ export function withSyncTimeline(
       status = provider === "unknown" ? "skipped" : "empty";
     } else status = "success";
 
+    // A transport/body ok flag never erases an explicit failure cause.
+    const eventErrorCode = status === "pending_upstream" ? "PENDING_UPSTREAM" : errorCode;
+    const verifiedOutcome = enforceVerifiedOutcome({
+      status, providers: canonicalizeProvider(provider).providers, error_code: eventErrorCode,
+    });
+
     // Complete the evidence write before returning; edge runtimes do not
     // guarantee progress of a detached promise after the response ends.
     await recordSyncTimelineEvent({
@@ -211,11 +217,7 @@ export function withSyncTimeline(
       adapter_version: opts.adapter_version ?? null,
       deploy_sha: DEPLOY_SHA,
       status,
-      error_code: authRejected
-        ? "CALLER_UNAUTHORIZED"
-        : status === "pending_upstream"
-          ? "PENDING_UPSTREAM"
-          : (status === "skipped" && provider === "unknown" ? "PROVIDER_UNRESOLVED" : (ok ? null : (errorCode ?? null))),
+      error_code: eventErrorCode,
       error_message: ok && !authRejected ? null : (errorMsg ?? errorCode ?? null),
       records_inserted: inserted,
       records_skipped: skipped,
@@ -241,8 +243,8 @@ export function withSyncTimeline(
     // only — a terminal status never re-admits the same Bogotá day).
     const du = takeAdmission(req);
     if (du?.token && du.run_date && du.channel) {
-            await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(status),
-        status === "success" || status === "empty" ? null : (errorCode ?? null)).catch(() => {});
+      await finishDailyUpdate(du.run_date, workItemId, du.channel, du.token, dailyChannelStatus(verifiedOutcome.status),
+        verifiedOutcome.error_code).catch(() => {});
     }
 
     return response;

@@ -35,7 +35,7 @@ export function enforceVerifiedOutcome(input: VerdictInput): VerdictOutput {
   const code = input.error_code ?? null;
   if (input.status === "success" || input.status === "empty") {
     if (!attributable) return { status: "skipped", error_code: code ?? "PROVIDER_UNRESOLVED", downgraded_from: input.status };
-    if (code) return { status: "partial", error_code: code, downgraded_from: input.status };
+    if (code !== null) return { status: "partial", error_code: code, downgraded_from: input.status };
     return { status: input.status, error_code: null, downgraded_from: null };
   }
   return {

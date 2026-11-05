@@ -320,7 +320,7 @@ var JUDICIAL_QUERY_LABELS = {
 // src/lib/mcp/sync-check-state.ts
 function isVerifiedSuccess(row) {
   if ((row.status ?? "").toLowerCase() !== "success") return false;
-  if (row.error_code) return false;
+  if (row.error_code != null) return false;
   const tokens = String(row.provider ?? "").toLowerCase().split(/[+,/|]/).map((t) => t.trim());
   if (tokens.length === 0 || tokens.some((t) => t === "" || t === "unknown" || t === "none")) return false;
   return true;
@@ -333,7 +333,7 @@ function syncCheckState(radicado, row) {
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
   const successLike = status === "success" || status === "empty";
   if (compatible && successLike) {
-    const verifiedEmpty = status === "empty" && !row.error_code && isVerifiedSuccess({ ...row, status: "success" });
+    const verifiedEmpty = status === "empty" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" });
     if (!isVerifiedSuccess(row) && !verifiedEmpty) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
   }
   const state = judicialQueryState({ compatible, status: row.status, count: (row.records_inserted ?? 0) + (row.records_skipped ?? 0) });

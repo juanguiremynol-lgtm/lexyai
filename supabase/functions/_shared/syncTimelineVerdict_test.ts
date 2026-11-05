@@ -106,3 +106,39 @@ Deno.test("pure: attribution names only attempted sources", () => {
   assertEquals(attributeAttemptedProviders({ publicaciones: true, samai_estados: true }), "publicaciones+samai_estados");
   assertEquals(enforceVerifiedOutcome({ status: "empty", providers: ["none"], error_code: null }).status, "skipped");
 });
+
+Deno.test("wrapper: ok:true + known provider + PROVIDER_UNRESOLVED keeps the code and seals daily NOT DONE", async () => {
+  const { rememberAdmission } = await import("./dailyUpdateGate.ts");
+  const original = JSON.stringify({ ok: true, provider_used: "publicaciones", inserted_count: 3, error_code: "PROVIDER_UNRESOLVED" });
+  const h = withSyncTimeline((req) => {
+    rememberAdmission(req, { admitted: true, mode: "new", token: "tok-1", run_date: "2026-11-05", channel: "pubs" } as any);
+    return new Response(original, { status: 200, headers: { "content-type": "application/json" } });
+  }, { function_name: "sync-publicaciones-by-work-item", default_operation: "publicaciones" });
+  const seals: Row[] = [];
+  let text = "";
+  const real = globalThis.fetch;
+  const rows: Row[] = [];
+  globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const raw = String(init?.body ?? (input instanceof Request ? await input.text() : "null"));
+    if (url.includes("/rest/v1/work_item_sync_timeline")) rows.push(JSON.parse(raw));
+    if (url.includes("/rpc/finish_daily_update")) seals.push(JSON.parse(raw));
+    return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const res = await h(new Request("http://x/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ work_item_id: WI }) }));
+    text = await res.text();
+  } finally { globalThis.fetch = real; }
+  assertEquals(text, original);
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].status, "partial");
+  assertEquals(rows[0].error_code, "PROVIDER_UNRESOLVED");
+  noContradiction(rows[0]);
+  assertEquals(seals.length, 1);
+  assertEquals(seals[0]._status, "PARTIAL");
+  assertEquals(seals[0]._error_code, "PROVIDER_UNRESOLVED");
+});
+
+Deno.test("pure: empty-string error code is not null (SQL IS NULL parity)", () => {
+  assertEquals(enforceVerifiedOutcome({ status: "success", providers: ["publicaciones"], error_code: "" }).status, "partial");
+});
