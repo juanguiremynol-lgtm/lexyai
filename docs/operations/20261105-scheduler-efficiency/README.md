@@ -3,8 +3,8 @@
 Applied and verified in production at 21:45:41 UTC on 2026-11-05. `installed.sql` is a **record of installed state** (exact `pg_get_functiondef`) — do not re-execute without review. Native migrations/journal were not modified.
 
 - `reserve_due_public_monitor_run(text,date)`: atomic selection + reservation of the executable batch; today's snapshot first, then overdue historical work.
-- `start_public_monitor_run(text,date,text[])`: resumptions name an explicit `run_id`; daily creation with `{}` preserved.
-- `dispatch_public_monitors(boolean)`: closes the current snapshot with no pending items through the existing function.
+- `start_public_monitor_run(text,date,text[])`: preserves idempotent daily seeding; before selecting, finishes the requested day's unfinished run with an expired lease and no PENDING/CLAIMED items via the existing `finish_public_monitor_hop`.
+- `dispatch_public_monitors(boolean)`: resumptions (`false`) send the reserved `run_id`; daily creation (`true`) keeps the `{}` bootstrap.
 - New public helpers: EXECUTE revoked from PUBLIC, anon, authenticated and service_role.
 - `emit_appellate_blindspot_alerts()`: tolerates an existing fingerprint (`ON CONFLICT DO NOTHING`); `created` counts `ROW_COUNT`; already-closed alerts are preserved.
 - Claim and finish functions unchanged.

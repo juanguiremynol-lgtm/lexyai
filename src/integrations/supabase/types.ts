@@ -28751,6 +28751,14 @@ export type Database = {
         Args: { p_id: string; p_restore?: boolean }
         Returns: Json
       }
+      reserve_due_public_monitor_run: {
+        Args: { _channel: string; _priority_date: string }
+        Returns: {
+          acquired: boolean
+          run_id: string
+          selected_count: number
+        }[]
+      }
       resolve_publicacion_anchor: {
         Args: {
           p_deadline_type: string
