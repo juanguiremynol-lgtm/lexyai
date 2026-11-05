@@ -35,3 +35,9 @@ describe("get_work_item verified-success contract", () => {
     expect(syncCheckState(RAD, { provider: "publicaciones", status: "error", error_code: "PORTAL_TIMEOUT" }).state).toBe("FALLIDA");
   });
 });
+
+describe("SQL IS NULL parity", () => {
+  it("empty-string error code is not a verified success", () => {
+    expect(isVerifiedSuccess({ provider: "publicaciones", status: "success", error_code: "" })).toBe(false);
+  });
+});
