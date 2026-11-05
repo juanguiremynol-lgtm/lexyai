@@ -1,9 +1,9 @@
 # Roadmap
 
 ## Scoped association MCP audit (2026-11-05)
-- [ ] Expose the existing publication association flag and minimal provenance in MCP without changing judicial records or stream identity.
-- [ ] Test real tool handlers with synthetic flagged/normal rows, legitimate 00/01 streams, pagination and read errors; validate generated MCP artifact.
-- [ ] Document PP bootstrap contract and APP/GCP boundary; leave deployment to root review.
+- [x] Expose the existing publication association flag and minimal provenance in MCP without changing judicial records or stream identity.
+- [x] Test real tool handlers with synthetic flagged/normal rows, legitimate 00/01 streams, pagination and read errors; validate generated MCP artifact (45 focused checks pass).
+- [x] Document PP bootstrap contract and APP/GCP boundary in coordination/20261105_mcp_association_quality_review.md; leave deployment to root review.
 
 ## Scoped request961 CPU repair (2026-10-31)
 - [x] Confirm runtime CPU kill; profile stored evidence only; preserve main15844b42 safeguards and owner-managed recovery.
