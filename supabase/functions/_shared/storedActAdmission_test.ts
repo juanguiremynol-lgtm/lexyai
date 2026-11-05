@@ -61,14 +61,30 @@ Deno.test('a truly partial stored read stays non-success under the same continua
     assessSamaiFeed(certifiedFeed(observed, { paginacion_completa: false }), radicado, now),
     { ok: false, code: 'SAMAI_SOURCE_COVERAGE_UNVERIFIED' },
   );
-  // Row count mismatch → partial feed, never a complete read.
-  assert.deepEqual(
-    assessSamaiFeed({ ...certifiedFeed(observed), total_found: 2 }, radicado, now),
-    { ok: false, code: 'SAMAI_SOURCE_FEED_PARTIAL' },
-  );
   // Last source attempt failed → the cached rows are not a new consultation.
   assert.deepEqual(
     assessSamaiFeed(certifiedFeed(observed, { consulta_exitosa_ultimo_intento: false, ultimo_resultado: 'error' }), radicado, now),
     { ok: false, code: 'SAMAI_SOURCE_LAST_ATTEMPT_FAILED' },
   );
+});
+
+Deno.test('adapter keeps a row-count-mismatched stored read partial (SAMAI_SOURCE_FEED_PARTIAL)', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = Deno.env.get('SAMAI_FEED_API_KEY');
+  Deno.env.set('SAMAI_FEED_API_KEY', 'isolated-test-key');
+  try {
+    const observed = new Date().toISOString();
+    globalThis.fetch = () => Promise.resolve(new Response(
+      JSON.stringify({ ...certifiedFeed(observed), total_found: 2 }), { status: 200 },
+    ));
+    const { fetchFromSamai } = await import('./providerAdapters/samaiAdapter.ts');
+    const result = await fetchFromSamai({ radicado, mode: 'monitoring' });
+    assert.equal(result.status, 'ERROR');
+    assert.match(String(result.error ?? ''), /^SAMAI_SOURCE_FEED_PARTIAL/);
+    assert.equal(result.actuaciones.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEnv === undefined) Deno.env.delete('SAMAI_FEED_API_KEY');
+    else Deno.env.set('SAMAI_FEED_API_KEY', originalEnv);
+  }
 });
