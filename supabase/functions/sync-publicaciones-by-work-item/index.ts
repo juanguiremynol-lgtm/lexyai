@@ -47,6 +47,7 @@ import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPubl
 import { certifiedStoredPPHistory, mayReadStoredPP } from '../_shared/storedPublicationRead.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
+import { attributeAttemptedProviders } from "../_shared/syncTimelineVerdict.ts";
 import { persistedProviderOutcome } from "../_shared/providerOutcome.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
 // ITERATION 22 — the ONE canonical provider→row transformation. This function
@@ -1860,6 +1861,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       }, 200);
     }
 
+    // Attempt-based provider attribution: a source is named only when actually contacted.
+    const providerAttempts = { publicaciones: false, samai_estados: false };
     const result: SyncResult = {
       ok: false,
       work_item_id,
@@ -1963,6 +1966,7 @@ Deno.serve(withSyncTimeline(async (req) => {
               reason: readClaimError ? 'DAILY_ADMISSION_UNAVAILABLE' : 'STORED_PP_READ_NOT_DUE',
               next_eligible_at: nextRead }), 200);
           }
+          providerAttempts.publicaciones = true;
           let stored = gateStatus.backendRunId
             ? await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, gateStatus.backendRunId)
             : await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, { allow: false });
@@ -2027,6 +2031,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       };
     } else {
       try {
+        providerAttempts.publicaciones = true;
         fetchResult = await Promise.race([
         activeRunId
           ? followAdmittedRun(normalizedRadicado, baseUrl, apiKey, activeRunId)
@@ -2220,6 +2225,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         result.samai_estados_summary = samaiSummary;
       } else {
         samaiSummary.called = true;
+        providerAttempts.samai_estados = true;
         // formatRadicadoForSamai is exported by the adapter for logging parity
         // with admin-diagnose-estados; the adapter itself forwards the raw
         // radicado inside the POST body.
@@ -2385,6 +2391,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       (result as any).status = structuredStatus;
       (result as any).reason = fetchResult.error;
       await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'error');
+      { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
       return jsonResponse(result, 200);
     }
 
@@ -3152,8 +3159,8 @@ Deno.serve(withSyncTimeline(async (req) => {
       await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
     }
 
+    { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
     if (workItem.workflow_type === 'CPACA') {
-      result.provider_used = 'samai_estados';
       result.source_complete = result.ok && result.samai_estados_summary?.source_query_complete === true
         && samaiAccountingComplete(result.samai_estados_summary);
       if (!result.source_complete && result.ok) {

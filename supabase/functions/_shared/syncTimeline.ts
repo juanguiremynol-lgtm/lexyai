@@ -23,6 +23,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { canonicalizeProvider } from "./syncVocabulary.ts";
 import { syncResponseOk } from "./syncResponseVerdict.ts";
 import { dailyChannelStatus, takeAdmission } from "./dailyUpdateGate.ts";
+import { enforceVerifiedOutcome, responseCause } from "./syncTimelineVerdict.ts";
 
 export const DEPLOY_SHA = Deno.env.get("DEPLOY_SHA") ?? "unset";
 
@@ -65,6 +66,12 @@ export async function recordSyncTimelineEvent(
     const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
     // ITER63 — one declared vocabulary, one stable multi-source ordering.
     const canon = canonicalizeProvider(event.provider);
+    // Never persist success/empty without a fully attributable provider and a
+    // null error code; evidence is kept, the row is marked non-success.
+    const verdict = enforceVerifiedOutcome({ status: event.status, providers: canon.providers, error_code: event.error_code });
+    const metadata = verdict.downgraded_from
+      ? { ...(event.metadata ?? {}), unverified_outcome: { original_status: verdict.downgraded_from, original_error_code: event.error_code ?? null } }
+      : (event.metadata ?? {});
     const { error } = await supabase.from("work_item_sync_timeline").insert({
       work_item_id: event.work_item_id,
       organization_id: event.organization_id ?? null,
@@ -75,16 +82,15 @@ export async function recordSyncTimelineEvent(
       function_name: event.function_name ?? null,
       adapter_version: event.adapter_version ?? null,
       deploy_sha: event.deploy_sha ?? DEPLOY_SHA,
-      status: event.status,
-      error_code: event.error_code ??
-        (canon.providers.includes("unknown") ? "PROVIDER_UNRESOLVED" : null),
+      status: verdict.status,
+      error_code: verdict.error_code,
       error_message: event.error_message ?? null,
       records_inserted: event.records_inserted ?? 0,
       records_skipped: event.records_skipped ?? 0,
       latency_ms: event.latency_ms ?? null,
       started_at: event.started_at ?? null,
       finished_at: event.finished_at ?? new Date().toISOString(),
-      metadata: event.metadata ?? {},
+      metadata,
     });
     if (error) {
       console.warn("[syncTimeline] insert failed:", error.message);
@@ -139,7 +145,8 @@ export function withSyncTimeline(
     const clone = response.clone();
     let parsed: any = null;
     try {
-      const ct = clone.headers.get("content-type") ?? "";
+      // Read the header from the original: some runtimes drop headers on clone().
+      const ct = response.headers.get("content-type") ?? clone.headers.get("content-type") ?? "";
       if (ct.includes("json")) {
         parsed = await clone.json().catch(() => null);
       }
@@ -156,7 +163,7 @@ export function withSyncTimeline(
       strOr(parsed?.provider_used) ??
       strOr(parsed?.provider) ??
       "unknown";
-    const errorCode = strOr(parsed?.error_code ?? parsed?.code);
+    const errorCode = responseCause(parsed);
     const errorMsg = strOr(parsed?.error_message ?? parsed?.error);
 
     // Iteration 62 — a run must never report absence it did not observe.

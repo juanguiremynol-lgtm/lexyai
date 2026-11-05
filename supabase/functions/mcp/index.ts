@@ -317,6 +317,29 @@ var JUDICIAL_QUERY_LABELS = {
   RESTRINGIDA: "Fuente restringida o privada"
 };
 
+// src/lib/mcp/sync-check-state.ts
+function isVerifiedSuccess(row) {
+  if ((row.status ?? "").toLowerCase() !== "success") return false;
+  if (row.error_code) return false;
+  const tokens = String(row.provider ?? "").toLowerCase().split(/[+,/|]/).map((t) => t.trim());
+  if (tokens.length === 0 || tokens.some((t) => t === "" || t === "unknown" || t === "none")) return false;
+  return true;
+}
+var UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
+var DEDUP_LABEL = "Actualizaci\xF3n diaria ya iniciada; se reutiliza el ciclo del d\xEDa (no es una consulta nueva)";
+function syncCheckState(radicado, row) {
+  const compatible = hasUsableRadicado(radicado);
+  const status = (row.status ?? "").toLowerCase();
+  if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
+  const successLike = status === "success" || status === "empty";
+  if (compatible && successLike) {
+    const verifiedEmpty = status === "empty" && !row.error_code && isVerifiedSuccess({ ...row, status: "success" });
+    if (!isVerifiedSuccess(row) && !verifiedEmpty) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
+  }
+  const state = judicialQueryState({ compatible, status: row.status, count: (row.records_inserted ?? 0) + (row.records_skipped ?? 0) });
+  return { state, label: JUDICIAL_QUERY_LABELS[state] };
+}
+
 // src/lib/mcp/tools/get-work-item.ts
 var get_work_item_default = defineTool2({
   name: "get_work_item",
@@ -349,8 +372,8 @@ var get_work_item_default = defineTool2({
       seen.add(key);
       return true;
     }).map((c) => {
-      const state = judicialQueryState({ compatible: hasUsableRadicado(item.radicado), status: c.status, count: (c.records_inserted ?? 0) + (c.records_skipped ?? 0) });
-      return { ...c, state, label: JUDICIAL_QUERY_LABELS[state] };
+      const { state, label } = syncCheckState(item.radicado, c);
+      return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
     });
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),
@@ -3402,7 +3425,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.7",
+  version: "0.6.8",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3430,7 +3453,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-7"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-8"
   }),
   tools: [
     get_user_context_default,

@@ -2,6 +2,7 @@ import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
+import { isVerifiedSuccess, syncCheckState } from "../sync-check-state";
 
 export default defineTool({
   name: "get_work_item",
@@ -43,8 +44,8 @@ export default defineTool({
       if (seen.has(key)) return false;
       seen.add(key); return true;
     }).map((c) => {
-      const state = judicialQueryState({ compatible: hasUsableRadicado(item.radicado), status: c.status, count: (c.records_inserted ?? 0) + (c.records_skipped ?? 0) });
-      return { ...c, state, label: JUDICIAL_QUERY_LABELS[state] };
+      const { state, label } = syncCheckState(item.radicado, c);
+      return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
     });
 
     const [{ data: acts }, { data: estados }, { data: deadlines }, { data: hearings }] = await Promise.all([
