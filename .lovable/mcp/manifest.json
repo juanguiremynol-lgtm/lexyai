@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-9",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-10",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.9",
+      "version": "0.6.10",
       "title": "Andromeda Legal"
     },
     "tools": [
