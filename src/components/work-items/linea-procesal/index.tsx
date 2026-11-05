@@ -95,10 +95,10 @@ export function LineaProcesal({ workItemId, workflowType, currentStage, cgpPhase
           // Without it the estado-only mandamiento carries no providencia date
           // and its reposición / pagar-excepcionar anchors are never emitted.
           .select("id, title, annotation, fecha_fijacion, fecha_providencia, published_at, created_at, is_archived, association_flag:raw_data->asociacion_no_acreditada" as string)
-          .overrideTypes<Array<Parameters<typeof proceduralPublicationEvents>[0][number]>, { merge: false }>()
           .eq("work_item_id", workItemId)
           .order("fecha_fijacion", { ascending: true })
-          .limit(300),
+          .limit(300)
+          .overrideTypes<Array<Parameters<typeof proceduralPublicationEvents>[0][number]>, { merge: false }>(),
       ]);
       if (acts.error) console.error("[linea-procesal] acts", acts.error);
       if (pubs.error) console.error("[linea-procesal] pubs", pubs.error);
