@@ -17,7 +17,6 @@ END $guard$;
 
 
 
-COMMIT;
 CREATE OR REPLACE FUNCTION public._mcp_feed_freshness(p_work_item_id uuid, p_page_items uuid[])
  RETURNS jsonb
  LANGUAGE sql
@@ -101,3 +100,5 @@ BEGIN
  RETURN jsonb_build_object('items',rows_json,'has_more',more,'next_after',CASE WHEN more THEN last_id END,'window','Latest 30 days; last success 90 days; current RLS-visible rows only');
 END $function$;
 
+
+COMMIT;
