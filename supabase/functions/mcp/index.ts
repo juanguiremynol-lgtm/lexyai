@@ -572,7 +572,7 @@ var MONTHS = {
 };
 var MONTH_RE = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
 var CONTEXT_RE = /\b(juzgado|tribunal|corte|sala|despacho|magistrad[oa]s?|juez|consejo\s+(?:de\s+estado|seccional|superior)|rama\s+judicial)\b/;
-var FIELD_RE = /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto)\b/;
+var FIELD_RE = /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto|proceso)\b/;
 var DATELINE_RE = /[a-z][a-z.\s]*,\s*$/;
 function maxYear() {
   return (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
@@ -612,7 +612,8 @@ function autoHeaderDateCandidates(texto) {
   const context = CONTEXT_RE.exec(src);
   if (!context) return [];
   const field = FIELD_RE.exec(src);
-  const end = field ? field.index : src.length;
+  if (!field) return [];
+  const end = field.index;
   if (context.index >= end) return [];
   const segment = src.slice(0, end);
   const dates = collectDates(segment);
