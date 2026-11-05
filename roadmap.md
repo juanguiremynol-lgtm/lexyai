@@ -189,3 +189,4 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] authorization-acceptance.sql adaptado/ejecutado localmente: 68 checks, JSON PASS normal antes de ROLLBACK, diez gates restaurados; firmas/errores exactos y NULL-safe.
 - [x] 0074 restauración usa monitoreo efectivo antes de cuota: PETICION/GOV/sin radicado/suspendidos restauran al límite; suite fuentes/restauración 33 checks PASS. ConnectAI y ruta de permisos comprobados sin sesión.
 - [ ] Liberación final: root aplica SQL revisado y publica app existente para activar MCP administrado; smoke externo posterior. Delta aprobado, once gates preservados; no existe despliegue MCP independiente soportado en este proyecto.
+- [ ] 05-nov: atribución real de proveedor PP/SAMAI en sync-publicaciones, invariante del registro de sincronización (sin éxito sin proveedor), get_work_item y lectores SQL de frescura con predicado verificado; pruebas; SQL solo para revisión; sin publicar hasta aprobación root.
