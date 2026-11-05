@@ -1,12 +1,17 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { extractAutoHeaderDate } from "../../auto-header-date";
 import { bogotaDayStartUTC, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 
 export default defineTool({
   name: "list_publicaciones",
   title: "Estados electrónicos de un asunto",
   description:
-    "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id.",
+    "Lists electronic estados / publicaciones procesales for one matter, newest fijación first. Identify the matter by radicado or work item id. " +
+    "Cada fila conserva la fecha_providencia estructurada de la fuente y añade una señal de calidad: " +
+    "fecha_auto_encabezado (fecha candidata detectada solo en un encabezado inequívoco del texto del auto, " +
+    "o null=desconocido), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia " +
+    "con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente.",
   inputSchema: {
     radicado: z
       .string()
