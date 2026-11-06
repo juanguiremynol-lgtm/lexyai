@@ -117,7 +117,7 @@
       {
         "name": "get_work_item",
         "title": "Detalle de asunto",
-        "description": "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+        "description": "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
