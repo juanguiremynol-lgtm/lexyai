@@ -100,6 +100,15 @@ export function extractDateFromTitle(title: string): string | undefined {
 export function extractAutoDateFromText(texto: unknown): string | null {
   if (!texto || typeof texto !== "string") return null;
   const src = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  // Some PP payloads put the entire estado planilla in texto_auto. Its date
+  // belongs to the schedule, not to any particular judicial order. Inspect
+  // only the document header so an auto's later reference to an estado does
+  // not suppress a genuine order date. The caller may still use separately
+  // supplied auto metadata or an explicitly attributed planilla row.
+  const prefix = src.slice(0, 600);
+  const field = prefix.search(/\b(expediente|radicado|radicacion|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|referencia|asunto|proceso)\b/);
+  const header = field < 0 ? prefix : prefix.slice(0, field);
+  if (/\b(?:estado\s*(?:(?:n(?:o\.?|[°º.]?)|numero)\s*)?\d+\b|(?:fijacion|notificacion)\s+(?:de|por)\s+estados?\b)/.test(header)) return null;
   const re =
     /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(?:dos\s+mil\s+\w+\s*(?:\((\d{4})\))?|(\d{4}))/g;
   let last: RegExpExecArray | null = null;

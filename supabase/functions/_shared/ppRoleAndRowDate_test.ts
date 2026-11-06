@@ -29,6 +29,41 @@ Deno.test('an auto with estado in its title is never selected as the state docum
   assert.equal(findDocumentByType({documentos_pdf:[{titulo:'estado 30',pdf_url:'x'}]}, 'estado').pdf_url, 'x');
 });
 
+Deno.test('planilla text never supplies an auto date: use the separately attributed auto metadata', () => {
+  const raw = {
+    estado:{article_id:'123456', numero:'159', fecha_publicacion:'13/10/2026'},
+    texto_auto:'RAMA JUDICIAL. JUZGADO MUNICIPAL. Estado No. 159 De Martes, 13 De Octubre De 2026. FIJACIÓN DE ESTADOS. Radicación Clase Demandante Fecha Auto.',
+    documentos_pdf:[
+      {tipo:'auto', titulo:'Auto.pdf', fecha:'09/10/2026', pdf_url:'https://publicaciones-procesales-api-example/pdf/a'},
+      {tipo:'estado', titulo:'Estado 159.pdf', fecha:'13/10/2026', pdf_url:'https://example.invalid/state.pdf'},
+    ],
+  };
+  const [state, individual] = explodeProviderPublicaciones([raw]);
+  assert.equal(state.fecha_auto_raw, '09/10/2026');
+  const mapped = ppExplicitPublicationDates(state, context);
+  assert.match(mapped.fecha_fijacion!, /^2026-10-13/);
+  assert.match(mapped.fecha_providencia!, /^2026-10-09/);
+  assert.equal(individual.fecha_auto_raw, '09/10/2026');
+  assert.equal(raw.documentos_pdf[0].fecha, '09/10/2026');
+});
+
+Deno.test('planilla text without separate decision evidence leaves the auto date unknown', () => {
+  const raw = {estado:{article_id:'123456', numero:'159', fecha_publicacion:'13/10/2026'},
+    texto_auto:'JUZGADO. Estado N° 159 De Martes, 13 De Octubre De 2026. Radicación Clase Demandante.',
+    documentos_pdf:[{tipo:'estado', titulo:'Estado 159.pdf', fecha:'13/10/2026', pdf_url:'https://example.invalid/state.pdf'}]};
+  const row = ppExplicitPublicationDates(explodeProviderPublicaciones([raw])[0], context);
+  assert.match(row.fecha_fijacion!, /^2026-10-13/);
+  assert.equal(row.fecha_providencia, null);
+});
+
+Deno.test('an actual auto may mention an estado after its case information', () => {
+  const raw = {estado:{article_id:'123456', numero:'159', fecha_publicacion:'13/10/2026'},
+    texto_auto:'JUZGADO. Medellín, 9 de octubre de 2026. Radicación: 123. Notificar por Estado 159.',
+    documentos_pdf:[{tipo:'estado', titulo:'Estado 159.pdf', fecha:'13/10/2026', pdf_url:'https://example.invalid/state.pdf'}]};
+  const row = ppExplicitPublicationDates(explodeProviderPublicaciones([raw])[0], context);
+  assert.match(row.fecha_providencia!, /^2026-10-09/);
+});
+
 function evidence() { return { fecha:'11/03/2026', fecha_iso:'2026-03-11', estado:{article_id:'123456'},
   documento_atribucion:{radicado:rad, fila_estado:{metodo:'pdfplumber_celdas_despacho_acreditado',
     prueba_despacho:'PRINTED_COURT_AND_VERIFIED_DEPARTMENT',despacho_acreditado:rad.slice(0,12),
