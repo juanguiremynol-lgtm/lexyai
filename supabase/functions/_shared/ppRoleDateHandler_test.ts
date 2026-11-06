@@ -12,14 +12,17 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
     {tipo:'auto',titulo:'Estado 38.pdf',fecha:'14/10/2026',pdf_url:'https://example.invalid/auto.pdf'},
     {tipo:'estado',titulo:'Estado 38.pdf',fecha:'15-octubre-2026',pdf_url:'https://example.invalid/estado.pdf'}]};
   const old=toCanonicalPubRow(explodeProviderPublicaciones([raw])[0],{work_item_id:item,organization_id:'org-fixture',source:'publicaciones'});
-  let explicit=false, mixed=false, insertedFingerprint='';
+  let explicit=false, mixed=false, duplicate=false, insertedFingerprint='';
   const calls:Array<{path:string;method:string;select:string|null}>=[];
   const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
   globalThis.fetch=async(input,init)=>{
     const req=new Request(input,init),u=new URL(req.url);calls.push({path:u.pathname,method:req.method,select:u.searchParams.get('select')});
     if(u.host==='pp-fixture.invalid' && (u.pathname===`/historico/${radicado}` || u.pathname==='/procesar-radicado')) return json({radicado,consulta_completa:true,persistencia_completa:true,actuaciones:[{...raw,estado:{...raw.estado,...(explicit?{fecha_fijacion_impresa:'2026-10-15'}:{})}},...(mixed?[{estado:{article_id:'987654',numero:'39',fecha_publicacion:'16-octubre-2026',titulo_original:'Estado 39'},documentos_pdf:[]}]:[])]});
     if(u.host==='db-fixture.invalid'){
-      if(u.pathname==='/rest/v1/rpc/admit_daily_update')return json({admitted:true,mode:'new',token:'fixture',run_date:'2026-11-06'});
+      if(u.pathname==='/rest/v1/rpc/admit_daily_update')return json(duplicate
+        ? {admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:'2026-11-06',existing:{status:'PENDING_UPSTREAM'}}
+        : {admitted:true,mode:'new',token:'fixture',run_date:'2026-11-06'});
+      if(u.pathname==='/rest/v1/rpc/claim_pp_stored_result_read')return json({claimed:true,next_read_at:'2026-11-06T16:00:00Z'});
       if(u.pathname==='/rest/v1/work_items')return req.method==='GET'?json({id:item,owner_id:'owner',organization_id:'org-fixture',workflow_type:'CGP',radicado,monitoring_enabled:true,deleted_at:null,last_synced_at:null}):json(null);
       if(u.pathname==='/rest/v1/cron_state')return json(null);
       if(u.pathname==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'){
@@ -57,6 +60,14 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
       assert.equal(result.inserted_count,1);assert.equal(result.ok,false);assert.equal(result.status,'PENDING_UPSTREAM');assert.equal(result.result_code,'PENDING_UPSTREAM');
       assert.equal(calls.filter(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones').length,1);
       assert.equal(calls.some(c=>c.path==='/rest/v1/work_items' && c.method==='PATCH'),false);
+    });
+    await t.step('a stored read without a daily certificate names PP and retains its incomplete cause',async()=>{
+      duplicate=true;const result=await invoke();
+      assert.equal(result.ok,false);assert.equal(result.provider_used,'publicaciones');
+      assert.equal(result.error_code,'PP_STORED_READ_INCOMPLETE');assert.equal(result.source_complete,false);
+      assert.equal(result.deduplicated,true);assert.ok(result.stored_result_read.reason);
+      assert.equal(calls.some(c=>c.path==='/procesar-radicado'),false);
+      assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
     });
   } finally {globalThis.fetch=oldFetch;(Deno as any).serve=oldServe;for(const [k,v] of Object.entries(saved))v===undefined?Deno.env.delete(k):Deno.env.set(k,v);}
 }});

@@ -25,6 +25,8 @@ export const PROVIDER_UNRESOLVED_LABEL = "No se pudo identificar el proveedor co
 export function syncCheckState(radicado: string | null | undefined, row: SyncCheckRow): { state: JudicialQueryState; label: string } {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
+  if (compatible && row.error_code === "PP_STORED_READ_INCOMPLETE") return { state: "PENDIENTE", label:
+    "La lectura almacenada de Publicaciones Procesales está incompleta; la vigilancia diaria no está acreditada" };
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
   if (compatible && row.error_code === "PROVIDER_UNRESOLVED") return { state: "PENDIENTE", label: PROVIDER_UNRESOLVED_LABEL };
   if (compatible && row.error_code === "PROVIDER_NOT_FOUND") return { state: "PENDIENTE", label:

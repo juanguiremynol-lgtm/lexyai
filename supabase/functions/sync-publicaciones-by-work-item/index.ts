@@ -1628,7 +1628,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-pp-evidence-2' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-pp-evidence-3' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -2042,7 +2042,9 @@ Deno.serve(withSyncTimeline(async (req) => {
           if (!certificate && !stored.persistedPartial) {
             return jsonResponse({ ...dailyDuplicateBody(work_item_id, dailyTraceId, { ...dailyAdmission,
               reason: 'STORED_PP_CERTIFICATE_NOT_AVAILABLE', next_eligible_at: nextRead }),
-              source_complete: false, source_query_attempted: false,
+              provider_used: 'publicaciones', source_complete: false, source_query_attempted: false,
+              error_code: 'PP_STORED_READ_INCOMPLETE',
+              error_message: 'La lectura almacenada de Publicaciones Procesales no acredita la vigilancia diaria.',
               stored_result_read: { backend_run_id: stored.runStatusRead?.run_id ?? null,
                 reason: stored.error ?? 'PP_CERTIFICATE_NOT_VALID_FOR_CURRENT_WINDOW' } }, 200);
           }

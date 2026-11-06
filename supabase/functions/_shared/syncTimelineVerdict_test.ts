@@ -93,6 +93,12 @@ Deno.test("wrapper: pending, partial and dedup semantics preserved", async () =>
   const d = await run({ ok: true, status: "DAILY_LIMIT", reason: "DAILY_UPDATE_ALREADY_STARTED" });
   assertEquals(d.rows[0].status, "deduplicated");
   noContradiction(d.rows[0]);
+  const stored = await run({ ok:false,status:"DAILY_LIMIT",provider_used:"publicaciones",
+    error_code:"PP_STORED_READ_INCOMPLETE",source_complete:false,
+    stored_result_read:{reason:"PP_RUN_PARCIAL: ESTADO_SIN_DOCUMENTO"} });
+  assertEquals([stored.rows[0].status,stored.rows[0].provider,stored.rows[0].error_code],
+    ["deduplicated","publicaciones","PP_STORED_READ_INCOMPLETE"]);
+  assertEquals(stored.rows[0].metadata.stored_result_read.reason,"PP_RUN_PARCIAL: ESTADO_SIN_DOCUMENTO");
 });
 
 Deno.test("wrapper: failure keeps the real reason, not a success code", async () => {

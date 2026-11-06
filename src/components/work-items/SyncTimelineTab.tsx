@@ -17,6 +17,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { AlertCircle, CheckCircle2, Clock, GitCommit, MinusCircle, XCircle } from "lucide-react";
 import { isProviderAttributable } from "@/lib/syncVocabulary";
+import { storedReadDetail, timelinePresentation, type TimelinePresentation } from "@/lib/sync-timeline-presentation";
 
 interface Props {
   workItemId: string;
@@ -32,7 +33,7 @@ interface TimelineRow {
   function_name: string | null;
   adapter_version: string | null;
   deploy_sha: string | null;
-  status: "success" | "error" | "empty" | "skipped" | "partial" | "pending_upstream" | "rejected";
+  status: string;
   error_code: string | null;
   error_message: string | null;
   records_inserted: number;
@@ -41,15 +42,17 @@ interface TimelineRow {
   metadata: Record<string, unknown> | null;
 }
 
-const STATUS_META: Record<TimelineRow["status"], { label: string; variant: "default" | "destructive" | "secondary" | "outline"; Icon: typeof CheckCircle2 }> = {
-  success: { label: "Éxito", variant: "default", Icon: CheckCircle2 },
+const STATUS_META: Record<TimelinePresentation, { label: string; variant: "default" | "destructive" | "secondary" | "outline"; Icon: typeof CheckCircle2 }> = {
+  success: { label: "Consulta con resultados", variant: "default", Icon: CheckCircle2 },
   error: { label: "Error", variant: "destructive", Icon: XCircle },
-  empty: { label: "Vacío", variant: "secondary", Icon: MinusCircle },
-  skipped: { label: "Omitido", variant: "outline", Icon: Clock },
+  empty: { label: "Sin resultados", variant: "secondary", Icon: MinusCircle },
+  skipped: { label: "Consulta no realizada", variant: "outline", Icon: Clock },
   partial: { label: "Parcial", variant: "secondary", Icon: AlertCircle },
   // ITER62 — four situations, four outcomes. None borrows another's meaning.
-  pending_upstream: { label: "Proveedor aún sin respuesta", variant: "outline", Icon: Clock },
+  pending_upstream: { label: "Consulta pendiente o incompleta", variant: "outline", Icon: Clock },
   rejected: { label: "Rechazado en nuestra puerta", variant: "outline", Icon: AlertCircle },
+  deduplicated: { label: "Sin consulta nueva", variant: "outline", Icon: Clock },
+  unverified: { label: "Consulta no acreditada", variant: "secondary", Icon: AlertCircle },
 };
 
 function shortSha(sha: string | null): string {
@@ -150,7 +153,8 @@ export function SyncTimelineTab({ workItemId }: Props) {
         </CardHeader>
         <CardContent className="space-y-2">
           {data.map((row) => {
-            const meta = STATUS_META[row.status] ?? STATUS_META.empty;
+            const presentation = timelinePresentation(row);
+            const meta = STATUS_META[presentation];
             const Icon = meta.Icon;
             return (
               <div key={row.id} className="border rounded-md p-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -174,11 +178,14 @@ export function SyncTimelineTab({ workItemId }: Props) {
                     {row.latency_ms != null && <> · {row.latency_ms} ms</>}
                     {row.function_name && <> · {row.function_name}</>}
                   </div>
-                  {row.status === "error" && (row.error_message || row.error_code) && (
+                  {presentation !== "success" && (row.error_message || row.error_code) && (
                     <div className="text-xs text-destructive break-words">
                       <b>{row.error_code ?? "ERROR"}</b>
                       {row.error_message ? ` — ${row.error_message}` : ""}
                     </div>
+                  )}
+                  {storedReadDetail(row.metadata) && (
+                    <div className="text-xs text-muted-foreground">{storedReadDetail(row.metadata)}</div>
                   )}
                   {(row.records_inserted > 0 || row.records_skipped > 0) && (
                     <div className="text-xs text-muted-foreground">

@@ -58,12 +58,15 @@ describe("get_work_item verified-success contract", () => {
       ["PP_DAILY_WINDOW_NOT_CERTIFIED", "ventana diaria"],
       ["SAMAI_INVENTORY_INCOMPLETE", "inventario completo"],
       ["PP_NATIVE_DATE_CONFLICT", "conflicto"],
+      ["PP_STORED_READ_INCOMPLETE", "incompleta"],
     ];
     for (const [error_code, expected] of codes) {
       const result = syncCheckState(RAD, {provider:"publicaciones",status:"pending_upstream",error_code});
       expect(result.state).toBe("PENDIENTE");
       expect(result.label).toContain(expected);
     }
+    expect(syncCheckState(RAD, {provider:"publicaciones",status:"deduplicated",error_code:"PP_STORED_READ_INCOMPLETE"}).label)
+      .toContain("vigilancia diaria no está acreditada");
   });
 });
 

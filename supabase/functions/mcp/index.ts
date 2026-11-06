@@ -332,6 +332,7 @@ var PROVIDER_UNRESOLVED_LABEL = "No se pudo identificar el proveedor consultado;
 function syncCheckState(radicado, row) {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
+  if (compatible && row.error_code === "PP_STORED_READ_INCOMPLETE") return { state: "PENDIENTE", label: "La lectura almacenada de Publicaciones Procesales est\xE1 incompleta; la vigilancia diaria no est\xE1 acreditada" };
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
   if (compatible && row.error_code === "PROVIDER_UNRESOLVED") return { state: "PENDIENTE", label: PROVIDER_UNRESOLVED_LABEL };
   if (compatible && row.error_code === "PROVIDER_NOT_FOUND") return { state: "PENDIENTE", label: "El proveedor no encontr\xF3 el expediente; esto no demuestra que no exista (PROVIDER_NOT_FOUND)" };
@@ -3657,7 +3658,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-13"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-14"
   }),
   tools: [
     get_user_context_default,
