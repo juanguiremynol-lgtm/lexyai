@@ -1,8 +1,35 @@
 import {
-  toCanonicalPubRow, canonicalPubIdentityFromRow, parseDate, plausibleCivilDate,
+  toCanonicalPubRow, canonicalPubIdentityFromRow, parseDate, plausibleCivilDate, SPANISH_MONTHS,
   pubArticleIdFromRow,
   type ProviderPubUnit, type CanonicalPubContext, type CanonicalPubRow,
 } from './canonicalPublicacionMapper.ts';
+
+/** The PP seven-column extractor explicitly labels FECHA AUTO and verifies the
+ * court, case, article and row. fecha_iso alone is a fallback cascade and is
+ * never enough to establish a decision date. */
+export function attributedPPRowAutoDate(raw: Record<string, any>, radicado: string | null | undefined): string | null {
+  const a = raw.documento_atribucion;
+  const row = a?.fila_estado;
+  const article = String(raw.estado?.article_id ?? '');
+  if (!radicado || !/^\d{23}$/.test(radicado) || !radicado.endsWith('00') ||
+      a?.radicado !== radicado || a?.asociacion_no_acreditada ||
+      row?.metodo !== 'pdfplumber_celdas_despacho_acreditado' ||
+      row?.prueba_despacho !== 'PRINTED_COURT_AND_VERIFIED_DEPARTMENT' ||
+      row?.despacho_acreditado !== radicado.slice(0, 12) || !/^\d+$/.test(article) ||
+      String(row?.article_id ?? '') !== article) return null;
+  const match = String(row.identidad_celda ?? '').match(/^(\d{4})\s*[-–—/]\s*(\d{5})$/);
+  if (!match || match[1] !== radicado.slice(12, 16) || match[2] !== radicado.slice(16, 21)) return null;
+  const { pagina, tabla, fila } = row;
+  if (![pagina, tabla, fila].every(n => Number.isInteger(n) && n > 0) ||
+      row.id_origen !== `${article}:p${pagina}:t${tabla}:r${fila}`) return null;
+  const sourceDate = typeof raw.fecha === 'string' ? plausibleCivilDate(parseDate(raw.fecha)) : null;
+  const resolvedDate = typeof raw.fecha_iso === 'string' ? plausibleCivilDate(parseDate(raw.fecha_iso)) : null;
+  const cell = String(row.fecha_celda ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  const m = cell.match(/^([A-Z]+)\s+(\d{1,2})\s*\/\s*(\d{4})$/);
+  const month = m && SPANISH_MONTHS[m[1]];
+  const cellDate = month && m ? plausibleCivilDate(`${m[3]}-${month}-${m[2].padStart(2,'0')}`) : null;
+  return sourceDate && sourceDate === resolvedDate && sourceDate === cellDate ? sourceDate : null;
+}
 
 /** Additive PP evidence only; legacy units and SAMAI keep their exact mapping. */
 export function ppExplicitPublicationDates(unit: ProviderPubUnit, ctx: CanonicalPubContext): CanonicalPubRow {
@@ -14,7 +41,7 @@ export function ppExplicitPublicationDates(unit: ProviderPubUnit, ctx: Canonical
     ? plausibleCivilDate(parseDate(value)) : null;
   const portal = civil(estado?.fecha_publicacion_portal);
   const fijacion = civil(estado?.fecha_fijacion_impresa);
-  const providencia = civil(raw.fecha_providencia_impresa);
+  const providencia = civil(raw.fecha_providencia_impresa) ?? attributedPPRowAutoDate(raw, ctx.source_radicado);
   if (!portal && !fijacion && !providencia) return row;
   const noon = (date: string) => new Date(`${date}T12:00:00Z`).toISOString();
   if (portal) row.published_at = noon(portal);

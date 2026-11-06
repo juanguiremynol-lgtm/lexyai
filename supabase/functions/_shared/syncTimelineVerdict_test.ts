@@ -43,6 +43,19 @@ function noContradiction(r: Row) {
   }
 }
 
+Deno.test("wrapper: preserves explicit source completeness and distinguishes missing evidence", async () => {
+  for (const [body, expected] of [
+    [{ ok: true, provider_used: "publicaciones", source_complete: true }, true],
+    [{ ok: true, provider_used: "publicaciones", source_complete: false }, false],
+    [{ ok: true, provider_used: "publicaciones" }, null],
+    [{ ok: true, provider_used: "publicaciones", source_complete: "true" }, null],
+  ] as const) {
+    const { rows } = await run(body);
+    assertEquals(rows.length, 1);
+    assertEquals(rows[0].metadata.source_complete, expected);
+  }
+});
+
 Deno.test("wrapper: unknown provider with rows is never success; response unchanged", async () => {
   const { rows, text, original } = await run({ ok: true, inserted_count: 0, skipped_count: 11, result_code: "SUCCESS_WITH_DATA" });
   assertEquals(text, original);

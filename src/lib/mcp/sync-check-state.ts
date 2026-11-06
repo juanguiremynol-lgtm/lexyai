@@ -19,16 +19,26 @@ export function isVerifiedSuccess(row: SyncCheckRow): boolean {
 
 export const UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 export const DEDUP_LABEL = "Actualización diaria ya iniciada; se reutiliza el ciclo del día (no es una consulta nueva)";
+export const EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no está acreditada";
 
 export function syncCheckState(radicado: string | null | undefined, row: SyncCheckRow): { state: JudicialQueryState; label: string } {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
-  const successLike = status === "success" || status === "empty";
+  // Match the success-only freshness contract. An old empty row can describe
+  // a narrow or stored window; it does not certify that the matter is current.
+  const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
-    const verifiedEmpty = status === "empty" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" });
-    if (!isVerifiedSuccess(row) && !verifiedEmpty) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
+    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label:
+      status !== "success" && row.error_code == null ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
   }
+  if (compatible && status === "partial") {
+    const cause = row.error_code?.trim();
+    return { state: "PENDIENTE", label: cause
+      ? `Consulta parcial: ${cause}; la cobertura no está acreditada`
+      : "Consulta parcial; la cobertura no está acreditada" };
+  }
+  if (compatible && status === "pending_upstream") return { state: "PENDIENTE", label: "Fuente pendiente; la consulta aún no está completa" };
   const state = judicialQueryState({ compatible, status: row.status, count: (row.records_inserted ?? 0) + (row.records_skipped ?? 0) });
   return { state, label: JUDICIAL_QUERY_LABELS[state] };
 }

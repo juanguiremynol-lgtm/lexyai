@@ -10,6 +10,16 @@ Deno.test("deferred, stale, partial and initiated reads cannot become successes"
   assert(!publicReadVerdict(true, {ok:true,snapshot_stale:true}).success);
   assert(!publicReadVerdict(true, {ok:true,status:"not_applicable"}).success);
 });
+Deno.test("a successful-looking response cannot override source incompleteness or an error", () => {
+  for (const extra of [
+    {source_complete:false}, {error_code:'PROVIDER_UNRESOLVED'},
+    {error:'PORTAL_TIMEOUT'}, {errors:[{code:'PERSIST_FAILED'}]}, {errors:['PERSIST_FAILED']},
+  ]) {
+    const verdict = publicReadVerdict(true, {ok:true,result_code:'SUCCESS_WITH_DATA',...extra});
+    assert(!verdict.success, JSON.stringify(extra));
+  }
+  assertEquals(publicReadVerdict(true,{ok:true,result_code:'SUCCESS_EMPTY',error_code:'PROVIDER_UNRESOLVED'}).code,'PROVIDER_UNRESOLVED');
+});
 Deno.test("known source absence/access is not blindly retried or reclassified", () => {
   for (const status of [401,403,404]) {
     const result = publicReadVerdict(false, {ok:false}, status);

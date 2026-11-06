@@ -124,6 +124,10 @@ export default defineTool({
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         resumen_publicaciones: publicationPageSummary(estados),
+        cobertura_historica: {
+          estado: "NO_EVALUADA_EN_ESTA_CONSULTA",
+          explicacion: "Una consulta reciente o una muestra de estados no acredita la cobertura histórica completa del asunto.",
+        },
         terminos_activos: deadlines ?? [],
         audiencias: hearings ?? [],
         consultas: queryStates,

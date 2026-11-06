@@ -126,11 +126,26 @@ export function isProxyPdfUrl(url: string | null | undefined): boolean {
 export function findDocumentByType(raw: any, type: string): any | null {
   if (!Array.isArray(raw?.documentos_pdf)) return null;
   const expected = type.toLowerCase();
+  // The declared role wins across the whole array. An auto often contains
+  // "estado" in its filename; its date cannot become the fixation date.
+  const explicit = raw.documentos_pdf.find((doc: any) =>
+    String(doc?.tipo ?? "").trim().toLowerCase() === expected);
+  if (explicit) return explicit;
+  // Legacy title inference is allowed only when no contradictory role exists.
   return raw.documentos_pdf.find((doc: any) => {
-    const docType = (doc?.tipo || "").toString().toLowerCase();
-    const title = (doc?.titulo || "").toString().toLowerCase();
-    return docType === expected || title.includes(expected);
+    const docType = String(doc?.tipo ?? "").trim();
+    return !docType && String(doc?.titulo ?? "").toLowerCase().includes(expected);
   }) || null;
+}
+
+/** Whether the previous first-match algorithm would have used another role. */
+export function legacyPPStateRoleCollision(raw: any): boolean {
+  if (!Array.isArray(raw?.documentos_pdf)) return false;
+  const legacy = raw.documentos_pdf.find((doc: any) =>
+    String(doc?.tipo ?? "").trim().toLowerCase() === "estado" ||
+    String(doc?.titulo ?? "").toLowerCase().includes("estado"));
+  const role = String(legacy?.tipo ?? "").trim().toLowerCase();
+  return !!role && role !== "estado";
 }
 
 // ───────────────────────── canonical unit (post-explosion) ─────────────────

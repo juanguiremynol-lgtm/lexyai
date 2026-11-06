@@ -34,7 +34,7 @@ export function AdminCoverageGapsTab() {
   const { organization } = useOrganization();
   const navigate = useNavigate();
 
-  const { data: gaps, isLoading } = useQuery({
+  const { data: gaps, isLoading, error } = useQuery({
     queryKey: ["admin-coverage-gaps", organization?.id],
     queryFn: async () => {
       await ensureValidSession();
@@ -66,6 +66,12 @@ export function AdminCoverageGapsTab() {
     );
   }
 
+  if (!organization?.id || error) {
+    return <Card><CardContent className="py-8 text-center text-muted-foreground">
+      No se pudieron consultar las brechas de cobertura. El estado de las fuentes es desconocido.
+    </CardContent></Card>;
+  }
+
   const openCount = gaps?.length ?? 0;
 
   // Group by provider_key for summary
@@ -85,12 +91,12 @@ export function AdminCoverageGapsTab() {
             <ShieldAlert className="h-5 w-5" />
             Brechas de Cobertura
             <Badge variant={openCount > 0 ? "destructive" : "secondary"} className="ml-2">
-              {openCount} abiertas
+              {openCount >= 100 ? "100 o más abiertas" : `${openCount} abiertas`}
             </Badge>
           </CardTitle>
           <CardDescription>
-            Procesos donde los proveedores externos no retornan datos de estados/publicaciones.
-            Esto no indica un error de plataforma — el proveedor simplemente no indexa estos juzgados o radicados.
+            Brechas registradas cuando una fuente no devuelve datos de estados o publicaciones.
+            La causa requiere revisión; se muestran hasta 100 registros.
           </CardDescription>
         </CardHeader>
         {openCount > 0 && (
@@ -118,7 +124,7 @@ export function AdminCoverageGapsTab() {
       {openCount === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            No hay brechas de cobertura abiertas. Todos los proveedores están retornando datos correctamente.
+            No hay brechas de cobertura abiertas registradas. Esto no acredita que todas las fuentes se hayan consultado ni que los asuntos estén actualizados.
           </CardContent>
         </Card>
       ) : (

@@ -46,6 +46,7 @@ import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
 import { redundantSamaiPublicationRoute } from "../_shared/storedSamaiRead.ts";
 import { certifiedStoredPPHistory, mayReadStoredPP } from '../_shared/storedPublicationRead.ts';
+import { certifiedHistoricalRows, parseHistoricalWindow, type HistoricalWindow } from '../_shared/ppHistoricalReplay.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
 import { attributeAttemptedProviders } from "../_shared/syncTimelineVerdict.ts";
@@ -58,6 +59,7 @@ import { isCronCaller } from "../_shared/cronAuth.ts";
 import {
   explodeProviderPublicaciones,
   toCanonicalPubRow,
+  legacyPPStateRoleCollision,
   type ProviderPubUnit,
   plausibleCivilDate,
 } from "../_shared/canonicalPublicacionMapper.ts";
@@ -86,6 +88,7 @@ const corsHeaders = {
 type SyncRequest = {
   work_item_id: string;
   _scheduled?: boolean;
+  _historical_pp_replay?: unknown;
 };
 
 type InsertedPublication = {
@@ -115,7 +118,7 @@ type SyncResult = {
   reused_completed_read?: boolean;
   source_query_attempted?: boolean;
   inserted: InsertedPublication[];
-  status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR';
+  status?: 'SUCCESS' | 'EMPTY' | 'NO_DATA' | 'ERROR' | 'PENDING_UPSTREAM';
   // New canonical taxonomy — replaces the ambiguous SUCCESS + 0/0 outcome
   // that hid the SAMAI Estados contract mismatch for ~3 months.
   result_code?:
@@ -1287,6 +1290,34 @@ export async function followAdmittedRun(
     : { ...extracted, durableCompleted: true, historicoRead, runStatusRead };
 }
 
+/** Trusted, explicit replay of an already completed historical window.
+ * Two GETs only; this path never calls the provider's extraction endpoint. */
+export async function readStoredHistoricalRun(radicado: string, baseUrl: string, apiKey: string, window: HistoricalWindow) {
+  const started = Date.now();
+  const headers = { 'x-api-key':apiKey, 'Content-Type':'application/json' };
+  const status = await fetchWithTimeoutAndRetry(`${baseUrl}/runs/${window.backend_run_id}`, headers, 5000, 1);
+  if (!status.ok || !status.response) throw new Error('PP_HISTORICAL_RUN_UNAVAILABLE');
+  const run = await status.response.json().catch(() => null);
+  if (run?.radicado !== radicado || durableVerdict(status.httpStatus ?? 200,run,window.backend_run_id).kind !== 'complete' ||
+      run.persistencia_completa !== true || run.alcance_efectivo_acreditado !== true ||
+      run.checkpoint?.desde !== window.desde || run.checkpoint?.hasta !== window.hasta) {
+    throw new Error('PP_HISTORICAL_RUN_UNCERTIFIED');
+  }
+  const url = `${baseUrl}/historico/${radicado}?live=false&backend_run_id=${window.backend_run_id}`;
+  const response = await fetchWithTimeoutAndRetry(url,headers,5000,1);
+  if (!response.ok || !response.response) throw new Error('PP_HISTORICAL_READ_UNAVAILABLE');
+  const body = await response.response.json().catch(() => null);
+  const certified = certifiedHistoricalRows(run,body,radicado,window);
+  if (!certified) throw new Error('PP_HISTORICAL_READ_UNCERTIFIED_OR_UNATTRIBUTED');
+  const extracted = extractPublicacionesFromResponse(certified.body,Date.now()-started);
+  const historicoRead: HistoricoRead = { endpoint:'GET /historico/{radicado}',url,radicado,
+    http_status:response.httpStatus ?? 200,latency_ms:Date.now()-started,body:certified.body,
+    body_bytes:JSON.stringify(certified.body).length,payload_count:extracted.publicaciones.length,
+    parse_error:null,transport_error:null };
+  return { fetchResult:{ ...extracted, historicoRead } as FetchResultV3,
+    accepted:certified.accepted,outside:certified.outside,sourceObservedAt:certified.sourceObservedAt };
+}
+
 export async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
@@ -1644,6 +1675,14 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     const { work_item_id, _scheduled } = payload;
+    const historicalRequested = Object.prototype.hasOwnProperty.call(payload, '_historical_pp_replay');
+    if (historicalRequested && (!isServiceRole || _scheduled !== true)) {
+      return errorResponse('HISTORICAL_REPLAY_FORBIDDEN', 'La recuperación histórica requiere una llamada interna autorizada.', 403);
+    }
+    const historical = historicalRequested ? parseHistoricalWindow(payload._historical_pp_replay) : null;
+    if (historicalRequested && !historical) {
+      return errorResponse('INVALID_HISTORICAL_WINDOW', 'La corrida y la ventana histórica no son válidas.', 400);
+    }
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, { stage: 'validate_input' });
@@ -1831,6 +1870,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // PP is invoked whenever it appears in the estados cascade (PRIMARY for
     // CGP/LABORAL/PENAL_906, PRIMARY for TUTELA, absent for CPACA).
     const shouldFetchPP = routing.estados.includes("PP");
+    if (historical && !shouldFetchPP) {
+      return errorResponse('HISTORICAL_PP_NOT_IN_ROUTE', 'Publicaciones Procesales no está habilitado para este tipo de asunto.', 409);
+    }
     if (!shouldFetchPP) {
       console.log(
         `[sync-pub] ROUTING_SKIP wt=${workItem.workflow_type} reason=estados_source_is_${routing.estados.join('|') || "NONE"} — skipping PP HTTP fetch`,
@@ -1913,8 +1955,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Any stored run not yet proven terminal is only ever READ (GET /runs):
     // expiry of the app's follow-up budget, a cooldown lapse or a new day
     // never authorizes a new POST while the backend run may still be alive.
-    const activeRunId = shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed ? gateStatus.backendRunId : null;
+    const activeRunId = !historical && shouldFetchPP && gateStatus.backendRunId && !gateStatus.followupClosed ? gateStatus.backendRunId : null;
     let certifiedStoredResult: FetchResultV3 | null = null;
+    let historicalRead: { accepted:number; outside:number; sourceObservedAt:string } | null = null;
     const followupExpired = !!activeRunId && (!Number.isFinite(admittedMs) || Date.now() - admittedMs >= PP_FOLLOWUP_MAX_MS ||
       (gateStatus.pollCount ?? 0) >= PP_MAX_POLLS_PER_RUN);
     if (activeRunId) rescrapeDecision = { triggered: false, reason: 'follow_admitted_run', backendRunId: activeRunId };
@@ -1923,7 +1966,22 @@ Deno.serve(withSyncTimeline(async (req) => {
     // continuation of an earlier update (kept across days), never a new one.
     // Everything else — /historico read, POST trigger, SAMAI Estados — needs
     // the single daily 'pubs' admission shared by every caller, force included.
-    if (gateStatus.readFailed && shouldFetchPP) {
+    if (historical) {
+      try {
+        const stored = await readStoredHistoricalRun(normalizedRadicado, baseUrl, apiKey, historical);
+        certifiedStoredResult = stored.fetchResult;
+        historicalRead = { accepted:stored.accepted, outside:stored.outside, sourceObservedAt:stored.sourceObservedAt };
+        providerAttempts.publicaciones = true;
+        result.reused_completed_read = true;
+        result.source_query_attempted = false;
+        result.source_observed_at = stored.sourceObservedAt;
+        result.source_complete = false;
+      } catch (error) {
+        return jsonResponse({ok:false, historical_replay:true, work_item_id, source_query_attempted:false,
+          source_complete:false, error_code:error instanceof Error ? error.message : 'PP_HISTORICAL_READ_FAILED'}, 200);
+      }
+    }
+    if (!historical && gateStatus.readFailed && shouldFetchPP) {
       const t = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       return jsonResponse(dailyDuplicateBody(work_item_id, t, { admitted: false, reason: 'DAILY_ADMISSION_UNAVAILABLE' }), 200);
     }
@@ -1940,7 +1998,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         return jsonResponse({ ...body, rescrape_decision: rescrapeDecision }, 200);
       }
     }
-    if (!activeRunId) {
+    if (!historical && !activeRunId) {
       const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
       if (!dailyAdmission.admitted) {
@@ -2060,6 +2118,20 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
+    if (!historical && fetchResult.durableCompleted) {
+      const bogotaDay = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
+      const daily = certifiedStoredPPHistory(fetchResult, normalizedRadicado, bogotaDay);
+      if (!daily) {
+        // A completed narrow or historical run may contribute positive rows,
+        // but cannot certify the current daily observation window.
+        fetchResult.readIncomplete = true;
+        result.source_complete = false;
+        result.warnings.push('La corrida almacenada no acredita la ventana diaria; se conserva solo como evidencia de su propio alcance.');
+      } else {
+        result.source_complete = true;
+        result.source_observed_at = String(daily.intento_observado_en);
+      }
+    }
     // Backend correlation per published contract (trazabilidad_id,
     // backend_run_id, backend_new_events). Absent fields stay null; nothing
     // is synthesized.
@@ -2130,7 +2202,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.warn('[sync-pub] follow-up ledger update failed', e instanceof Error ? e.message : 'unknown');
       }
     }
-    try {
+    if (!historical) try {
       await supabase.from('provider_sync_traces' as any).insert({
         work_item_id,
         organization_id: workItem.organization_id,
@@ -2185,7 +2257,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const isTutelaUnion = workItem.workflow_type === 'TUTELA';
     let nativeSamaiStoredReadBaseUrl: string | null = null;
     let tutelaSamaiEnabled = false;
-    if (isTutelaUnion) {
+    if (isTutelaUnion && !historical) {
       const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
         .select('enabled').eq('work_item_id', work_item_id).eq('provider_key', 'samai_estados').eq('scope', 'PUBS').maybeSingle();
       const decision = samaiEnrollmentDecision(enrollmentError, enrollment);
@@ -2204,7 +2276,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       fetchResult.readIncomplete = true;
       result.warnings.push('Seguimiento de corrida: SAMAI Estados se consulta en la próxima actualización diaria.');
     }
-    if (!activeRunId && (isCpaca || (isTutelaUnion && tutelaSamaiEnabled))) {
+    if (!historical && !activeRunId && (isCpaca || (isTutelaUnion && tutelaSamaiEnabled))) {
       if (isTutelaUnion) {
         console.log(
           `[sync-pub][samai_estados] TUTELA union: querying SAMAI_ESTADOS alongside PP for wi=${work_item_id} ` +
@@ -2402,6 +2474,9 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     // Handle empty result (valid response but no publications)
     if (fetchResult.publicaciones.length === 0) {
+      if (historical) return jsonResponse({ok:true,historical_replay:true,work_item_id,
+        historical_window:historical,historical_rows:historicalRead,inserted_count:0,skipped_count:0,
+        source_complete:false,source_query_attempted:false},200);
       // Name only sources actually attempted, including stored-result reads.
       // Set before every empty/pending return; never infer from routing/name.
       { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
@@ -2759,11 +2834,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         source: (pub as any)._source_provider || 'publicaciones',
         source_radicado: workItem.radicado ?? null,
       });
+      if (historical) canonicalRow.raw_data = { ...(canonicalRow.raw_data as Record<string, unknown>),
+        run_type:'historical', historical_replay:true };
       const fingerprint = canonicalRow.hash_fingerprint;
 
       // Only additive PP dates require this guard. A previous native article
       // must not become a new publication just because its date changed.
-      if (canonicalRow.source === 'publicaciones' && hasExplicitPPDates(pub as unknown as ProviderPubUnit)) {
+      const needsPPIdentityCheck = canonicalRow.source === 'publicaciones' &&
+        (!!historical || hasExplicitPPDates(pub as unknown as ProviderPubUnit) || legacyPPStateRoleCollision((pub as unknown as ProviderPubUnit).raw_data));
+      if (needsPPIdentityCheck) {
         const articleId = (canonicalRow.raw_data as ProviderPubUnit).article_id;
         if (articleId && /^\d+$/.test(articleId)) {
           const { data: nativeRows, error: nativeError } = await supabase
@@ -2815,7 +2894,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         ? canonicalRow.fecha_fijacion.slice(0, 10)
         : null;
 
-      const refreshedLegacyIds = canonicalRow.source === 'publicaciones' && hasExplicitPPDates(pub as unknown as ProviderPubUnit)
+      const refreshedLegacyIds = needsPPIdentityCheck
         ? [] : await refreshLegacyPdfRowsForProxy(
         supabase,
         work_item_id,
@@ -3055,30 +3134,6 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     result.newest_publication_date = newestDate;
     
-    // ============= UPDATE WORK_ITEM BASELINE =============
-    if (result.inserted_count > 0) {
-      try {
-        // Use the fingerprint we actually inserted (asset_id-based).
-        // Previously this recomputed with (undefined, undefined, title) which
-        // produced a fingerprint that never matched the stored row, so the
-        // baseline was effectively orphaned.
-        const latestFingerprint = newestInsertedFingerprint;
-        if (latestFingerprint) {
-          await supabase
-            .from('work_items')
-            .update({
-              latest_estado_fingerprint: latestFingerprint,
-              latest_estado_at: new Date().toISOString(),
-            })
-            .eq('id', work_item_id);
-            
-          console.log(`[sync-pub] Updated work_item baseline`);
-        }
-      } catch (err) {
-        console.warn('[sync-pub] Failed to update baseline:', err);
-      }
-    }
-    
     // ── LAYER 2: POST-INSERT VERIFICATION ──
     if (result.inserted_count > 0 && attemptedPubFingerprints.length > 0) {
       try {
@@ -3096,6 +3151,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             const msg = `[DATA_LOSS_DETECTED] ${missingFps.length}/${attemptedPubFingerprints.length} pub inserts did NOT persist for ${work_item_id} (likely trigger bug)`;
             console.error(msg);
             result.warnings.push(msg);
+            result.errors.push(msg);
             result.inserted_count = persistedSet.size;
 
             try {
@@ -3109,10 +3165,28 @@ Deno.serve(withSyncTimeline(async (req) => {
           } else {
             console.log(`[VERIFY_OK] All ${attemptedPubFingerprints.length} pub inserts verified persisted`);
           }
-        }
+        } else result.errors.push(`PERSISTENCE_READBACK_FAILED: ${verifyErr?.message ?? 'no rows returned'}`);
       } catch (verifyError: any) {
         console.warn(`[VERIFY_INSERTS] Pub verification query failed: ${verifyError?.message}`);
+        result.errors.push('PERSISTENCE_READBACK_FAILED');
       }
+    }
+
+    if (historical) {
+      // This is an import of an already observed window, not a daily source
+      // attempt. Do not update sync clocks, baselines, daily markers or invoke
+      // other providers. The original observation is carried with each row.
+      return jsonResponse({ ...result, ok:result.errors.length === 0, historical_replay:true,
+        historical_window:historical, historical_rows:historicalRead,
+        source_complete:false, source_query_attempted:false }, 200);
+    }
+
+    // An incomplete batch or failed verification must not advance the baseline.
+    if (result.inserted_count > 0 && result.errors.length === 0 && !fetchResult.readIncomplete && newestInsertedFingerprint) {
+      const { error: baselineError } = await supabase.from('work_items').update({
+        latest_estado_fingerprint:newestInsertedFingerprint, latest_estado_at:new Date().toISOString(),
+      }).eq('id',work_item_id);
+      if (baselineError) result.errors.push(`BASELINE_UPDATE_FAILED: ${baselineError.message}`);
     }
 
     // BUG FIX 2.3: If errors[] is non-empty, classify as PARTIAL, not SUCCESS
@@ -3133,7 +3207,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (result.errors.length > 0) {
       if (result.inserted_count > 0) {
         result.ok = false;
-        result.status = 'SUCCESS'; // Some inserted, some errored — still "ok" overall
+        result.status = 'PENDING_UPSTREAM';
+        result.source_complete = false;
         result.result_code = 'PENDING_UPSTREAM';
         result.warnings.push(`${result.errors.length} RPC error(s) occurred but ${result.inserted_count} publications were inserted`);
       } else {

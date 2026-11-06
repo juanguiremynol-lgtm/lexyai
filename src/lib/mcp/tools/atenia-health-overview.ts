@@ -29,15 +29,28 @@ export default defineTool({
         .limit(25),
     ]);
 
+    // A failed read is not an empty health inventory. In particular, an RLS
+    // or database failure must never be presented as zero degraded services.
+    if (preflight.error || heartbeats.error || crons.error) {
+      return errorResult("No se pudo leer el estado completo de salud; no es posible concluir que los servicios estén sanos.");
+    }
+
     const hb = heartbeats.data ?? [];
     const cronRows = crons.data ?? [];
     const degraded = hb.filter((h) => (h as { last_status?: string }).last_status !== "OK");
     const failedCrons = cronRows.filter((c) => (c as { status?: string }).status === "FAILED");
+    const latestPreflight = (preflight.data ?? [])[0] ?? null;
 
     return textResult(
-      `Salud de la plataforma: ${degraded.length} servicio(s) degradado(s), ${failedCrons.length} cron(s) fallido(s) en las últimas ejecuciones.`,
+      `Observación parcial: ${latestPreflight ? "hay un preflight registrado" : "sin preflight registrado; estado de proveedores desconocido"}. ` +
+        `${hb.length ? `${degraded.length} latido(s) degradado(s) entre los ${hb.length} registrados` : "sin latidos registrados; salud desconocida"}. ` +
+        `${cronRows.length ? `${failedCrons.length} cron(s) fallido(s) entre las últimas ${cronRows.length} ejecuciones registradas` : "sin ejecuciones de cron registradas"}. ` +
+        "La vigencia de estos indicadores no se evaluó; no acreditan cobertura ni actualización de los asuntos.",
       {
-        ultimo_preflight: (preflight.data ?? [])[0] ?? null,
+        ultimo_preflight: latestPreflight,
+        estado_preflight: latestPreflight ? "REGISTRADO_FRESCURA_NO_EVALUADA" : "DESCONOCIDO_SIN_PREFLIGHT",
+        estado_latidos: hb.length ? "REGISTRADOS_FRESCURA_NO_EVALUADA" : "DESCONOCIDO_SIN_LATIDOS",
+        alcance: "INDICADORES_PARCIALES_NO_ACREDITAN_COBERTURA",
         heartbeats: hb,
         servicios_degradados: degraded,
         crons_recientes: cronRows,

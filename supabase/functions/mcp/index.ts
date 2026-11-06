@@ -327,15 +327,20 @@ function isVerifiedSuccess(row) {
 }
 var UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 var DEDUP_LABEL = "Actualizaci\xF3n diaria ya iniciada; se reutiliza el ciclo del d\xEDa (no es una consulta nueva)";
+var EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no est\xE1 acreditada";
 function syncCheckState(radicado, row) {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
-  const successLike = status === "success" || status === "empty";
+  const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
-    const verifiedEmpty = status === "empty" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" });
-    if (!isVerifiedSuccess(row) && !verifiedEmpty) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
+    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: status !== "success" && row.error_code == null ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
   }
+  if (compatible && status === "partial") {
+    const cause = row.error_code?.trim();
+    return { state: "PENDIENTE", label: cause ? `Consulta parcial: ${cause}; la cobertura no est\xE1 acreditada` : "Consulta parcial; la cobertura no est\xE1 acreditada" };
+  }
+  if (compatible && status === "pending_upstream") return { state: "PENDIENTE", label: "Fuente pendiente; la consulta a\xFAn no est\xE1 completa" };
   const state = judicialQueryState({ compatible, status: row.status, count: (row.records_inserted ?? 0) + (row.records_skipped ?? 0) });
   return { state, label: JUDICIAL_QUERY_LABELS[state] };
 }
@@ -494,6 +499,10 @@ var get_work_item_default = defineTool2({
         recent_acts: acts ?? [],
         recent_estados: estados ?? [],
         resumen_publicaciones: publicationPageSummary(estados),
+        cobertura_historica: {
+          estado: "NO_EVALUADA_EN_ESTA_CONSULTA",
+          explicacion: "Una consulta reciente o una muestra de estados no acredita la cobertura hist\xF3rica completa del asunto."
+        },
         terminos_activos: deadlines ?? [],
         audiencias: hearings ?? [],
         consultas: queryStates,
@@ -1882,14 +1891,21 @@ var atenia_health_overview_default = defineTool22({
       sb.from("system_health_heartbeat").select("service, last_status, last_ok_at, last_error_at, last_message, updated_at").order("service"),
       sb.from("atenia_cron_runs").select("job_name, status, started_at, finished_at").order("started_at", { ascending: false }).limit(25)
     ]);
+    if (preflight.error || heartbeats.error || crons.error) {
+      return errorResult("No se pudo leer el estado completo de salud; no es posible concluir que los servicios est\xE9n sanos.");
+    }
     const hb = heartbeats.data ?? [];
     const cronRows = crons.data ?? [];
     const degraded = hb.filter((h) => h.last_status !== "OK");
     const failedCrons = cronRows.filter((c) => c.status === "FAILED");
+    const latestPreflight = (preflight.data ?? [])[0] ?? null;
     return textResult(
-      `Salud de la plataforma: ${degraded.length} servicio(s) degradado(s), ${failedCrons.length} cron(s) fallido(s) en las \xFAltimas ejecuciones.`,
+      `Observaci\xF3n parcial: ${latestPreflight ? "hay un preflight registrado" : "sin preflight registrado; estado de proveedores desconocido"}. ${hb.length ? `${degraded.length} latido(s) degradado(s) entre los ${hb.length} registrados` : "sin latidos registrados; salud desconocida"}. ${cronRows.length ? `${failedCrons.length} cron(s) fallido(s) entre las \xFAltimas ${cronRows.length} ejecuciones registradas` : "sin ejecuciones de cron registradas"}. La vigencia de estos indicadores no se evalu\xF3; no acreditan cobertura ni actualizaci\xF3n de los asuntos.`,
       {
-        ultimo_preflight: (preflight.data ?? [])[0] ?? null,
+        ultimo_preflight: latestPreflight,
+        estado_preflight: latestPreflight ? "REGISTRADO_FRESCURA_NO_EVALUADA" : "DESCONOCIDO_SIN_PREFLIGHT",
+        estado_latidos: hb.length ? "REGISTRADOS_FRESCURA_NO_EVALUADA" : "DESCONOCIDO_SIN_LATIDOS",
+        alcance: "INDICADORES_PARCIALES_NO_ACREDITAN_COBERTURA",
         heartbeats: hb,
         servicios_degradados: degraded,
         crons_recientes: cronRows,
@@ -1913,12 +1929,22 @@ var atenia_provider_status_default = defineTool23({
     const { data, error } = await sb.from("atenia_preflight_checks").select("id, trigger, started_at, overall_status, decision, results, consecutive_failures_by_provider, providers_tested, providers_passed, providers_failed").order("started_at", { ascending: false }).limit(1);
     if (error) return errorResult(error.message);
     const run = (data ?? [])[0];
-    if (!run) return textResult("No hay ejecuciones de preflight registradas.", { proveedores: [] });
+    if (!run) return textResult("No hay preflight registrado; el estado de los proveedores es desconocido.", {
+      estado: "DESCONOCIDO_SIN_PREFLIGHT",
+      proveedores: []
+    });
     const results = Array.isArray(run.results) ? run.results : [];
+    if (!results.length) return textResult("El preflight no contiene resultados de proveedores; su estado es desconocido.", {
+      estado: "DESCONOCIDO_SIN_RESULTADOS",
+      ejecutado_en: run.started_at,
+      overall_status: run.overall_status,
+      proveedores: []
+    });
     const failing = results.filter((r) => String(r.status ?? "").toUpperCase() !== "OK");
     return textResult(
-      `Preflight ${String(run.overall_status)}: ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo.`,
+      `\xDAltimo preflight registrado (${String(run.started_at)}): ${String(run.overall_status)}, ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo. Su vigencia y la cobertura de asuntos no se evaluaron.`,
       {
+        estado: "REGISTRADO_FRESCURA_NO_EVALUADA",
         ejecutado_en: run.started_at,
         overall_status: run.overall_status,
         decision: run.decision ?? null,
@@ -3624,7 +3650,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-10"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-11"
   }),
   tools: [
     get_user_context_default,

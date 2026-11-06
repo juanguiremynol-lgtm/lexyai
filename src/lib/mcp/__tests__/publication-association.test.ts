@@ -44,6 +44,7 @@ describe("publication association through real MCP handlers", () => {
     expect(rows.map((r: any) => r.calidad_asociacion.acreditada)).toEqual([false, null]);
     expect(rows[0].calidad_asociacion.sha256_original_providencia).toBe("a".repeat(64));
     expect(payload.resumen_publicaciones).toMatchObject({ registros_crudos: 2, asociacion_no_acreditada: 1, ultimo_estado_acreditado: null });
+    if (tool === detail) expect(payload.cobertura_historica.estado).toBe("NO_EVALUADA_EN_ESTA_CONSULTA");
     expect(JSON.stringify(payload)).not.toContain("private");
     const selection = mock.queries.work_item_publicaciones.select.mock.calls[0][0];
     expect(selection).toContain("association_flag:raw_data->asociacion_no_acreditada");

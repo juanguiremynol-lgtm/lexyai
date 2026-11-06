@@ -20,14 +20,21 @@ export default defineTool({
     if (error) return errorResult(error.message);
 
     const run = (data ?? [])[0] as Record<string, unknown> | undefined;
-    if (!run) return textResult("No hay ejecuciones de preflight registradas.", { proveedores: [] });
+    if (!run) return textResult("No hay preflight registrado; el estado de los proveedores es desconocido.", {
+      estado: "DESCONOCIDO_SIN_PREFLIGHT", proveedores: [],
+    });
 
     const results = Array.isArray(run.results) ? (run.results as Record<string, unknown>[]) : [];
+    if (!results.length) return textResult("El preflight no contiene resultados de proveedores; su estado es desconocido.", {
+      estado: "DESCONOCIDO_SIN_RESULTADOS", ejecutado_en: run.started_at,
+      overall_status: run.overall_status, proveedores: [],
+    });
     const failing = results.filter((r) => String(r.status ?? "").toUpperCase() !== "OK");
 
     return textResult(
-      `Preflight ${String(run.overall_status)}: ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo.`,
+      `Último preflight registrado (${String(run.started_at)}): ${String(run.overall_status)}, ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo. Su vigencia y la cobertura de asuntos no se evaluaron.`,
       {
+        estado: "REGISTRADO_FRESCURA_NO_EVALUADA",
         ejecutado_en: run.started_at,
         overall_status: run.overall_status,
         decision: run.decision ?? null,

@@ -44,6 +44,21 @@ Deno.test("a completed query can keep documentary pending causes",async()=>{
   if (!seal) throw new Error('Missing completion RPC');
   assert(seal.body._success===true && (seal.body._result as Record<string,unknown>).documentos_pendientes===6);
 });
+Deno.test("incomplete source or unresolved provider never seal a successful monitor",async()=>{
+  for (const result of [{ok:true,result_code:'SUCCESS_EMPTY',source_complete:false},
+    {ok:true,result_code:'SUCCESS_EMPTY',error_code:'PROVIDER_UNRESOLVED'}]) {
+    const attempt=await exercise(result);
+    const seal=attempt.calls.find(x=>x.path.endsWith('finish_public_monitor_item'));
+    assert(seal?.body._success===false);
+    const label=attempt.calls.find(x=>x.path.endsWith('work_items'));
+    assert(!!label && !('pp_ultima_sync' in label.body));
+  }
+});
+Deno.test("a stored replay does not advance the last source attempt or success clock",async()=>{
+  const attempt=await exercise({ok:true,result_code:'SUCCESS_WITH_DATA',reused_completed_read:true,source_query_attempted:false});
+  const label=attempt.calls.find(x=>x.path.endsWith('work_items'));
+  assert(!!label && !('pp_ultima_sync' in label.body) && !('last_sync_attempt_at' in label.body));
+});
 Deno.test("interrupted or fenced completion cannot advance labels or the hop",async()=>{
   for(const sealed of [false,"rpc_error"] as const){
     const result=await exercise({ok:true,result_code:"SUCCESS_WITH_DATA"},sealed);

@@ -1,0 +1,62 @@
+import { strict as assert } from 'node:assert';
+import { explodeProviderPublicaciones, toCanonicalPubRow } from './canonicalPublicacionMapper.ts';
+
+Deno.test({ name: 'actual PP handler prevents duplicates on legacy article conflicts', sanitizeOps: false, sanitizeResources: false, fn: async (t) => {
+  const env = { SUPABASE_URL:'https://db-fixture.invalid', SUPABASE_SERVICE_ROLE_KEY:'synthetic-key', PUBLICACIONES_BASE_URL:'https://pp-fixture.invalid', EXTERNAL_X_API_KEY:'synthetic-key' };
+  const saved = Object.fromEntries(Object.keys(env).map(k=>[k,Deno.env.get(k)]));
+  for (const [k,v] of Object.entries(env)) Deno.env.set(k,v);
+  const oldFetch=globalThis.fetch, oldServe=Deno.serve;
+  let handler: ((request:Request)=>Promise<Response>) | undefined;
+  const item='11111111-1111-4111-8111-111111111111', radicado='11001400300120260012300';
+  const raw:any={ fecha_auto:'14/10/2026', estado:{article_id:'123456',numero:'38',fecha_publicacion:'15-octubre-2026',titulo_original:'Estado 38 15 de octubre de 2026'}, documentos_pdf:[
+    {tipo:'auto',titulo:'Estado 38.pdf',fecha:'14/10/2026',pdf_url:'https://example.invalid/auto.pdf'},
+    {tipo:'estado',titulo:'Estado 38.pdf',fecha:'15-octubre-2026',pdf_url:'https://example.invalid/estado.pdf'}]};
+  const old=toCanonicalPubRow(explodeProviderPublicaciones([raw])[0],{work_item_id:item,organization_id:'org-fixture',source:'publicaciones'});
+  let explicit=false, mixed=false, insertedFingerprint='';
+  const calls:Array<{path:string;method:string;select:string|null}>=[];
+  const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
+  globalThis.fetch=async(input,init)=>{
+    const req=new Request(input,init),u=new URL(req.url);calls.push({path:u.pathname,method:req.method,select:u.searchParams.get('select')});
+    if(u.host==='pp-fixture.invalid' && (u.pathname===`/historico/${radicado}` || u.pathname==='/procesar-radicado')) return json({radicado,consulta_completa:true,persistencia_completa:true,actuaciones:[{...raw,estado:{...raw.estado,...(explicit?{fecha_fijacion_impresa:'2026-10-15'}:{})}},...(mixed?[{estado:{article_id:'987654',numero:'39',fecha_publicacion:'16-octubre-2026',titulo_original:'Estado 39'},documentos_pdf:[]}]:[])]});
+    if(u.host==='db-fixture.invalid'){
+      if(u.pathname==='/rest/v1/rpc/admit_daily_update')return json({admitted:true,mode:'new',token:'fixture',run_date:'2026-11-06'});
+      if(u.pathname==='/rest/v1/work_items')return req.method==='GET'?json({id:item,owner_id:'owner',organization_id:'org-fixture',workflow_type:'CGP',radicado,monitoring_enabled:true,deleted_at:null,last_synced_at:null}):json(null);
+      if(u.pathname==='/rest/v1/cron_state')return json(null);
+      if(u.pathname==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'){
+        const body=await req.json();insertedFingerprint=JSON.parse(body.records)[0].hash_fingerprint;
+        return json({parsed_count:1,inserted_count:1,updated_count:0,skipped_count:0,persisted_publicacion_id:'22222222-2222-4222-8222-222222222222',outcomes:[{bucket:'INSERTED'}]});
+      }
+      if(u.pathname==='/rest/v1/provider_category_routes_global' || u.pathname==='/rest/v1/provider_category_routes_org_override')return json([]);
+      if(u.pathname==='/rest/v1/work_item_publicaciones'){
+        if(u.searchParams.get('select')==='id,raw_data')return json({id:'22222222-2222-4222-8222-222222222222',raw_data:{}});
+        if(u.searchParams.get('select')==='hash_fingerprint')return json([{hash_fingerprint:insertedFingerprint}]);
+        return json([{id:'old-a',tipo_publicacion:old.tipo_publicacion,raw_data:old.raw_data,hash_fingerprint:old.hash_fingerprint},{id:'old-b',tipo_publicacion:old.tipo_publicacion,raw_data:old.raw_data,hash_fingerprint:'other'}]);
+      }
+      if(u.pathname==='/rest/v1/rpc/finish_daily_update')return json({});
+      if(['/rest/v1/external_sync_runs','/rest/v1/provider_sync_traces','/rest/v1/external_sync_run_payloads','/rest/v1/work_item_sync_timeline','/rest/v1/sync_traces','/rest/v1/sync_persist_buckets','/rest/v1/sync_retry_queue'].includes(u.pathname))return json(null,201);
+    }
+    throw new Error(`Unexpected synthetic request ${req.method} ${u.host}${u.pathname}`);
+  };
+  (Deno as any).serve=(fn:typeof handler)=>{handler=fn};
+  const invoke=async()=>{calls.length=0;const res=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer synthetic-key'},body:JSON.stringify({work_item_id:item,_scheduled:true})}));return await res.json();};
+  try {
+    await import('../sync-publicaciones-by-work-item/index.ts'); assert.ok(handler);
+    await t.step('a corrected state role cannot duplicate a conflicting legacy article',async()=>{
+      const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'ERROR');
+      assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
+      assert.equal(calls.filter(c=>c.path==='/rest/v1/work_item_publicaciones').length,1);
+    });
+    await t.step('printed fixation still blocks before touching two existing conflicting rows',async()=>{
+      explicit=true;const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'ERROR');
+      const pubCalls=calls.filter(c=>c.path==='/rest/v1/work_item_publicaciones');
+      assert.equal(pubCalls.length,1);
+      assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
+    });
+    await t.step('one inserted state plus legacy conflict stays pending and never advances the baseline',async()=>{
+      mixed=true;explicit=false;const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));
+      assert.equal(result.inserted_count,1);assert.equal(result.ok,false);assert.equal(result.status,'PENDING_UPSTREAM');assert.equal(result.result_code,'PENDING_UPSTREAM');
+      assert.equal(calls.filter(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones').length,1);
+      assert.equal(calls.some(c=>c.path==='/rest/v1/work_items' && c.method==='PATCH'),false);
+    });
+  } finally {globalThis.fetch=oldFetch;(Deno as any).serve=oldServe;for(const [k,v] of Object.entries(saved))v===undefined?Deno.env.delete(k):Deno.env.set(k,v);}
+}});

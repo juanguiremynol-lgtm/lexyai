@@ -32,6 +32,7 @@ function response(body: unknown, status = 200): Response {
  * read: it becomes `no_aplica` and must never be shown as a failure.
  */
 function ppLabelFromResult(success: boolean, errorCode: string | null, result: Record<string, unknown>): string {
+  if (result.source_complete === false || result.consulta_completa === false) return "pending";
   const signal = String(result.result_code ?? result.outcome ?? errorCode ?? "").toUpperCase();
   if (signal.startsWith("ROUTING_SKIP") || signal.startsWith("SKIP")) return "no_aplica";
   if (signal.includes("PRIVADO")) return "privado";
@@ -147,7 +148,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     if (channel === "publicaciones") {
       patch.pp_estado = label;
       // A skip is not a read: it may relabel, but it must not move the clock.
-      if (success) patch.pp_ultima_sync = stampedAt;
+      if (success && result.reused_completed_read !== true && result.source_query_attempted !== false) patch.pp_ultima_sync = stampedAt;
     }
     if (Object.keys(patch).length) {
       const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);

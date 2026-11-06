@@ -123,6 +123,7 @@ export function withSyncTimeline(
     // Snapshot the request body so the inner handler still sees a fresh body.
     let workItemId: string | null = null;
     let isHealthCheck = false;
+    let isHistoricalReplay = false;
     try {
       if (req.method !== "OPTIONS" && req.headers.get("content-type")?.includes("json")) {
         const cloned = req.clone();
@@ -130,6 +131,7 @@ export function withSyncTimeline(
         if (body) {
           workItemId = typeof body.work_item_id === "string" ? body.work_item_id : null;
           isHealthCheck = body.health_check === true;
+          isHistoricalReplay = Object.prototype.hasOwnProperty.call(body, "_historical_pp_replay");
         }
       }
     } catch { /* ignore */ }
@@ -137,7 +139,9 @@ export function withSyncTimeline(
     const response = await handler(req);
 
     // Don't record CORS preflights or health probes.
-    if (req.method === "OPTIONS" || isHealthCheck || !workItemId) {
+    // The historical path has its own bounded evidence embedded in the row.
+    // Never turn a stored replay (including a refusal) into today's sync.
+    if (req.method === "OPTIONS" || isHealthCheck || isHistoricalReplay || !workItemId) {
       return response;
     }
 
@@ -229,7 +233,8 @@ export function withSyncTimeline(
         http_status: response.status,
         trace_id: strOr(parsed?.trace_id),
         source_observed_at: strOr(parsed?.source_observed_at),
-        source_complete: parsed?.source_complete === true,
+        // Missing evidence is unknown, not an explicit incomplete verdict.
+        source_complete: typeof parsed?.source_complete === "boolean" ? parsed.source_complete : null,
         invoker_function: req.headers.get("x-invoker-function"),
         retry_task_id: req.headers.get("x-retry-task-id"),
         scheduled_requested: req.headers.get("x-invoker-function") === "process-retry-queue",
