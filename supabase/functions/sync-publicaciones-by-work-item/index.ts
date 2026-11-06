@@ -3248,6 +3248,22 @@ Deno.serve(withSyncTimeline(async (req) => {
             continue;
           }
 
+          // The native adapter already attempted GET /persistido for this
+          // service. Preserve its result, including failures, and avoid the
+          // external connector's duplicate POST /snapshot for the same PUBS.
+          if (redundantSamaiPublicationRoute({
+            connectorKey: (route as any).provider_connectors?.key,
+            scope: route.scope,
+            instanceBaseUrl: instance.base_url,
+            instanceScope: instance.scope,
+            instanceOrganizationId: instance.organization_id,
+            organizationRoute: isOrgRoute,
+            nativeReadBaseUrl: nativeSamaiStoredReadBaseUrl,
+          })) {
+            console.log('[sync-pub] SAMAI stored read already handled this publication route');
+            continue;
+          }
+
           const { data: existingSource } = await adminDb
             .from('work_item_sources')
             .select('id')
