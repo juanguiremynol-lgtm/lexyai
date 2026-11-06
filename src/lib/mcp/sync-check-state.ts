@@ -37,6 +37,13 @@ export function isVerifiedSuccess(row: SyncCheckRow): boolean {
     && evidence.consulta_completa && evidence.fuente_observada_en !== null && evidence.observacion_de_hoy;
 }
 
+/** Preserve the raw database history, but do not expose an unverified result
+ * to agents with a success-shaped status. */
+export function publicCheckStatus(row: SyncCheckRow): string | null {
+  return ["success", "empty"].includes((row.status ?? "").toLowerCase()) && !isVerifiedSuccess(row)
+    ? "unverified" : row.status ?? null;
+}
+
 export const UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 export const DEDUP_LABEL = "Actualización diaria ya iniciada; se reutiliza el ciclo del día (no es una consulta nueva)";
 export const EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no está acreditada";

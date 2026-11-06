@@ -341,6 +341,9 @@ function isVerifiedSuccess(row) {
   const evidence = sourceEvidence(row);
   return ["success", "empty"].includes((row.status ?? "").toLowerCase()) && attributed(row) && evidence.consulta_completa && evidence.fuente_observada_en !== null && evidence.observacion_de_hoy;
 }
+function publicCheckStatus(row) {
+  return ["success", "empty"].includes((row.status ?? "").toLowerCase()) && !isVerifiedSuccess(row) ? "unverified" : row.status ?? null;
+}
 var UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 var DEDUP_LABEL = "Actualizaci\xF3n diaria ya iniciada; se reutiliza el ciclo del d\xEDa (no es una consulta nueva)";
 var EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no est\xE1 acreditada";
@@ -455,7 +458,14 @@ var get_work_item_default = defineTool2({
     }).map((c) => {
       const { state, label } = syncCheckState(item.radicado, c);
       const { metadata: _metadata, ...safeCheck } = c;
-      return { ...safeCheck, state, label, verified_success: isVerifiedSuccess(c), evidencia_fuente: sourceEvidence(c) };
+      return {
+        ...safeCheck,
+        status: publicCheckStatus(c),
+        state,
+        label,
+        verified_success: isVerifiedSuccess(c),
+        evidencia_fuente: sourceEvidence(c)
+      };
     });
     const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),

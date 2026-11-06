@@ -2,7 +2,7 @@ import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
-import { isVerifiedSuccess, sourceEvidence, syncCheckState } from "../sync-check-state";
+import { isVerifiedSuccess, publicCheckStatus, sourceEvidence, syncCheckState } from "../sync-check-state";
 import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 
 export default defineTool({
@@ -47,7 +47,8 @@ export default defineTool({
     }).map((c) => {
       const { state, label } = syncCheckState(item.radicado, c);
       const { metadata: _metadata, ...safeCheck } = c;
-      return { ...safeCheck, state, label, verified_success: isVerifiedSuccess(c), evidencia_fuente: sourceEvidence(c) };
+      return { ...safeCheck, status: publicCheckStatus(c), state, label,
+        verified_success: isVerifiedSuccess(c), evidencia_fuente: sourceEvidence(c) };
     });
 
     const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([

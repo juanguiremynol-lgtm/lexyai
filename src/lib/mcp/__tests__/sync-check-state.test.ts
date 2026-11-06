@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COVERAGE_UNVERIFIED_LABEL, DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, PROVIDER_UNRESOLVED_LABEL, sourceEvidence, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
+import { COVERAGE_UNVERIFIED_LABEL, DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, PROVIDER_UNRESOLVED_LABEL, publicCheckStatus, sourceEvidence, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
 
 const RAD = "05001400300120250000100"; // synthetic 23-digit radicado
 
@@ -15,6 +15,7 @@ describe("get_work_item verified-success contract", () => {
       expect(s.state).toBe("PENDIENTE");
       expect(s.label).toBe(row.error_code === "PROVIDER_UNRESOLVED" ? PROVIDER_UNRESOLVED_LABEL : UNVERIFIED_LABEL);
       expect(isVerifiedSuccess(row)).toBe(false);
+      expect(publicCheckStatus(row)).toBe("unverified");
     }
   });
 
@@ -22,6 +23,7 @@ describe("get_work_item verified-success contract", () => {
     const row = { provider: "publicaciones+samai_estados", status: "success", error_code: null, records_skipped: 2,
       metadata:{source_complete:true,source_observed_at:new Date(Date.now()-60_000).toISOString()} };
     expect(isVerifiedSuccess(row)).toBe(true);
+    expect(publicCheckStatus(row)).toBe("success");
     expect(syncCheckState(RAD, row).label).toBe("Consulta exitosa con resultados");
     for (const status of ["empty", "success_empty", "not_found"]) {
       const empty = { provider: "cpnu", status, error_code: null };
