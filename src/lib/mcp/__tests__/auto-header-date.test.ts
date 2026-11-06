@@ -4,6 +4,18 @@ import { autoHeaderDateCandidates, extractAutoHeaderDate } from "../../auto-head
 // Mirror of supabase/functions/_shared/autoHeaderDate_test.ts — same cases,
 // synthetic text only.
 describe("auto header date quality signal", () => {
+  it("never treats an estado planilla as an auto header", () => {
+    const texto = "RAMA JUDICIAL. Juzgado Municipal Civil. Estado No. 159 De Martes, 13 De Octubre De 2026. FIJACIÓN DE ESTADOS. Radicación Clase Demandante Fecha Auto.";
+    expect(extractAutoHeaderDate(texto)).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 1. ESTADO N° 30. Bogotá, 12 de marzo de 2026. Radicación: 123.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 1. FIJACIÓN DE ESTADOS. Bogotá, 12 de marzo de 2026. Radicación: 123.")).toBeNull();
+  });
+
+  it("requires a place, not just a weekday, before the date", () => {
+    expect(extractAutoHeaderDate("JUZGADO 1. Martes, 13 de octubre de 2026. Radicación: 123.")).toBeNull();
+    expect(extractAutoHeaderDate("JUZGADO 1. Bogotá, 13 de octubre de 2026. Radicación: 123. Se notifica por estado 159."))
+      .toBe("2026-10-13");
+  });
   it("tribunal header + words with parenthesized digits and year words", () => {
     const texto =
       "JUZGADO 11 ADMINISTRATIVO DE BOGOTÁ. Bogotá, D.C., VEINTIDÓS (22) DE ABRIL DE DOS MIL VEINTISÉIS (2026). Radicación: 05001-23-45-678-2026-00123-00. Demandante: ...";

@@ -678,6 +678,8 @@ var MONTH_RE = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|oct
 var CONTEXT_RE = /\b(juzgado|tribunal|corte|sala|despacho|magistrad[oa]s?|juez|consejo\s+(?:de\s+estado|seccional|superior)|rama\s+judicial)\b/;
 var FIELD_RE = /\b(expediente|radicado|radicacion|auto\s*(?:no\.?|n[°º.]|numero)|demandante|demandad[oa]|accionante|accionad[oa]|recurrente|impugnante|impugnad[oa]|actor(?:a)?|apoderad[oa]|referencia|asunto|proceso)\b/;
 var DATELINE_RE = /[a-z][a-z.\s]*,\s*$/;
+var ESTADO_HEADER_RE = /\b(?:estado\s*(?:(?:n(?:o\.?|[°º.]?)|numero)\s*)?\d+\b|(?:fijacion|notificacion)\s+(?:de|por)\s+estados?\b)/;
+var WEEKDAY_RE = /\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s*,\s*$/;
 function maxYear() {
   return (/* @__PURE__ */ new Date()).getUTCFullYear() + 1;
 }
@@ -720,11 +722,12 @@ function autoHeaderDateCandidates(texto) {
   const end = field.index;
   if (context.index >= end) return [];
   const segment = src.slice(0, end);
+  if (ESTADO_HEADER_RE.test(segment)) return [];
   const dates = collectDates(segment);
   if (dates.length !== 1) return [];
   const only = dates[0];
   const before = segment.slice(Math.max(0, only.index - 60), only.index);
-  if (!DATELINE_RE.test(before)) return [];
+  if (!DATELINE_RE.test(before) || WEEKDAY_RE.test(before)) return [];
   return [only.date];
 }
 function extractAutoHeaderDate(texto) {
@@ -736,7 +739,7 @@ function extractAutoHeaderDate(texto) {
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
   title: "Estados electr\xF3nicos de un asunto",
-  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. Incluye historial con asociaci\xF3n no acreditada se\xF1alada y procedencia; sin alerta no prueba acreditaci\xF3n. Conteos de p\xE1gina, no totales ni \xFAltimo estado acreditado. Contin\xFAa con next_offset.",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; planillas de estados, citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. Incluye historial con asociaci\xF3n no acreditada se\xF1alada y procedencia; sin alerta no prueba acreditaci\xF3n. Conteos de p\xE1gina, no totales ni \xFAltimo estado acreditado. Contin\xFAa con next_offset.",
   inputSchema: {
     radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
@@ -3692,7 +3695,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-14"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-15"
   }),
   tools: [
     get_user_context_default,

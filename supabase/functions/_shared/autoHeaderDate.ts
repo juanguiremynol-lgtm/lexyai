@@ -56,6 +56,12 @@ const FIELD_RE =
 // by a comma immediately introduces the date; citations lack it.
 const DATELINE_RE = /[a-z][a-z.\s]*,\s*$/;
 
+// A state schedule can be stored as texto_auto. Its header is not the
+// individual judicial order, and a weekday before the fixing date is not a
+// place. Refuse to infer an order date from either form.
+const ESTADO_HEADER_RE = /\b(?:estado\s*(?:(?:n(?:o\.?|[°º.]?)|numero)\s*)?\d+\b|(?:fijacion|notificacion)\s+(?:de|por)\s+estados?\b)/;
+const WEEKDAY_RE = /\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s*,\s*$/;
+
 function maxYear(): number {
   return new Date().getUTCFullYear() + 1;
 }
@@ -121,12 +127,13 @@ export function autoHeaderDateCandidates(texto: unknown): string[] {
   const end = field.index;
   if (context.index >= end) return [];
   const segment = src.slice(0, end);
+  if (ESTADO_HEADER_RE.test(segment)) return [];
 
   const dates = collectDates(segment);
   if (dates.length !== 1) return [];
   const only = dates[0];
   const before = segment.slice(Math.max(0, only.index - 60), only.index);
-  if (!DATELINE_RE.test(before)) return [];
+  if (!DATELINE_RE.test(before) || WEEKDAY_RE.test(before)) return [];
   return [only.date];
 }
 

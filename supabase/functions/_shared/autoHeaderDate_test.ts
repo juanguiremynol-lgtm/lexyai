@@ -5,6 +5,18 @@
 import { assertEquals } from "jsr:@std/assert";
 import { autoHeaderDateCandidates, extractAutoHeaderDate } from "./autoHeaderDate.ts";
 
+Deno.test("never treats an estado planilla as an auto header", () => {
+  const texto = "RAMA JUDICIAL. Juzgado Municipal Civil. Estado No. 159 De Martes, 13 De Octubre De 2026. FIJACIÓN DE ESTADOS. Radicación Clase Demandante Fecha Auto.";
+  assertEquals(extractAutoHeaderDate(texto), null);
+  assertEquals(extractAutoHeaderDate("JUZGADO 1. ESTADO N° 30. Bogotá, 12 de marzo de 2026. Radicación: 123."), null);
+  assertEquals(extractAutoHeaderDate("JUZGADO 1. FIJACIÓN DE ESTADOS. Bogotá, 12 de marzo de 2026. Radicación: 123."), null);
+});
+
+Deno.test("requires a place, not just a weekday, before the date", () => {
+  assertEquals(extractAutoHeaderDate("JUZGADO 1. Martes, 13 de octubre de 2026. Radicación: 123."), null);
+  assertEquals(extractAutoHeaderDate("JUZGADO 1. Bogotá, 13 de octubre de 2026. Radicación: 123. Se notifica por estado 159."), "2026-10-13");
+});
+
 Deno.test("tribunal header + words with parenthesized digits and year words", () => {
   const texto =
     "JUZGADO 11 ADMINISTRATIVO DE BOGOTÁ. Bogotá, D.C., VEINTIDÓS (22) DE ABRIL DE DOS MIL VEINTISÉIS (2026). Radicación: 05001-23-45-678-2026-00123-00. Demandante: ...";

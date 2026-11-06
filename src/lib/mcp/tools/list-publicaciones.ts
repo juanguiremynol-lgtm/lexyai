@@ -12,7 +12,7 @@ export default defineTool({
     "Cada fila conserva la fecha_providencia estructurada de la fuente y añade una señal de calidad: " +
     "fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado " +
     "del texto del auto —contexto de despacho/tribunal, antes del primer campo de identificación procesal y una " +
-    "única fecha válida en línea de lugar y fecha; citas, fechas múltiples o vinculación dudosa dan null=desconocido—), " +
+    "única fecha válida en línea de lugar y fecha; planillas de estados, citas, fechas múltiples o vinculación dudosa dan null=desconocido—), " +
     "su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia " +
     "con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. " +
     "Incluye historial con asociación no acreditada señalada y procedencia; sin alerta no prueba acreditación. Conteos de página, no totales ni último estado acreditado. Continúa con next_offset.",
