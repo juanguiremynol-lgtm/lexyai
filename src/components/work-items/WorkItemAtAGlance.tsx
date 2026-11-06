@@ -43,17 +43,18 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
   });
 
   // Fetch active alerts count
-  const { data: alertStats } = useQuery({
+  const { data: alertStats, isError: alertsError } = useQuery({
     queryKey: ["work-item-alert-stats", workItem.id],
     queryFn: async () => {
-      const { count: active } = await supabase
+      const { count: active, error: activeError } = await supabase
         .from("alert_instances")
         .select("*", { count: "exact", head: true })
         .eq("entity_id", workItem.id)
         .eq("entity_type", "WORK_ITEM")
         .in("status", ["PENDING", "SENT", "ACKNOWLEDGED"]);
 
-      const { count: unread } = await supabase
+      if (activeError) throw activeError;
+      const { count: unread, error: unreadError } = await supabase
         .from("alert_instances")
         .select("*", { count: "exact", head: true })
         .eq("entity_id", workItem.id)
@@ -61,6 +62,7 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
         .in("status", ["PENDING", "SENT", "ACKNOWLEDGED"])
         .is("read_at", null);
 
+      if (unreadError) throw unreadError;
       return { active: active ?? 0, unread: unread ?? 0 };
     },
     enabled: !!workItem.id,
@@ -93,9 +95,9 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
           ? `${alertStats.unread} sin leer`
           : alertStats.active > 0
             ? `${alertStats.active} activa${alertStats.active > 1 ? "s" : ""}`
-            : "Sin alertas"
-        : "…",
-      tooltip: "Estado de alertas",
+            : "Sin alertas registradas"
+        : alertsError ? "Alertas no disponibles" : "…",
+      tooltip: "Alertas registradas; su ausencia no confirma que la vigilancia esté al día",
       variant: "outline" as const,
       color: alertStats && alertStats.unread > 0 ? "border-amber-500/50 text-amber-600 dark:text-amber-400" : "",
     },
@@ -118,11 +120,11 @@ export function WorkItemAtAGlance({ workItem }: AtAGlanceProps) {
     {
       id: "monitoring",
       icon: workItem.monitoring_enabled ? Bell : AlertTriangle,
-      label: workItem.monitoring_enabled ? "Monitoreado" : "Sin monitoreo",
-      tooltip: "Estado de monitoreo",
+      label: workItem.monitoring_enabled ? "Vigilancia activada" : "Sin monitoreo",
+      tooltip: "Configuración de vigilancia; no acredita que la última consulta haya terminado",
       variant: "outline" as const,
       color: workItem.monitoring_enabled
-        ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
+        ? ""
         : "border-destructive/50 text-destructive",
     },
   ];

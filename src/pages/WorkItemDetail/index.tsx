@@ -18,6 +18,7 @@ import { MemorialGenerator } from "@/components/memorials/MemorialGenerator";
 import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2, Users, Mail } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { WorkItemAtAGlance } from "@/components/work-items/WorkItemAtAGlance";
+import { MonitoringEvidenceBanner, sourceSummaryLabel } from "@/components/work-items/MonitoringEvidenceBanner";
 import { WorkItemExportPack } from "@/components/work-items/WorkItemExportPack";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -334,6 +335,9 @@ export default function WorkItemDetail() {
         </div>
       </div>
 
+      <MonitoringEvidenceBanner workItemId={workItem.id} workflow={workItem.workflow_type}
+        enabled={workItem.monitoring_enabled} radicado={workItem.radicado} />
+
       {/* Milestones Checklist - replaces legacy CaseSetupChecklist */}
       <MilestonesChecklist workItem={extendedWorkItem} />
 
@@ -552,7 +556,7 @@ export default function WorkItemDetail() {
               <LastOccurredEventField workItemId={workItem.id} />
               {workItem.last_checked_at && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Última revisión</p>
+                  <p className="text-sm text-muted-foreground">Última comprobación registrada (no acredita actualización)</p>
                   <p className="font-medium">{formatDate(workItem.last_checked_at)}</p>
                 </div>
               )}
@@ -590,7 +594,7 @@ export default function WorkItemDetail() {
                   return (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Estado:</span>
-                      <Badge variant="outline" className="text-xs">NOT_ATTEMPTED</Badge>
+                      <Badge variant="outline" className="text-xs">Sin información verificable</Badge>
                     </div>
                   );
                 }
@@ -600,8 +604,7 @@ export default function WorkItemDetail() {
                   const entry = sync[key];
                   const status = entry?.status ?? "NOT_ATTEMPTED";
                   const variant: "default" | "destructive" | "secondary" | "outline" =
-                    status === "SUCCESS" ? "default"
-                    : status === "ERROR" ? "destructive"
+                    status === "ERROR" ? "destructive"
                     : status === "NOT_FOUND" ? "secondary"
                     : "outline";
                   return (
@@ -610,7 +613,7 @@ export default function WorkItemDetail() {
                         <span className="font-medium text-xs uppercase tracking-wide">{label}</span>
                         {key === "cpnu" && workItem.workflow_type === "CPACA"
                           ? <Badge variant="outline" className="text-xs" title={`Último resultado registrado: ${status}`}>No aplica (CPACA)</Badge>
-                          : <Badge variant={variant} className="text-xs" title="Resultado de la última consulta registrada a esta fuente">{status}</Badge>}
+                          : <Badge variant={variant} className="text-xs" title={`Resumen externo: ${status}. No acredita por sí solo la cobertura actual.`}>{sourceSummaryLabel(status)}</Badge>}
                       </div>
                       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
                         <span className="text-muted-foreground">Registros del resumen externo:</span>
@@ -638,7 +641,7 @@ export default function WorkItemDetail() {
                 })];
               })()}
               <p className="text-xs text-muted-foreground pt-2 border-t">
-                Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
+                La vigilancia está programada; una consulta parcial o fallida no acredita que el expediente esté actualizado.
               </p>
             </CardContent>
           </Card>
