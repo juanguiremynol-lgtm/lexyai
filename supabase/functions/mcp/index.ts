@@ -335,6 +335,9 @@ function syncCheckState(radicado, row) {
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
   if (compatible && row.error_code === "PROVIDER_UNRESOLVED") return { state: "PENDIENTE", label: PROVIDER_UNRESOLVED_LABEL };
   if (compatible && row.error_code === "PROVIDER_NOT_FOUND") return { state: "PENDIENTE", label: "El proveedor no encontr\xF3 el expediente; esto no demuestra que no exista (PROVIDER_NOT_FOUND)" };
+  if (compatible && row.error_code === "PP_DAILY_WINDOW_NOT_CERTIFIED") return { state: "PENDIENTE", label: "La consulta no acredita la ventana diaria de Publicaciones Procesales; se conservan los registros anteriores" };
+  if (compatible && row.error_code === "SAMAI_INVENTORY_INCOMPLETE") return { state: "PENDIENTE", label: "SAMAI no acredit\xF3 un inventario completo de estados; hay resultados pendientes de verificaci\xF3n" };
+  if (compatible && row.error_code === "PP_NATIVE_DATE_CONFLICT") return { state: "PENDIENTE", label: "La fecha de la publicaci\xF3n entra en conflicto con un registro anterior y requiere revisi\xF3n" };
   const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
     if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: status !== "success" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" }) ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
@@ -3654,7 +3657,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-12"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-13"
   }),
   tools: [
     get_user_context_default,

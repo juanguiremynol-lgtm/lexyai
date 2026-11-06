@@ -53,6 +53,18 @@ describe("get_work_item verified-success contract", () => {
     expect(syncCheckState(RAD, {provider:"cpnu",status:"partial",error_code:"PROVIDER_NOT_FOUND"}).label)
       .toContain("no demuestra que no exista");
   });
+  it("explains an uncertified daily window, incomplete SAMAI inventory and date conflict", () => {
+    const codes = [
+      ["PP_DAILY_WINDOW_NOT_CERTIFIED", "ventana diaria"],
+      ["SAMAI_INVENTORY_INCOMPLETE", "inventario completo"],
+      ["PP_NATIVE_DATE_CONFLICT", "conflicto"],
+    ];
+    for (const [error_code, expected] of codes) {
+      const result = syncCheckState(RAD, {provider:"publicaciones",status:"pending_upstream",error_code});
+      expect(result.state).toBe("PENDIENTE");
+      expect(result.label).toContain(expected);
+    }
+  });
 });
 
 describe("SQL IS NULL parity", () => {

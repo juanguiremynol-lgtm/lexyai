@@ -42,12 +42,12 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
   try {
     await import('../sync-publicaciones-by-work-item/index.ts'); assert.ok(handler);
     await t.step('a corrected state role cannot duplicate a conflicting legacy article',async()=>{
-      const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'ERROR');
+      const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'PENDING_UPSTREAM');assert.equal(result.error_code,'PP_NATIVE_DATE_CONFLICT');
       assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
       assert.equal(calls.filter(c=>c.path==='/rest/v1/work_item_publicaciones').length,1);
     });
     await t.step('printed fixation still blocks before touching two existing conflicting rows',async()=>{
-      explicit=true;const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'ERROR');
+      explicit=true;const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));assert.equal(result.ok,false);assert.equal(result.result_code,'PENDING_UPSTREAM');assert.equal(result.error_code,'PP_NATIVE_DATE_CONFLICT');
       const pubCalls=calls.filter(c=>c.path==='/rest/v1/work_item_publicaciones');
       assert.equal(pubCalls.length,1);
       assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);

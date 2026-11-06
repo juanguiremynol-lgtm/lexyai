@@ -29,6 +29,12 @@ export function syncCheckState(radicado: string | null | undefined, row: SyncChe
   if (compatible && row.error_code === "PROVIDER_UNRESOLVED") return { state: "PENDIENTE", label: PROVIDER_UNRESOLVED_LABEL };
   if (compatible && row.error_code === "PROVIDER_NOT_FOUND") return { state: "PENDIENTE", label:
     "El proveedor no encontró el expediente; esto no demuestra que no exista (PROVIDER_NOT_FOUND)" };
+  if (compatible && row.error_code === "PP_DAILY_WINDOW_NOT_CERTIFIED") return { state: "PENDIENTE", label:
+    "La consulta no acredita la ventana diaria de Publicaciones Procesales; se conservan los registros anteriores" };
+  if (compatible && row.error_code === "SAMAI_INVENTORY_INCOMPLETE") return { state: "PENDIENTE", label:
+    "SAMAI no acreditó un inventario completo de estados; hay resultados pendientes de verificación" };
+  if (compatible && row.error_code === "PP_NATIVE_DATE_CONFLICT") return { state: "PENDIENTE", label:
+    "La fecha de la publicación entra en conflicto con un registro anterior y requiere revisión" };
   // Match the success-only freshness contract. An old empty row can describe
   // a narrow or stored window; it does not certify that the matter is current.
   const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);

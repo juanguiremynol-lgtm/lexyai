@@ -9,8 +9,9 @@ export function publicReadVerdict<T extends PublicReadSignals>(httpOK: boolean, 
   const firstError = Array.isArray(result.errors) && result.errors.length ? result.errors[0] : null;
   const cause = result.error_code ?? (typeof result.error === 'string' && result.error ? result.error : null) ??
     (firstError && typeof firstError === 'object' ? (firstError as Record<string, unknown>).code ?? 'SOURCE_ERROR' : firstError);
-  const code = String(cause ?? result.result_code ?? result.code ?? result.run_status ?? result.outcome ?? result.status ?? '').toUpperCase();
-  const signals = [result.result_code, result.code, result.run_status, result.outcome, result.status].join('|').toUpperCase();
+  const states = [result.result_code, result.code, result.run_status, result.outcome, result.status]
+    .map((v) => String(v ?? '').toUpperCase());
+  const signals = states.join('|');
   // SUCCESS_EMPTY is an authoritative, completed zero-row read; a legacy
   // status 'NO_DATA' alongside it must not turn it into a pending retry.
   const authoritativeEmpty = String(result.result_code ?? '').toUpperCase() === 'SUCCESS_EMPTY';
@@ -18,8 +19,16 @@ export function publicReadVerdict<T extends PublicReadSignals>(httpOK: boolean, 
   const pending = result.cpnu_buscar_deferred === true || result.scraping_initiated === true ||
     result.consulta_completa === false || result.source_complete === false || result.snapshot_stale === true || result.stale === true ||
     /PENDING|DEFERRED|STALE|NO_DATA|SCRAPING_INITIATED|PROCESSING|PARTIAL|PARCIAL|INDETERMINADO|TIMEOUT|CONTRACT_MISMATCH/.test(pendingSignals);
-  const skipped = /SKIP|NOT_APPLICABLE|NO_APLICA/.test(code);
-  const success = httpOK && result.ok === true && cause == null && !pending && !skipped;
+  const skipped = /SKIP|NOT_APPLICABLE|NO_APLICA/.test(signals);
+  const failedState = /(^|\|)(ERROR|FAILED|FAILURE|REJECTED|UNAUTHORIZED|FORBIDDEN)(\||$)/.test(signals);
+  const success = httpOK && result.ok === true && cause == null && !pending && !skipped && !failedState;
+  const failedSignal = states.find((v) => /ERROR|FAIL|REJECT|UNAUTHORIZED|FORBIDDEN|PENDING|DEFERRED|STALE|SCRAPING_INITIATED|PROCESSING|PARTIAL|PARCIAL|INDETERMINADO|TIMEOUT|CONTRACT_MISMATCH|SKIP|NOT_APPLICABLE|NO_APLICA/.test(v)
+    || (v === 'NO_DATA' && !authoritativeEmpty));
+  const evidenceProblem = result.source_complete === false || result.consulta_completa === false ? 'SOURCE_INCOMPLETE'
+    : result.snapshot_stale === true || result.stale === true ? 'STALE_SNAPSHOT'
+    : result.cpnu_buscar_deferred === true ? 'DEFERRED' : result.scraping_initiated === true ? 'SCRAPING_INITIATED' : null;
+  const code = String(cause ?? failedSignal ?? evidenceProblem ?? (!httpOK ? `HTTP_${httpStatus}` : null)
+    ?? (result.ok === false ? 'SOURCE_READ_FAILED' : null) ?? `HTTP_${httpStatus}`).toUpperCase();
   const accessOrAbsent = /UNAUTHORIZED|FORBIDDEN|AUTH|401|403|PROVIDER_NO_DOCUMENT|NOT_FOUND|NO_APLICA|ROUTING_SKIP/.test(code) || [401, 403, 404].includes(httpStatus);
   const retryable = !success && !accessOrAbsent && (pending || httpStatus === 429 || httpStatus >= 500 || /NETWORK|FETCH|ABORT|SYNC_FAILED|TIMEOUT/.test(code));
   return { success, retryable, code: success ? null : code || `HTTP_${httpStatus}` };

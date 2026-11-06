@@ -205,7 +205,7 @@ export function withSyncTimeline(
     } else status = "success";
 
     // A transport/body ok flag never erases an explicit failure cause.
-    const eventErrorCode = status === "pending_upstream" ? "PENDING_UPSTREAM" : errorCode;
+    const eventErrorCode = status === "pending_upstream" ? (errorCode ?? "PENDING_UPSTREAM") : errorCode;
     const verifiedOutcome = enforceVerifiedOutcome({
       status, providers: canonicalizeProvider(provider).providers, error_code: eventErrorCode,
     });

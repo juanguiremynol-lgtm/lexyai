@@ -14,11 +14,14 @@ Deno.test("a successful-looking response cannot override source incompleteness o
   for (const extra of [
     {source_complete:false}, {error_code:'PROVIDER_UNRESOLVED'},
     {error:'PORTAL_TIMEOUT'}, {errors:[{code:'PERSIST_FAILED'}]}, {errors:['PERSIST_FAILED']},
+    {status:'ERROR'}, {run_status:'FAILED'}, {status:'SKIPPED'},
   ]) {
     const verdict = publicReadVerdict(true, {ok:true,result_code:'SUCCESS_WITH_DATA',...extra});
     assert(!verdict.success, JSON.stringify(extra));
   }
   assertEquals(publicReadVerdict(true,{ok:true,result_code:'SUCCESS_EMPTY',error_code:'PROVIDER_UNRESOLVED'}).code,'PROVIDER_UNRESOLVED');
+  assertEquals(publicReadVerdict(true,{ok:true,result_code:'SUCCESS_WITH_DATA',status:'ERROR'}).code,'ERROR');
+  assertEquals(publicReadVerdict(true,{ok:true,result_code:'SUCCESS_WITH_DATA',source_complete:false}).code,'SOURCE_INCOMPLETE');
 });
 Deno.test("known source absence/access is not blindly retried or reclassified", () => {
   for (const status of [401,403,404]) {

@@ -22,7 +22,7 @@ Deno.test({ name: 'CPACA stored consumer does not dispatch a duplicate platform 
   const baseInstance = { id: 'instance-fixture', name: 'fixture', scope: 'PLATFORM',
     organization_id: null, base_url: environment.SAMAI_ESTADOS_BASE_URL };
   let route: any = baseRoute, instance: any = baseInstance;
-  let nativeFailure: 'http' | 'incomplete' | null = null;
+  let nativeFailure: 'http' | 'incomplete' | 'mismatch' | null = null;
   const calls: Array<{ host: string; path: string; method: string; body: any }> = [];
   const unexpected: string[] = [];
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -43,6 +43,7 @@ Deno.test({ name: 'CPACA stored consumer does not dispatch a duplicate platform 
         fijaciones: { visible_dates: 1, covered_dates: 1 }, total_found: 1,
         actuaciones: [{ Radicacion: radicado, categoria: 'ESTADO', source_act_id: 'synthetic:1',
           'Actuación': 'Providencia sintética', fecha_providencia_iso: '2026-01-15',
+          ...(nativeFailure === 'mismatch' ? {Demandante:'ZORRO NATURA',Demandado:'PUMA DELTA'} : {}),
           fecha_estado_iso: null, fecha_estado_procedencia: null }],
       });
     }
@@ -58,7 +59,8 @@ Deno.test({ name: 'CPACA stored consumer does not dispatch a duplicate platform 
       });
       if (url.pathname === '/rest/v1/work_items') return request.method === 'GET'
         ? json({ id: itemId, owner_id: 'owner-fixture', organization_id: 'org-fixture',
-          workflow_type: 'CPACA', radicado, monitoring_enabled: true, deleted_at: null, last_synced_at: null })
+          workflow_type: 'CPACA', radicado, monitoring_enabled: true, deleted_at: null, last_synced_at: null,
+          demandantes:'ALFA JURIDICA',demandados:'OMEGA LITIGIOS' })
         : json(null);
       if (url.pathname === '/rest/v1/work_item_provider_enrollment') return json({ enabled: true });
       if (url.pathname === '/rest/v1/cron_state') return json(null);
@@ -66,6 +68,7 @@ Deno.test({ name: 'CPACA stored consumer does not dispatch a duplicate platform 
       if (url.pathname === '/rest/v1/provider_category_routes_org_override') return json([]);
       if (url.pathname === '/rest/v1/provider_instances') return json([instance]);
       if (url.pathname === '/rest/v1/work_item_sources') return json({ id: 'source-fixture' });
+      if (url.pathname === '/rest/v1/work_item_acts' && request.method === 'GET') return json([]);
       if (url.pathname === '/rest/v1/work_item_publicaciones') return json(
         url.searchParams.get('select') === 'id,raw_data' ? { id: pubId, raw_data: {} } : []);
       if (url.pathname === '/rest/v1/external_sync_runs') return json({ id: 'run-fixture' });
@@ -130,6 +133,15 @@ Deno.test({ name: 'CPACA stored consumer does not dispatch a duplicate platform 
       assert.ok(result.samai_estados_summary.error);
       assert.equal(calls.some(c => c.path === '/functions/v1/provider-sync-external-provider'), false);
       assert.equal(calls.some(c => c.path === '/rest/v1/rpc/rpc_upsert_work_item_publicaciones'), false);
+    });
+    await t.step('a stored row rejected for party identity is not a successful empty inventory',async()=>{
+      nativeFailure='mismatch';const result=await invoke();
+      assert.equal(result.ok,false);assert.equal(result.result_code,'PENDING_UPSTREAM');
+      assert.equal(result.source_complete,false);assert.equal(result.error_code,'SAMAI_INVENTORY_INCOMPLETE');
+      assert.equal(result.samai_estados_summary.buckets.REJECTED_PARTIES,1);
+      assert.equal(result.provider_used,'samai_estados');
+      assert.equal(calls.find(c=>c.path==='/rest/v1/external_sync_runs' && c.method==='POST')?.body.error_code,'SAMAI_INVENTORY_INCOMPLETE');
+      assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
     });
   } finally {
     globalThis.fetch = originalFetch; (Deno as any).serve = originalServe;

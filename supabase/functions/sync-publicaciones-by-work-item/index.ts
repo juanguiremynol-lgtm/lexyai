@@ -132,6 +132,7 @@ type SyncResult = {
   daily_trace_id?: string;
   source_observed_at?: string;
   source_complete?: boolean;
+  error_code?: string;
   provider_used?: string;
   samai_estados_summary?: {
     called: boolean;
@@ -526,8 +527,8 @@ async function writePublicacionesAttemptRow(
       // chk_failed_run_declares_reason — a FAILED run must always name a cause,
       // otherwise the insert is rejected and the failure vanishes from history.
       error_code: status === 'FAILED'
-        ? (result?.result_code || 'UNSPECIFIED_ERROR')
-        : (outcome === 'pending_upstream' ? 'PENDING_UPSTREAM' : null),
+        ? (result?.error_code || result?.result_code || 'UNSPECIFIED_ERROR')
+        : (outcome === 'pending_upstream' ? (result?.error_code || 'PENDING_UPSTREAM') : null),
       provider_attempts: canonicalizeAttemptsForPersist([
         {
           provider: 'publicaciones',
@@ -1627,7 +1628,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-pp-evidence-2' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -2118,7 +2119,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
-    if (!historical && fetchResult.durableCompleted) {
+    if (!historical && shouldFetchPP && fetchResult.ok && !fetchResult.readIncomplete) {
       const bogotaDay = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
       const daily = certifiedStoredPPHistory(fetchResult, normalizedRadicado, bogotaDay);
       if (!daily) {
@@ -2126,6 +2127,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         // but cannot certify the current daily observation window.
         fetchResult.readIncomplete = true;
         result.source_complete = false;
+        result.error_code = 'PP_DAILY_WINDOW_NOT_CERTIFIED';
         result.warnings.push('La corrida almacenada no acredita la ventana diaria; se conserva solo como evidencia de su propio alcance.');
       } else {
         result.source_complete = true;
@@ -2499,9 +2501,12 @@ Deno.serve(withSyncTimeline(async (req) => {
        * the run is an answered empty.
        */
       const samai = result.samai_estados_summary;
+      if (samai?.called) samai.accounted_count = Object.values(samai.buckets ?? {}).reduce((sum, count) => sum + count, 0);
       const samaiAnswered = Boolean(
         samai?.called &&
         !samai.error &&
+        samai.source_query_complete === true &&
+        samaiAccountingComplete(samai) &&
         (samai.status === 'EMPTY' || samai.status === 'SUCCESS') &&
         (samai.http_status === 200 || samai.http_status === 404),
       );
@@ -2509,10 +2514,15 @@ Deno.serve(withSyncTimeline(async (req) => {
         result.result_code = 'PENDING_UPSTREAM';
       } else if (result.samai_estados_summary?.contract_mismatch) {
         result.result_code = 'CONTRACT_MISMATCH';
+      } else if (isTutelaUnion && tutelaSamaiEnabled && !samaiAnswered) {
+        result.result_code = 'PENDING_UPSTREAM';
+        result.error_code = 'SAMAI_INVENTORY_INCOMPLETE';
       } else if (fetchResult.resultCode === 'NO_DATA' && !(!shouldFetchPP && samaiAnswered)) {
         result.result_code = 'PENDING_UPSTREAM';
+        if (isCpaca) result.error_code = 'SAMAI_INVENTORY_INCOMPLETE';
       } else {
         result.result_code = 'SUCCESS_EMPTY';
+        if (isCpaca && samaiAnswered) result.source_complete = true;
       }
       result.warnings.push(`No publications found (result_code=${result.result_code})`);
       console.log(
@@ -2528,6 +2538,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       // 10-minute re-check (iteration 54) settle the question.
       if (result.result_code === 'PENDING_UPSTREAM') {
         result.ok = false;
+        result.source_complete = false;
         (result as any).status = 'PENDING_UPSTREAM';
         await writePublicacionesAttemptRow(
           supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
@@ -2855,6 +2866,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           const conflicts = nativeError ? [] : conflictingPPNativeRows(canonicalRow, nativeRows ?? []);
           if (nativeError || conflicts.length > 0) {
             const reason = nativeError ? 'PP_NATIVE_IDENTITY_LOOKUP_FAILED' : 'PP_NATIVE_DATE_CONFLICT';
+            result.error_code = reason;
             result.errors.push(`${reason}: ${articleId}${conflicts.length ? `; referencias conservadas: ${conflicts.join(',')}` : ''}`);
             pubLedger.parsed++;
             pubLedger.errored++;
@@ -2863,6 +2875,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           }
         } else {
           result.errors.push('PP_NATIVE_IDENTITY_MISSING: fechas explícitas sin artículo nativo válido.');
+          result.error_code = 'PP_NATIVE_IDENTITY_MISSING';
           pubLedger.parsed++;
           pubLedger.errored++;
           pubLedger.outcomes.push({ bucket: 'ERROR', title: pub.titulo || null, reason: 'PP_NATIVE_IDENTITY_MISSING' });

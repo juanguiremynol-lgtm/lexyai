@@ -60,6 +60,14 @@ Deno.test({name:'historical replay through the real handler is scoped, idempoten
   }
   try {
     await import('../sync-publicaciones-by-work-item/index.ts');assert.ok(handler);
+    await t.step('health probe identifies the deployed revision without reading or writing data',async()=>{
+      calls.length=0;
+      const response=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',
+        headers:{'content-type':'application/json'},body:JSON.stringify({health_check:true})}));
+      assert.equal(response.status,200);
+      assert.equal((await response.json()).revision,'20261106-pp-evidence-2');
+      assert.deepEqual(calls,[]);
+    });
     await t.step('inserts one exact row, without a scraper POST, daily admission or freshness write',async()=>{
       const {body}=await invoke();assert.equal(body.ok,true);assert.equal(body.inserted_count,1);
       assert.equal(body.historical_replay,true);assert.equal(body.source_query_attempted,false);assert.equal(body.source_complete,false);

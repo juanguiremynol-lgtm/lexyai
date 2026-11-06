@@ -85,6 +85,9 @@ Deno.test("wrapper: empty unattributed is not empty", async () => {
 Deno.test("wrapper: pending, partial and dedup semantics preserved", async () => {
   const p = await run({ ok: false, provider_used: "samai_estados", result_code: "PENDING_UPSTREAM", pending_upstream: true });
   assertEquals([p.rows[0].status, p.rows[0].error_code], ["pending_upstream", "PENDING_UPSTREAM"]);
+  const scoped = await run({ ok:false,provider_used:"publicaciones",result_code:"PENDING_UPSTREAM",
+    pending_upstream:true,error_code:"PP_DAILY_WINDOW_NOT_CERTIFIED" });
+  assertEquals([scoped.rows[0].status,scoped.rows[0].error_code], ["pending_upstream","PP_DAILY_WINDOW_NOT_CERTIFIED"]);
   const part = await run({ ok: true, provider_used: "publicaciones", partial: true, inserted_count: 1 });
   assertEquals(part.rows[0].status, "partial");
   const d = await run({ ok: true, status: "DAILY_LIMIT", reason: "DAILY_UPDATE_ALREADY_STARTED" });
