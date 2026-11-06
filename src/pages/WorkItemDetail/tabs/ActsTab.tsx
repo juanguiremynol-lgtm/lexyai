@@ -37,6 +37,7 @@ import { useSamaiActuaciones, resyncSamaiActuaciones } from "@/hooks/use-samai-a
 import { AlertCircle } from "lucide-react";
 import { resolveActsEmptyState, judicialQueryState, JUDICIAL_QUERY_LABELS, hasUsableRadicado } from "@/lib/monitoring-reason";
 import { incompleteConsultationMessage } from "./judicialQueryDisplay";
+import { timelinePresentation } from "@/lib/sync-timeline-presentation";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 
 interface ActsTabProps {
@@ -100,7 +101,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
     queryKey: ["work-item-acts-consultation", workItem.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("work_item_sync_timeline")
-        .select("status, records_inserted, records_skipped, finished_at, error_code")
+        .select("provider, providers, status, records_inserted, records_skipped, finished_at, error_code, metadata")
         .eq("work_item_id", workItem.id).eq("operation", "acts")
         .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
@@ -216,7 +217,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
     );
   }
 
-  const incompleteMessage = incompleteConsultationMessage(consultation.data?.status);
+  const check = consultation.data;
+  const unverified = !!check && timelinePresentation({ ...check,
+    metadata: check.metadata as Record<string, unknown> | null }) === "unverified";
+  const incompleteMessage = incompleteConsultationMessage(check?.status, check?.error_code, unverified);
   if (!acts || acts.length === 0) {
     const queryState = judicialQueryState({ compatible: hasUsableRadicado(workItem.radicado), status: consultation.data?.status,
       count: (consultation.data?.records_inserted ?? 0) + (consultation.data?.records_skipped ?? 0) });

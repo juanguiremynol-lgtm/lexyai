@@ -10,5 +10,8 @@ Deno.test('not found and partial never appear as a complete empty consultation',
   assert.equal(partial?.title, 'Consulta parcial');
   assert.match(partial?.description ?? '', /pendiente/);
   assert.equal(incompleteConsultationMessage('SUCCESS'), null);
+  assert.equal(incompleteConsultationMessage('SUCCESS','PROVIDER_UNRESOLVED')?.title, 'Fuente no identificada');
+  assert.equal(incompleteConsultationMessage('SUCCESS','OTHER_FAILURE')?.title, 'Consulta no acreditada');
+  assert.equal(incompleteConsultationMessage('SUCCESS',null,true)?.title, 'Consulta no acreditada');
   assert.equal(incompleteConsultationMessage(null), null);
 });

@@ -7,6 +7,8 @@ describe("timeline evidence presentation", () => {
       expect(timelinePresentation({status:"success",provider,error_code:"PROVIDER_UNRESOLVED"})).toBe("unverified");
     }
     expect(timelinePresentation({status:"success",provider:"unknown",error_code:null})).toBe("unverified");
+    expect(timelinePresentation({status:"success",provider:"publicaciones",error_code:null,
+      metadata:{source_complete:false}})).toBe("unverified");
     expect(timelinePresentation({status:"success",provider:"publicaciones",error_code:null})).toBe("success");
   });
   it("separates an unverified empty read and a duplicate request from an observed empty result", () => {

@@ -10,6 +10,7 @@ export function timelinePresentation(row: {
   const tokens = canonicalizeProvider(row.providers?.length ? row.providers.join("+") : row.provider).providers;
   if (row.status === "success" || row.status === "empty") {
     if (row.error_code !== null || !isProviderAttributable(tokens)) return "unverified";
+    if (row.metadata?.source_complete === false) return "unverified";
     if (row.status === "empty" && row.metadata?.source_complete !== true) return "unverified";
     return row.status;
   }

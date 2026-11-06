@@ -1,6 +1,7 @@
 export interface ProviderRun {
   provider: string; status: string; finished_at: string; error_code: string | null;
   records_inserted: number; records_skipped: number;
+  metadata?: { source_complete?: unknown } | null;
 }
 export function providerRunInstant(value: string): string {
   const date = new Date(value);
@@ -10,6 +11,14 @@ export function providerRunInstant(value: string): string {
 export function providerRunPresentation(runs: ProviderRun[], source: string) {
   const ordered = runs.filter(run => run.provider === source).sort((a, b) => b.finished_at.localeCompare(a.finished_at));
   const latest = ordered[0] ?? null;
-  const success = ordered.find(run => ['success', 'empty'].includes(run.status)) ?? null;
+  const success = ordered.find(run => ['success', 'empty'].includes(run.status) && run.error_code === null
+    && run.metadata?.source_complete !== false
+    && !['', 'unknown', 'none'].includes(run.provider.trim().toLowerCase())) ?? null;
   return { latest, success, accounted: success ? success.records_inserted + success.records_skipped : null };
+}
+
+export function providerRunStatusLabel(run: ProviderRun): string {
+  if (['success', 'empty'].includes(run.status) && (run.error_code !== null || run.metadata?.source_complete === false
+    || ['', 'unknown', 'none'].includes(run.provider.trim().toLowerCase()))) return 'Consulta no acreditada';
+  return run.status;
 }

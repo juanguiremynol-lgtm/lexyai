@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { providerRunInstant, providerRunPresentation } from '@/lib/provider-run-presentation';
+import { providerRunInstant, providerRunPresentation, providerRunStatusLabel } from '@/lib/provider-run-presentation';
 describe('Source attempts and retained successful ingestion', () => {
   it('uses the real Bogota instant even for midnight UTC', () => {
     expect(providerRunInstant('2026-10-21T00:00:00Z')).toBe(new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', dateStyle: 'medium', timeStyle: 'short' }).format(new Date('2026-10-21T00:00:00Z')));
@@ -17,5 +17,16 @@ describe('Source attempts and retained successful ingestion', () => {
   });
   it('reports J15 source snapshot 53 without replacing it with cache 49 or stored chronology 54', () => {
     expect(providerRunPresentation([{ provider: 'cpnu', status: 'success', finished_at: '2026-10-21T01:50:00Z', error_code: null, records_inserted: 0, records_skipped: 53 }], 'cpnu').accounted).toBe(53);
+  });
+  it('does not present a historical success with an unresolved provider as confirmed', () => {
+    const contradictory = {provider:'cpnu',status:'success',finished_at:'2026-11-06T12:00:00Z',
+      error_code:'PROVIDER_UNRESOLVED',records_inserted:0,records_skipped:11};
+    const view=providerRunPresentation([contradictory],'cpnu');
+    expect(view.success).toBeNull();
+    expect(view.accounted).toBeNull();
+    expect(providerRunStatusLabel(contradictory)).toBe('Consulta no acreditada');
+    const incomplete = {...contradictory,error_code:null,metadata:{source_complete:false}};
+    expect(providerRunPresentation([incomplete],'cpnu').success).toBeNull();
+    expect(providerRunStatusLabel(incomplete)).toBe('Consulta no acreditada');
   });
 });
