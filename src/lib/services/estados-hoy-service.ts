@@ -94,12 +94,11 @@ export function isInEjecutoriaWindow(terminosInician: string | null): {
  * Priority:
  * 1. fecha_desfijacion → nextBusinessDay (for publicaciones)
  * 2. raw_data.fechaInicial (historical acts)
- * 3. fecha_publicacion → nextBusinessDay (fallback)
+ * Never infer a procedural deadline from a portal's publication or upload date.
  */
 export function calculateTermStart(
   fechaDesfijacion: string | null | undefined,
-  fechaInicialRaw: string | null | undefined,
-  fechaPublicacion: string | null | undefined
+  fechaInicialRaw: string | null | undefined
 ): { date: string | null; source: EstadoHoyItem['inicia_termino_source'] } {
   // Priority 1: fecha_desfijacion from publicaciones
   if (fechaDesfijacion) {
@@ -115,15 +114,6 @@ export function calculateTermStart(
     return {
       date: fechaInicialRaw.split('T')[0],
       source: 'fecha_inicial_raw',
-    };
-  }
-  
-  // Priority 3: fecha_publicacion fallback
-  if (fechaPublicacion) {
-    const nextBD = getNextBusinessDay(new Date(fechaPublicacion));
-    return {
-      date: nextBD.toISOString().split('T')[0],
-      source: 'fecha_publicacion',
     };
   }
   
@@ -242,8 +232,7 @@ export async function getEstadosHoy(
       const rawData = pub.raw_data as Record<string, any> | null;
       const termCalc = calculateTermStart(
         pub.fecha_desfijacion,
-        rawData?.fechaInicial,
-        pub.published_at
+        rawData?.fechaInicial
       );
       
       // Check ejecutoria window
@@ -266,7 +255,8 @@ export async function getEstadosHoy(
         demandantes: workItem.demandantes || undefined,
         demandados: workItem.demandados || undefined,
         content,
-        date: pub.published_at,
+        date: pub.fecha_fijacion ?? null,
+        date_kind: 'fijacion',
         fecha_desfijacion: pub.fecha_desfijacion,
         terminos_inician: termCalc.date,
         is_deadline_trigger: !!pub.fecha_desfijacion && estadoType.triggersDeadline,
@@ -300,8 +290,7 @@ export async function getEstadosHoy(
       const rawData = act.raw_data as Record<string, any> | null;
       const termCalc = calculateTermStart(
         null, // No fecha_desfijacion for acts
-        rawData?.fechaInicial || rawData?.fecha_inicial,
-        act.act_date
+        rawData?.fechaInicial || rawData?.fecha_inicial
       );
       
       // Check ejecutoria window
@@ -321,6 +310,7 @@ export async function getEstadosHoy(
         despacho: act.despacho || undefined,
         content,
         date: act.act_date,
+        date_kind: 'actuacion',
         fecha_desfijacion: null,
         terminos_inician: termCalc.date,
         is_deadline_trigger: false,

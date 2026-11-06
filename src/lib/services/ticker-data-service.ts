@@ -37,6 +37,7 @@ export interface TickerItem {
   authority_name?: string;
   content: string;
   date: string | null;
+  date_kind?: 'fijacion' | 'actuacion';
   fecha_desfijacion?: string | null;  // Critical for deadline calculation
   terminos_inician?: string | null;   // Calculated next business day
   is_deadline_trigger: boolean;
@@ -386,7 +387,8 @@ export async function getTickerItems(
         client_name: workItem.client?.name || undefined,
         authority_name: workItem.authority_name || undefined,
         content,
-        date: pub.published_at,
+        date: pub.fecha_fijacion ?? null,
+        date_kind: 'fijacion',
         fecha_desfijacion: pub.fecha_desfijacion,
         terminos_inician: terminosInician,
         is_deadline_trigger: hasFechaDesfijacion && estadoType.triggersDeadline,
@@ -423,6 +425,7 @@ export async function getTickerItems(
         despacho: act.despacho || undefined,
         content,
         date: act.act_date,
+        date_kind: 'actuacion',
         fecha_desfijacion: null,
         terminos_inician: null,
         is_deadline_trigger: false,

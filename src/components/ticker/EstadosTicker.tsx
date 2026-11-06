@@ -124,9 +124,10 @@ const TickerItemComponent = memo(function TickerItemComponent({ item, onClick }:
       {item.date && (
         <>
           <span className="text-muted-foreground">|</span>
-          <span className="text-muted-foreground text-xs">{item.date.split('T')[0]}</span>
+          <span className="text-muted-foreground text-xs">{item.date_kind === 'fijacion' ? 'Fijación: ' : item.date_kind === 'actuacion' ? 'Actuación: ' : ''}{item.date.split('T')[0]}</span>
         </>
       )}
+      {!item.date && item.date_kind === 'fijacion' && <span className="text-muted-foreground text-xs">Fijación sin registrar</span>}
     </button>
   );
 });

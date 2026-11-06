@@ -5,7 +5,7 @@
  * from both work_item_publicaciones and work_item_acts sources.
  * 
  * Key principles:
- * - Uses published_at/act_date as primary ordering key
+ * - Uses the proven fixation date for publications and act_date for acts
  * - Prefers publicaciones over acts for same timestamp (publicaciones are official)
  * - Generates stable fingerprints for alert deduplication
  * - Does NOT modify database - purely computational
