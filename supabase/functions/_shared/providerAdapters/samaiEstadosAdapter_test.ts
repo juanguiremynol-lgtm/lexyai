@@ -106,7 +106,8 @@ Deno.test("computeSamaiEstadosFingerprint: deterministic", () => {
   assertEquals(fp1, fp2);
 });
 
-Deno.test("computeSamaiEstadosFingerprint: cross-provider mode uses 'x' scope", () => {
+Deno.test("computeSamaiEstadosFingerprint: cross-provider reuse keeps the same publication identity", () => {
   const fp = computeSamaiEstadosFingerprint("2025-01-15", "Auto", "Nota", "wi-1", true);
-  assertEquals(fp.startsWith("se_x_"), true);
+  const samePublication = computeSamaiEstadosFingerprint("2025-01-15", "Auto", "Nota", "wi-1", false);
+  assertEquals(fp, samePublication);
 });

@@ -134,7 +134,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     if (sealError || sealed !== true) return response({ error: sealError?.message ?? "Lease expired before completion", run_id: runId }, 503);
     const label = ppLabelFromResult(success, errorCode, result);
     const stampedAt = new Date().toISOString();
-    const patch: Record<string, unknown> = result.reused_completed_read === true ? {} : {
+    const patch: Record<string, unknown> = result.reused_completed_read === true || result.source_query_attempted === false ? {} : {
       // YY4 — every attempt moves the attempt clock, whatever the outcome.
       last_sync_attempt_at: stampedAt,
     };

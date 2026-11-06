@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { completedSamaiRead } from './completedPublicRead.ts';
 import { mayReadStoredSamai } from './completedPublicRead.ts';
 import { emptySamaiBuckets, samaiAccountingComplete } from './samaiPublicationAccounting.ts';
-import { validStoredSamaiRead } from './storedSamaiRead.ts';
+import { storedSamaiObservedAt, validStoredSamaiRead } from './storedSamaiRead.ts';
 Deno.test('completed daily reads require matching persisted source evidence; no new source call', () => {
   const now = new Date();
   const admission = { admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:new Date(+now-5*3600_000).toISOString().slice(0,10),
@@ -29,12 +29,14 @@ Deno.test('incomplete initial accounting -> later certified snapshot -> deferred
   assert.equal(mayReadStoredSamai(admission,'CGP'),false);
   const observed = new Date(now-60_000).toISOString();
   const snapshot = {radicado:rad,actuaciones:[{Radicacion:rad,categoria:'ESTADO'}],total_found:1,
-    stored_read_only:true,provider_queries:0,consulta_completa:true,persistencia_completa:true,
+    stored_read_only:true,provider_queries:0,consulta_completa:true,persistencia_completa:true,motivo_parcial:null,
     consultado_en:observed,providencias_consultadas_en:observed,fijaciones_desplegable_leido_en:observed,
     fijaciones_fecha_mas_antigua_leida_en:observed,fijaciones:{visible_dates:15,covered_dates:15}};
   assert.equal(validStoredSamaiRead(snapshot,rad,now),true);
-  for(const delta of [{consulta_completa:false},{persistencia_completa:false},{radicado:'05001333300520250001901'},
-    {fijaciones:{visible_dates:15,covered_dates:14}},{fijaciones_fecha_mas_antigua_leida_en:new Date(now-21*3600_000).toISOString()},
+  for(const delta of [{consulta_completa:false},{persistencia_completa:false},{motivo_parcial:'FIJACION_NO_CAPTURADA'},
+    {motivo_parcial:undefined},{radicado:'05001333300520250001901'},
+    {fijaciones:{visible_dates:15,covered_dates:14}},{fijaciones:{visible_dates:0,covered_dates:0}},
+    {fijaciones_fecha_mas_antigua_leida_en:null},{fijaciones_fecha_mas_antigua_leida_en:new Date(now-21*3600_000).toISOString()},
     {consultado_en:null},{actuaciones:[{Radicacion:rad,categoria:'ACTUACION'}]}])
     assert.equal(validStoredSamaiRead({...snapshot,...delta},rad,now),false);
   const summary = {...failedSummary,source_observed_at:observed,accounted_count:6,
@@ -44,4 +46,18 @@ Deno.test('incomplete initial accounting -> later certified snapshot -> deferred
   assert.equal(result?.source_complete,true);assert.equal(result?.source_observed_at,observed);
   assert.equal(result?.provider_used,'samai_estados');assert.equal(result?.inserted_count,0);
   assert.equal(completedSamaiRead(admission,{...history,details:{daily_trace_id:'initial',samai_estados:{...summary,source_query_complete:false}}},'case'),null);
+});
+
+Deno.test('global coverage is distinct from a row diagnostic and uses the oldest source clock', () => {
+  const now = Date.now(), rad = '05001333300520250001900';
+  const earliest = new Date(now - 5*60_000).toISOString();
+  const later = new Date(now - 2*60_000).toISOString();
+  const snapshot = {radicado:rad,stored_read_only:true,provider_queries:0,consulta_completa:true,
+    persistencia_completa:true,motivo_parcial:null,total_found:1,
+    actuaciones:[{Radicacion:rad,categoria:'ESTADO',fecha_estado_iso:null,fecha_estado_diagnostico:'FIJACION_NO_CAPTURADA'}],
+    consultado_en:later,providencias_consultadas_en:earliest,fijaciones_desplegable_leido_en:later,
+    fijaciones_fecha_mas_antigua_leida_en:later,fijaciones:{visible_dates:15,covered_dates:15}};
+  assert.equal(validStoredSamaiRead(snapshot,rad,now),true);
+  assert.equal(storedSamaiObservedAt(snapshot),earliest);
+  assert.equal(storedSamaiObservedAt({...snapshot,providencias_consultadas_en:null}),undefined);
 });

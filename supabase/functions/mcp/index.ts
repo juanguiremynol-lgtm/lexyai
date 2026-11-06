@@ -318,17 +318,34 @@ var JUDICIAL_QUERY_LABELS = {
 };
 
 // src/lib/mcp/sync-check-state.ts
-function isVerifiedSuccess(row) {
-  if ((row.status ?? "").toLowerCase() !== "success") return false;
+function attributed(row) {
   if (row.error_code != null) return false;
   const tokens = String(row.provider ?? "").toLowerCase().split(/[+,/|]/).map((t) => t.trim());
-  if (tokens.length === 0 || tokens.some((t) => t === "" || t === "unknown" || t === "none")) return false;
-  return true;
+  return tokens.length > 0 && !tokens.some((t) => t === "" || t === "unknown" || t === "none");
+}
+function sourceEvidence(row) {
+  const m = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {};
+  const value = typeof m.source_observed_at === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(m.source_observed_at) ? m.source_observed_at : null;
+  const time = value ? Date.parse(value) : NaN;
+  const validTime = Number.isFinite(time) && time <= Date.now() + 6e4;
+  const day = (date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(date);
+  return {
+    consulta_completa: m.source_complete === true,
+    fuente_observada_en: validTime ? value : null,
+    observacion_de_hoy: validTime && day(new Date(time)) === day(/* @__PURE__ */ new Date()),
+    lectura_almacenada: m.reused_completed_read === true,
+    consulta_nueva: typeof m.source_query_attempted === "boolean" ? m.source_query_attempted : null
+  };
+}
+function isVerifiedSuccess(row) {
+  const evidence = sourceEvidence(row);
+  return ["success", "empty"].includes((row.status ?? "").toLowerCase()) && attributed(row) && evidence.consulta_completa && evidence.fuente_observada_en !== null && evidence.observacion_de_hoy;
 }
 var UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 var DEDUP_LABEL = "Actualizaci\xF3n diaria ya iniciada; se reutiliza el ciclo del d\xEDa (no es una consulta nueva)";
 var EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no est\xE1 acreditada";
 var PROVIDER_UNRESOLVED_LABEL = "No se pudo identificar el proveedor consultado; la consulta no est\xE1 acreditada (PROVIDER_UNRESOLVED)";
+var COVERAGE_UNVERIFIED_LABEL = "La fuente o el alcance de la consulta no est\xE1n acreditados; no se puede confirmar que el asunto est\xE9 actualizado";
 function syncCheckState(radicado, row) {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
@@ -341,7 +358,13 @@ function syncCheckState(radicado, row) {
   if (compatible && row.error_code === "PP_NATIVE_DATE_CONFLICT") return { state: "PENDIENTE", label: "La fecha de la publicaci\xF3n entra en conflicto con un registro anterior y requiere revisi\xF3n" };
   const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
-    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: status !== "success" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" }) ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
+    if (!attributed(row)) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
+    const evidence = sourceEvidence(row);
+    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: evidence.consulta_completa && evidence.fuente_observada_en && !evidence.observacion_de_hoy ? `La fuente se observ\xF3 el ${evidence.fuente_observada_en}; la vigilancia de hoy no est\xE1 acreditada.` : status !== "success" ? EMPTY_UNVERIFIED_LABEL : COVERAGE_UNVERIFIED_LABEL };
+    if (evidence.lectura_almacenada) return {
+      state: status === "empty" ? "SIN_NOVEDADES" : "CON_RESULTADOS",
+      label: `Lectura almacenada completa; fuente observada el ${evidence.fuente_observada_en}. No es una consulta nueva.`
+    };
   }
   if (compatible && status === "partial") {
     const cause = row.error_code?.trim();
@@ -402,7 +425,7 @@ function publicationPageSummary(rows) {
 var get_work_item_default = defineTool2({
   name: "get_work_item",
   title: "Detalle de asunto",
-  description: "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+  description: "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogot\xE1; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
   inputSchema: {
     id: z2.string().uuid().optional().describe("work_item UUID."),
     radicado: z2.string().trim().optional().describe(
@@ -421,7 +444,7 @@ var get_work_item_default = defineTool2({
       return errorResult(resolved.error ?? "Asunto no encontrado (o no pertenece a tu cuenta).");
     }
     const item = resolved.item;
-    const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline").select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at").eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
+    const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline").select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at, metadata").eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
     if (checksError) return errorResult("No se pudo verificar el historial de consultas; no se informa como sin novedades.");
     const seen = /* @__PURE__ */ new Set();
     const queryStates = (checks ?? []).filter((c) => {
@@ -431,7 +454,8 @@ var get_work_item_default = defineTool2({
       return true;
     }).map((c) => {
       const { state, label } = syncCheckState(item.radicado, c);
-      return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
+      const { metadata: _metadata, ...safeCheck } = c;
+      return { ...safeCheck, state, label, verified_success: isVerifiedSuccess(c), evidencia_fuente: sourceEvidence(c) };
     });
     const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([
       sb.from("work_item_acts").select("id, act_date, act_type, description, despacho, source, detected_at").eq("work_item_id", item.id).or("is_archived.is.null,is_archived.eq.false").order("act_date", { ascending: false }).limit(20),

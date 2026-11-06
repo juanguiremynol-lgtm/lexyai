@@ -235,6 +235,8 @@ export function withSyncTimeline(
         source_observed_at: strOr(parsed?.source_observed_at),
         // Missing evidence is unknown, not an explicit incomplete verdict.
         source_complete: typeof parsed?.source_complete === "boolean" ? parsed.source_complete : null,
+        source_query_attempted: typeof parsed?.source_query_attempted === "boolean" ? parsed.source_query_attempted : null,
+        reused_completed_read: parsed?.reused_completed_read === true,
         stored_result_read: parsed?.stored_result_read ?? undefined,
         invoker_function: req.headers.get("x-invoker-function"),
         retry_task_id: req.headers.get("x-retry-task-id"),

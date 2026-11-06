@@ -56,6 +56,17 @@ Deno.test("wrapper: preserves explicit source completeness and distinguishes mis
   }
 });
 
+Deno.test("wrapper: a stored read retains the source observation and does not become a new attempt", async () => {
+  const observed = '2026-11-06T07:30:00.000Z';
+  const { rows } = await run({ok:true,provider_used:'samai_estados',result_code:'SUCCESS_WITH_DATA',
+    inserted_count:0,skipped_count:1,source_complete:true,source_observed_at:observed,
+    source_query_attempted:false,reused_completed_read:true});
+  assertEquals(rows[0].metadata.source_observed_at,observed);
+  assertEquals(rows[0].metadata.source_complete,true);
+  assertEquals(rows[0].metadata.source_query_attempted,false);
+  assertEquals(rows[0].metadata.reused_completed_read,true);
+});
+
 Deno.test("wrapper: unknown provider with rows is never success; response unchanged", async () => {
   const { rows, text, original } = await run({ ok: true, inserted_count: 0, skipped_count: 11, result_code: "SUCCESS_WITH_DATA" });
   assertEquals(text, original);

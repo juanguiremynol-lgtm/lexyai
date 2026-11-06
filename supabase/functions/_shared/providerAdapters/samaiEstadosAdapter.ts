@@ -34,7 +34,7 @@ import {
 } from '../radicadoUtils.ts';
 import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { internalBreakerRpc, isSharedSessionBlock, withSamaiEstadosBreaker } from './samaiEstadosBreaker.ts';
-import { validStoredSamaiRead } from '../storedSamaiRead.ts';
+import { storedSamaiObservedAt, validStoredSamaiRead } from '../storedSamaiRead.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -123,8 +123,7 @@ async function fetchMonitoring(
       parties: null,
       durationMs: Date.now() - startTime,
       httpStatus: result.httpStatus,
-      sourceObservedAt: typeof result.data.consultado_en === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(result.data.consultado_en)
-        && Number.isFinite(Date.parse(result.data.consultado_en)) ? new Date(result.data.consultado_en).toISOString() : undefined,
+      sourceObservedAt: storedSamaiObservedAt(result.data),
       sourceReadComplete: true,
       identityMismatches,
       rowOutcomes,

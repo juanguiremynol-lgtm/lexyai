@@ -11,13 +11,24 @@ export function validStoredSamaiRead(data: any, radicado: string, now = Date.now
   return data?.radicado === radicado && /^\d{23}$/.test(radicado)
     && data?.stored_read_only === true && data?.provider_queries === 0
     && data?.consulta_completa === true && data?.persistencia_completa === true
+    && data?.motivo_parcial === null
     && Array.isArray(rows) && data?.total_found === rows.length
     && rows.every((r: any) => r?.Radicacion === radicado && r?.categoria === 'ESTADO')
     && fresh(data?.consultado_en, 24) && fresh(data?.providencias_consultadas_en, 24)
     && fresh(data?.fijaciones_desplegable_leido_en, 20, true)
-    && Number.isInteger(scope?.visible_dates) && scope.visible_dates >= 0
+    && Number.isInteger(scope?.visible_dates) && scope.visible_dates > 0
     && scope.covered_dates === scope.visible_dates
-    && (scope.visible_dates === 0 || fresh(data?.fijaciones_fecha_mas_antigua_leida_en, 20, true));
+    && fresh(data?.fijaciones_fecha_mas_antigua_leida_en, 20, true);
+}
+
+/** The certificate depends on all three clocks; its oldest observation is
+ * the most recent instant at which the entire supported scope was known. */
+export function storedSamaiObservedAt(data: any): string | undefined {
+  const values = [data?.providencias_consultadas_en, data?.fijaciones_desplegable_leido_en,
+    data?.fijaciones_fecha_mas_antigua_leida_en];
+  const times = values.map(value => typeof value === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    ? Date.parse(value) : NaN);
+  return times.every(Number.isFinite) ? new Date(Math.min(...times)).toISOString() : undefined;
 }
 
 /** Compare the configured service bases, retaining path and port boundaries. */

@@ -6,21 +6,42 @@ export interface SyncCheckRow {
   error_code?: string | null;
   records_inserted?: number | null;
   records_skipped?: number | null;
+  metadata?: unknown;
 }
 
-/** Same predicate the SQL freshness readers use: success + null error + fully attributable provider. */
-export function isVerifiedSuccess(row: SyncCheckRow): boolean {
-  if ((row.status ?? "").toLowerCase() !== "success") return false;
+function attributed(row: SyncCheckRow): boolean {
   if (row.error_code != null) return false;
   const tokens = String(row.provider ?? "").toLowerCase().split(/[+,/|]/).map((t) => t.trim());
-  if (tokens.length === 0 || tokens.some((t) => t === "" || t === "unknown" || t === "none")) return false;
-  return true;
+  return tokens.length > 0 && !tokens.some((t) => t === "" || t === "unknown" || t === "none");
+}
+
+export function sourceEvidence(row: SyncCheckRow) {
+  const m = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown> : {};
+  const value = typeof m.source_observed_at === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(m.source_observed_at)
+    ? m.source_observed_at : null;
+  const time = value ? Date.parse(value) : NaN;
+  const validTime = Number.isFinite(time) && time <= Date.now() + 60_000;
+  const day = (date: Date) => new Intl.DateTimeFormat("en-CA", {timeZone:"America/Bogota"}).format(date);
+  return {consulta_completa: m.source_complete === true,
+    fuente_observada_en: validTime ? value : null,
+    observacion_de_hoy: validTime && day(new Date(time)) === day(new Date()),
+    lectura_almacenada: m.reused_completed_read === true,
+    consulta_nueva: typeof m.source_query_attempted === "boolean" ? m.source_query_attempted : null};
+}
+
+/** A successful source result must include a complete scope and a real observation time. */
+export function isVerifiedSuccess(row: SyncCheckRow): boolean {
+  const evidence = sourceEvidence(row);
+  return ["success", "empty"].includes((row.status ?? "").toLowerCase()) && attributed(row)
+    && evidence.consulta_completa && evidence.fuente_observada_en !== null && evidence.observacion_de_hoy;
 }
 
 export const UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 export const DEDUP_LABEL = "Actualización diaria ya iniciada; se reutiliza el ciclo del día (no es una consulta nueva)";
 export const EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no está acreditada";
 export const PROVIDER_UNRESOLVED_LABEL = "No se pudo identificar el proveedor consultado; la consulta no está acreditada (PROVIDER_UNRESOLVED)";
+export const COVERAGE_UNVERIFIED_LABEL = "La fuente o el alcance de la consulta no están acreditados; no se puede confirmar que el asunto esté actualizado";
 
 export function syncCheckState(radicado: string | null | undefined, row: SyncCheckRow): { state: JudicialQueryState; label: string } {
   const compatible = hasUsableRadicado(radicado);
@@ -37,13 +58,20 @@ export function syncCheckState(radicado: string | null | undefined, row: SyncChe
     "SAMAI no acreditó un inventario completo de estados; hay resultados pendientes de verificación" };
   if (compatible && row.error_code === "PP_NATIVE_DATE_CONFLICT") return { state: "PENDIENTE", label:
     "La fecha de la publicación entra en conflicto con un registro anterior y requiere revisión" };
-  // Match the success-only freshness contract. An old empty row can describe
-  // a narrow or stored window; it does not certify that the matter is current.
+  // An old, empty, or stored row is not a current coverage certificate merely
+  // because an attributable provider returned it.
   const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
+    if (!attributed(row)) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
+    const evidence = sourceEvidence(row);
     if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label:
-      status !== "success" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" })
-        ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
+      evidence.consulta_completa && evidence.fuente_observada_en && !evidence.observacion_de_hoy
+        ? `La fuente se observó el ${evidence.fuente_observada_en}; la vigilancia de hoy no está acreditada.`
+        : status !== "success" ? EMPTY_UNVERIFIED_LABEL : COVERAGE_UNVERIFIED_LABEL };
+    if (evidence.lectura_almacenada) return {
+      state: status === "empty" ? "SIN_NOVEDADES" : "CON_RESULTADOS",
+      label: `Lectura almacenada completa; fuente observada el ${evidence.fuente_observada_en}. No es una consulta nueva.`,
+    };
   }
   if (compatible && status === "partial") {
     const cause = row.error_code?.trim();

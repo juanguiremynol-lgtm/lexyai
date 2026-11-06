@@ -2,14 +2,14 @@ import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
-import { isVerifiedSuccess, syncCheckState } from "../sync-check-state";
+import { isVerifiedSuccess, sourceEvidence, syncCheckState } from "../sync-check-state";
 import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 
 export default defineTool({
   name: "get_work_item",
   title: "Detalle de asunto",
   description:
-    "Fetches details for one legal matter (work_item) by id or by radicado, including recent actuaciones and estados. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+    "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
     radicado: z
@@ -36,7 +36,7 @@ export default defineTool({
     }
     const item = resolved.item as Record<string, any>;
     const { data: checks, error: checksError } = await sb.from("work_item_sync_timeline")
-      .select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at")
+      .select("id, provider, operation, status, error_code, records_inserted, records_skipped, started_at, finished_at, created_at, metadata")
       .eq("work_item_id", item.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(50);
     if (checksError) return errorResult("No se pudo verificar el historial de consultas; no se informa como sin novedades.");
     const seen = new Set<string>();
@@ -46,7 +46,8 @@ export default defineTool({
       seen.add(key); return true;
     }).map((c) => {
       const { state, label } = syncCheckState(item.radicado, c);
-      return { ...c, state, label, verified_success: isVerifiedSuccess(c) };
+      const { metadata: _metadata, ...safeCheck } = c;
+      return { ...safeCheck, state, label, verified_success: isVerifiedSuccess(c), evidencia_fuente: sourceEvidence(c) };
     });
 
     const [actsResult, estadosResult, deadlinesResult, hearingsResult] = await Promise.all([

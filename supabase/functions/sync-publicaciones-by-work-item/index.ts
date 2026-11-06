@@ -89,6 +89,7 @@ type SyncRequest = {
   work_item_id: string;
   _scheduled?: boolean;
   _historical_pp_replay?: unknown;
+  _samai_stored_only?: boolean;
 };
 
 type InsertedPublication = {
@@ -1628,7 +1629,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-pp-evidence-3' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-samai-evidence-1' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -1676,7 +1677,12 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     const { work_item_id, _scheduled } = payload;
+    const samaiStoredOnly = payload._samai_stored_only === true;
+    if (samaiStoredOnly && (!isServiceRole || _scheduled !== true)) {
+      return errorResponse('SAMAI_STORED_ONLY_FORBIDDEN', 'La reconciliación almacenada requiere una llamada interna autorizada.', 403);
+    }
     const historicalRequested = Object.prototype.hasOwnProperty.call(payload, '_historical_pp_replay');
+    if (samaiStoredOnly && historicalRequested) return errorResponse('INCOMPATIBLE_MODES', 'Los modos de lectura no se pueden combinar.', 400);
     if (historicalRequested && (!isServiceRole || _scheduled !== true)) {
       return errorResponse('HISTORICAL_REPLAY_FORBIDDEN', 'La recuperación histórica requiere una llamada interna autorizada.', 403);
     }
@@ -1747,6 +1753,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (workItemError || !workItem) {
       console.log(`[sync-pub] Work item not found: ${work_item_id}`);
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404, { stage: 'load_work_item', pg_message: workItemError?.message ?? null });
+    }
+    if (samaiStoredOnly && workItem.workflow_type !== 'CPACA') {
+      return errorResponse('SAMAI_STORED_ONLY_NOT_APPLICABLE', 'La reconciliación almacenada solo admite expedientes CPACA.', 400);
     }
 
     // ============= BUG 2 fix — PAUSE GATE (monitoring_enabled) =============
@@ -1986,6 +1995,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       const t = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       return jsonResponse(dailyDuplicateBody(work_item_id, t, { admitted: false, reason: 'DAILY_ADMISSION_UNAVAILABLE' }), 200);
     }
+    if (samaiStoredOnly && activeRunId) {
+      return errorResponse('SAMAI_STORED_ONLY_ACTIVE_RUN', 'Una corrida activa no puede sustituirse por una lectura almacenada.', 409);
+    }
     if (activeRunId) {
       // One GET /runs per run per interval for every caller (cron99, manual,
       // supervisor). Within next_poll_at the stored state is reused.
@@ -2001,9 +2013,24 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
     if (!historical && !activeRunId) {
       const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
-      const dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
+      let dailyAdmission;
+      if (samaiStoredOnly) {
+        // This mode must not create, reset or seal a daily admission. Read an
+        // existing terminal ledger only, and never expose its fencing token.
+        const day = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
+        const {data: cycle, error: cycleError} = await supabase.from('daily_update_cycles')
+          .select('channels').eq('work_item_id',work_item_id).eq('run_date',day).maybeSingle();
+        const prior = (cycle?.channels as Record<string, any> | null)?.pubs;
+        if (cycleError || !prior || !['DONE','PARTIAL','FAILED','PENDING_UPSTREAM'].includes(String(prior.status))) {
+          return errorResponse('SAMAI_STORED_ONLY_NO_TERMINAL_ADMISSION', 'No hay una admisión diaria terminada para reconciliar.', 409);
+        }
+        dailyAdmission = {admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:day,
+          existing:{status:prior.status,trace_id:prior.trace_id}};
+      } else {
+        dailyAdmission = await admitDailyUpdate(supabase, work_item_id, 'pubs', req, dailyTraceId);
+      }
       if (!dailyAdmission.admitted) {
-        if (workItem.workflow_type === 'CPACA' && dailyAdmission.existing?.status === 'DONE') {
+        if (!samaiStoredOnly && workItem.workflow_type === 'CPACA' && dailyAdmission.existing?.status === 'DONE') {
           const { data: histories, error: historyError } = await supabase.from('external_sync_runs')
             .select('id,work_item_id,status,details').eq('work_item_id', work_item_id)
             .order('created_at', { ascending: false }).limit(6);
@@ -2258,6 +2285,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // If PP errors and SAMAI succeeds with data, we continue and report PARTIAL
     // (never SUCCESS while a provider errored — see error-return branch below).
     const isCpaca = workItem.workflow_type === 'CPACA';
+    if (isCpaca) result.source_query_attempted = false;
     const isTutelaUnion = workItem.workflow_type === 'TUTELA';
     let nativeSamaiStoredReadBaseUrl: string | null = null;
     let tutelaSamaiEnabled = false;
@@ -2355,6 +2383,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           samaiSummary.status = samaiRes.status;
           samaiSummary.source_observed_at = samaiRes.sourceObservedAt;
           samaiSummary.source_query_complete = samaiRes.sourceReadComplete === true;
+          if (isCpaca) result.reused_completed_read = samaiRes.sourceReadComplete === true;
           result.source_observed_at = samaiRes.sourceObservedAt;
           samaiSummary.http_status = samaiRes.httpStatus;
           samaiSummary.duration_ms = samaiRes.durationMs;
@@ -2545,8 +2574,24 @@ Deno.serve(withSyncTimeline(async (req) => {
         await writePublicacionesAttemptRow(
           supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
         );
-        await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+        if (!samaiStoredOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
         return jsonResponse({ ...result, pending_upstream: true }, 200);
+      }
+
+      // SAMAI is the only CPACA publication source. A certified empty answer
+      // must not create a PP coverage gap or schedule a PP retry; an identity
+      // or contract mismatch must remain a failure instead of an empty success.
+      if (isCpaca) {
+        if (result.result_code === 'SUCCESS_EMPTY' && samaiAnswered) {
+          await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'empty');
+          return jsonResponse(result, 200);
+        }
+        result.ok = false;
+        result.source_complete = false;
+        result.error_code = 'SAMAI_CONTRACT_MISMATCH';
+        result.status = 'ERROR';
+        await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'error');
+        return jsonResponse(result, 200);
       }
 
       // ============= COVERAGE GAP DETECTION =============
@@ -3254,7 +3299,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       (result as any).status = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
       if (fetchResult.readIncomplete) (result as any).pending_upstream = true;
       result.warnings.push('Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.');
-      await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+      if (!samaiStoredOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
     }
 
     { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
@@ -3278,7 +3323,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Advance last_successful_sync_at ONLY on genuine success (result.ok===true).
     // Semantically distinct from last_synced_at ("último intento") — this tracks
     // "último éxito" and never advances on ERROR / CONTRACT_MISMATCH paths.
-    if (result.ok) {
+    if (result.ok && result.source_query_attempted !== false) {
       try {
         await supabase
           .from('work_items')
@@ -3295,7 +3340,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminDb = createClient(supabaseUrl, supabaseServiceKey);
 
-      const { data: pubGlobalRoutes } = await adminDb
+      const { data: pubGlobalRoutes } = samaiStoredOnly ? {data: []} : await adminDb
         .from('provider_category_routes_global')
         .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('workflow', workItem.workflow_type)
@@ -3303,7 +3348,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .eq('enabled', true)
         .order('priority');
 
-      const { data: pubOrgRoutes } = await adminDb
+      const { data: pubOrgRoutes } = samaiStoredOnly ? {data: []} : await adminDb
         .from('provider_category_routes_org_override')
         .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('organization_id', workItem.organization_id)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, PROVIDER_UNRESOLVED_LABEL, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
+import { COVERAGE_UNVERIFIED_LABEL, DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, PROVIDER_UNRESOLVED_LABEL, sourceEvidence, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
 
 const RAD = "05001400300120250000100"; // synthetic 23-digit radicado
 
@@ -19,7 +19,8 @@ describe("get_work_item verified-success contract", () => {
   });
 
   it("verified success keeps its label", () => {
-    const row = { provider: "publicaciones+samai_estados", status: "success", error_code: null, records_skipped: 2 };
+    const row = { provider: "publicaciones+samai_estados", status: "success", error_code: null, records_skipped: 2,
+      metadata:{source_complete:true,source_observed_at:new Date(Date.now()-60_000).toISOString()} };
     expect(isVerifiedSuccess(row)).toBe(true);
     expect(syncCheckState(RAD, row).label).toBe("Consulta exitosa con resultados");
     for (const status of ["empty", "success_empty", "not_found"]) {
@@ -27,6 +28,26 @@ describe("get_work_item verified-success contract", () => {
       expect(isVerifiedSuccess(empty)).toBe(false);
       expect(syncCheckState(RAD, empty)).toEqual({ state: "PENDIENTE", label: EMPTY_UNVERIFIED_LABEL });
     }
+  });
+
+  it("requires complete scope and a source time, while keeping row diagnostics separate", () => {
+    const time = new Date(Date.now()-60_000).toISOString();
+    const base = {provider:"samai_estados",status:"success",error_code:null,records_skipped:1};
+    for (const metadata of [undefined, {source_complete:false,source_observed_at:time},
+      {source_complete:true}, {source_complete:true,source_observed_at:"invalid"}]) {
+      expect(isVerifiedSuccess({...base,metadata})).toBe(false);
+      expect(syncCheckState(RAD,{...base,metadata}).label).toBe(COVERAGE_UNVERIFIED_LABEL);
+    }
+    const stored={...base,metadata:{source_complete:true,source_observed_at:time,
+      source_query_attempted:false,reused_completed_read:true,fecha_estado_diagnostico:"FIJACION_NO_CAPTURADA"}};
+    expect(isVerifiedSuccess(stored)).toBe(true);
+    expect(syncCheckState(RAD,stored).label).toContain("No es una consulta nueva");
+    expect(sourceEvidence(stored)).toEqual({consulta_completa:true,fuente_observada_en:time,observacion_de_hoy:true,lectura_almacenada:true,consulta_nueva:false});
+    expect(isVerifiedSuccess({...stored,status:"empty"})).toBe(true);
+    expect(syncCheckState(RAD,{...stored,status:"empty"}).state).toBe("SIN_NOVEDADES");
+    const old={...stored,metadata:{...stored.metadata,source_observed_at:new Date(Date.now()-48*3600_000).toISOString()}};
+    expect(isVerifiedSuccess(old)).toBe(false);
+    expect(syncCheckState(RAD,old).label).toContain("vigilancia de hoy no está acreditada");
   });
 
   it("daily dedup is not a new query", () => {

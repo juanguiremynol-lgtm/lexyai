@@ -59,6 +59,12 @@ Deno.test("a stored replay does not advance the last source attempt or success c
   const label=attempt.calls.find(x=>x.path.endsWith('work_items'));
   assert(!!label && !('pp_ultima_sync' in label.body) && !('last_sync_attempt_at' in label.body));
 });
+Deno.test("an incomplete stored read does not advance source attempt or success clocks",async()=>{
+  const attempt=await exercise({ok:false,result_code:'PENDING_UPSTREAM',source_complete:false,
+    reused_completed_read:false,source_query_attempted:false});
+  const label=attempt.calls.find(x=>x.path.endsWith('work_items'));
+  assert(!!label && !('pp_ultima_sync' in label.body) && !('last_sync_attempt_at' in label.body));
+});
 Deno.test("interrupted or fenced completion cannot advance labels or the hop",async()=>{
   for(const sealed of [false,"rpc_error"] as const){
     const result=await exercise({ok:true,result_code:"SUCCESS_WITH_DATA"},sealed);
