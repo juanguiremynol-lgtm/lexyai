@@ -174,16 +174,16 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
     </div>
   );
 
-  // State 1c: Provider returned empty — not a bug, case may not be digitized yet
+  // A recorded empty result alone does not establish the case has no events.
   if (isEmptyResult) {
     return (
       <div className="flex items-center gap-1">
         <Badge variant="outline" className="gap-1 border-slate-400/50 text-muted-foreground">
           <Activity className="h-3 w-3" />
-          Sin eventos digitales
+          Respuesta sin resultados confirmados
         </Badge>
         <span className="text-[10px] text-muted-foreground max-w-[220px]">
-          El portal judicial no registra eventos digitales para este radicado aún. Se verificará periódicamente.
+          Esta respuesta no demuestra que el expediente carezca de movimientos. Revisa el detalle de vigilancia.
         </span>
       </div>
     );
@@ -207,7 +207,7 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
       <div className="flex items-center gap-1">
         <Badge variant="outline" className="gap-1 border-emerald-500/50 text-emerald-600">
           <Activity className="h-3 w-3" />
-          Monitoreado
+          Vigilancia activada
         </Badge>
         <Button
           variant="ghost"
@@ -240,13 +240,13 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
     );
   }
 
-  // State 2: Unreachable (monitoring active but provider not finding data)
+  // State 2: The provider did not return a verified response.
   if (isUnreachable) {
     return (
       <div className="flex items-center gap-1">
         <Badge variant="outline" className="gap-1 border-yellow-500/50 text-yellow-600">
           <AlertTriangle className="h-3 w-3" />
-          Sin datos en las últimas {workItem.consecutive_404_count || 0} consultas
+          Respuesta del proveedor no confirmada
         </Badge>
         <Button
           variant="ghost"
@@ -263,8 +263,7 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
             <AlertDialogHeader>
               <AlertDialogTitle>¿Suspender monitoreo de este asunto?</AlertDialogTitle>
               <AlertDialogDescription>
-                El radicado no ha sido encontrado en los sistemas judiciales recientemente.
-                ATENIA dejará de buscar actuaciones y publicaciones nuevas.
+                La última respuesta del proveedor no está confirmada. ATENIA dejará de buscar actuaciones y publicaciones nuevas.
                 Puedes reactivar el monitoreo en cualquier momento.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -295,11 +294,11 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
               )}
               <div className="space-y-1 flex-1">
                 <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
-                  Monitoreo oculto
+                  Monitoreo suspendido
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Este asunto sigue leyéndose todos los días; solo está oculto de los
-                  resúmenes y alertas. No se está perdiendo información.
+                  Las consultas automáticas no están acreditadas mientras el monitoreo esté suspendido.
+                  Reactívalo para reanudar la vigilancia.
                 </p>
                 {workItem.demonitor_reason && (
                   <p className="text-xs text-muted-foreground">
