@@ -44,6 +44,7 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
 }
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
+import { redundantSamaiPublicationRoute } from "../_shared/storedSamaiRead.ts";
 import { certifiedStoredPPHistory, mayReadStoredPP } from '../_shared/storedPublicationRead.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -2182,6 +2183,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // (never SUCCESS while a provider errored — see error-return branch below).
     const isCpaca = workItem.workflow_type === 'CPACA';
     const isTutelaUnion = workItem.workflow_type === 'TUTELA';
+    let nativeSamaiStoredReadBaseUrl: string | null = null;
     let tutelaSamaiEnabled = false;
     if (isTutelaUnion) {
       const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
@@ -2235,6 +2237,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         );
 
         try {
+          // CPACA has one native estados source. TUTELA's multi-source
+          // completion and fallback policy is outside this recovery path.
+          nativeSamaiStoredReadBaseUrl = isCpaca ? samaiEstadosBaseUrl : null;
           const samaiRes = await fetchFromSamaiEstados({
             radicado: normalizedRadicado,
             mode: 'monitoring',
@@ -3229,7 +3234,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
           let instanceQuery = adminDb
             .from('provider_instances')
-            .select('id, name')
+            .select('id, name, base_url, scope, organization_id')
             .eq('connector_id', connectorId)
             .eq('is_enabled', true);
           if (isOrgRoute) instanceQuery = instanceQuery.eq('organization_id', workItem.organization_id);
