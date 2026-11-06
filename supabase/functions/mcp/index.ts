@@ -328,19 +328,23 @@ function isVerifiedSuccess(row) {
 var UNVERIFIED_LABEL = "Consulta no acreditada: el registro no identifica una fuente consultada verificable";
 var DEDUP_LABEL = "Actualizaci\xF3n diaria ya iniciada; se reutiliza el ciclo del d\xEDa (no es una consulta nueva)";
 var EMPTY_UNVERIFIED_LABEL = "Sin resultados registrados; la cobertura de la consulta no est\xE1 acreditada";
+var PROVIDER_UNRESOLVED_LABEL = "No se pudo identificar el proveedor consultado; la consulta no est\xE1 acreditada (PROVIDER_UNRESOLVED)";
 function syncCheckState(radicado, row) {
   const compatible = hasUsableRadicado(radicado);
   const status = (row.status ?? "").toLowerCase();
   if (compatible && status === "deduplicated") return { state: "PENDIENTE", label: DEDUP_LABEL };
+  if (compatible && row.error_code === "PROVIDER_UNRESOLVED") return { state: "PENDIENTE", label: PROVIDER_UNRESOLVED_LABEL };
+  if (compatible && row.error_code === "PROVIDER_NOT_FOUND") return { state: "PENDIENTE", label: "El proveedor no encontr\xF3 el expediente; esto no demuestra que no exista (PROVIDER_NOT_FOUND)" };
   const successLike = ["success", "success_empty", "empty", "not_found"].includes(status);
   if (compatible && successLike) {
-    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: status !== "success" && row.error_code == null ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
+    if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: status !== "success" && row.error_code == null && isVerifiedSuccess({ ...row, status: "success" }) ? EMPTY_UNVERIFIED_LABEL : UNVERIFIED_LABEL };
   }
   if (compatible && status === "partial") {
     const cause = row.error_code?.trim();
     return { state: "PENDIENTE", label: cause ? `Consulta parcial: ${cause}; la cobertura no est\xE1 acreditada` : "Consulta parcial; la cobertura no est\xE1 acreditada" };
   }
   if (compatible && status === "pending_upstream") return { state: "PENDIENTE", label: "Fuente pendiente; la consulta a\xFAn no est\xE1 completa" };
+  if (compatible && status === "skipped" && row.error_code) return { state: "PENDIENTE", label: "Consulta no realizada; revisa la causa registrada" };
   const state = judicialQueryState({ compatible, status: row.status, count: (row.records_inserted ?? 0) + (row.records_skipped ?? 0) });
   return { state, label: JUDICIAL_QUERY_LABELS[state] };
 }
@@ -3650,7 +3654,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-11"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-12"
   }),
   tools: [
     get_user_context_default,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
+import { DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerifiedSuccess, PROVIDER_UNRESOLVED_LABEL, syncCheckState, UNVERIFIED_LABEL } from "../sync-check-state";
 
 const RAD = "05001400300120250000100"; // synthetic 23-digit radicado
 
@@ -13,7 +13,7 @@ describe("get_work_item verified-success contract", () => {
     ]) {
       const s = syncCheckState(RAD, row);
       expect(s.state).toBe("PENDIENTE");
-      expect(s.label).toBe(UNVERIFIED_LABEL);
+      expect(s.label).toBe(row.error_code === "PROVIDER_UNRESOLVED" ? PROVIDER_UNRESOLVED_LABEL : UNVERIFIED_LABEL);
       expect(isVerifiedSuccess(row)).toBe(false);
     }
   });
@@ -43,6 +43,15 @@ describe("get_work_item verified-success contract", () => {
       .toContain("PROVIDER_NOT_FOUND");
     expect(syncCheckState(RAD, { provider: "publicaciones", status: "pending_upstream" }).label)
       .toContain("aún no está completa");
+  });
+  it("explains unresolved providers and does not call skipped queries initial", () => {
+    for (const status of ["skipped", "partial", "success"]) {
+      expect(syncCheckState(RAD, {provider:"unknown",status,error_code:"PROVIDER_UNRESOLVED"}).label)
+        .toBe(PROVIDER_UNRESOLVED_LABEL);
+    }
+    expect(syncCheckState(RAD, {provider:"unknown",status:"empty",error_code:null}).label).toBe(UNVERIFIED_LABEL);
+    expect(syncCheckState(RAD, {provider:"cpnu",status:"partial",error_code:"PROVIDER_NOT_FOUND"}).label)
+      .toContain("no demuestra que no exista");
   });
 });
 
