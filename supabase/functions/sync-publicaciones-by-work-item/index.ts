@@ -3257,7 +3257,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             instanceBaseUrl: instance.base_url,
             instanceScope: instance.scope,
             instanceOrganizationId: instance.organization_id,
-            organizationRoute: isOrgRoute,
+            organizationRoute: Boolean(isOrgRoute),
             nativeReadBaseUrl: nativeSamaiStoredReadBaseUrl,
           })) {
             console.log('[sync-pub] SAMAI stored read already handled this publication route');
