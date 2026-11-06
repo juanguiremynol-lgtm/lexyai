@@ -1,4 +1,5 @@
 import { estadosDisplayInventory } from "@/lib/reconcile-estados";
+import { publicationTitleDateNotice } from "@/lib/publication-title-date";
 import { openResolvedDocument } from "@/lib/open-document-window";
 /**
  * Estados Tab — Estados Procesales
@@ -76,7 +77,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     queryFn: async () => {
       const { data, error: qErr } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, fecha_fijacion, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
+        .select("id, title, source, fecha_fijacion, fecha_providencia, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
         .eq("work_item_id", workItem.id)
         .eq("is_archived", false);
       if (qErr) throw qErr;
@@ -288,6 +289,11 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
           rows={mergedEstados.map<EstadoRow>((estado) => ({
             key: `${estado.fuente}-${estado.id}`,
             fuente: estado.fuente,
+            advertencia_fecha: (() => {
+              const id = String(estado.id);
+              const pub = id.startsWith("local-") ? localPubs?.find((p) => p.id === id.slice(6)) : null;
+              return pub ? publicationTitleDateNotice(pub.title, pub.fecha_providencia) : null;
+            })(),
             asociacion_no_acreditada: unaccredited.get(String(estado.id)) ?? null,
             title:
               estado.titulo_original?.trim() ||

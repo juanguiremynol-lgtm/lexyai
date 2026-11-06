@@ -18,6 +18,7 @@
  */
 
 import { civilDate } from "@/lib/civil-date";
+import { publicationTitleDateNotice } from "@/lib/publication-title-date";
 import { useState } from "react";
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -366,6 +367,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
       onDownloadFile,
       key: act.id,
       fuente: "PP",
+      advertencia_fecha: pub ? publicationTitleDateNotice(pub.title, pub.fecha_providencia) : null,
       title: act.description || "Sin descripción",
       despacho: act.despacho || workItem.authority_name || null,
       tipo_documento: rawTipo,

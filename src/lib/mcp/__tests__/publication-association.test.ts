@@ -33,6 +33,12 @@ beforeEach(() => {
   mock.rpc.mockResolvedValue({ data: [], error: null });
 });
 describe("publication association through real MCP handlers", () => {
+  it("exposes a conflicting title date alongside the stored order date", async () => {
+    mock.results.work_item_publicaciones = { data: [{ id: "a", title: "Providencia Auto.pdf — 09/10/2026", fecha_providencia: "2026-10-06T12:00:00Z" }], error: null };
+    const result = await list.handler({ id: "synthetic-matter" } as never, ctx) as any;
+    expect(result.structuredContent.publicaciones[0].discrepancia_fecha_titulo)
+      .toEqual({ fecha_titulo: "2026-10-09", fecha_providencia: "2026-10-06" });
+  });
   it.each([list, detail, recent, today])("exposes flagged history without promoting normal rows or leaking flag bodies", async (tool) => {
     mock.results.work_item_publicaciones = { data: [
       { id: "flagged", fecha_fijacion: "2026-10-15", association_flag: flag },

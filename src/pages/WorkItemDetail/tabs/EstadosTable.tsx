@@ -37,6 +37,8 @@ export interface EstadoRow {
   asociacion_no_acreditada?: string | null;
   /** Provider flagged the row as needing a human read. */
   requiere_revision_manual?: boolean | null;
+  /** A date embedded in the provider title differs from the stored order date. */
+  advertencia_fecha?: string | null;
   gcs_url_auto?: string | null;
   gcs_url_tabla?: string | null;
   pdf_url?: string | null;
@@ -150,6 +152,9 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                         <p className="text-xs text-foreground/75 leading-snug whitespace-pre-wrap break-words">
                           {r.descripcion.trim()}
                         </p>
+                      )}
+                      {r.advertencia_fecha && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300">{r.advertencia_fecha}</p>
                       )}
                       <span
                         className={cn(

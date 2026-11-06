@@ -735,11 +735,48 @@ function extractAutoHeaderDate(texto) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+// src/lib/civil-date.ts
+var MIN_YEAR2 = 2e3;
+function validYmd(y, m, d) {
+  if (y < MIN_YEAR2 || y > (/* @__PURE__ */ new Date()).getUTCFullYear() + 1) return false;
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+function civilDate(value) {
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  const iso2 = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/.exec(s);
+  if (iso2) {
+    const [, y, m, d, hh, mi, ss, zone] = iso2;
+    if (!validYmd(+y, +m, +d)) return null;
+    const placeholder = !hh || (hh === "00" || hh === "12") && mi === "00" && (!ss || ss === "00");
+    if (placeholder || !zone) return `${y}-${m}-${d}`;
+    const t = new Date(s);
+    if (isNaN(t.getTime())) return null;
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(t);
+  }
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
+  if (dmy && validYmd(+dmy[3], +dmy[2], +dmy[1])) {
+    return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  }
+  return null;
+}
+
+// src/lib/publication-title-date.ts
+function publicationTitleDateDiscrepancy(title, fechaProvidencia) {
+  if (typeof title !== "string" || !/^providencia\b/i.test(title.trim())) return null;
+  const suffix = /\s+—\s+(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})\s*$/.exec(title);
+  const fechaTitulo = suffix ? civilDate(suffix[1]) : null;
+  const fechaGuardada = civilDate(fechaProvidencia);
+  if (!fechaTitulo || !fechaGuardada || fechaTitulo === fechaGuardada) return null;
+  return { fecha_titulo: fechaTitulo, fecha_providencia: fechaGuardada };
+}
+
 // src/lib/mcp/tools/list-publicaciones.ts
 var list_publicaciones_default = defineTool6({
   name: "list_publicaciones",
   title: "Estados electr\xF3nicos de un asunto",
-  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; planillas de estados, citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. Incluye historial con asociaci\xF3n no acreditada se\xF1alada y procedencia; sin alerta no prueba acreditaci\xF3n. Conteos de p\xE1gina, no totales ni \xFAltimo estado acreditado. Contin\xFAa con next_offset.",
+  description: "Lists electronic estados / publicaciones procesales for one matter, newest fijaci\xF3n first. Identify the matter by radicado or work item id. Cada fila conserva la fecha_providencia estructurada de la fuente y a\xF1ade una se\xF1al de calidad: fecha_auto_encabezado (fecha candidata detectada solo en un segmento de encabezado reconocible y delimitado del texto del auto \u2014contexto de despacho/tribunal, antes del primer campo de identificaci\xF3n procesal y una \xFAnica fecha v\xE1lida en l\xEDnea de lugar y fecha; planillas de estados, citas, fechas m\xFAltiples o vinculaci\xF3n dudosa dan null=desconocido\u2014), su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia con ambas procedencias cuando difieren. discrepancia_fecha_titulo compara la fecha guardada con la fecha incluida en el t\xEDtulo, sin acreditar cu\xE1l es correcta. Nunca devuelve el texto del auto ni reescribe la fecha fuente. Incluye historial con asociaci\xF3n no acreditada se\xF1alada y procedencia; sin alerta no prueba acreditaci\xF3n. Conteos de p\xE1gina, no totales ni \xFAltimo estado acreditado. Contin\xFAa con next_offset.",
   inputSchema: {
     radicado: z5.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
     id: z5.string().uuid().optional().describe("UUID del asunto."),
@@ -788,6 +825,7 @@ var list_publicaciones_default = defineTool6({
       } : null;
       return {
         ...publicationAssociation(r, item.radicado),
+        discrepancia_fecha_titulo: publicationTitleDateDiscrepancy(r.title, r.fecha_providencia),
         fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
         fecha_auto_encabezado_estado: headerState === "no_verificable" ? "no_verificable" : candidate ? "detectada" : "desconocida",
         discrepancia_fecha_providencia: discrepancia
@@ -3695,7 +3733,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-15"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-16"
   }),
   tools: [
     get_user_context_default,

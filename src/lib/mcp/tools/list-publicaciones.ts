@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { extractAutoHeaderDate } from "../../auto-header-date";
+import { publicationTitleDateDiscrepancy } from "../../publication-title-date";
 import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
 import { bogotaDayStartUTC, errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from "../shared";
 
@@ -14,7 +15,7 @@ export default defineTool({
     "del texto del auto —contexto de despacho/tribunal, antes del primer campo de identificación procesal y una " +
     "única fecha válida en línea de lugar y fecha; planillas de estados, citas, fechas múltiples o vinculación dudosa dan null=desconocido—), " +
     "su estado (detectada|desconocida|no_verificable) y discrepancia_fecha_providencia " +
-    "con ambas procedencias cuando difieren. Nunca devuelve el texto del auto ni reescribe la fecha fuente. " +
+    "con ambas procedencias cuando difieren. discrepancia_fecha_titulo compara la fecha guardada con la fecha incluida en el título, sin acreditar cuál es correcta. Nunca devuelve el texto del auto ni reescribe la fecha fuente. " +
     "Incluye historial con asociación no acreditada señalada y procedencia; sin alerta no prueba acreditación. Conteos de página, no totales ni último estado acreditado. Continúa con next_offset.",
   inputSchema: {
     radicado: z
@@ -88,6 +89,7 @@ export default defineTool({
         : null;
       return {
         ...publicationAssociation(r, item.radicado),
+        discrepancia_fecha_titulo: publicationTitleDateDiscrepancy(r.title, r.fecha_providencia),
         fecha_auto_encabezado: headerState === "no_verificable" ? null : candidate,
         fecha_auto_encabezado_estado: headerState === "no_verificable"
           ? "no_verificable"
