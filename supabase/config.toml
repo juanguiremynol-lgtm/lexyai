@@ -404,3 +404,6 @@ verify_jwt = true
 
 [functions.calendar-ics]
 verify_jwt = false
+
+[functions.inbox-felipe-events-relay]
+verify_jwt = false
