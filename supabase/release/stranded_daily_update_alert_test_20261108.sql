@@ -23,6 +23,10 @@ BEGIN
     WHERE metadata->>'trace_id'='test-watchdog-old' AND metadata->>'work_item_id'=v_work::text
       AND service='DAILY_UPDATE_WATCHDOG' AND status='WARN';
   IF v_count<>1 THEN RAISE EXCEPTION 'old started attempt must alert exactly once: %',v_count; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.system_health_events WHERE metadata->>'trace_id'='test-watchdog-old'
+    AND message LIKE '%'||v_date::text||'%' AND message LIKE '%Ese intento%') THEN
+    RAISE EXCEPTION 'warning must identify its historical date and attempt';
+  END IF;
   IF EXISTS(SELECT 1 FROM public.system_health_events WHERE metadata->>'trace_id'='test-watchdog-young') THEN
     RAISE EXCEPTION 'young attempt must not alert';
   END IF;

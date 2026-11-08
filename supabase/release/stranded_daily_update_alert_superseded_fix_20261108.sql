@@ -8,9 +8,9 @@ BEGIN
   INSERT INTO public.system_health_events(organization_id,service,status,message,metadata)
   SELECT c.organization_id,'DAILY_UPDATE_WATCHDOG','WARN',
     CASE WHEN x.channel='acts' THEN
-      'La consulta de actuaciones lleva más de 30 minutos sin resultado final registrado. La actualización no está acreditada; revise el intento.'
+      'La consulta de actuaciones del '||c.run_date::text||' lleva más de 30 minutos sin resultado final. Ese intento no acredita la actualización; revise también las consultas posteriores.'
     ELSE
-      'La consulta de estados lleva más de 30 minutos sin resultado final registrado. La actualización no está acreditada; revise el intento.' END,
+      'La consulta de estados del '||c.run_date::text||' lleva más de 30 minutos sin resultado final. Ese intento no acredita la actualización; revise también las consultas posteriores.' END,
     jsonb_build_object('kind','DAILY_UPDATE_WITHOUT_TERMINAL_RESULT',
       'work_item_id',c.work_item_id,'channel',x.channel,'run_date',c.run_date,
       'started_at',s.started_at,'reference_time',coalesce(s.started_at,c.updated_at),
