@@ -89,7 +89,7 @@ BEGIN
     RETURN jsonb_build_object('state','digest_in_progress','dry_run',_dry_run,'bogota_date',v_day);
   END IF;
   FOR v_owner IN SELECT recipient_user_id FROM public.digest_recovery_eligible_recipients_20261107()
-                 ORDER BY recipient_user_id LIMIT 50
+                 ORDER BY recipient_user_id
   LOOP
     v_candidates := v_candidates+1;
     v_key := 'digest-eligible-recovery-v2:'||v_day::text||':'||v_owner::text;
@@ -100,6 +100,9 @@ BEGIN
     IF v_attempts>=3 OR (v_last IS NOT NULL AND v_last>now()-interval '19 minutes') THEN
       CONTINUE;
     END IF;
+    -- Apply the batch cap to ready recipients, not the first 50 candidates:
+    -- exhausted users must not starve later recipients.
+    IF v_ready>=50 THEN EXIT; END IF;
     v_ready := v_ready+1;
     IF NOT _dry_run THEN
       IF v_secret IS NULL THEN

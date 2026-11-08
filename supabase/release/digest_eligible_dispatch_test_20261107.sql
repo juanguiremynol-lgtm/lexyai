@@ -33,6 +33,21 @@ INSERT INTO digest_dispatch_fixture_results VALUES ('first',pg_temp.digest_dispa
 INSERT INTO digest_dispatch_fixture_results VALUES ('second',pg_temp.digest_dispatch_fixture(false));
 UPDATE digest_dispatch_fixture_settings SET email_enabled=false WHERE id='singleton';
 INSERT INTO digest_dispatch_fixture_results VALUES ('disabled',pg_temp.digest_dispatch_fixture(false));
+UPDATE digest_dispatch_fixture_settings SET email_enabled=true WHERE id='singleton';
+INSERT INTO digest_dispatch_fixture_heartbeats VALUES ('scheduled-daily-digest','RUNNING',now(),
+  jsonb_build_object('digest_date',(now() AT TIME ZONE 'America/Bogota')::date::text));
+INSERT INTO digest_dispatch_fixture_results VALUES ('busy',pg_temp.digest_dispatch_fixture(false));
+DELETE FROM digest_dispatch_fixture_heartbeats;
+TRUNCATE digest_dispatch_fixture_candidates;
+INSERT INTO digest_dispatch_fixture_candidates
+  SELECT ('00000000-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid FROM generate_series(1,60) i;
+INSERT INTO digest_dispatch_fixture_candidates VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff');
+INSERT INTO digest_dispatch_fixture_state
+  SELECT 'digest-eligible-recovery-v2:'||(now() AT TIME ZONE 'America/Bogota')::date::text||':'||recipient_user_id::text,
+    '{"attempts":3}'::jsonb,now()
+  FROM digest_dispatch_fixture_candidates WHERE recipient_user_id <> 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at;
+INSERT INTO digest_dispatch_fixture_results VALUES ('beyond_batch',pg_temp.digest_dispatch_fixture(true));
 SELECT
   (SELECT result->>'state'='ready' AND (result->>'ready')::int=1 AND (result->>'requested')::int=0
     FROM digest_dispatch_fixture_results WHERE label='preview') AS preview_passed,
@@ -41,5 +56,8 @@ SELECT
   (SELECT result->>'state'='cooldown_or_limit' AND (result->>'requested')::int=0
     FROM digest_dispatch_fixture_results WHERE label='second') AS repeat_blocked,
   (SELECT result->>'state'='global_email_disabled_or_unknown' FROM digest_dispatch_fixture_results WHERE label='disabled') AS global_pause_respected,
+  (SELECT result->>'state'='digest_in_progress' FROM digest_dispatch_fixture_results WHERE label='busy') AS running_digest_respected,
+  (SELECT result->>'state'='ready' AND (result->>'ready')::int=1 AND (result->>'candidates')::int=61
+    FROM digest_dispatch_fixture_results WHERE label='beyond_batch') AS no_recipient_starvation,
   (SELECT count(*)=1 AND bool_and(body->>'user_id'='00000000-0000-4000-8000-000000000001')
     FROM digest_dispatch_fixture_requests) AS one_targeted_request;
