@@ -20,6 +20,7 @@
  */
 
 import { sameAttemptStatus } from "../_shared/syncVocabulary.ts";
+import { assessDailySyncChain } from "../_shared/dailySyncChainEvidence.ts";
 import { actsRetryReadyAt, dailyRetryRunAfter } from "../_shared/dailyRetryWindow.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { authorizeSupervisor, ineligibleRefusal, remediationHeaders, remediationVerdict } from "../_shared/ateniaRemediationSecurity.ts";
@@ -1400,6 +1401,11 @@ async function runQueueWorker(
 
 interface DailySyncKPIs {
   fully_synced: boolean;
+  evidence_scope: string;
+  unverified_reasons: string[];
+  unverified_explanations: string[];
+  dispatched_attempts: number | null;
+  excluded_tracker_entries: number | null;
   chain_length: number;
   convergence_seconds: number | null;
   chain_start: string | null;
@@ -1422,6 +1428,11 @@ async function computeDailySyncKPIs(
 ): Promise<DailySyncKPIs> {
   const defaults: DailySyncKPIs = {
     fully_synced: false,
+    evidence_scope: "SELECTED_ACTUACIONES_ONLY",
+    unverified_reasons: ["NO_LEDGER_OR_QUERY_FAILED"],
+    unverified_explanations: ["No se pudo leer una cadena diaria completa."],
+    dispatched_attempts: null,
+    excluded_tracker_entries: null,
     chain_length: 0,
     convergence_seconds: null,
     chain_start: null,
@@ -1441,7 +1452,7 @@ async function computeDailySyncKPIs(
     // Get all ledger rows for this org/date
     const { data: rows } = await supabase
       .from("auto_sync_daily_ledger")
-      .select("status, started_at, finished_at, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, failure_reason, chain_id, metadata")
+      .select("status, started_at, finished_at, expected_total_items, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, failure_reason, chain_id, is_continuation, metadata")
       .eq("organization_id", orgId)
       .eq("run_date", runDate)
       .order("created_at", { ascending: true });
@@ -1458,14 +1469,14 @@ async function computeDailySyncKPIs(
     const totalDeadLettered = rows.reduce((s: number, r: any) => s + (r.dead_letter_count || 0), 0);
     const totalTimeouts = rows.reduce((s: number, r: any) => s + (r.timeout_count || 0), 0);
 
+    const chainEvidence = assessDailySyncChain(rows);
     let convergenceSec: number | null = null;
-    if (firstRow.started_at && lastRow.finished_at) {
+    if (chainEvidence.supported && firstRow.started_at && lastRow.finished_at) {
       convergenceSec = Math.round(
         (new Date(lastRow.finished_at).getTime() - new Date(firstRow.started_at).getTime()) / 1000
       );
     }
 
-    const fullySynced = lastRow.status === "SUCCESS" && totalSkipped === 0;
     const hitMax = lastRow.failure_reason === "MAX_CONTINUATIONS_REACHED" ||
       rows.some((r: any) => r.metadata?.continuation_count === "MAX_CONTINUATIONS_REACHED");
 
@@ -1478,7 +1489,12 @@ async function computeDailySyncKPIs(
       .limit(50);
 
     return {
-      fully_synced: fullySynced,
+      fully_synced: chainEvidence.supported,
+      evidence_scope: chainEvidence.scope,
+      unverified_reasons: chainEvidence.reasons,
+      unverified_explanations: chainEvidence.explanations,
+      dispatched_attempts: chainEvidence.dispatched_attempts,
+      excluded_tracker_entries: chainEvidence.excluded_tracker_entries,
       chain_length: chainLength,
       convergence_seconds: convergenceSec,
       chain_start: firstRow.started_at,
@@ -1506,6 +1522,7 @@ async function computeDailySyncKPIs(
 // ─── Platform-wide Sync KPIs ─────────────────────────────────────────
 
 interface PlatformSyncKPIs {
+  evidence_scope: string;
   total_orgs: number;
   orgs_fully_synced: number;
   orgs_partial: number;
@@ -1563,6 +1580,7 @@ async function computePlatformSyncKPIs(
     : 0;
 
   return {
+    evidence_scope: "SELECTED_ACTUACIONES_ONLY",
     total_orgs: totalOrgs,
     orgs_fully_synced: fullySynced,
     orgs_partial: partial,
@@ -2795,8 +2813,8 @@ Deno.serve(async (req) => {
           organization_id: reportOrg,
           action_type: "DAILY_SYNC_KPI_REPORT",
           autonomy_tier: "OBSERVE",
-          reasoning: `Informe consolidado del sync diario: ${platformKPIs?.pct_fully_synced ?? 0}% orgs completadas, ${platformKPIs?.total_dead_lettered_items ?? 0} ítems en dead-letter, ${problemCount} orgs con problemas.`,
-          summary: `Sync diario: ${platformKPIs?.orgs_fully_synced ?? 0}/${platformKPIs?.total_orgs ?? 0} orgs OK, p95 convergencia ${platformKPIs?.p95_convergence_seconds ?? 0}s`,
+          reasoning: `Lote diario seleccionado de actuaciones: ${platformKPIs?.pct_fully_synced ?? 0}% de organizaciones con evidencia suficiente, ${platformKPIs?.total_dead_lettered_items ?? 0} ítems en dead-letter, ${problemCount} organizaciones por verificar. No certifica estados ni cobertura integral.`,
+          summary: `Lote de actuaciones: ${platformKPIs?.orgs_fully_synced ?? 0}/${platformKPIs?.total_orgs ?? 0} organizaciones con evidencia suficiente`,
           evidence: {
             ...(platformKPIs as unknown as Record<string, unknown> ?? {}),
             health_snapshot: healthSnapshot,

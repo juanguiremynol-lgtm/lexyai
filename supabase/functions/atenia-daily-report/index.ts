@@ -7,6 +7,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { assessDailySyncChain } from "../_shared/dailySyncChainEvidence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -189,7 +190,7 @@ async function toolPerOrgKPIs(sb: any): Promise<Record<string, unknown>> {
   const today = todayCOT();
   const { data: rows } = await sb
     .from("auto_sync_daily_ledger")
-    .select("organization_id, status, started_at, finished_at, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, chain_id, is_continuation, failure_reason")
+    .select("organization_id, status, started_at, finished_at, expected_total_items, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, chain_id, is_continuation, failure_reason, metadata")
     .eq("run_date", today)
     .order("created_at", { ascending: true });
 
@@ -206,18 +207,24 @@ async function toolPerOrgKPIs(sb: any): Promise<Record<string, unknown>> {
   const orgs = Object.entries(orgMap).map(([orgId, rws]) => {
     const last = rws[rws.length - 1];
     const first = rws[0];
+    const chainEvidence = assessDailySyncChain(rws);
     const totalSucceeded = rws.reduce((s: number, r: any) => s + (r.items_succeeded || 0), 0);
     const totalFailed = rws.reduce((s: number, r: any) => s + (r.items_failed || 0), 0);
     const totalSkipped = rws.reduce((s: number, r: any) => s + (r.items_skipped || 0), 0);
     const totalDL = rws.reduce((s: number, r: any) => s + (r.dead_letter_count || 0), 0);
     const totalTO = rws.reduce((s: number, r: any) => s + (r.timeout_count || 0), 0);
     let convSec: number | null = null;
-    if (first.started_at && last.finished_at) {
+    if (chainEvidence.supported && first.started_at && last.finished_at) {
       convSec = Math.round((new Date(last.finished_at).getTime() - new Date(first.started_at).getTime()) / 1000);
     }
     return {
       org_id: orgId,
-      fully_synced: last.status === "SUCCESS" && totalSkipped === 0,
+      fully_synced: chainEvidence.supported,
+      evidence_scope: chainEvidence.scope,
+      unverified_reasons: chainEvidence.reasons,
+      unverified_explanations: chainEvidence.explanations,
+      dispatched_attempts: chainEvidence.dispatched_attempts,
+      excluded_tracker_entries: chainEvidence.excluded_tracker_entries,
       chain_length: rws.length,
       convergence_seconds: convSec,
       last_status: last.status,
