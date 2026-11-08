@@ -29,7 +29,9 @@ evento del sistema de la organización, consultable en el panel de salud y por
 MCP; no envía correo, no altera el estado del asunto, no reabre la admisión ni
 lanza consultas. Tiene un cron de 15 minutos y deduplica por asunto, canal, día
 y traza. Si la fecha inicial no es válida utiliza la última modificación; no
-declara que el proveedor haya fallado. La prueba con datos transitorios se
+declara que el proveedor haya fallado. Un éxito posterior solo supera una
+alerta antigua cuando acredita completitud y una observación más reciente del
+proveedor correspondiente. La prueba con datos transitorios se
 ejecuta dentro de una transacción revertida. Este vigilante no puede avisar
 mientras la propia base de datos esté caída.
 
