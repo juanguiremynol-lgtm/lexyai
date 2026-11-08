@@ -4,6 +4,8 @@ Todas las horas expresadas como hora local son de Bogotá. El resumen de las 08:
 
 La sincronización diaria de actuaciones de las 07:00 inició, pero su primera etapa quedó PARTIAL por presupuesto agotado; la continuación que empezó a las 07:02 permanece RUNNING sin cierre desde antes del reinicio. No se afirma una corrida completa ni se modifica el ledger para simularla.
 
+Se encontró un defecto independiente del cursor de esa rutina: al recibir `dispatched`, el bucle saltaba el avance del cursor. En la etapa parcial de hoy, nueve de diez asuntos despachados estaban después del cursor persistido, por lo que una continuación podía volver a recorrerlos. La corrección avanza el cursor para cada elemento ya consumido, incluidos despachos y rechazos, sin convertir `dispatched` en éxito y sin avanzar sobre elementos no iniciados por agotamiento de presupuesto. La prueba ejecuta el bucle de producción con respuestas simuladas; no llama proveedores. Este defecto explica el cursor incorrecto, pero por sí solo no demuestra la causa de que la continuación quedara abierta.
+
 ## Resumen recuperado
 
 Se ejecutó primero una prueba con `dry_run=true`, para el dueño afectado y la fecha 2026-11-07: respondió HTTP 200, un destinatario, cero fallos y dejó libre la fila del día. Después se solicitó una sola recuperación normal de ese mismo destinatario y fecha. `daily_digest_runs` y `email_outbox` registraron una fila cada uno, ambas SENT; Outlook confirmó la llegada. El intervalo quedó desde 2026-11-06 08:00:08 hasta 2026-11-07 19:10:24, hora de Bogotá. El estado SENT del outbox por sí solo no se usa como prueba de recepción; la comprobación independiente fue la bandeja de entrada.

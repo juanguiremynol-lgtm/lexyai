@@ -948,6 +948,8 @@ async function syncOrganization(
         if (attemptNum > MAX_ITEM_ATTEMPTS_PER_CHAIN) {
           itemsSkipped++;
           recordSkip(item.radicado, "MAX_ATTEMPTS_EXCEEDED");
+          cursorLastId = item.id;
+          processedCount++;
           continue;
         }
 
@@ -1041,10 +1043,13 @@ async function syncOrganization(
             errorSummary[errorSummary.length - 1].is_dead_letter = true;
             console.warn(`[daily-sync] DEAD-LETTERED item=${item.id.slice(0, 8)} radicado=${item.radicado} after ${DEAD_LETTER_THRESHOLD} consecutive failures`);
           }
+        } finally {
+          // A dispatched request owns its later outcome, but this loop has
+          // consumed the item. `continue` in either branch must advance the
+          // cursor without counting the dispatch as a successful ingestion.
+          cursorLastId = item.id;
+          processedCount++;
         }
-
-        cursorLastId = item.id;
-        processedCount++;
       }
 
       // ── Fix #2: Intra-round retry of failed items (once per item) ──

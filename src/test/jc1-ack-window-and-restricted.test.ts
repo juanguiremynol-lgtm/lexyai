@@ -16,6 +16,7 @@ import {
   classifyGcpResponse,
 } from "../../supabase/functions/_shared/providerStrategy.ts";
 import { persistedProviderOutcome } from "../../supabase/functions/_shared/providerOutcome.ts";
+import { dailyCompletion } from "../../supabase/functions/_shared/dailyCompletion.ts";
 
 const dailySync = readFileSync("supabase/functions/scheduled-daily-sync/index.ts", "utf8");
 const orchestrator = readFileSync("supabase/functions/_shared/syncOrchestrator.ts", "utf8");
@@ -37,8 +38,9 @@ describe("JC1(a) — ack window replaces the abort", () => {
     expect(dailySync).toMatch(/items_dispatched: itemsDispatched/);
   });
 
-  it("counts a dispatched item as attempted and not failed", () => {
-    expect(dailySync).toMatch(/const nonFailed = itemsSucceeded \+ itemsDispatched/);
+  it("keeps a dispatched item partial until the provider confirms the result", () => {
+    expect(dailyCompletion(1, 0, 0, 1, 0)).toBe("PARTIAL");
+    expect(dailyCompletion(1, 1, 0, 0, 0)).toBe("SUCCESS");
   });
 
   it("reserves ack-window headroom, not item-timeout headroom", () => {
