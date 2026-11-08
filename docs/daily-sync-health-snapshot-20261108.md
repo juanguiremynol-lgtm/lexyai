@@ -1,0 +1,9 @@
+# Indicador de cadena diaria — 8 de noviembre de 2026
+
+El lector de base de datos `daily_sync_health_snapshot` contaba como completa una cadena si su última etapa era `SUCCESS` y no había omitidos, incluso con fallos y despachos anteriores. En el corte de la mañana mostraba 100 % para una cadena con tres fallos y 11 despachos sin conciliar.
+
+La corrección conserva los registros y los permisos de la función. Un evaluador por cadena exige identidad, etapa inicial y final, contadores, cero fallos, despachos sin conciliar, omisiones y exclusiones, y cuenta completa del lote seleccionado. Ante evidencia ausente devuelve no verificado. El resultado incluye explicación, contadores y el alcance `SELECTED_ACTUACIONES_ONLY`; no certifica estados ni cobertura histórica. La hora de la primera sincronización se calcula en Bogotá y la convergencia solo se muestra para cadenas acreditadas. Si una organización tiene varias cadenas, no se cuenta como completa mientras alguna esté sin verificar.
+
+Se probó el lector real copiado a `pg_temp` con cadenas parciales, completas, sin metadatos, mixtas y sin identificador, además de hora local y reversión exacta. Un ensayo transaccional con los datos reales convirtió el 100 % anterior en 0 de 1 organizaciones acreditadas, mostrando tres fallos, 11 despachos y 71 registros de fallos excluidos; estos últimos pueden incluir asuntos inactivos. El ensayo no alteró registros de producción. La reversión restaura la definición exacta anterior solo si nadie ha modificado la versión instalada; no cambia datos.
+
+Este lector de base de datos es una parte del sistema de indicadores. Los dos lectores independientes de las funciones `atenia-ai-supervisor` y `atenia-daily-report` requieren además el despliegue acotado de su corrección de código para evitar que muestren un veredicto contradictorio.
