@@ -20602,6 +20602,13 @@ export type Database = {
             foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
             columns: ["work_item_act_id"]
             isOneToOne: true
+            referencedRelation: "sync_act_identity_candidates_20261108"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
+            columns: ["work_item_act_id"]
+            isOneToOne: true
             referencedRelation: "v_fijaciones_sin_estado"
             referencedColumns: ["act_id"]
           },
@@ -25325,6 +25332,87 @@ export type Database = {
           work_item_title: string | null
         }
         Relationships: []
+      }
+      sync_act_identity_candidates_20261108: {
+        Row: {
+          act_date: string | null
+          description: string | null
+          documentos_observados_en: string | null
+          fecha_registro_source: string | null
+          hash_fingerprint: string | null
+          id: string | null
+          inicia_termino: string | null
+          is_archived: boolean | null
+          raw_data: Json | null
+          recurso_consecutivo: string | null
+          source: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          act_date?: string | null
+          description?: string | null
+          documentos_observados_en?: string | null
+          fecha_registro_source?: string | null
+          hash_fingerprint?: string | null
+          id?: string | null
+          inicia_termino?: string | null
+          is_archived?: boolean | null
+          raw_data?: never
+          recurso_consecutivo?: string | null
+          source?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          act_date?: string | null
+          description?: string | null
+          documentos_observados_en?: string | null
+          fecha_registro_source?: string | null
+          hash_fingerprint?: string | null
+          id?: string | null
+          inicia_termino?: string | null
+          is_archived?: boolean | null
+          raw_data?: never
+          recurso_consecutivo?: string | null
+          source?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       v_deadline_attribution: {
         Row: {
