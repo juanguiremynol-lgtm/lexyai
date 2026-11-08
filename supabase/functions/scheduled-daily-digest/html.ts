@@ -13,6 +13,7 @@
 
 import { describeSourceQuality } from "../_shared/sourceRunQuality.ts";
 import { reservaNoticeShort } from "../_shared/reservaNotice.ts";
+import { digestCoverageIncomplete } from "./content.ts";
 
 import {
   BOUND_PARTY_SHORT,
@@ -1152,36 +1153,12 @@ export function buildDigestHtml(p: DigestPayload): string {
   // ZZ2(b) — the window stated as a day the reader can check, with the exact
   // boundaries beside it.
   const win = `del día ${esc(p.windowLabel)} (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}, hora de Bogotá)`;
-  // LW2 — nombrar la fuente parcial y la fuente completa. Decir «cobertura
-  // incompleta» cuando una fuente leyó toda su cadena es falso sobre esa fuente.
-  const partials = (p.sourceQuality ?? []).filter(
-    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) < r.expected_count,
-  );
-  const completas = (p.sourceQuality ?? []).filter(
-    (r) => (r.expected_count || 0) > 0 && (r.answered_count ?? r.usable_confirmed_count) >= r.expected_count,
-  );
-  const nombres = (list: typeof partials) => list.map((r) => esc(r.label)).join(", ");
-  // LX — the headline reports MOVEMENT, not the standing population. The same
-  // sixteen matters every morning under the word "incompleta" is a warning that
-  // stops being read; "sin cambios" says the truth and points at the section
-  // that holds the names and their age.
-  const pers = p.coveragePersistence ?? [];
-  const joined = pers.filter((r) => r.status === "JOINED_TODAY");
-  const recovered = pers.filter((r) => r.status === "RECOVERED_TODAY");
-  const standing = pers.filter((r) => r.status !== "RECOVERED_TODAY");
-  const rad = (list: typeof pers) => list.map((r) => esc(r.radicado || "sin radicado")).join(", ");
-  const coberturaFrase = !partials.length
-    ? `<strong style="color:#4ade80;">Todas las fuentes leyeron completa su cadena.</strong>`
-    : joined.length || recovered.length
-    ? `<strong style="color:#fbbf24;">Cambió la cobertura hoy</strong>: ` +
-      [
-        joined.length ? `entró(aron) ${rad(joined)}` : "",
-        recovered.length ? `salió(eron) ${rad(recovered)}` : "",
-      ].filter(Boolean).join("; ") +
-      `. Ver «Fuentes que llevan días sin entregar».`
-    : `<strong style="color:#94a3b8;">La cobertura no cambió</strong>: siguen los mismos ` +
-      `${standing.length} asunto(s) sin entrega de ${nombres(partials)}, sin altas ni bajas. ` +
-      `Ver «Fuentes que llevan días sin entregar».`;
+  // A missing persistence row does not establish that coverage was unchanged.
+  // Also guard a failed/absent quality check even if its expected count is 0.
+  const coverageNeedsReview = p.coverageIncomplete || digestCoverageIncomplete(p.sourceQuality ?? []);
+  const coberturaFrase = coverageNeedsReview
+    ? `<strong style="color:#fbbf24;">Cobertura por verificar.</strong> Algunas lecturas están incompletas o no se pudieron comprobar. Las novedades detectadas no descartan otras pendientes; consulta el detalle por fuente.`
+    : `<strong style="color:#4ade80;">Las comprobaciones de cobertura no reportan brechas en esta ventana.</strong> Consulta el detalle por fuente.`;
   const headline = `${greeting} ${total} novedad(es) detectadas ${win}. ${coberturaFrase}`;
 
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:${BG};">

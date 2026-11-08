@@ -77,7 +77,7 @@ export function scopeFechasPorPerder(r: FechasPorPerderResult, radicados: (strin
   return { status: r.status, rows: r.rows.filter((f) => codes.has(f.despacho.replace(/\D/g, ""))) };
 }
 import { digestConnectionIssue } from "../_shared/emailConnectionHealth.ts";
-import { digestHasContent } from "./content.ts";
+import { digestCoverageIncomplete, digestHasContent, digestSubject } from "./content.ts";
 import { isNonJudicial } from "./types.ts";
 import {
   classifySourceRunQuality,
@@ -450,7 +450,7 @@ Deno.serve(async (req) => {
     }
     // LW2 — a source whose whole chain answered is complete, whatever another
     // source did that day. The two facts are never merged into one verdict.
-    const coverageIncomplete = sourceQuality.some((s) => !s.authoritative);
+    const coverageIncomplete = digestCoverageIncomplete(sourceQuality);
 
 
     for (const [ownerId, items] of byOwner) {
@@ -1353,26 +1353,10 @@ Deno.serve(async (req) => {
           linkExpiryDays: LINK_EXPIRY_DAYS,
         });
 
-        const novedades = actuaciones.length + estados.length;
         const critical = connectionIssues.some((c) => c.severity === "CRITICAL");
-        const subject = critical
-          ? `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}`
-          : novedades > 0
-          ? `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${estados.length} estados · ${actuaciones.length} actuaciones)`
-          // TT6/LW2/LX — the subject reports MOVEMENT. Repeating "cobertura
-          // incompleta" every day over the same known population trains the
-          // reader to ignore it; "sin cambios" is the true and different line.
-          : coverageIncomplete
-          ? (myCoveragePersistence.some((r) => r.status !== "CHRONIC")
-            ? `Andromeda — Resumen diario · cambio en la cobertura (${
-              myCoveragePersistence.filter((r) => r.status === "JOINED_TODAY").length
-            } nuevo(s), ${
-              myCoveragePersistence.filter((r) => r.status === "RECOVERED_TODAY").length
-            } resuelto(s))`
-            : `Andromeda — Resumen diario · cobertura sin cambios · ${
-              myCoveragePersistence.filter((r) => r.status === "CHRONIC").length
-            } asunto(s) pendientes de antes`)
-          : `Andromeda — Resumen diario: audiencias y términos`;
+        const subject = digestSubject({
+          critical, estados: estados.length, actuaciones: actuaciones.length, coverageIncomplete,
+        });
 
         if (dryRun) {
           if (body?.preview === true) previews.push(html);

@@ -175,24 +175,24 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
   });
 
   it("treats degraded coverage as content instead of an empty day", () => {
-    expect(index).toMatch(/reconciliations\.length \+[\s\S]{0,80}> 0 \|\|\s*\n?\s*coverageIncomplete/);
+    expect(index).toMatch(/digestHasContent\(\{[\s\S]{0,400}coverageIncomplete,/);
+    expect(read("supabase/functions/scheduled-daily-digest/content.ts"))
+      .toMatch(/rowCount \+ p\.manualReviewCount > 0 \|\| p\.coverageIncomplete/);
   });
 
   it("qualifies the headline and renders the source block above novedades", () => {
-    // LW2/LX — the headline reports movement, and still says plainly when every
-    // source read its whole chain.
-    expect(html).toMatch(/Todas las fuentes leyeron completa su cadena/);
-    expect(html).toMatch(/La cobertura no cambió/);
+    // An absent persistence record cannot prove the coverage is unchanged.
+    expect(html).toMatch(/Cobertura por verificar/);
+    expect(html).not.toMatch(/La cobertura no cambió/);
     const q = html.indexOf("${sourceQualityBlock(");
     const n = html.indexOf("${novedadesBlock(");
     expect(q).toBeGreaterThan(-1);
     expect(q).toBeLessThan(n);
   });
 
-  it("never repeats 'cobertura incompleta' as the daily subject", () => {
-    expect(index).toMatch(/Resumen diario · cobertura sin cambios/);
-    expect(index).toMatch(/Resumen diario · cambio en la cobertura/);
-    expect(index).not.toMatch(/cobertura incompleta de fuentes/);
+  it("uses the shared subject builder instead of inferring unchanged coverage", () => {
+    expect(index).toMatch(/digestSubject\(\{/);
+    expect(index).not.toMatch(/Resumen diario · cobertura sin cambios/);
   });
 });
 
@@ -250,7 +250,7 @@ describe("LX — consecutive-day persistence of a source gap", () => {
   it("distinguishes what joined, what recovered and what is chronic", () => {
     expect(html).toMatch(/JOINED_TODAY/);
     expect(html).toMatch(/RECOVERED_TODAY/);
-    expect(index).toMatch(/JOINED_TODAY/);
+    expect(index).toMatch(/status: String\(r\.status/);
   });
 });
 
