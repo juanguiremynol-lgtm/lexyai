@@ -36,17 +36,26 @@ anterior y enlaza la evidencia de recuperación. Una lectura de estados no
 cierra automáticamente la alerta: la certificación del plan diario no está
 disponible en ese historial. La prueba con datos transitorios se
 ejecuta dentro de una transacción revertida. Este vigilante no puede avisar
-mientras la propia base de datos esté caída.
+mientras la propia base de datos esté caída. Su primera ejecución automática
+terminó correctamente el 8 de noviembre a las 11:00 Bogotá. En la revisión
+inicial, nueve intentos históricos tenían una observación posterior completa;
+se conservaron sus mensajes previos y la evidencia de resolución. La alerta
+restante identifica al radicado `05001400301420260152800`: la consulta del
+7 de noviembre no terminó y la del 8 reportó `PROCESO_PRIVADO` en CPNU.
 
 En la mañana del 8 de noviembre se observaron 15 de 15 lecturas completas de
 la ventana vigente en SAMAI Estados. Publicaciones Procesales registró 17 de
 53 lecturas exitosas para la ventana pública reciente, 3 fallidas y 33
 pendientes; esas 17 lecturas no acreditaban el plan diario completo. A las
-10:41, 38 de 68 asuntos judiciales activos y vigilados tenían una lectura de
+10:58, 39 de 68 asuntos judiciales activos y vigilados tenían una lectura de
 actuaciones completa de su proveedor con observación del mismo día. Es un
 corte parcial del día, no un indicador de disponibilidad ni una medición del
 objetivo de 99 %. Las discrepancias de extracción y la cola de reintentos
 requieren seguimiento.
+
+Las dos solicitudes de despliegue a Lovable registraron 1,7 y 0,8 créditos,
+respectivamente. Las consultas de base y la configuración del vigilante no
+requirieron nuevas solicitudes a la IA de Lovable.
 
 Para revertir solo el detector, ejecutar
 `supabase/release/stranded_daily_update_alert_rollback_20261108.sql`; conserva
