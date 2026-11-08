@@ -16,6 +16,11 @@ import { observationCanonicalizer, sameDocumentObservation } from './actDocument
 
 export const ACT_SELECT_COLUMNS =
   "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos, documentos_observados_en";
+// Identity matching needs the raw origin metadata, but never the document
+// inventory. The service-only, invoker-security view removes only that JSON
+// field; the exact complete row is re-read before any enrichment.
+export const ACT_IDENTITY_SELECT_COLUMNS =
+  "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos_observados_en";
 
 export class ActLoadError extends Error {
   constructor(message: string, readonly persistenceUnknown = false) {
@@ -49,6 +54,44 @@ export async function loadAllActiveActs(
     if (data.length < pageSize) return out;
   }
   throw new ActLoadError(`existing acts exceed ${maxPages * pageSize} rows; refusing partial identity set`);
+}
+
+/** Load every identity candidate in bounded pages without transferring the
+ * stored inventory twice. A missing view or failed page aborts the entire
+ * batch; it must never silently fall back to an incomplete candidate set. */
+export async function loadAllActiveActIdentities(
+  client: Client,
+  workItemId: string,
+  pageSize = 100,
+  maxPages = 2000,
+): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize;
+    const { data, error } = await client
+      .from("sync_act_identity_candidates_20261108")
+      .select(ACT_IDENTITY_SELECT_COLUMNS)
+      .eq("work_item_id", workItemId)
+      .eq("is_archived", false)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new ActLoadError(`existing act identity read failed at offset ${from}: ${error.message}`);
+    if (!Array.isArray(data)) throw new ActLoadError(`existing act identity read returned no data at offset ${from}`);
+    out.push(...data);
+    if (data.length < pageSize) return out;
+  }
+  throw new ActLoadError(`existing acts exceed ${maxPages * pageSize} rows; refusing partial identity set`);
+}
+
+/** After a confirmed fresh read, retain only identity evidence in the batch.
+ * This doesn't mutate the source row or its persisted attachment history. */
+export function compactActIdentityRow<T extends Record<string, any>>(row: T): T {
+  const raw = row.raw_data;
+  let compactRaw = raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    compactRaw = Object.fromEntries(Object.entries(raw).filter(([key]) => key !== "documentos"));
+  }
+  return { ...row, raw_data: compactRaw, documentos: null };
 }
 
 export interface PersistedAct {

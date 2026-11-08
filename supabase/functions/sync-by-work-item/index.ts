@@ -19,7 +19,7 @@
 import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, samaiContinuationProviders, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { mayConsumeStoredCpnu, mayConsumeStoredSamai } from '../_shared/storedActAdmission.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
-import { loadAllActiveActs, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
+import { loadAllActiveActIdentities, compactActIdentityRow, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
 // It is enabled only by an approved, backed-up repair naming explicit act ids.
@@ -3002,7 +3002,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // annotation text across scraping runs, resulting in different fingerprints.
     // ITER70 rev.3 — complete paginated read; any error aborts the sync
     // explicitly (identity resolution must never run on a partial set).
-    const existingActsForDedup: any[] = await loadAllActiveActs(supabase, work_item_id);
+    const existingActsForDedup: any[] = await loadAllActiveActIdentities(supabase, work_item_id);
     // Map keyed by semantic tuple so we can UPDATE existing rows when the
     // provider now delivers a longer/better anotacion than what we stored.
     const existingSemanticMap = new Map<string, {
@@ -3187,7 +3187,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             _idProceso: originProcessId(act),
             documentos: normalizeActDocumentos((act as any).documentos),
           }, { provider: (act as any)._source || fetchResult.provider, repair: HISTORICAL_REPAIR_SCOPE });
-          Object.assign(decision.row, persisted);
+          Object.assign(decision.row, compactActIdentityRow(persisted));
           result.skipped_count++;
           persistLedger.parsed++;
           persistLedger.skippedDuplicate++;
@@ -3435,7 +3435,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             const persisted = await resolvePersistedAct(supabase, work_item_id, structuralTwinFp ?? fingerprint);
             if (persisted) {
               persistedAct = persisted;
-              knownActRows.push(toActIdentityCandidate(persisted, semanticKey));
+              knownActRows.push(toActIdentityCandidate(compactActIdentityRow(persisted), semanticKey));
             } else {
               throw new ActLoadError(`Persisted act not found on read-back (fp ${fingerprint.slice(0, 12)}); batch aborted`);
             }
