@@ -75,13 +75,13 @@ function loadReader(path: string, name: string, endMarker: string) {
   );
 }
 
-function database(rows: unknown[]) {
+function database(rows: unknown[], ledgerError: unknown = null) {
   return {
     from(table: string) {
       const q = {
         select: () => q,
         eq: () => q,
-        order: async () => ({ data: rows }),
+        order: async () => ({ data: ledgerError ? null : rows, error: ledgerError }),
         limit: async () => ({ data: table === "sync_item_failure_tracker" ? [] : rows }),
       };
       return q;
@@ -122,5 +122,13 @@ describe("daily KPI readers", () => {
       assert.equal(result.evidence_scope, "SELECTED_ACTUACIONES_ONLY");
       assert.deepEqual(result.unverified_reasons, []);
     }
+  });
+
+  it("does not present a failed ledger read as absence of work or success", async () => {
+    const reportResult = await report(database([], { message: "database unavailable" }));
+    const supervisorResult = await supervisor(database([], { message: "database unavailable" }), "org", "2026-11-08");
+    assert.match(reportResult.error, /cobertura desconocida/);
+    assert.equal(supervisorResult.fully_synced, false);
+    assert.ok(supervisorResult.unverified_reasons.includes("NO_LEDGER_OR_QUERY_FAILED"));
   });
 });

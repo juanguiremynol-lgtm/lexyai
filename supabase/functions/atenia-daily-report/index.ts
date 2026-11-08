@@ -188,13 +188,14 @@ async function __toolDeadLetterSummaryImpl(sb: any): Promise<Record<string, unkn
 
 async function toolPerOrgKPIs(sb: any): Promise<Record<string, unknown>> {
   const today = todayCOT();
-  const { data: rows } = await sb
+  const { data: rows, error } = await sb
     .from("auto_sync_daily_ledger")
     .select("organization_id, status, started_at, finished_at, expected_total_items, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, chain_id, is_continuation, failure_reason, metadata")
     .eq("run_date", today)
     .order("created_at", { ascending: true });
 
-  if (!rows || rows.length === 0) return { note: "No ledger entries for today" };
+  if (error) return { error: "No se pudo consultar el registro diario; cobertura desconocida." };
+  if (!rows || rows.length === 0) return { note: "No hay registros de sincronización para hoy; cobertura desconocida." };
 
   // Aggregate per org
   const orgMap: Record<string, any[]> = {};

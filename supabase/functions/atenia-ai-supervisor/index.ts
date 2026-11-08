@@ -2806,15 +2806,24 @@ Deno.serve(async (req) => {
       const reportOrg = orgIds[0] ?? "a0000000-0000-0000-0000-000000000001";
       const problemCount = healthSnapshot
         ? ((healthSnapshot.problem_orgs_today as unknown[]) || []).length
-        : 0;
+        : null;
+      const kpiReason = platformKPIs
+        ? `${platformKPIs.pct_fully_synced}% de organizaciones con evidencia suficiente, ${platformKPIs.total_dead_lettered_items} ítems en dead-letter`
+        : "no se pudieron calcular los indicadores";
+      const problemsReason = problemCount === null
+        ? "cantidad de organizaciones por verificar desconocida"
+        : `${problemCount} organizaciones por verificar`;
+      const kpiSummary = platformKPIs
+        ? `${platformKPIs.orgs_fully_synced}/${platformKPIs.total_orgs} organizaciones con evidencia suficiente`
+        : "indicadores no disponibles";
       try {
         await logAction(supabase, {
           actor: "ATENIA",
           organization_id: reportOrg,
           action_type: "DAILY_SYNC_KPI_REPORT",
           autonomy_tier: "OBSERVE",
-          reasoning: `Lote diario seleccionado de actuaciones: ${platformKPIs?.pct_fully_synced ?? 0}% de organizaciones con evidencia suficiente, ${platformKPIs?.total_dead_lettered_items ?? 0} ítems en dead-letter, ${problemCount} organizaciones por verificar. No certifica estados ni cobertura integral.`,
-          summary: `Lote de actuaciones: ${platformKPIs?.orgs_fully_synced ?? 0}/${platformKPIs?.total_orgs ?? 0} organizaciones con evidencia suficiente`,
+          reasoning: `Lote diario seleccionado de actuaciones: ${kpiReason}; ${problemsReason}. No certifica estados ni cobertura integral.`,
+          summary: `Lote de actuaciones: ${kpiSummary}`,
           evidence: {
             ...(platformKPIs as unknown as Record<string, unknown> ?? {}),
             health_snapshot: healthSnapshot,
