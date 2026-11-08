@@ -6251,6 +6251,27 @@ export type Database = {
           },
         ]
       }
+      daily_sync_health_definition_backup_20261108: {
+        Row: {
+          definition: string
+          installed_definition: string | null
+          saved_at: string
+          signature: string
+        }
+        Insert: {
+          definition: string
+          installed_definition?: string | null
+          saved_at?: string
+          signature: string
+        }
+        Update: {
+          definition?: string
+          installed_definition?: string | null
+          saved_at?: string
+          signature?: string
+        }
+        Relationships: []
+      }
       daily_update_cycles: {
         Row: {
           channels: Json
@@ -10715,6 +10736,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      guarded_acts_queue_audit_20261108: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          queue_id: string
+          reason: string
+          run_date: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          queue_id: string
+          reason: string
+          run_date: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          queue_id?: string
+          reason?: string
+          run_date?: string
+          work_item_id?: string
+        }
+        Relationships: []
       }
       hearing_ai_insights: {
         Row: {
@@ -18119,6 +18170,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sync_failure_evidence_recovery_audit_20261108: {
+        Row: {
+          id: string
+          organization_id: string
+          prior_tracker: Json
+          recovered_at: string
+          source_observed_at: string
+          sync_run_id: string
+          timeline_id: string
+          work_item_id: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          prior_tracker: Json
+          recovered_at?: string
+          source_observed_at: string
+          sync_run_id: string
+          timeline_id: string
+          work_item_id: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          prior_tracker?: Json
+          recovered_at?: string
+          source_observed_at?: string
+          sync_run_id?: string
+          timeline_id?: string
+          work_item_id?: string
+        }
+        Relationships: []
       }
       sync_full_sweep_runs: {
         Row: {
@@ -27776,6 +27860,10 @@ export type Database = {
           schedule: string
         }[]
       }
+      daily_sync_chain_evidence_20261108: {
+        Args: { _chain_id: string; _organization: string }
+        Returns: Json
+      }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
@@ -27941,10 +28029,20 @@ export type Database = {
           work_item_id: string
         }[]
       }
+      digest_recovery_eligible_recipients_20261107: {
+        Args: never
+        Returns: {
+          recipient_user_id: string
+        }[]
+      }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
       dispatch_missing_daily_digests_20261107: {
         Args: { _dry_run?: boolean; _owner?: string }
+        Returns: Json
+      }
+      dispatch_missing_eligible_digests_20261107: {
+        Args: { _dry_run?: boolean }
         Returns: Json
       }
       dispatch_missing_state_runs_20261107: {
@@ -27985,6 +28083,10 @@ export type Database = {
         Returns: string
       }
       emit_appellate_blindspot_alerts: { Args: never; Returns: Json }
+      enqueue_guarded_missing_acts_20261108: {
+        Args: { _dry_run?: boolean; _limit?: number }
+        Returns: Json
+      }
       estados_coverage_reconciliation: { Args: never; Returns: Json }
       estados_coverage_summary: { Args: never; Returns: Json }
       estados_probe_deferred_ids: {
@@ -28736,6 +28838,10 @@ export type Database = {
         Returns: number
       }
       reconcile_monitoring_invariant: { Args: never; Returns: Json }
+      reconcile_sync_failure_evidence_20261108: {
+        Args: { _dry_run?: boolean; _limit?: number }
+        Returns: Json
+      }
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
