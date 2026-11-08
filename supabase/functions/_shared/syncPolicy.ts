@@ -9,6 +9,7 @@
 
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
 import { publicReadVerdict } from "./publicReadVerdict.ts";
+import { ONLINE_SYNC_ELIGIBLE_WORKFLOWS } from "./onlineSyncEligibility.ts";
 
 // ────────────────────────────── Constants ──────────────────────────────
 
@@ -181,8 +182,8 @@ export const DEFAULT_STALENESS_GUARD_DAYS = 14;
 /** Retry jitter bounds in seconds */
 export const RETRY_JITTER_SECONDS: [number, number] = [30, 60];
 
-/** Workflows eligible for external provider sync */
-export const SYNC_ENABLED_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'] as const;
+/** Workflows eligible for external provider sync share the canonical list. */
+export const SYNC_ENABLED_WORKFLOWS = ONLINE_SYNC_ELIGIBLE_WORKFLOWS;
 
 /** Terminal stages that never need syncing */
 export const TERMINAL_STAGES = [
