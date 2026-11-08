@@ -30,8 +30,11 @@ MCP; no envía correo, no altera el estado del asunto, no reabre la admisión ni
 lanza consultas. Tiene un cron de 15 minutos y deduplica por asunto, canal, día
 y traza. Si la fecha inicial no es válida utiliza la última modificación; no
 declara que el proveedor haya fallado. Un éxito posterior solo supera una
-alerta antigua cuando acredita completitud y una observación más reciente del
-proveedor correspondiente. La prueba con datos transitorios se
+alerta antigua de actuaciones cuando acredita completitud y una observación
+más reciente del proveedor correspondiente; el vigilante conserva el mensaje
+anterior y enlaza la evidencia de recuperación. Una lectura de estados no
+cierra automáticamente la alerta: la certificación del plan diario no está
+disponible en ese historial. La prueba con datos transitorios se
 ejecuta dentro de una transacción revertida. Este vigilante no puede avisar
 mientras la propia base de datos esté caída.
 

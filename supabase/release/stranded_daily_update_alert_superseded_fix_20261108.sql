@@ -5,6 +5,38 @@ RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS 
 DECLARE v_inserted integer;
 BEGIN
   IF NOT pg_try_advisory_xact_lock(184257,281108) THEN RETURN 0; END IF;
+  -- Resolve existing warnings only with a later certified observation of the
+  -- same channel and applicable provider. Preserve the original warning.
+  WITH recovered AS (
+    SELECT DISTINCT ON(e.id) e.id,t.id AS timeline_id,t.metadata->>'source_observed_at' AS observed_at
+    FROM public.system_health_events e
+    JOIN public.work_items w ON w.id::text=e.metadata->>'work_item_id'
+      AND w.organization_id=e.organization_id
+    CROSS JOIN LATERAL (SELECT CASE
+      WHEN pg_input_is_valid(e.metadata->>'reference_time','timestamp with time zone')
+      THEN (e.metadata->>'reference_time')::timestamptz ELSE NULL END AS reference_time) ref
+    JOIN public.work_item_sync_timeline t ON t.work_item_id=w.id AND t.organization_id=e.organization_id
+      AND t.operation=CASE WHEN e.metadata->>'channel'='acts' THEN 'acts' ELSE 'publicaciones' END
+      AND lower(t.provider)=CASE WHEN e.metadata->>'channel'='acts' THEN
+        CASE WHEN w.workflow_type::text='CPACA' THEN 'samai' ELSE 'cpnu' END
+        ELSE CASE WHEN w.workflow_type::text='CPACA' THEN 'samai_estados' ELSE 'publicaciones' END END
+      AND t.status='success' AND t.error_code IS NULL AND t.metadata->>'source_complete'='true'
+      AND t.finished_at>ref.reference_time
+      AND CASE WHEN pg_input_is_valid(t.metadata->>'source_observed_at','timestamp with time zone')
+        THEN (t.metadata->>'source_observed_at')::timestamptz>ref.reference_time ELSE false END
+    WHERE e.service='DAILY_UPDATE_WATCHDOG' AND e.status='WARN'
+      AND e.metadata->>'kind'='DAILY_UPDATE_WITHOUT_TERMINAL_RESULT'
+      -- Publicaciones needs the full daily-plan certificate, which is not
+      -- carried by this timeline. Never auto-resolve that channel from it.
+      AND e.metadata->>'channel'='acts' AND ref.reference_time IS NOT NULL
+    ORDER BY e.id,t.finished_at DESC
+  )
+  UPDATE public.system_health_events e SET status='OK',
+    message='El intento histórico no registró cierre; una observación posterior completa del proveedor acredita la lectura posterior.',
+    metadata=e.metadata||jsonb_build_object('original_status',e.status,'original_message',e.message,
+      'resolution','LATER_CERTIFIED_SOURCE_OBSERVATION','resolution_recorded_at',now(),
+      'resolution_timeline_id',r.timeline_id,'resolution_source_observed_at',r.observed_at)
+  FROM recovered r WHERE e.id=r.id;
   INSERT INTO public.system_health_events(organization_id,service,status,message,metadata)
   SELECT c.organization_id,'DAILY_UPDATE_WATCHDOG','WARN',
     CASE WHEN x.channel='acts' THEN
@@ -32,6 +64,7 @@ BEGIN
     -- historical open attempt. A generic timestamp or another channel cannot.
     AND NOT EXISTS (SELECT 1 FROM public.work_item_sync_timeline t
       WHERE t.work_item_id=c.work_item_id
+        AND x.channel='acts'
         AND t.operation=CASE WHEN x.channel='acts' THEN 'acts' ELSE 'publicaciones' END
         AND lower(t.provider)=CASE WHEN x.channel='acts' THEN
           CASE WHEN w.workflow_type::text='CPACA' THEN 'samai' ELSE 'cpnu' END

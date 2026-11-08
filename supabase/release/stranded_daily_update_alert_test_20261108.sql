@@ -71,6 +71,25 @@ BEGIN
   IF EXISTS(SELECT 1 FROM public.system_health_events WHERE metadata->>'trace_id'='test-watchdog-superseded') THEN
     RAISE EXCEPTION 'a certified later source observation must supersede the warning';
   END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.system_health_events WHERE metadata->>'trace_id'='test-watchdog-old'
+    AND status='OK' AND metadata->>'original_status'='WARN'
+    AND metadata->>'original_message' IS NOT NULL AND metadata->>'resolution_timeline_id' IS NOT NULL) THEN
+    RAISE EXCEPTION 'later certified recovery must resolve the original warning and preserve evidence';
+  END IF;
+  -- A generic complete states read is not a complete PP daily-plan certificate.
+  INSERT INTO public.work_item_sync_timeline(work_item_id,organization_id,provider,operation,status,
+    function_name,started_at,finished_at,metadata)
+  VALUES(v_work,v_org,CASE WHEN v_workflow='CPACA' THEN 'samai_estados' ELSE 'publicaciones' END,
+    'publicaciones','success','watchdog-test',now()-interval '2 minutes',now()-interval '1 minute',
+    jsonb_build_object('source_complete',true,'source_observed_at',now()-interval '1 minute'));
+  UPDATE public.daily_update_cycles SET channels=jsonb_build_object(
+    'pubs',jsonb_build_object('status','STARTED','started_at',now()-interval '31 minutes','trace_id','test-watchdog-pubs'))
+    WHERE work_item_id=v_work AND run_date=v_date;
+  PERFORM public.alert_stranded_daily_updates_20261108();
+  PERFORM public.alert_stranded_daily_updates_20261108();
+  IF NOT EXISTS(SELECT 1 FROM public.system_health_events WHERE metadata->>'trace_id'='test-watchdog-pubs' AND status='WARN') THEN
+    RAISE EXCEPTION 'generic states completeness must not suppress or resolve a daily-plan warning';
+  END IF;
   IF has_function_privilege('anon','public.alert_stranded_daily_updates_20261108()','execute')
     OR has_function_privilege('authenticated','public.alert_stranded_daily_updates_20261108()','execute')
     OR NOT has_function_privilege('service_role','public.alert_stranded_daily_updates_20261108()','execute') THEN
