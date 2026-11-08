@@ -27943,6 +27943,10 @@ export type Database = {
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
+      dispatch_missing_daily_digests_20261107: {
+        Args: { _dry_run?: boolean; _owner?: string }
+        Returns: Json
+      }
       dispatch_missing_state_runs_20261107: {
         Args: { _dry_run?: boolean }
         Returns: Json
