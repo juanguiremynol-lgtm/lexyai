@@ -27319,6 +27319,7 @@ export type Database = {
         Args: { p_alert_type: string; p_entity_id: string; p_owner_id: string }
         Returns: string
       }
+      alert_stranded_daily_updates_20261108: { Args: never; Returns: number }
       alert_title_is_generic: { Args: { p_title: string }; Returns: boolean }
       append_work_item_note: {
         Args: { _entry: string; _work_item: string }
