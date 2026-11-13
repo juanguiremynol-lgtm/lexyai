@@ -28,3 +28,6 @@ GRANT EXECUTE ON FUNCTION public.mcp_add_email_association(uuid, uuid, text) TO 
 GRANT EXECUTE ON FUNCTION public.mcp_resolve_detected_process(uuid, text, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_assign_work_item_radicado(uuid, text, timestamptz, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mcp_update_work_item(uuid, jsonb, boolean, text, text) TO authenticated;
+-- 0102 client directory writes: gated identically; root applies only after review of 0102 and supabase/tests/mcp_client_directory.sql.
+GRANT EXECUTE ON FUNCTION public.mcp_create_client(text, text, text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mcp_update_client(uuid, jsonb, timestamptz, text) TO authenticated;
