@@ -41,6 +41,7 @@ import {
 
 const BG = "#0f172a";
 const CARD = "#111c34";
+export const DIGEST_RENDERER_REVISION = "20261113-window-summary";
 const BORDER = "#334155";
 const TEXT = "#e2e8f0";
 const MUTED = "#94a3b8";

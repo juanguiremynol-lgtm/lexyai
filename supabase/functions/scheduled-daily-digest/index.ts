@@ -35,7 +35,7 @@ import {
   notYetDispatched,
   recordDispatch,
 } from "../_shared/notificationChannel.ts";
-import { buildDigestHtml } from "./html.ts";
+import { buildDigestHtml, DIGEST_RENDERER_REVISION } from "./html.ts";
 import { googleCalendarUrl, hearingEvent, outlookCalendarUrl, termEvent } from "../_shared/calendarExport.ts";
 import type { CalendarLinks } from "./types.ts";
 import type { FechaPorPerderRow } from "./types.ts";
@@ -155,7 +155,9 @@ interface TokenSpec {
 
 Deno.serve(async (req) => {
   fechasPorPerderPromise = null; // fresh per invocation
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: { ...corsHeaders, "X-Digest-Renderer-Revision": DIGEST_RENDERER_REVISION } });
+  }
 
   // AUDIT FINDING 2 — the digest reads every firm's matters and enqueues mail.
   // Verified before the service-role client, the run claim or the heartbeat.
