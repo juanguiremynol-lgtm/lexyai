@@ -3,6 +3,8 @@ import {
   pubArticleIdFromRow,
   type ProviderPubUnit, type CanonicalPubContext, type CanonicalPubRow,
 } from './canonicalPublicacionMapper.ts';
+import { officialPortalRecoveryHash, publicPpDocumentCorrespondence } from './estadoAttachmentRecovery.ts';
+import { verifyDeclaredCasePages } from './publisherResolution.ts';
 
 /** The PP seven-column extractor explicitly labels FECHA AUTO and verifies the
  * court, case, article and row. fecha_iso alone is a fallback cascade and is
@@ -70,4 +72,80 @@ export function hasExplicitPPDates(unit: ProviderPubUnit): boolean {
   const estado = raw.estado as Record<string, unknown> | undefined;
   return [raw.fecha_providencia_impresa, estado?.fecha_publicacion_portal, estado?.fecha_fijacion_impresa]
     .some(value => typeof value === 'string' && plausibleCivilDate(parseDate(value)) !== null);
+}
+
+interface OfficialStateCandidate {
+  id: string; raw_data?: Record<string, any>; tipo_publicacion?: string | null;
+  hash_fingerprint?: string; is_archived?: boolean; pdf_available?: boolean;
+  pdf_storage_path?: string; pdf_url?: string; fecha_fijacion?: string;
+  fecha_providencia?: string; published_at?: string;
+}
+
+/** Independent evidence from the official portal recovery and the provider's
+ * rendered original. Never apply this title-independent identity to orders. */
+export function officialStateReplay(row: CanonicalPubRow, candidates: OfficialStateCandidate[]) {
+  const unit = row.raw_data as ProviderPubUnit;
+  const raw = (unit.raw_data ?? {}) as Record<string, any>;
+  const radicado = row.source_radicado;
+  const article = pubArticleIdFromRow(row);
+  if (row.source !== 'publicaciones' || row.tipo_publicacion !== 'Estado Electrónico' ||
+      !radicado || !/^\d{23}$/.test(radicado) || !article || !/^\d+$/.test(article)) return null;
+  const states = candidates.filter(c => c.tipo_publicacion === row.tipo_publicacion && pubArticleIdFromRow(c) === article);
+  if (states.length !== 1) return null;
+  const old = states[0], stored = old.raw_data;
+  if (!old.id || !old.hash_fingerprint || old.hash_fingerprint === row.hash_fingerprint ||
+      old.is_archived !== false || !old.pdf_available || !old.pdf_storage_path ||
+      stored?.fuente !== 'portal_oficial_publicaciones_procesales' ||
+      !Array.isArray(stored.recuperacion_oficial) || stored.recuperacion_oficial.length !== 1) return null;
+
+  const rec = stored.recuperacion_oficial[0], state = raw.estado;
+  const attribution = raw.documento_atribucion;
+  const printed = state?.fecha_fijacion_impresa, portal = state?.fecha_publicacion_portal;
+  if (!rec || !state || !printed || !portal || plausibleCivilDate(printed) !== printed ||
+      plausibleCivilDate(portal) !== portal || old.fecha_fijacion?.slice(0,10) !== printed ||
+      old.published_at?.slice(0,10) !== portal || rec.fecha !== printed ||
+      (row.fecha_providencia != null && old.fecha_providencia?.slice(0,10) !== row.fecha_providencia.slice(0,10)) ||
+      !unit.estado_numero || stored.estado_numero !== unit.estado_numero ||
+      String(rec.article_id) !== article || attribution?.radicado !== radicado ||
+      attribution.asociacion_no_acreditada || !Array.isArray(attribution.originales)) return null;
+
+  const url = rec.url, sha = rec.sha256, archive = raw.gcs_url_pdf_estado;
+  const source = typeof url === 'string' ? URL.parse(url) : null;
+  const recovery = typeof url === 'string' && officialPortalRecoveryHash(old, url);
+  const linked = row.pdf_url && publicPpDocumentCorrespondence(row, row.pdf_url);
+  if (!recovery || !source || source.username || source.password ||
+      !/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(source.searchParams.get('uuid') ?? '') ||
+      url !== state.pdf_url || old.pdf_url !== url || recovery.expected_sha256 !== sha ||
+      !linked || linked.document_kind !== 'estado' || linked.article_id !== article ||
+      linked.source_gcs_url !== archive || !archive.endsWith(`/${sha}.pdf`) ||
+      !Number.isSafeInteger(rec.bytes) || rec.bytes <= 0 ||
+      !Number.isSafeInteger(rec.paginas) || rec.paginas <= 0) return null;
+  const originals = attribution.originales.filter((o: Record<string, unknown>) => o?.tipo === 'estado');
+  if (originals.length !== 1 || originals[0].metodo !== 'pymupdf_render' || originals[0].lectura_comprobada !== true ||
+      originals[0].url_origen !== url || originals[0].url_original !== archive ||
+      originals[0].paginas_renderizadas !== rec.paginas ||
+      (rec.paquete && rec.paquete.radicado !== radicado)) return null;
+  return { id:old.id, path:old.pdf_storage_path, url, sha, article, printed,
+    bytes:rec.bytes, pages:rec.paginas, court:rec.id_despacho, radicado, casePages:rec.paquete?.paginas_caso };
+}
+
+type OfficialStateProof = NonNullable<ReturnType<typeof officialStateReplay>>;
+
+/** The downloaded queue entry binds the persisted file's SHA and size to
+ * the source recovery. A sample reading is sufficient for file identity. */
+export function officialAttachmentMatches(proof: OfficialStateProof, entries: Array<Record<string, any>>): boolean {
+  if (entries.length !== 1) return false;
+  const q = entries[0], v = q.validation_evidence, r = v?.reading, c = v?.correspondence;
+  if (proof.casePages && (v?.paquete?.verificado !== true || v.paquete.radicado !== proof.radicado ||
+      !Array.isArray(v.paquete.paginas_localizadas) ||
+      !proof.casePages.every((range: unknown) => Array.isArray(range) && range.length === 2 &&
+        range.every(n => Number.isSafeInteger(n) && n > 0 && n <= proof.pages)) ||
+      !verifyDeclaredCasePages(v.paquete.paginas_localizadas, proof.casePages))) return false;
+  return q.status === 'downloaded' && q.publicacion_id === proof.id && !!q.id && v?.queue_id === q.id &&
+    v.publicacion_id === proof.id && q.storage_path === proof.path && q.remote_url === proof.url &&
+    v.state === 'verified' && v.source_url === proof.url && r?.sha256 === proof.sha &&
+    r.bytes === proof.bytes && r.pages === proof.pages && Number.isInteger(r.pagesRead) &&
+    r.pagesRead > 0 && r.pagesRead <= r.pages && c?.method === 'official_portal_recovery' &&
+    c.expected_sha256 === proof.sha && c.id_despacho === proof.court &&
+    String(c.article_id) === proof.article && c.fecha === proof.printed;
 }

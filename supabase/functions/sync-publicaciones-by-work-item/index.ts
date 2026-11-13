@@ -69,7 +69,7 @@ import {
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 import { publicationDownloadUrls, samaiEstadosToProviderUnits } from "../_shared/samaiEstadosIngestion.ts";
 import { withRetainedOfficialPublicationUrls } from "../_shared/publicationRecoveryUrls.ts";
-import { ppExplicitPublicationDates, hasExplicitPPDates, conflictingPPNativeRows } from '../_shared/ppExplicitPublicationDates.ts';
+import { ppExplicitPublicationDates, hasExplicitPPDates, conflictingPPNativeRows, officialStateReplay, officialAttachmentMatches } from '../_shared/ppExplicitPublicationDates.ts';
 import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
@@ -1637,7 +1637,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261113-pp-read-evidence-2' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261113-pp-official-replay-3' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -2937,12 +2937,29 @@ Deno.serve(withSyncTimeline(async (req) => {
         if (articleId && /^\d+$/.test(articleId)) {
           const { data: nativeRows, error: nativeError } = await supabase
             .from('work_item_publicaciones')
-            .select('id,raw_data,tipo_publicacion,hash_fingerprint')
+            .select('id,raw_data,tipo_publicacion,hash_fingerprint,is_archived,pdf_available,pdf_storage_path,pdf_url,fecha_fijacion,fecha_providencia,published_at')
             .eq('work_item_id', work_item_id)
             .eq('organization_id', workItem.organization_id)
             .eq('source', 'publicaciones')
             .or(`raw_data->>article_id.eq.${articleId},raw_data->estado->>article_id.eq.${articleId},raw_data->raw_data->estado->>article_id.eq.${articleId},raw_data->>key.like.estado:${articleId}:*,raw_data->>key.like.individual:${articleId}:*`);
           const conflicts = nativeError ? [] : conflictingPPNativeRows(canonicalRow, nativeRows ?? []);
+          if (conflicts.length === 1) {
+            const proof = officialStateReplay(canonicalRow, nativeRows ?? []);
+            if (proof) {
+              const { data: files, error } = await supabase.from('estado_attachment_queue')
+                .select('id,publicacion_id,remote_url,storage_path,status,validation_evidence')
+                .eq('work_item_id', work_item_id).eq('organization_id', workItem.organization_id)
+                .eq('publicacion_id', proof.id).eq('status', 'downloaded')
+                .eq('remote_url', proof.url).eq('storage_path', proof.path).limit(2);
+              if (!error && officialAttachmentMatches(proof, files ?? [])) {
+                result.skipped_count++;
+                pubLedger.parsed++;
+                pubLedger.skippedDuplicate++;
+                pubLedger.outcomes.push({ bucket:'SKIPPED_DUPLICATE', reason:'PP_VERIFIED_OFFICIAL_ORIGINAL', publicacion_id:proof.id });
+                continue;
+              }
+            }
+          }
           if (nativeError || conflicts.length > 0) {
             const reason = nativeError ? 'PP_NATIVE_IDENTITY_LOOKUP_FAILED' : 'PP_NATIVE_DATE_CONFLICT';
             result.error_code = reason;
@@ -3641,7 +3658,7 @@ Deno.serve(withSyncTimeline(async (req) => {
             error_count: pubLedger.errored,
             unaccounted_count: pubUnaccounted,
             outcomes: pubLedger.outcomes
-              .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
+              .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE' || o.reason === 'PP_VERIFIED_OFFICIAL_ORIGINAL')
               .slice(0, 200),
           });
         } catch { /* ledger is best-effort */ }

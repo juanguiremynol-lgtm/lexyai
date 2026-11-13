@@ -12,6 +12,27 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
     {tipo:'auto',titulo:'Estado 38.pdf',fecha:'14/10/2026',pdf_url:'https://example.invalid/auto.pdf'},
     {tipo:'estado',titulo:'Estado 38.pdf',fecha:'15-octubre-2026',pdf_url:'https://example.invalid/estado.pdf'}]};
   const old=toCanonicalPubRow(explodeProviderPublicaciones([raw])[0],{work_item_id:item,organization_id:'org-fixture',source:'publicaciones'});
+  const article='123456', caseDay='2026-10-15', portal='2026-10-14', digest='a'.repeat(64);
+  const origin='https://publicacionesprocesales.ramajudicial.gov.co/c/document_library/get_file?uuid=11111111-1111-4111-8111-111111111111';
+  const key=`${radicado}/raw/estados/${digest}.pdf`;
+  const proxy='https://publicaciones-procesales-api-11974381924.us-central1.run.app/pdf/'+btoa(key).replaceAll('=','');
+  const archive='https://storage.googleapis.com/andromeda-pp-documentos-2026/'+key;
+  const actual={...raw,estado:{...raw.estado,fecha_publicacion_portal:portal,fecha_fijacion_impresa:caseDay,pdf_url:origin},
+    gcs_url_pdf_estado:archive, documentos_pdf:[raw.documentos_pdf[0],{...raw.documentos_pdf[1],pdf_url:proxy}],
+    documento_atribucion:{radicado,originales:[{tipo:'estado',metodo:'pymupdf_render',lectura_comprobada:true,
+      url_origen:origin,url_original:archive,paginas_renderizadas:4}]}};
+  const recovered={id:'archive-ref',tipo_publicacion:'Estado Electrónico',hash_fingerprint:'editorial-title',
+    fecha_fijacion:caseDay,published_at:portal,fecha_providencia:'2026-10-14',is_archived:false,pdf_available:true,
+    pdf_storage_path:'recovered/verified.pdf',pdf_url:origin,raw_data:{article_id:article,estado_numero:'38',
+      fuente:'portal_oficial_publicaciones_procesales',recuperacion_oficial:[{article_id:article,fecha:caseDay,
+        id_despacho:'court',url:origin,sha256:digest,bytes:2048,paginas:4,
+        paquete:{radicado,paginas_caso:[[2,3]],despacho_autor_nombre:'Juzgado de prueba'}}]}};
+  const queue={id:'queue-ref',publicacion_id:recovered.id,status:'downloaded',remote_url:origin,storage_path:recovered.pdf_storage_path,
+    validation_evidence:{state:'verified',publicacion_id:recovered.id,queue_id:'queue-ref',source_url:origin,
+      reading:{sha256:digest,bytes:2048,pages:4,pagesRead:2},
+      paquete:{radicado,paginas_localizadas:[2],verificado:true},correspondence:{method:'official_portal_recovery',
+        expected_sha256:digest,article_id:article,fecha:caseDay,id_despacho:'court'}}};
+  let recovery: 'valid'|'hash'|'date'|'queue'|'radicado'|'role'|'wrong-pages'|'ambiguous'|null=null;
   let explicit=false, mixed=false, duplicate=false, insertedFingerprint='';
   let windowOutcome: 'SUCCESS_EMPTY' | 'SUCCESS_WITH_DATA' | null = null;
   let retainedInventory = true;
@@ -28,7 +49,13 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
         ventana_solicitada:{desde:windowDate(-14),hasta:windowDate(0)}, intento_observado_en:observedAt,
         consulta_completa_plan_diario:false, recuperacion_documental_completa:false, actuaciones:retainedInventory ? [raw] : []});
     }
-    if(u.host==='pp-fixture.invalid' && (u.pathname===`/historico/${radicado}` || u.pathname==='/procesar-radicado')) return json({radicado,consulta_completa:true,persistencia_completa:true,actuaciones:[{...raw,estado:{...raw.estado,...(explicit?{fecha_fijacion_impresa:'2026-10-15'}:{})}},...(mixed?[{estado:{article_id:'987654',numero:'39',fecha_publicacion:'16-octubre-2026',titulo_original:'Estado 39'},documentos_pdf:[]}]:[])]});
+    if(u.host==='pp-fixture.invalid' && (u.pathname===`/historico/${radicado}` || u.pathname==='/procesar-radicado')) {
+      const incoming=structuredClone(actual);
+      if(recovery==='radicado')incoming.documento_atribucion.radicado='11001400300120260012400';
+      if(recovery==='role')incoming.documento_atribucion.originales[0].tipo='auto';
+      return json({radicado,consulta_completa:true,persistencia_completa:true,actuaciones:[recovery?incoming:
+        {...raw,estado:{...raw.estado,...(explicit?{fecha_fijacion_impresa:'2026-10-15'}:{})}},...(mixed?[{estado:{article_id:'987654',numero:'39',fecha_publicacion:'16-octubre-2026',titulo_original:'Estado 39'},documentos_pdf:[]}]:[])]});
+    }
     if(u.host==='db-fixture.invalid'){
       if(u.pathname==='/rest/v1/rpc/admit_daily_update')return json(duplicate
         ? {admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:'2026-11-06',existing:{status:'PENDING_UPSTREAM'}}
@@ -36,6 +63,16 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
       if(u.pathname==='/rest/v1/rpc/claim_pp_stored_result_read')return json({claimed:true,next_read_at:'2026-11-06T16:00:00Z'});
       if(u.pathname==='/rest/v1/work_items')return req.method==='GET'?json({id:item,owner_id:'owner',organization_id:'org-fixture',workflow_type:'CGP',radicado,monitoring_enabled:true,deleted_at:null,last_synced_at:null}):json(null);
       if(u.pathname==='/rest/v1/cron_state')return json(null);
+      if(recovery && u.pathname==='/rest/v1/estado_attachment_queue') {
+        assert.equal(req.method,'GET');
+        assert.equal(u.searchParams.get('organization_id'),'eq.org-fixture');
+        assert.equal(u.searchParams.get('work_item_id'),'eq.'+item);
+        const certificate=structuredClone(queue);
+        if(recovery==='queue')return json({message:'read failed'},500);
+        if(recovery==='hash')certificate.validation_evidence.reading.sha256='b'.repeat(64);
+        if(recovery==='wrong-pages')certificate.validation_evidence.paquete.paginas_localizadas=[4];
+        return json([certificate]);
+      }
       if(windowOutcome && u.pathname==='/rest/v1/estado_attachment_queue')return json(null,201);
       if(u.pathname==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'){
         const body=await req.json();insertedFingerprint=JSON.parse(body.records)[0].hash_fingerprint;
@@ -45,6 +82,11 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
       }
       if(u.pathname==='/rest/v1/provider_category_routes_global' || u.pathname==='/rest/v1/provider_category_routes_org_override')return json([]);
       if(u.pathname==='/rest/v1/work_item_publicaciones'){
+        if(recovery && u.searchParams.get('select')?.startsWith('id,raw_data,tipo_publicacion,')){
+          const stored=structuredClone(recovered);
+          if(recovery==='date')stored.fecha_fijacion=portal;
+          return json(recovery==='ambiguous'?[stored,{...stored,id:'second'}]:[stored]);
+        }
         if(u.searchParams.get('select')==='id,raw_data')return json({id:'22222222-2222-4222-8222-222222222222',raw_data:{}});
         if(u.searchParams.get('select')==='hash_fingerprint')return json([{hash_fingerprint:insertedFingerprint}]);
         if(windowOutcome) return json([]);
@@ -73,6 +115,24 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
       assert.equal(pubCalls.length,1);
       assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
     });
+    for(const scenario of ['valid','hash','date','queue','radicado','role','wrong-pages','ambiguous'] as const){
+      await t.step('official archived state replay - '+scenario,async()=>{
+        recovery=scenario;
+        try{
+          const result=await invoke();
+          if(scenario==='valid'){
+            assert.equal(result.skipped_count,1,JSON.stringify(result));
+            assert.equal(result.source_complete,false); assert.equal(result.result_code,'PENDING_UPSTREAM');
+            assert.deepEqual(result.errors,[]); assert.equal(result.inserted_count,0);
+          }else{
+            assert.equal(result.error_code,'PP_NATIVE_DATE_CONFLICT',JSON.stringify(result));
+            assert.equal(result.ok,false);
+          }
+          assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
+          assert.equal(calls.some(c=>c.path==='/rest/v1/estado_attachment_queue' && c.method!=='GET'),false);
+        }finally{recovery=null;}
+      });
+    }
     await t.step('one inserted state plus legacy conflict stays pending and never advances the baseline',async()=>{
       mixed=true;explicit=false;const result=await invoke();assert.ok(JSON.stringify(result).includes('PP_NATIVE_DATE_CONFLICT'));
       assert.equal(result.inserted_count,1);assert.equal(result.ok,false);assert.equal(result.status,'PENDING_UPSTREAM');assert.equal(result.result_code,'PENDING_UPSTREAM');

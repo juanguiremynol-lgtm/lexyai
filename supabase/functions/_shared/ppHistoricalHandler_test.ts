@@ -44,7 +44,7 @@ Deno.test({name:'historical replay through the real handler is scoped, idempoten
       if(u.pathname==='/rest/v1/estado_attachment_queue')return json(null,201);
       if(u.pathname==='/rest/v1/work_item_publicaciones'){
         const selection=u.searchParams.get('select');
-        if(selection==='id,raw_data,tipo_publicacion,hash_fingerprint')return json(stored?[{id:pub,raw_data:write.raw_data,tipo_publicacion:write.tipo_publicacion,hash_fingerprint:write.hash_fingerprint}]:[]);
+        if(selection?.startsWith('id,raw_data,tipo_publicacion,hash_fingerprint,'))return json(stored?[{id:pub,raw_data:write.raw_data,tipo_publicacion:write.tipo_publicacion,hash_fingerprint:write.hash_fingerprint}]:[]);
         if(selection==='id,raw_data')return json({id:pub,raw_data:write?.raw_data});
         if(selection==='hash_fingerprint')return brokenReadback?json({message:'fixture readback error'},503):json([{hash_fingerprint:write.hash_fingerprint}]);
       }
@@ -65,7 +65,7 @@ Deno.test({name:'historical replay through the real handler is scoped, idempoten
       const response=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({health_check:true})}));
       assert.equal(response.status,200);
-      assert.equal((await response.json()).revision,'20261113-pp-read-evidence-2');
+      assert.equal((await response.json()).revision,'20261113-pp-official-replay-3');
       assert.deepEqual(calls,[]);
     });
     await t.step('inserts one exact row, without a scraper POST, daily admission or freshness write',async()=>{
