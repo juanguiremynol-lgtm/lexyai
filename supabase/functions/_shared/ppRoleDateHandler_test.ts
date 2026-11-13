@@ -84,6 +84,8 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
       assert.equal(result.ok,false);assert.equal(result.provider_used,'publicaciones');
       assert.equal(result.error_code,'PP_STORED_READ_INCOMPLETE');assert.equal(result.source_complete,false);
       assert.equal(result.deduplicated,true);assert.ok(result.stored_result_read.reason);
+      assert.equal(result.stored_result_read.endpoint,'historico');
+      assert.equal(result.stored_result_read.identity_match,false);
       assert.equal(calls.some(c=>c.path==='/procesar-radicado'),false);
       assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);
     });

@@ -65,7 +65,7 @@ Deno.test({name:'historical replay through the real handler is scoped, idempoten
       const response=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',
         headers:{'content-type':'application/json'},body:JSON.stringify({health_check:true})}));
       assert.equal(response.status,200);
-      assert.equal((await response.json()).revision,'20261113-pp-window-1');
+      assert.equal((await response.json()).revision,'20261113-pp-read-evidence-2');
       assert.deepEqual(calls,[]);
     });
     await t.step('inserts one exact row, without a scraper POST, daily admission or freshness write',async()=>{

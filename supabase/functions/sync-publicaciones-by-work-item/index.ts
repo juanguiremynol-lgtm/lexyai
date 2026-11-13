@@ -45,7 +45,7 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
 import { redundantSamaiPublicationRoute } from "../_shared/storedSamaiRead.ts";
-import { certifiedStoredPPHistory, mayReadStoredPP } from '../_shared/storedPublicationRead.ts';
+import { certifiedStoredPPHistory, mayReadStoredPP, storedReadEvidence } from '../_shared/storedPublicationRead.ts';
 import { certifiedHistoricalRows, parseHistoricalWindow, type HistoricalWindow } from '../_shared/ppHistoricalReplay.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -1637,7 +1637,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261113-pp-window-1' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261113-pp-read-evidence-2' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -2080,8 +2080,7 @@ Deno.serve(withSyncTimeline(async (req) => {
               provider_used: 'publicaciones', source_complete: false, source_query_attempted: false,
               error_code: 'PP_STORED_READ_INCOMPLETE',
               error_message: 'La lectura almacenada de Publicaciones Procesales no acredita la vigilancia diaria.',
-              stored_result_read: { backend_run_id: stored.runStatusRead?.run_id ?? null,
-                reason: stored.error ?? 'PP_CERTIFICATE_NOT_VALID_FOR_CURRENT_WINDOW' } }, 200);
+              stored_result_read: storedReadEvidence(stored, normalizedRadicado) }, 200);
           }
           certifiedStoredResult = certificate ? { ...stored, durableCompleted: true } : stored;
           // Same reuse contract SAMAI already stamps; consumed by estadosMonitor.ts
