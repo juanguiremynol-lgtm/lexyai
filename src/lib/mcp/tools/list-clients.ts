@@ -18,7 +18,7 @@ export default defineTool({
 
     let q = sb
       .from("clients")
-      .select("id, name, id_number, email, city, created_at")
+      .select("id, name, id_number, email, city, created_at, updated_at")
       .is("deleted_at", null)
       .order("name", { ascending: true })
       .limit(limit ?? 50);

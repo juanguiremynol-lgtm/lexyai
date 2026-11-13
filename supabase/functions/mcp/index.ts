@@ -1124,7 +1124,7 @@ var list_clients_default = defineTool10({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    let q = sb.from("clients").select("id, name, id_number, email, city, created_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
+    let q = sb.from("clients").select("id, name, id_number, email, city, created_at, updated_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
     if (search) q = q.or(`name.ilike.%${search}%,id_number.ilike.%${search}%`);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
@@ -1157,7 +1157,7 @@ var get_client_default = defineTool11({
     if (unauth) return errorResult(unauth);
     if (!client_id && !name) return errorResult("Indica client_id o name.");
     const sb = sbForUser(ctx);
-    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
+    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at, updated_at").is("deleted_at", null).limit(1);
     if (client_id) q = q.eq("id", client_id);
     else if (name) q = q.ilike("name", `%${name}%`);
     const { data, error } = await q;
