@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-16",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-17",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.10",
+      "version": "0.6.11",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -699,6 +699,134 @@
               "description": "Nombre del cliente (coincidencia parcial)."
             }
           },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_client",
+        "title": "Crear cliente",
+        "description": "Creates a client (name, identification, email, city) in the user's directory. Never merges by name; if the same normalized identification already exists for this user it returns a conflict with that client's id and creates nothing. Requires manage grant and idempotency_key.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "description": "Nombre o razón social."
+            },
+            "id_number": {
+              "type": "string",
+              "maxLength": 60,
+              "description": "Identificación (cédula/NIT); se compara normalizada (sin puntos, guiones ni espacios)."
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 200
+            },
+            "city": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "name",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_client",
+        "title": "Corregir datos de un cliente",
+        "description": "Corrects name, identification, email or city of an own, non-archived client. Requires expected_updated_at (from get_client/list_clients); a stale revision or an identification already used by another of the user's clients changes nothing. Null clears identification, email or city. Requires manage grant and idempotency_key.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del cliente."
+            },
+            "expected_updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "updated_at leído del cliente; si cambió, no se modifica nada."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "id_number": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "email",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "city": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "id",
+            "expected_updated_at",
+            "idempotency_key"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },

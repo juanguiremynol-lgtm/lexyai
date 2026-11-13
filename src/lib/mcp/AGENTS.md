@@ -1,1 +1,0 @@
-- MCP client directory writes (mcp_create_client/mcp_update_client) never merge by name: same-owner normalized identification yields an audited conflict under an owner+identification advisory lock; edits require expected_updated_at — prevents duplicates and silent overwrites.
