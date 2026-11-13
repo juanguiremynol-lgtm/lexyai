@@ -17,7 +17,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { AlertCircle, CheckCircle2, Clock, GitCommit, MinusCircle, XCircle } from "lucide-react";
 import { isProviderAttributable } from "@/lib/syncVocabulary";
-import { storedReadDetail, timelinePresentation, type TimelinePresentation } from "@/lib/sync-timeline-presentation";
+import { publicWindowDetail, storedReadDetail, timelinePresentation, type TimelinePresentation } from "@/lib/sync-timeline-presentation";
 
 interface Props {
   workItemId: string;
@@ -44,6 +44,7 @@ interface TimelineRow {
 
 const STATUS_META: Record<TimelinePresentation, { label: string; variant: "default" | "destructive" | "secondary" | "outline"; Icon: typeof CheckCircle2 }> = {
   success: { label: "Consulta con resultados", variant: "default", Icon: CheckCircle2 },
+  window_verified: { label: "Ventana verificada · resultado sin desglosar", variant: "outline", Icon: Clock },
   error: { label: "Error", variant: "destructive", Icon: XCircle },
   empty: { label: "Sin resultados", variant: "secondary", Icon: MinusCircle },
   skipped: { label: "Consulta no realizada", variant: "outline", Icon: Clock },
@@ -154,6 +155,7 @@ export function SyncTimelineTab({ workItemId }: Props) {
         <CardContent className="space-y-2">
           {data.map((row) => {
             const presentation = timelinePresentation(row);
+            const publicWindow = publicWindowDetail(row.metadata);
             const meta = STATUS_META[presentation];
             const Icon = meta.Icon;
             return (
@@ -187,6 +189,7 @@ export function SyncTimelineTab({ workItemId }: Props) {
                   {storedReadDetail(row.metadata) && (
                     <div className="text-xs text-muted-foreground">{storedReadDetail(row.metadata)}</div>
                   )}
+                  {publicWindow && <div className="text-xs text-muted-foreground">{publicWindow}</div>}
                   {(row.records_inserted > 0 || row.records_skipped > 0) && (
                     <div className="text-xs text-muted-foreground">
                       +{row.records_inserted} nuevas · {row.records_skipped} omitidas

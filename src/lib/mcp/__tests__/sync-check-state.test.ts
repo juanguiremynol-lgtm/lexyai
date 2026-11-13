@@ -4,6 +4,14 @@ import { COVERAGE_UNVERIFIED_LABEL, DEDUP_LABEL, EMPTY_UNVERIFIED_LABEL, isVerif
 const RAD = "05001400300120250000100"; // synthetic 23-digit radicado
 
 describe("get_work_item verified-success contract", () => {
+  it("communicates a scoped empty result even when old rows were processed", () => {
+    const row={provider:"publicaciones",status:"empty",error_code:null,records_skipped:6,metadata:{
+      source_complete:true,source_observed_at:new Date().toISOString(),pp_window:{
+        outcome:"SUCCESS_EMPTY",from:"2026-10-30",to:"2026-11-13",daily_plan_complete:false,documents_complete:false}}};
+    expect(syncCheckState(RAD,row).state).toBe("SIN_NOVEDADES");
+    expect(syncCheckState(RAD,row).label).toContain("Plan diario parcial");
+    expect(sourceEvidence(row).ventana_publica?.recuperacion_documental_completa).toBe(false);
+  });
   it("old false-green rows are never 'Consulta exitosa'", () => {
     for (const row of [
       { provider: "unknown", status: "success", error_code: "PROVIDER_UNRESOLVED", records_skipped: 11 },
@@ -17,6 +25,14 @@ describe("get_work_item verified-success contract", () => {
       expect(isVerifiedSuccess(row)).toBe(false);
       expect(publicCheckStatus(row)).toBe("unverified");
     }
+  });
+
+  it("keeps a legacy certificate without claiming an upstream result from skipped rows", () => {
+    const row = {provider:"publicaciones",status:"success",error_code:null,records_inserted:0,records_skipped:6,
+      metadata:{source_complete:true,source_observed_at:new Date().toISOString(),reused_completed_read:true}};
+    expect(isVerifiedSuccess(row)).toBe(true);
+    expect(syncCheckState(RAD,row).state).toBe("PENDIENTE");
+    expect(syncCheckState(RAD,row).label).toContain("Ventana verificada");
   });
 
   it("verified success keeps its label", () => {

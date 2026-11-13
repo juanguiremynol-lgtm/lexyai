@@ -329,8 +329,17 @@ function sourceEvidence(row) {
   const time = value ? Date.parse(value) : NaN;
   const validTime = Number.isFinite(time) && time <= Date.now() + 6e4;
   const day = (date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(date);
+  const window = m.pp_window;
+  const certified = window && typeof window === "object" && (window.outcome === "SUCCESS_EMPTY" || window.outcome === "SUCCESS_WITH_DATA") && typeof window.from === "string" && typeof window.to === "string";
   return {
     consulta_completa: m.source_complete === true,
+    ...certified ? { ventana_publica: {
+      desde: window.from,
+      hasta: window.to,
+      resultado: window.outcome,
+      plan_diario_completo: typeof window.daily_plan_complete === "boolean" ? window.daily_plan_complete : null,
+      recuperacion_documental_completa: typeof window.documents_complete === "boolean" ? window.documents_complete : null
+    } } : {},
     fuente_observada_en: validTime ? value : null,
     observacion_de_hoy: validTime && day(new Date(time)) === day(/* @__PURE__ */ new Date()),
     lectura_almacenada: m.reused_completed_read === true,
@@ -364,6 +373,18 @@ function syncCheckState(radicado, row) {
     if (!attributed(row)) return { state: "PENDIENTE", label: UNVERIFIED_LABEL };
     const evidence = sourceEvidence(row);
     if (!isVerifiedSuccess(row)) return { state: "PENDIENTE", label: evidence.consulta_completa && evidence.fuente_observada_en && !evidence.observacion_de_hoy ? `La fuente se observ\xF3 el ${evidence.fuente_observada_en}; la vigilancia de hoy no est\xE1 acreditada.` : status !== "success" ? EMPTY_UNVERIFIED_LABEL : COVERAGE_UNVERIFIED_LABEL };
+    if (row.provider === "publicaciones" && evidence.ventana_publica) {
+      const window = evidence.ventana_publica;
+      const empty = window.resultado === "SUCCESS_EMPTY";
+      const plan = window.plan_diario_completo === true ? "completo" : window.plan_diario_completo === false ? "parcial" : "sin verificar";
+      return {
+        state: empty ? "SIN_NOVEDADES" : "CON_RESULTADOS",
+        label: `Ventana p\xFAblica del ${window.desde} al ${window.hasta} ${empty ? "sin resultados" : "con resultados"}. Plan diario ${plan}.${evidence.lectura_almacenada ? " Lectura almacenada." : ""}`
+      };
+    }
+    if (row.provider === "publicaciones" && status === "success" && row.records_inserted === 0 && (row.records_skipped ?? 0) > 0) {
+      return { state: "PENDIENTE", label: "Ventana verificada. El registro anterior contabiliza filas omitidas y no desglosa si el proveedor encontr\xF3 resultados en esa ventana." };
+    }
     if (evidence.lectura_almacenada) return {
       state: status === "empty" ? "SIN_NOVEDADES" : "CON_RESULTADOS",
       label: `Lectura almacenada completa; fuente observada el ${evidence.fuente_observada_en}. No es una consulta nueva.`

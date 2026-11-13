@@ -21,6 +21,15 @@ vi.mock("lucide-react", () => ({AlertCircle:()=>null,CheckCircle2:()=>null,Clock
 import { SyncTimelineTab } from "./SyncTimelineTab";
 
 describe("work item timeline", () => {
+  it("shows the public window, partial daily plan and actual persistence independently", () => {
+    state.rows=[{id:"scope", provider:"publicaciones", providers:["publicaciones"], operation:"publicaciones",
+      status:"empty", error_code:null, records_inserted:0, records_skipped:6, finished_at:"2026-11-13T16:00:00Z",
+      metadata:{source_complete:true,pp_window:{outcome:"SUCCESS_EMPTY",from:"2026-10-30",to:"2026-11-13",
+        daily_plan_complete:false,documents_complete:null}}}];
+    const html=renderToStaticMarkup(React.createElement(SyncTimelineTab,{workItemId:"synthetic"}));
+    expect(html).toContain("Sin resultados"); expect(html).toContain("Plan diario parcial.");
+    expect(html).toContain("Recuperación documental sin evaluar."); expect(html).toContain("6 omitidas");
+  });
   it("renders contradictory success and deferred partial reads without success or empty labels", () => {
     const common={provider:"publicaciones",providers:["publicaciones"],operation:"estados",finished_at:"2026-11-06T12:00:00Z",
       records_inserted:0,records_skipped:0,metadata:null};
@@ -33,5 +42,14 @@ describe("work item timeline", () => {
     expect(html).toContain("No se recuperó el documento");
     expect(html).not.toContain("Consulta con resultados");
     expect(html).not.toContain("Sin resultados");
+  });
+
+  it("keeps the legacy window certificate without equating skipped inventory with source results", () => {
+    state.rows=[{id:"legacy", provider:"publicaciones", providers:["publicaciones"], operation:"publicaciones",
+      status:"success",error_code:null,records_inserted:0,records_skipped:6,finished_at:"2026-11-13T16:00:00Z",
+      metadata:{source_complete:true}}];
+    const html=renderToStaticMarkup(React.createElement(SyncTimelineTab,{workItemId:"synthetic"}));
+    expect(html).toContain("Ventana verificada");
+    expect(html).not.toContain("Consulta con resultados");
   });
 });

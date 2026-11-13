@@ -199,6 +199,8 @@ export function withSyncTimeline(
     else if (parsed?.partial === true) status = "partial";
     else if (!ok) status = "error";
     else if (parsed?.code === "SCRAPING_INITIATED" || parsed?.scraping_initiated) status = "skipped";
+    else if (provider === "publicaciones" && parsed?.pp_window?.outcome === "SUCCESS_EMPTY") status = "empty";
+    else if (provider === "publicaciones" && parsed?.pp_window?.outcome === "SUCCESS_WITH_DATA") status = "success";
     else if (inserted === 0 && skipped === 0) {
       // A run that cannot name its provider has no standing to assert "empty".
       status = provider === "unknown" ? "skipped" : "empty";
@@ -233,6 +235,7 @@ export function withSyncTimeline(
         http_status: response.status,
         trace_id: strOr(parsed?.trace_id),
         source_observed_at: strOr(parsed?.source_observed_at),
+        pp_window: parsed?.pp_window ?? undefined,
         // Missing evidence is unknown, not an explicit incomplete verdict.
         source_complete: typeof parsed?.source_complete === "boolean" ? parsed.source_complete : null,
         source_query_attempted: typeof parsed?.source_query_attempted === "boolean" ? parsed.source_query_attempted : null,

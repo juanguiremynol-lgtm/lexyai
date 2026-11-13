@@ -133,6 +133,13 @@ type SyncResult = {
   daily_trace_id?: string;
   source_observed_at?: string;
   source_complete?: boolean;
+  pp_window?: {
+    outcome: 'SUCCESS_EMPTY' | 'SUCCESS_WITH_DATA';
+    from: string;
+    to: string;
+    daily_plan_complete: boolean | null;
+    documents_complete: boolean | null;
+  };
   error_code?: string;
   provider_used?: string;
   samai_estados_summary?: {
@@ -552,6 +559,7 @@ async function writePublicacionesAttemptRow(
           inserted_count: result?.inserted_count || 0,
           skipped_count: result?.skipped_count || 0,
           backend_trace: result?.backend_trace ?? null,
+          pp_window: result?.pp_window ?? null,
         },
 
         // TUTELA UNION / CPACA: include SAMAI_ESTADOS attempt when present so
@@ -1629,7 +1637,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     let maybeBody: any = null;
     try { maybeBody = await cloned.json(); } catch (_e) { /* not JSON */ }
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261106-samai-evidence-1' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-publicaciones-by-work-item', revision: '20261113-pp-window-1' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -2161,6 +2169,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       } else {
         result.source_complete = true;
         result.source_observed_at = String(daily.intento_observado_en);
+        // certifiedStoredPPHistory verifies the radicado, run, time and window.
+        // Its verdict describes that public window, independently of stored inventory.
+        const window = daily.ventana_solicitada as { desde: string; hasta: string };
+        result.pp_window = {
+          outcome: daily.run_status as 'SUCCESS_EMPTY' | 'SUCCESS_WITH_DATA',
+          from: window.desde,
+          to: window.hasta,
+          daily_plan_complete: typeof daily.consulta_completa_plan_diario === 'boolean' ? daily.consulta_completa_plan_diario : null,
+          documents_complete: typeof daily.recuperacion_documental_completa === 'boolean' ? daily.recuperacion_documental_completa : null,
+        };
       }
     }
     // Backend correlation per published contract (trazabilidad_id,
@@ -2548,6 +2566,21 @@ Deno.serve(withSyncTimeline(async (req) => {
       } else if (isTutelaUnion && tutelaSamaiEnabled && !samaiAnswered) {
         result.result_code = 'PENDING_UPSTREAM';
         result.error_code = 'SAMAI_INVENTORY_INCOMPLETE';
+      } else if (result.pp_window && !samai?.called && !fetchResult.noDocumentEstados?.length) {
+        // A certified empty public window does not imply the court is unindexed.
+        // Conversely, a positive certificate without usable rows needs reconciliation.
+        if (result.pp_window.outcome === 'SUCCESS_WITH_DATA') {
+          result.ok = false;
+          result.status = 'PENDING_UPSTREAM';
+          result.result_code = 'PENDING_UPSTREAM';
+          result.error_code = 'PP_WINDOW_ROWS_UNAVAILABLE';
+          await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream');
+          return jsonResponse({ ...result, pending_upstream: true }, 200);
+        }
+        result.status = 'EMPTY';
+        result.result_code = 'SUCCESS_EMPTY';
+        await writePublicacionesAttemptRow(supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'empty');
+        return jsonResponse(result, 200);
       } else if (fetchResult.resultCode === 'NO_DATA' && !(!shouldFetchPP && samaiAnswered)) {
         result.result_code = 'PENDING_UPSTREAM';
         if (isCpaca) result.error_code = 'SAMAI_INVENTORY_INCOMPLETE';
@@ -3279,11 +3312,11 @@ Deno.serve(withSyncTimeline(async (req) => {
     } else {
       result.ok = true;
       result.status = 'SUCCESS';
-      // If we reach here with 0 inserted, 0 skipped and no errors it means the
-      // sources genuinely had nothing new — treat as SUCCESS_EMPTY. If we did
-      // insert or dedup at least one record, it's SUCCESS_WITH_DATA. This closes
-      // the loophole that let SAMAI drift produce a silent SUCCESS 0/0.
-      if (result.inserted_count === 0 && result.skipped_count === 0) {
+      // A stored PP inventory can contain old rows even for a certified empty
+      // window. A multi-source result still accounts for the combined inventory.
+      if (result.pp_window && !result.samai_estados_summary?.called) {
+        result.result_code = result.pp_window.outcome;
+      } else if (result.inserted_count === 0 && result.skipped_count === 0) {
         result.result_code = result.samai_estados_summary?.contract_mismatch
           ? 'CONTRACT_MISMATCH'
           : 'SUCCESS_EMPTY';
@@ -3451,6 +3484,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ── Record external_sync_run for publicaciones (best-effort) ──
     try {
       const invokedBy = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
+      const ppCode = result.ok && result.pp_window ? result.pp_window.outcome : result.result_code;
+      const ppStatus = result.ok ? (ppCode === 'SUCCESS_EMPTY' ? 'empty' : 'success') : 'error';
       const { data: runRow } = await supabase.from('external_sync_runs').insert({
         work_item_id,
         organization_id: workItem.organization_id,
@@ -3470,14 +3505,16 @@ Deno.serve(withSyncTimeline(async (req) => {
             data_kind: 'ESTADOS',
             // BB2 — declare the routing skip instead of asserting a PP read
             // that never happened (CPACA estados are SAMAI_ESTADOS only).
-            status: shouldFetchPP ? (result.ok ? 'success' : 'error') : 'skipped',
+            status: shouldFetchPP ? ppStatus : 'skipped',
             // A routing skip is NOT a failed read: 'RUN_FAILED' here made the
             // coverage grader count CPACA matters as PP errors.
             outcome: shouldFetchPP
-              ? persistedProviderOutcome({ status: result.ok ? 'success' : 'error', resultCode: result.result_code, insertedCount: result.inserted_count })
+              ? persistedProviderOutcome({ status: ppStatus, resultCode: ppCode,
+                insertedCount: result.pp_window ? 0 : result.inserted_count })
               : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
 
-            result_code: shouldFetchPP ? result.result_code : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
+            result_code: shouldFetchPP ? ppCode : 'ROUTING_SKIP_PP_NOT_IN_CHAIN',
+            ...(shouldFetchPP ? { pp_window: result.pp_window ?? null, backend_trace: (result as any).backend_trace ?? null } : {}),
             latency_ms: result.provider_latency_ms || 0,
             inserted_count: result.inserted_count,
             skipped_count: result.skipped_count,
