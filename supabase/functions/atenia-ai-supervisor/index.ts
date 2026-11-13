@@ -1303,7 +1303,7 @@ async function runQueueWorker(
       }
       const verdict = ineligible
         ? { outcome: "SKIPPED" as const, code: ineligible }
-        : remediationVerdict(invokeResult.data);
+        : remediationVerdict(invokeResult.data, job.action_type);
       if (verdict.outcome === "RETRY") throw new Error(verdict.code);
 
       const { data: finished, error: finishError } = await supabase
@@ -2043,7 +2043,7 @@ async function auditOrganization(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: { ...corsHeaders, "X-Andromeda-Remediation-Version": "2026-11-13.1" } });
   }
 
   const startTime = Date.now();

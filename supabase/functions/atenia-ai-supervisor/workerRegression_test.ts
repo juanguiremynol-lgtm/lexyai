@@ -14,6 +14,7 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
   (Deno as any).serve = (f: typeof handler) => { handler = f; };
   const updates: Array<{ url: URL; body: any }> = [];
   const invocations: Array<{ url: URL; headers: Headers }> = [];
+  let pendingDocument = false;
   let previews = 0;
   let fetchCount = 0;
   globalThis.fetch = async (input, init) => {
@@ -33,6 +34,10 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     ]);
     if (url.pathname.includes('/functions/v1/sync-')) {
       invocations.push({ url, headers: req.headers });
+      if (pendingDocument && req.headers.get('x-retry-task-id')==='task1') return j({
+        ok:false, partial:true, source_complete:true, code:'POST_INGEST_EFFECTS_PENDING', errors:['hearing suspension'],
+        hearing_document_review:{count:1,references:[{reason:'HEARING_SUSPENSION_TARGET_UNVERIFIED',source_act_id:'act-fixture'}],only_unresolved_effect:true},
+      });
       return j(url.pathname.endsWith('sync-by-work-item') ? { ok: true, errors: [] } : { ok: false, pending_upstream: true, code: 'PENDING_UPSTREAM' });
     }
     if (url.pathname.endsWith('/atenia_ai_remediation_queue') && req.method === 'PATCH') {
@@ -85,6 +90,14 @@ Deno.test('supervisor denies anonymous callers and retries HTTP 200 partial with
     assert.equal(dryPayload.result.claimed, 0);
     // A retry before the GCP refresh defers ACTs with the claim attempt restored;
     // publication follow-ups remain runnable and no ACT function is invoked.
+    pendingDocument=true;
+    const offset=updates.length;
+    const documentary=await handler(makeReq('Bearer synthetic-service'));
+    assert.equal(documentary.status,200);
+    assert.equal(updates[offset].body.status,'SKIPPED');
+    assert.equal(updates[offset].body.last_error,'HEARING_DOCUMENT_REVIEW_REQUIRED');
+    assert.equal(updates[offset+1].body.status,'PENDING');
+    pendingDocument=false;
     Date.now = () => Date.parse('2026-11-01T06:00:00Z');
     const oldCalls = invocations.length, oldUpdates = updates.length;
     await handler(makeReq('Bearer synthetic-service'));

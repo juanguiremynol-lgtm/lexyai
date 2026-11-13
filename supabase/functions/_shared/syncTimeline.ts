@@ -247,6 +247,7 @@ export function withSyncTimeline(
         auth_mechanism: req.headers.has("x-cron-key") ? "cron_header" : req.headers.has("authorization") ? "bearer" : "none",
         warnings: parsed?.warnings ?? undefined,
         persistence_summary: parsed?.persistence_summary ?? undefined,
+        hearing_document_review: parsed?.hearing_document_review ?? undefined,
       },
     }).catch(() => { /* swallowed */ });
 

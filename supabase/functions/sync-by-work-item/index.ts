@@ -76,6 +76,7 @@ import {
 } from '../_shared/providerAdapters/index.ts';
 import { toOrchestratorResult, type OrchestratorFetchResult } from '../_shared/providerAdapters/bridge.ts';
 import { hearingAlreadyResolved, type VerifiedHearingEvidence } from '../_shared/verifiedHearingEvidence.ts';
+import { exclusivelyHearingReview, hearingReviewNote, type HearingReview } from '../_shared/hearingReviewOutcome.ts';
 import { emptyReadPersistence } from '../_shared/emptyReadPersistence.ts';
 import { cpnuNonDataOutcome } from '../_shared/providerAdapters/cpnuReadEvidence.ts';
 
@@ -236,6 +237,7 @@ interface SyncResult {
     not_processed?: number;
   };
   persistence_unknown?: { fingerprint: string | null; reason: string }[];
+  hearing_document_review?: { count: number; references: HearingReview[]; only_unresolved_effect: boolean };
   // Auto-scraping fields
   scraping_initiated?: boolean;
   scraping_job_id?: string;
@@ -1405,7 +1407,7 @@ async function executeViaOrchestrator(
 
 Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-Actuaciones-Version': '2026-11-13.1' } });
+    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-Actuaciones-Version': '2026-11-13.2' } });
   }
 
   // Health check short-circuit
@@ -3064,6 +3066,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const knownActRows: CandidateRow[] = (existingActsForDedup || []).map((a: any) => toActIdentityCandidate(a));
 
     const failedEnrichmentIds = new Set<string>();
+    const hearingReviews: HearingReview[] = [];
     let verifiedHearingRowsPromise: Promise<VerifiedHearingEvidence[]> | undefined;
 
     // Called only with a confirmed persisted row.
@@ -3088,7 +3091,9 @@ Deno.serve(withSyncTimeline(async (req) => {
                 return (data ?? []) as VerifiedHearingEvidence[];
               })();
               if (hearingAlreadyResolved(await verifiedHearingRowsPromise, persisted.id, candidate.local_date)) continue;
-              result.errors.push(`Hearing date ${candidate.local_date} needs a verified time from source act ${persisted.id}`);
+              const review: HearingReview = { reason:'HEARING_TIME_UNVERIFIED', source_act_id:persisted.id, candidate_date:candidate.local_date };
+              hearingReviews.push(review);
+              result.errors.push(hearingReviewNote(review));
               continue;
             }
             const isFuture = new Date(candidate.starts_at_iso) > new Date();
@@ -3122,7 +3127,9 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
           }
           if (!candidates.length && isSuspensionAct(persisted.description, String(persisted.raw_data?.anotacion || ''))) {
-            result.errors.push(`Hearing suspension requires an explicit target: ${persisted.id}`);
+            const review: HearingReview = { reason:'HEARING_SUSPENSION_TARGET_UNVERIFIED', source_act_id:persisted.id };
+            hearingReviews.push(review);
+            result.errors.push(hearingReviewNote(review));
           }
         } catch (hErr) {
           result.errors.push(`Persisted act hearing effect failed: ${(hErr as Error).message}`);
@@ -4632,6 +4639,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       await supabase.from('work_items')
         .update({ acts_initial_sync_completed_at: fetchResult.sourceObservedAt || new Date().toISOString() } as any)
         .eq('id', work_item_id).is('acts_initial_sync_completed_at' as any, null);
+    }
+    if (hearingReviews.length) {
+      result.hearing_document_review = {
+        count: hearingReviews.length, references: hearingReviews.slice(0,25),
+        only_unresolved_effect: result.code === 'POST_INGEST_EFFECTS_PENDING' && result.source_complete === true &&
+          !persistenceFailed && !verificationFailed && exclusivelyHearingReview(result.errors,hearingReviews),
+      };
     }
     return jsonResponse(result, persistenceFailed || verificationFailed ? 500 : 200);
 

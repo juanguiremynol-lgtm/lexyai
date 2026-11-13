@@ -31,12 +31,19 @@ export function ineligibleRefusal(status: number, data: unknown): string | null 
     ? code : null;
 }
 
-export function remediationVerdict(data: unknown): { outcome: 'DONE' | 'SKIPPED' | 'RETRY'; code: string } {
+export function remediationVerdict(data: unknown, actionType?: string): { outcome: 'DONE' | 'SKIPPED' | 'RETRY'; code: string } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { outcome: 'RETRY', code: 'INVALID_RESPONSE' };
   const r = data as Record<string, unknown>;
   const status = typeof r.status === 'string' ? r.status.toLowerCase() : '';
   const code = typeof r.code === 'string' ? r.code : typeof r.result_code === 'string' ? r.result_code : '';
   const hasErrors = r.errors != null && (!Array.isArray(r.errors) || r.errors.length > 0);
+  const review = r.hearing_document_review as { count?: number; references?: unknown[]; only_unresolved_effect?: boolean } | null;
+  if (actionType === 'RETRY_ACTS' && r.ok === false && r.partial === true && r.source_complete === true &&
+      code === 'POST_INGEST_EFFECTS_PENDING' && !r.scraping_initiated && !r.pending_upstream &&
+      review?.only_unresolved_effect === true && Number.isInteger(review.count) && Number(review.count) > 0 &&
+      Array.isArray(review.references) && review.references.length > 0) {
+    return { outcome:'SKIPPED', code:'HEARING_DOCUMENT_REVIEW_REQUIRED' };
+  }
   if (r.pending_upstream || r.scraping_initiated || r.partial ||
       ['partial', 'partial_success', 'pending', 'pending_upstream', 'processing'].includes(status) ||
       ['PENDING_UPSTREAM', 'SCRAPING_INITIATED', 'PARTIAL_SOURCE'].includes(code)) {
