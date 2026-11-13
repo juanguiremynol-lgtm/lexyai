@@ -33,6 +33,24 @@ beforeEach(() => {
   mock.rpc.mockResolvedValue({ data: [], error: null });
 });
 describe("publication association through real MCP handlers", () => {
+  it.each([list, detail, recent, today])("preserves the registered date and exposes only documentary readings of that publication", async tool => {
+    const evidence = { publication_id:"a", original_sha256:"a".repeat(64), first_page:8, last_page:9,
+      printed_fixation:"2026-10-22", recorded_fixation:"2026-10-21", observed_at:"2026-11-13T17:00:00Z", source_article:"1234",
+      source_url:"https://storage.googleapis.com/andromeda-pp-documentos-2026/12345678901234567890123/raw/estados/list.pdf" };
+    mock.results.work_item_publicaciones = { data:[
+      { id:"a", fecha_fijacion:"2026-10-21", printed_observations:[evidence,{...evidence,publication_id:"other"}] },
+      { id:"b", fecha_fijacion:"2026-10-05", printed_observations:[] }
+    ],error:null };
+    const result = await tool.handler({id:"synthetic-matter"} as never,ctx) as any;
+    const data = result.structuredContent;
+    const rows = data.publicaciones ?? data.recent_estados ?? data.estados;
+    expect(rows[0].fecha_fijacion).toBe("2026-10-21");
+    expect(rows[0].cotejos_documentales).toHaveLength(1);
+    expect(rows[0].cotejos_documentales[0]).toMatchObject({fijacion_impresa:"2026-10-22",fijacion_registrada_al_cotejo:"2026-10-21",
+      fuente:"estado_pdf_archivado", pagina_desde:8,pagina_hasta:9, modifica_terminos:false,consulta_nueva_al_portal:false});
+    expect(rows[1].cotejos_documentales).toBeUndefined();
+    expect(mock.queries.work_item_publicaciones.select.mock.calls[0][0]).toContain("publication_printed_date_observations(");
+  });
   it("exposes a conflicting title date alongside the stored order date", async () => {
     mock.results.work_item_publicaciones = { data: [{ id: "a", title: "Providencia Auto.pdf — 09/10/2026", fecha_providencia: "2026-10-06T12:00:00Z" }], error: null };
     const result = await list.handler({ id: "synthetic-matter" } as never, ctx) as any;

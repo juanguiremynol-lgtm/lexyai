@@ -1,4 +1,6 @@
 import { estadosDisplayInventory } from "@/lib/reconcile-estados";
+import { PRINTED_DATE_SELECT } from "@/lib/printed-date-evidence";
+import { PrintedDateNotes } from "./PrintedDateNotes";
 import { publicationTitleDateNotice } from "@/lib/publication-title-date";
 import { openResolvedDocument } from "@/lib/open-document-window";
 /**
@@ -76,7 +78,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     queryFn: async () => {
       const { data, error: qErr } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
+        .select(`id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data, ${PRINTED_DATE_SELECT}`)
         .eq("work_item_id", workItem.id)
         .eq("is_archived", false);
       if (qErr) throw qErr;
@@ -216,6 +218,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
         </CardHeader>
       </Card>
 
+      <PrintedDateNotes publications={localPubs ?? []} />
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />

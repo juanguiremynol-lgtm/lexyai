@@ -20628,6 +20628,50 @@ export type Database = {
           },
         ]
       }
+      publication_printed_date_observations: {
+        Row: {
+          publication_id: string
+          source_article: string
+          source_url: string
+          original_sha256: string
+          first_page: number
+          last_page: number
+          recorded_fixation: string
+          printed_fixation: string
+          observed_at: string
+        }
+        Insert: {
+          publication_id: string
+          source_article: string
+          source_url: string
+          original_sha256: string
+          first_page: number
+          last_page: number
+          recorded_fixation: string
+          printed_fixation: string
+          observed_at?: string
+        }
+        Update: {
+          publication_id?: string
+          source_article?: string
+          source_url?: string
+          original_sha256?: string
+          first_page?: number
+          last_page?: number
+          recorded_fixation?: string
+          printed_fixation?: string
+          observed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_printed_date_observations_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_publicaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_acts: {
         Row: {
           act_date: string | null

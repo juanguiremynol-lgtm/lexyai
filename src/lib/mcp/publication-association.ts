@@ -1,6 +1,7 @@
 import { hasUnaccreditedAssociation } from "../publication-quality";
+import { PRINTED_DATE_SELECT, printedDateEvidence } from "../printed-date-evidence";
 /** Project only the existing UI quality flag, never the enclosing raw_data. */
-export const PUBLICATION_ASSOCIATION_SELECT = "association_flag:raw_data->asociacion_no_acreditada";
+export const PUBLICATION_ASSOCIATION_SELECT = `association_flag:raw_data->asociacion_no_acreditada,${PRINTED_DATE_SELECT}` as const;
 
 const objectOf = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -13,9 +14,16 @@ const digits = (value: unknown): string | null =>
 export function publicationAssociation(row: Record<string, unknown>, workItemRadicado: unknown) {
   const flag = row.association_flag;
   const metadata = objectOf(flag);
-  const { association_flag: _privateFlag, raw_data: _raw, ...publicRow } = row;
+  const { association_flag: _privateFlag, raw_data: _raw, printed_observations, ...publicRow } = row;
+  const observations = printedDateEvidence(row.id, printed_observations);
   return {
     ...publicRow,
+    ...(observations.length ? { cotejos_documentales: observations.map(o => ({
+      fuente: "estado_pdf_archivado", articulo: o.source_article, sha256: o.original_sha256,
+      url_original: o.source_url, pagina_desde: o.first_page, pagina_hasta: o.last_page,
+      fijacion_impresa: o.printed_fixation, fijacion_registrada_al_cotejo: o.recorded_fixation,
+      cotejado_en: o.observed_at, modifica_terminos: false, consulta_nueva_al_portal: false,
+    })) } : {}),
     asociacion_no_acreditada: hasUnaccreditedAssociation(flag),
     calidad_asociacion: {
       estado: flag ? "no_acreditada" : "sin_alerta_registrada",

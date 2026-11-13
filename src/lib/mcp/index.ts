@@ -61,7 +61,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.11",
+  version: "0.6.12",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
@@ -89,7 +89,7 @@ export default defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-17",
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-18",
   }),
   tools: [
     getUserContext,

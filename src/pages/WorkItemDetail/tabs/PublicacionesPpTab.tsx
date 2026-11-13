@@ -18,6 +18,8 @@
  */
 
 import { civilDate } from "@/lib/civil-date";
+import { PRINTED_DATE_SELECT } from "@/lib/printed-date-evidence";
+import { PrintedDateNotes } from "./PrintedDateNotes";
 import { publicationTitleDateNotice } from "@/lib/publication-title-date";
 import { useState } from "react";
 import { useMemo } from "react";
@@ -59,6 +61,7 @@ function mergeKey(title: string | null | undefined, fecha: string | null | undef
 /** Local `work_item_publicaciones` row joined with its downloaded attachment. */
 interface LocalPub {
   id: string;
+  printed_observations?: unknown;
   title: string | null;
   source: string | null;
   fecha_fijacion: string | null;
@@ -128,7 +131,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
       const { data: pubs, error } = await supabase
         .from("work_item_publicaciones")
         .select(
-          "id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, raw_data",
+          `id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, raw_data, ${PRINTED_DATE_SELECT}`,
         )
         .eq("work_item_id", workItem.id)
         .eq("source", "publicaciones")
@@ -371,6 +374,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
       )}
 
       {/* dense-grid dense table (Estados electrónicos) */}
+      <PrintedDateNotes publications={localPubs ?? []} />
       {estadoRows.length > 0 && <EstadosTable rows={estadoRows} />}
 
       {recoveryDocuments.length > 0 && <section className="space-y-3">

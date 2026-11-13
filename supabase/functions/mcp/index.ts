@@ -405,17 +405,38 @@ function hasUnaccreditedAssociation(flag) {
   return Boolean(flag);
 }
 
+// src/lib/printed-date-evidence.ts
+var PRINTED_DATE_SELECT = "printed_observations:publication_printed_date_observations(publication_id,source_article,source_url,original_sha256,first_page,last_page,recorded_fixation,printed_fixation,observed_at)";
+function printedDateEvidence(publicationId, observations) {
+  if (!Array.isArray(observations)) return [];
+  return observations.filter((o) => o != null && o.publication_id === publicationId && typeof o.original_sha256 === "string" && /^[a-f0-9]{64}$/.test(o.original_sha256) && typeof o.source_url === "string" && /^https:\/\/storage\.googleapis\.com\/andromeda-pp-documentos-2026\/[0-9]{23}\/raw\/estados\/[A-Za-z0-9_.-]+\.pdf$/.test(o.source_url) && Number.isInteger(o.first_page) && Number.isInteger(o.last_page) && o.first_page > 0 && o.last_page >= o.first_page && typeof o.printed_fixation === "string" && typeof o.recorded_fixation === "string");
+}
+
 // src/lib/mcp/publication-association.ts
-var PUBLICATION_ASSOCIATION_SELECT = "association_flag:raw_data->asociacion_no_acreditada";
+var PUBLICATION_ASSOCIATION_SELECT = `association_flag:raw_data->asociacion_no_acreditada,${PRINTED_DATE_SELECT}`;
 var objectOf = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 var bounded = (value, max = 240) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 var digits = (value) => typeof value === "string" && /^\d{23}$/.test(value) ? value : null;
 function publicationAssociation(row, workItemRadicado) {
   const flag = row.association_flag;
   const metadata = objectOf(flag);
-  const { association_flag: _privateFlag, raw_data: _raw, ...publicRow } = row;
+  const { association_flag: _privateFlag, raw_data: _raw, printed_observations, ...publicRow } = row;
+  const observations = printedDateEvidence(row.id, printed_observations);
   return {
     ...publicRow,
+    ...observations.length ? { cotejos_documentales: observations.map((o) => ({
+      fuente: "estado_pdf_archivado",
+      articulo: o.source_article,
+      sha256: o.original_sha256,
+      url_original: o.source_url,
+      pagina_desde: o.first_page,
+      pagina_hasta: o.last_page,
+      fijacion_impresa: o.printed_fixation,
+      fijacion_registrada_al_cotejo: o.recorded_fixation,
+      cotejado_en: o.observed_at,
+      modifica_terminos: false,
+      consulta_nueva_al_portal: false
+    })) } : {},
     asociacion_no_acreditada: hasUnaccreditedAssociation(flag),
     calidad_asociacion: {
       estado: flag ? "no_acreditada" : "sin_alerta_registrada",
@@ -3802,7 +3823,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.11",
+  version: "0.6.12",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3830,7 +3851,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-17"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-18"
   }),
   tools: [
     get_user_context_default,
