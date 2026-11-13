@@ -17231,6 +17231,57 @@ export type Database = {
         }
         Relationships: []
       }
+      publication_printed_date_observations: {
+        Row: {
+          first_page: number
+          last_page: number
+          observed_at: string
+          original_sha256: string
+          printed_fixation: string
+          publication_id: string
+          recorded_fixation: string
+          source_article: string
+          source_url: string
+        }
+        Insert: {
+          first_page: number
+          last_page: number
+          observed_at?: string
+          original_sha256: string
+          printed_fixation: string
+          publication_id: string
+          recorded_fixation: string
+          source_article: string
+          source_url: string
+        }
+        Update: {
+          first_page?: number
+          last_page?: number
+          observed_at?: string
+          original_sha256?: string
+          printed_fixation?: string
+          publication_id?: string
+          recorded_fixation?: string
+          source_article?: string
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "publication_printed_date_observations_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "v_providencia_cross_ref"
+            referencedColumns: ["pub_id"]
+          },
+          {
+            foreignKeyName: "publication_printed_date_observations_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_publicaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limits: {
         Row: {
           count: number
@@ -20624,50 +20675,6 @@ export type Database = {
             columns: ["work_item_act_id"]
             isOneToOne: true
             referencedRelation: "work_item_acts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      publication_printed_date_observations: {
-        Row: {
-          publication_id: string
-          source_article: string
-          source_url: string
-          original_sha256: string
-          first_page: number
-          last_page: number
-          recorded_fixation: string
-          printed_fixation: string
-          observed_at: string
-        }
-        Insert: {
-          publication_id: string
-          source_article: string
-          source_url: string
-          original_sha256: string
-          first_page: number
-          last_page: number
-          recorded_fixation: string
-          printed_fixation: string
-          observed_at?: string
-        }
-        Update: {
-          publication_id?: string
-          source_article?: string
-          source_url?: string
-          original_sha256?: string
-          first_page?: number
-          last_page?: number
-          recorded_fixation?: string
-          printed_fixation?: string
-          observed_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "publication_printed_date_observations_publication_id_fkey"
-            columns: ["publication_id"]
-            isOneToOne: false
-            referencedRelation: "work_item_publicaciones"
             referencedColumns: ["id"]
           },
         ]
