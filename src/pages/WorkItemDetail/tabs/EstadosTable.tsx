@@ -45,6 +45,9 @@ export interface EstadoRow {
   // optional: if provided, clicking the filename calls this instead of the
   // raw pdf_url — used by PP tab to route through get-estado-attachment-url.
   onOpenFile?: () => void;
+  /** Role-labelled attachments have their own links and cannot stand in for the header. */
+  separateRoleLinks?: boolean;
+  unclassifiedUrl?: string | null;
   /** Explicit download of a verified stored copy (never a raw provider link). */
   onDownloadFile?: () => void;
 }
@@ -122,15 +125,16 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
               const auto = isDirectlyOpenable(r.gcs_url_auto) ? r.gcs_url_auto! : null;
               const tabla = isDirectlyOpenable(r.gcs_url_tabla) ? r.gcs_url_tabla! : null;
               const pdf = isDirectlyOpenable(r.pdf_url) ? r.pdf_url! : null;
+              const unclassified = isDirectlyOpenable(r.unclassifiedUrl) && ![pdf, auto, tabla].includes(r.unclassifiedUrl!) ? r.unclassifiedUrl : null;
+              const headerUrl = pdf || (r.separateRoleLinks ? null : auto || tabla);
               const openFile = () => {
                 if (r.onOpenFile) {
                   r.onOpenFile();
                   return;
                 }
-                const url = pdf || auto || tabla;
-                if (url) window.open(url, "_blank", "noopener,noreferrer");
+                if (headerUrl) window.open(headerUrl, "_blank", "noopener,noreferrer");
               };
-              const hasAny = !!(r.onOpenFile || pdf || auto || tabla);
+              const hasAny = !!(r.onOpenFile || headerUrl);
               return (
                 <TableRow key={r.key} className="align-top">
                   <TableCell className="p-3 align-top">
@@ -257,11 +261,16 @@ export function EstadosTable({ rows }: { rows: EstadoRow[] }) {
                           <FileText className="h-3 w-3" /> Descargar
                         </button>
                       )}
-                      {!auto && !tabla && !pdf && !r.onOpenFile && (
+                      {unclassified && (
+                        <a href={unclassified} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
+                          Documento anunciado · tipo sin verificar
+                        </a>
+                      )}
+                      {!auto && !tabla && !pdf && !unclassified && !r.onOpenFile && (
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </div>
-                    {(auto || tabla || pdf) && <p className="mt-1 text-xs text-muted-foreground">Enlace anunciado; la recuperación de la copia se verifica por separado.</p>}
+                    {(auto || tabla || pdf || unclassified) && <p className="mt-1 text-xs text-muted-foreground">Enlace anunciado; la recuperación de la copia se verifica por separado.</p>}
                   </TableCell>
                 </TableRow>
               );

@@ -29,10 +29,9 @@ import { useMemo, useEffect } from "react";
 import { downloadDocument } from '@/lib/download-document';
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
 import { toast } from "sonner";
-import { estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
+import { publicationHeaderDocument, estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
 import {
   documentUrlCandidates,
-  hasResolvableDocument,
   isDirectlyOpenable,
   openStoredDocument,
 } from "@/lib/document-url-resolver";
@@ -77,7 +76,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     queryFn: async () => {
       const { data, error: qErr } = await supabase
         .from("work_item_publicaciones")
-        .select("id, title, source, fecha_fijacion, fecha_providencia, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
+        .select("id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, pdf_url, pdf_storage_path, pdf_available, created_at, raw_data")
         .eq("work_item_id", workItem.id)
         .eq("is_archived", false);
       if (qErr) throw qErr;
@@ -91,7 +90,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     queryKey: ["estado-document-recovery", workItem.id],
     queryFn: async (): Promise<EstadoDocumentRecovery[]> => {
       const { data, error } = await supabase.from("estado_attachment_queue")
-        .select("id,publicacion_id,filename,status,last_error,storage_path,validation_evidence")
+        .select("id,publicacion_id,remote_url,filename,status,last_error,storage_path,validation_evidence")
         .eq("work_item_id", workItem.id);
       if (error) throw error;
       return (data ?? []) as unknown as EstadoDocumentRecovery[];
@@ -115,43 +114,24 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
       const { data, error } = await supabase.functions.invoke('get-estado-attachment-url', {
         body: { publicacion_id: document.publicacion_id, storage_path: document.storage_path },
       });
-      if (error || !data?.url) throw new Error('unavailable');
+      if (error || data?.source !== 'storage' || !data?.url) throw new Error('unavailable');
       await downloadDocument(data.url, document.filename || 'documento.pdf');
     } catch { toast.error('No se pudo descargar la copia almacenada. Inténtalo de nuevo más tarde.'); }
   };
 
-  // Resolve the best openable URL for a local publicacion row. The
-  // `pdf_url` column often stores a *storage path* (e.g.
-  // "<pub_id>/<base64>.pdf") rather than a full URL — opening it directly
-  // yields a 404 because the browser treats it as a relative link. Prefer,
-  // in order:
-  //   1. raw_data.raw_data.gcs_url         (public GCS URL from SAMAI)
-  //   2. raw_data.pdf_url                  (samai-estados-api proxy URL)
-  //   3. pdf_url if it starts with http    (legacy full URL)
-  //   4. otherwise signal storage-bucket flow via `storage_path`
-  // Single resolver (see src/lib/document-url-resolver.ts). A stored row is
-  // never turned into a link by string concatenation.
-  const resolveLocalPubUrls = (p: any) => {
-    const direct = documentUrlCandidates(p).find((u) => isDirectlyOpenable(u)) ?? null;
-    return { directUrl: direct, resolvable: hasResolvableDocument(p) };
-  };
-
-  const openLocalPubAttachment = async (row: any) => {
-    const ok = await openStoredDocument(row);
-    if (!ok) {
-      toast.error("No se pudo abrir el PDF", {
-        description: "El archivo no está disponible en este momento.",
-      });
-    }
-  };
-
+  const headers = useMemo(() => new Map((localPubs ?? []).map(p => [
+    p.id, publicationHeaderDocument(p, recoveryDocuments ?? []),
+  ])), [localPubs, recoveryDocuments]);
   const mergedEstados = useMemo<PpEstado[]>(() => {
     const fromApi = Array.isArray(estados) ? estados : [];
     // Step 1: gather every candidate row from API + local DB.
     const candidates: PpEstado[] = [];
     for (const e of fromApi) candidates.push(e);
     for (const p of localPubs ?? []) {
-      const { directUrl } = resolveLocalPubUrls(p);
+      const isPp = ["pp", "publicaciones"].includes((p.source ?? "").toLowerCase());
+      const directUrl = isPp ? headers.get(p.id)?.sourceUrl ?? null
+        : documentUrlCandidates({ ...p, raw_data: p.raw_data && typeof p.raw_data === "object" && !Array.isArray(p.raw_data)
+          ? p.raw_data : null }).find(isDirectlyOpenable) ?? null;
       const rawAny = (p as any).raw_data ?? {};
       const nestedAny = (rawAny.raw_data ?? {}) as Record<string, any>;
       const hashDoc =
@@ -174,7 +154,7 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
     // Persisted publications carry stable identities and document permissions.
     // The API is a fallback view, not a second set of the same publications.
     return estadosDisplayInventory(candidates);
-  }, [estados, localPubs]);
+  }, [estados, localPubs, headers]);
 
   // Publications the official-source check proved unrelated to this process
   // (raw_data.asociacion_no_acreditada). Kept visible as history, never as a
@@ -312,33 +292,27 @@ export function EstadosTab({ workItem, onCountChange }: EstadosTabProps) {
             fecha: estado.fecha || null,
             gcs_url_auto: estado.gcs_url_auto || null,
             gcs_url_tabla: estado.gcs_url_tabla || null,
-            pdf_url: estado.pdf_url || null,
+            pdf_url: String(estado.id).startsWith("local-") || !["PP","PUBLICACIONES"].includes(estado.fuente?.toUpperCase() || "")
+              ? estado.pdf_url || null : null,
+            unclassifiedUrl: !String(estado.id).startsWith("local-") && ["PP","PUBLICACIONES"].includes(estado.fuente?.toUpperCase() || "")
+              ? estado.pdf_url : null,
+            separateRoleLinks: ["PP", "PUBLICACIONES"].includes(estado.fuente?.toUpperCase() || ""),
             onOpenFile: (() => {
-              // For local-DB rows whose `pdf_url` column held a storage
-              // path (no full URL and no raw_data direct URL), route
-              // through the signed-URL edge function so the user is not
-              // sent to a broken relative link.
-              const idStr = String(estado.id);
-              if (!idStr.startsWith("local-")) return undefined;
-              const localId = idStr.slice("local-".length);
-              const verified = (recoveryDocuments ?? []).find(
-                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
-              );
-              if (verified) return () => openVerifiedCopy(verified);
-              const src = (localPubs ?? []).find((p: any) => p.id === localId);
-              if (!src) return undefined;
-              const { directUrl, resolvable } = resolveLocalPubUrls(src);
-              if (directUrl) return undefined; // EstadosTable opens it directly
-              if (resolvable) return () => openLocalPubAttachment(src);
+              const id = String(estado.id);
+              if (!id.startsWith("local-")) return undefined;
+              const pubId = id.slice(6);
+              const copy = headers.get(pubId)?.copy;
+              if (copy) return () => openVerifiedCopy(copy);
+              const pub = localPubs?.find(p => p.id === pubId);
+              if (!pub || ["pp","publicaciones"].includes(pub.source?.toLowerCase() || "")) return undefined;
+              if (pub.pdf_storage_path && !recoveryDocuments?.some(d => d.publicacion_id === pub.id)) {
+                return () => void openStoredDocument({ id: pub.id, pdf_storage_path: pub.pdf_storage_path });
+              }
               return undefined;
             })(),
             onDownloadFile: (() => {
-              const idStr = String(estado.id);
-              if (!idStr.startsWith("local-")) return undefined;
-              const localId = idStr.slice("local-".length);
-              const copy = (recoveryDocuments ?? []).find(
-                (d) => d.publicacion_id === localId && estadoDocumentStatus(d).available,
-              );
+              const id = String(estado.id);
+              const copy = id.startsWith("local-") ? headers.get(id.slice(6))?.copy : undefined;
               return copy ? () => downloadVerifiedCopy(copy) : undefined;
             })(),
           }))}

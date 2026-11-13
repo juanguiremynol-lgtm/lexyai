@@ -29,7 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Newspaper, Search, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
+import { publicationHeaderDocument, estadoDocumentStatus, type EstadoDocumentRecovery } from "@/lib/estado-document-status";
 import { openResolvedDocument } from "@/lib/open-document-window";
 import { downloadDocument } from '@/lib/download-document';
 
@@ -38,12 +38,7 @@ import { getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
 import { usePpActuaciones, resyncPpActuaciones } from "@/hooks/use-pp-actuaciones";
 import { supabase } from "@/integrations/supabase/client";
 import { EstadosTable, type EstadoRow } from "./EstadosTable";
-import {
-  documentUrlCandidates,
-  hasResolvableDocument,
-  openStoredDocument,
-  type StoredDocumentRow,
-} from "@/lib/document-url-resolver";
+import { isDirectlyOpenable } from "@/lib/document-url-resolver";
 
 interface Props {
   workItem: WorkItem;
@@ -72,7 +67,7 @@ interface LocalPub {
   pdf_url: string | null;
   pdf_storage_path?: string | null;
   raw_data: Record<string, unknown> | null;
-  storage_path: string | null;
+  tipo_publicacion: string | null;
 }
 
 function mapLocalPubToAct(p: LocalPub): WorkItemAct {
@@ -82,16 +77,6 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
   const candidates = [p.fecha_fijacion, p.fecha_providencia, raw.fecha_publicacion, raw.fecha];
   const fecha = candidates.map(civilDate).find(Boolean) ?? null;
   const fechaOriginal = candidates.find(v => typeof v === "string" && v) as string | undefined;
-
-  // pdf_url on the row can be either a proxy URL (http[s]://…) or, on
-  // older rows, a raw storage path. Keep both channels distinct.
-  const docRow: StoredDocumentRow = {
-    id: p.id,
-    pdf_url: p.pdf_url,
-    pdf_storage_path: p.pdf_storage_path ?? p.storage_path ?? null,
-    raw_data: raw,
-  };
-  const rawPdfUrl = documentUrlCandidates(docRow)[0] ?? null;
 
   return {
     id: `local-pub-${p.id}`,
@@ -116,9 +101,7 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
     date_confidence: civilDate(p.fecha_fijacion) ? "high" : "low",
     raw_data: {
       ...raw,
-      pdf_url: rawPdfUrl,
-      storage_path: docRow.pdf_storage_path,
-      __doc_row: docRow,
+      tipo_publicacion: p.tipo_publicacion,
       __origin: "LOCAL_DB",
     },
     detected_at: p.detected_at,
@@ -128,30 +111,6 @@ function mapLocalPubToAct(p: LocalPub): WorkItemAct {
     inicia_termino: null,
   };
 }
-
-/**
- * Opens a private storage PDF via the `get-estado-attachment-url` edge
- * function, which enforces org membership and signs the URL with the
- * service role. Direct client-side `createSignedUrl` cannot be used because
- * the `estado-attachments` bucket has no RLS SELECT policy for authenticated
- * users — every attempt returns "Object not found" regardless of whether the
- * object exists.
- *
- * If the edge function cannot produce a storage URL it falls back to
- * `proxyPdfUrl`, which for open portal hosts (ramajudicial.gov.co) works in
- * `window.open`.
- */
-async function openStorageAttachment(row: StoredDocumentRow): Promise<void> {
-  const ok = await openStoredDocument(row);
-  if (!ok) {
-    toast.error("No se pudo abrir el PDF almacenado", {
-      description: "El archivo no está disponible en este momento.",
-    });
-  }
-}
-
-// PDF handling and provenance chips now live inline in the EstadosTable
-// rows below (via row.onOpenFile and the row's fuente chip).
 
 export function PublicacionesPpTab({ workItem }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -169,30 +128,13 @@ export function PublicacionesPpTab({ workItem }: Props) {
       const { data: pubs, error } = await supabase
         .from("work_item_publicaciones")
         .select(
-          "id, title, source, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, raw_data",
+          "id, title, source, tipo_publicacion, fecha_fijacion, fecha_providencia, detected_at, pdf_url, pdf_storage_path, raw_data",
         )
         .eq("work_item_id", workItem.id)
         .eq("source", "publicaciones")
         .eq("is_archived", false);
       if (error) throw error;
-      const rows = (pubs ?? []) as unknown as Array<Omit<LocalPub, "storage_path">>;
-      if (rows.length === 0) return [];
-
-      // Enrich with storage_path from the attachment queue when available.
-      const ids = rows.map((r) => r.id);
-      const { data: attachments } = await supabase
-        .from("estado_attachment_queue")
-        .select("publicacion_id, storage_path, status")
-        .in("publicacion_id", ids)
-        .eq("status", "downloaded");
-      const byPub = new Map<string, string>();
-      for (const a of attachments ?? []) {
-        if (a.publicacion_id && a.storage_path) byPub.set(a.publicacion_id, a.storage_path);
-      }
-      return rows.map((r) => ({
-        ...r,
-        storage_path: r.pdf_storage_path ?? byPub.get(r.id) ?? null,
-      }));
+      return (pubs ?? []) as unknown as LocalPub[];
     },
     enabled: !!workItem.id,
     staleTime: 60 * 1000,
@@ -202,7 +144,7 @@ export function PublicacionesPpTab({ workItem }: Props) {
     queryKey: ['estado-document-recovery', workItem.id],
     queryFn: async (): Promise<EstadoDocumentRecovery[]> => {
       const { data, error } = await supabase.from('estado_attachment_queue')
-        .select('id,publicacion_id,filename,status,last_error,storage_path,validation_evidence').eq('work_item_id', workItem.id);
+        .select('id,publicacion_id,remote_url,filename,status,last_error,storage_path,validation_evidence').eq('work_item_id', workItem.id);
       if (error) throw error;
       return data ?? [];
     }, staleTime: 30_000,
@@ -223,8 +165,8 @@ export function PublicacionesPpTab({ workItem }: Props) {
 
   const isLoading = apiLoading || localLoading;
 
-  // Merge API + local by (normalized title, fecha). API wins on collisions
-  // (fresher raw fields), local fills in anything upstream is missing.
+  // Keep the provider's freshest fields. A title/date match alone cannot
+  // authorize attaching a local copy to an API header.
   const acts = useMemo<WorkItemAct[]>(() => {
     const merged: WorkItemAct[] = [];
     const seen = new Set<string>();
@@ -337,29 +279,22 @@ export function PublicacionesPpTab({ workItem }: Props) {
   // Map merged WorkItemAct[] → EstadoRow[] for the dense-grid table.
   const estadoRows: EstadoRow[] = (filteredActs ?? []).map((act) => {
     const raw = (act.raw_data ?? {}) as Record<string, unknown>;
-    const docRow = (raw.__doc_row as StoredDocumentRow | undefined) ?? null;
-    const proxyPdfUrl = raw.pdf_url as string | undefined;
-    const pdfIndividualUrl = raw.pdf_individual_url as string | undefined;
     const rawTipo =
       (raw.tipo_publicacion as string | undefined) ||
       (raw.tipo_documento as string | undefined) ||
       (raw.tipoPublicacion as string | undefined) ||
       null;
-    // Resolve the persisted publication behind this row (local rows carry their
-    // id; API rows are matched by the same title|date key used for merging).
-    const pubId = act.id.startsWith("local-pub-")
-      ? act.id.slice("local-pub-".length)
-      : localPubs?.find((p) => mergeKey(mapLocalPubToAct(p).description, mapLocalPubToAct(p).act_date) === mergeKey(act.description, act.act_date))?.id;
-    const pub = pubId ? localPubs?.find((p) => p.id === pubId) : undefined;
+    const isLocal = act.id.startsWith("local-pub-");
+    const pub = isLocal ? localPubs?.find(p => p.id === act.id.slice("local-pub-".length)) : undefined;
     const unaccredited = (pub?.raw_data as Record<string, any> | null | undefined)?.asociacion_no_acreditada;
-    // Only a copy whose read is evidenced counts as available (never URL/HTTP alone).
-    const verifiedCopy = pubId
-      ? recoveryDocuments.find((d) => d.publicacion_id === pubId && estadoDocumentStatus(d).available)
-      : undefined;
-    const onOpenFile = verifiedCopy
-      ? () => void openCopy(verifiedCopy)
-      : docRow && hasResolvableDocument(docRow) ? () => void openStorageAttachment(docRow) : undefined;
-    const onDownloadFile = verifiedCopy ? () => void downloadCopy(verifiedCopy) : undefined;
+    const header = pub ? publicationHeaderDocument(pub, recoveryDocuments) : null;
+    const copy = header?.copy;
+    const onOpenFile = copy ? () => void openCopy(copy) : undefined;
+    const onDownloadFile = copy ? () => void downloadCopy(copy) : undefined;
+    const apiHeader = isLocal ? null : publicationHeaderDocument({
+      id: act.id, source: "pp", tipo_publicacion: rawTipo, pdf_url: null, raw_data: raw,
+    }, []);
+    const sourceUrl = header?.sourceUrl ?? apiHeader?.sourceUrl ?? null;
     return {
       asociacion_no_acreditada: unaccredited
         ? (typeof unaccredited.causa === "string" ? unaccredited.causa : "Asociación no acreditada por el contenido del documento.")
@@ -374,7 +309,9 @@ export function PublicacionesPpTab({ workItem }: Props) {
       fecha: act.act_date || act.act_date_raw || null,
       gcs_url_auto: (raw.gcs_url_auto as string | undefined) || null,
       gcs_url_tabla: (raw.gcs_url_tabla as string | undefined) || null,
-      pdf_url: onOpenFile ? null : proxyPdfUrl || pdfIndividualUrl || null,
+      pdf_url: isDirectlyOpenable(sourceUrl) ? sourceUrl : null,
+      separateRoleLinks: true,
+      unclassifiedUrl: !isLocal && typeof raw.pdf_url === "string" ? raw.pdf_url : null,
       onOpenFile,
     };
   });

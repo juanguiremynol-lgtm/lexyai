@@ -5,7 +5,68 @@ export interface EstadoDocumentRecovery {
   status: string;
   last_error?: string | null;
   storage_path?: string | null;
+  remote_url?: string | null;
   validation_evidence?: any;
+}
+
+interface PublicationDocument {
+  id: string;
+  source: string | null;
+  tipo_publicacion: string | null;
+  pdf_url: string | null;
+  pdf_storage_path?: string | null;
+  raw_data?: unknown;
+}
+
+type EvidenceObject = Record<string, unknown>;
+function object(value: unknown): EvidenceObject {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as EvidenceObject : {};
+}
+
+function documentRole(value: unknown) {
+  const name = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (['estado', 'estado electrónico', 'estado electronico'].includes(name)) return 'estado';
+  if (['providencia', 'auto'].includes(name)) return 'auto';
+  return null;
+}
+
+/** The header describes one document. Associated copies remain individually accessible below. */
+export function publicationHeaderDocument(pub: PublicationDocument, copies: EstadoDocumentRecovery[]) {
+  const raw = object(pub.raw_data);
+  const source = Array.isArray(raw.documentos_pdf) ? raw : object(raw.raw_data);
+  const docs = Array.isArray(source.documentos_pdf) ? source.documentos_pdf.map(object) : [];
+  const pp = ['publicaciones', 'pp'].includes(pub.source?.toLowerCase() || '');
+  const role = documentRole(pub.tipo_publicacion) ?? documentRole(raw.tipo);
+  const urls = new Set(docs.filter(d => role && d.tipo === role && typeof d.pdf_url === 'string' && d.pdf_url)
+    .map(d => String(d.pdf_url)));
+  const conflicts = new Set(docs.filter(d => d.tipo && d.tipo !== role).map(d => d.pdf_url));
+  const [declaredUrl] = urls;
+  const uniqueUrl = urls.size === 1 && !conflicts.has(declaredUrl) ? declaredUrl : null;
+  const stored = copies.filter(c => c.publicacion_id === pub.id && estadoDocumentStatus(c).available);
+  const matches = stored.filter(c => {
+    const proof = c.validation_evidence?.correspondence;
+    const recordedRole = proof?.document_kind;
+    if (recordedRole && role && recordedRole !== role) return false;
+    if (!pp) return (!!pub.pdf_storage_path && c.storage_path === pub.pdf_storage_path)
+      || (!!pub.pdf_url && c.remote_url === pub.pdf_url);
+    if (!role || c.validation_evidence?.state !== 'verified' || !c.remote_url || conflicts.has(c.remote_url)) return false;
+    if (c.validation_evidence.publicacion_id !== pub.id || c.validation_evidence.queue_id !== c.id ||
+        c.validation_evidence.source_url !== c.remote_url) return false;
+    if (docs.length) return !!uniqueUrl && c.remote_url === uniqueUrl && (!recordedRole || recordedRole === role);
+    if (proof?.method === 'official_portal_recovery' && role === 'estado') {
+      const recovered = Array.isArray(raw.recuperacion_oficial) ? raw.recuperacion_oficial.map(object) : [];
+      return c.storage_path === pub.pdf_storage_path && c.remote_url === pub.pdf_url &&
+        recovered.some(r => String(r.article_id) === String(proof.article_id) && !!r.article_id &&
+          r.url === c.remote_url && r.sha256 === c.validation_evidence.reading.sha256);
+    }
+    return recordedRole === role && (c.remote_url === pub.pdf_url || c.storage_path === pub.pdf_storage_path);
+  });
+  const paths = new Set(matches.map(c => c.storage_path));
+  const onlyOriginal = paths.size === 1 && matches[0]?.validation_evidence?.correspondence?.method === 'official_portal_recovery';
+  return {
+    copy: paths.size === 1 ? matches[0] : undefined,
+    sourceUrl: pp ? uniqueUrl ?? (onlyOriginal ? pub.pdf_url : null) : pub.pdf_url,
+  };
 }
 
 export function estadoDocumentStatus(document: EstadoDocumentRecovery): { available: boolean; label: string; reason: string } {
