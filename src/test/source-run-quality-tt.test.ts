@@ -221,7 +221,7 @@ describe("LW — chain denominator and named gaps", () => {
   });
 
   it("says complete when the whole chain answered", () => {
-    expect(html).toMatch(/Lectura completa de su cadena/);
+    expect(html).toMatch(/Todos los asuntos tienen una respuesta registrada en la ventana/);
   });
 });
 

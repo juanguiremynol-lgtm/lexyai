@@ -405,7 +405,7 @@ function sourceQualityBlock(p: DigestPayload): string {
     if (den > 0 && answered >= den) {
       return sinLectura > 0
         ? `<span style="color:#fbbf24;font-weight:700;">Todas respondieron · ${sinLectura} sin lectura confirmada (incluye procesos privados no comprobados)</span>`
-        : `<span style="color:#4ade80;font-weight:700;">Lectura completa de su cadena</span>`;
+        : `<span style="color:#4ade80;font-weight:700;">Todos los asuntos tienen una respuesta registrada en la ventana</span>`;
     }
     const never = Number((r as unknown as Record<string, unknown>).never_delivered_count ?? 0);
     const faltan = Math.max(den - answered - never, 0);
@@ -414,7 +414,7 @@ function sourceQualityBlock(p: DigestPayload): string {
       faltan ? `${faltan} asunto(s) sin respuesta` : "",
       sinLectura ? `${sinLectura} sin lectura confirmada` : "",
     ].filter(Boolean).join(" · ");
-    return `<span style="color:#fbbf24;font-weight:700;">Lectura parcial — ${parts}</span>`;
+    return `<span style="color:#fbbf24;font-weight:700;">Cobertura parcial en la ventana · ${parts}</span>`;
   };
   // LW3/LW4 — one line per matter, never a bare count.
   const exceptionsOf = (source: string, kind: string) =>
@@ -459,7 +459,7 @@ function sourceQualityBlock(p: DigestPayload): string {
       "(p. ej. Publicaciones frente a un asunto CPACA) no se cuenta como lectura faltante.",
   ) +
     `<table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid ${BORDER};border-radius:8px;background:${CARD};">
-      <thead><tr>${th("Fuente", accent)}${th("Cobertura de su cadena", accent)}${th("Resultados", accent)}${th("Lectura del día", accent)}</tr></thead>
+      <thead><tr>${th("Fuente", accent)}${th("Cobertura de su cadena", accent)}${th("Resultados por asunto", accent)}${th("Balance de la ventana", accent)}</tr></thead>
       <tbody>${rows.map((r) => `<tr>
         ${td(`<strong>${esc(r.label)}</strong>` +
           (r.routing_skipped_count
@@ -475,8 +475,9 @@ function sourceQualityBlock(p: DigestPayload): string {
       </tr>`).join("")}</tbody>
     </table>
     <div style="font-size:12px;color:${MUTED};margin-top:8px;line-height:1.6;">
-      <strong style="color:${TEXT};">Cómo leer estas cifras.</strong> La cobertura se mide sobre las lecturas de las
-      últimas 24 horas (${fmtDateTime(p.coverageWindowFrom)} → ${fmtDateTime(p.coverageWindowTo)}), mientras que las
+      <strong style="color:${TEXT};">Cómo leer estas cifras.</strong> Para cada asunto, la cobertura cuenta el mejor resultado registrado en las
+      últimas 24 horas (${fmtDateTime(p.coverageWindowFrom)} → ${fmtDateTime(p.coverageWindowTo)}).
+      Un intento posterior puede tener otro resultado. La cronología del expediente muestra el último intento. Las
       novedades se cuentan sobre el día calendario del resumen (${fmtDateTime(p.windowFrom)} → ${fmtDateTime(p.windowTo)}).
       ${fmtDateTime(p.coverageWindowFrom) !== fmtDateTime(p.windowFrom) || fmtDateTime(p.coverageWindowTo) !== fmtDateTime(p.windowTo)
         ? `Son ventanas distintas: por eso una fuente puede mostrar «0 con datos» y aun así aparecer una novedad detectada

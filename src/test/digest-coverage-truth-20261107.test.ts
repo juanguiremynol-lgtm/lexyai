@@ -67,6 +67,9 @@ describe("daily digest coverage evidence", () => {
     expect(digestCoverageIncomplete([complete])).toBe(false);
     const html = buildDigestHtml(payload({ sourceQuality: [complete], coverageIncomplete: false }));
     expect(html).toContain("Las comprobaciones de cobertura no reportan brechas en esta ventana");
+    expect(html).toContain("Todos los asuntos tienen una respuesta registrada en la ventana");
+    expect(html).toContain("el mejor resultado registrado");
+    expect(html).toContain("La cronología del expediente muestra el último intento");
     expect(html).not.toContain("Cobertura por verificar");
   });
 
