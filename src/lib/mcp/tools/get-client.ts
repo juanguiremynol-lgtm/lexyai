@@ -17,7 +17,7 @@ export default defineTool({
     if (!client_id && !name) return errorResult("Indica client_id o name.");
     const sb = sbForUser(ctx);
 
-    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
+    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at, updated_at").is("deleted_at", null).limit(1);
     if (client_id) q = q.eq("id", client_id);
     else if (name) q = q.ilike("name", `%${name}%`);
 

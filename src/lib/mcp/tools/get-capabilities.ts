@@ -7,6 +7,7 @@ const MANAGE_TOOLS = [
   "resolve_alert", "set_notification_state", "resolve_email_question", "add_email_association",
   "resolve_detected_process",
   "assign_work_item_radicado",
+  "create_client", "update_client",
 ];
 
 export default defineTool({

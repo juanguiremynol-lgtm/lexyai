@@ -715,6 +715,13 @@
       "when": 1794484554065,
       "tag": "0101_security_tighten_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794595659218,
+      "tag": "0102_mcp_client_directory_writes",
+      "breakpoints": true
     }
   ]
 }

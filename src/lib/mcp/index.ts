@@ -10,6 +10,8 @@ import getActuacionesHoy from "./tools/get-actuaciones-hoy";
 import listDeadlines from "./tools/list-deadlines";
 import listClients from "./tools/list-clients";
 import getClient from "./tools/get-client";
+import createClient from "./tools/create-client";
+import updateClient from "./tools/update-client";
 import addNote from "./tools/add-note";
 import search from "./tools/search";
 import listAlerts from "./tools/list-alerts";
@@ -59,7 +61,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.10",
+  version: "0.6.11",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
@@ -76,7 +78,7 @@ export default defineMcp({
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los envíos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni envía mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
     "Permisos: `get_capabilities` verifica la sesión, el permiso y la disponibilidad efectiva de cada acción. Gestionar exige que el usuario lo active él mismo desde su sesión en Andromeda → Configuración → Conexiones, y puede revocarlo en cualquier momento; ningún argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
-    "Escritura (solo con instrucción explícita del usuario y permiso de gestión): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 días, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administración de cuentas ni envío de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple términos.",
+    "Escritura (solo con instrucción explícita del usuario y permiso de gestión): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 días, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`, `create_client` y `update_client` (directorio de clientes: nunca fusiona por nombre; identificación repetida devuelve conflicto). Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administración de cuentas ni envío de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple términos.",
     "Continuación de creación: `assign_work_item_radicado` asigna exactamente 23 dígitos solo a un asunto propio ACTIVE sin radicado, con revisión e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronización programada pendiente. `get_capabilities` verifica disponibilidad de ejecución y permiso de gestión en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisión; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; continúa su página con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 días, no historial completo ni purgas; commits tardíos de más de 15 minutos pueden perderse.",
     "Correcciones explícitas: add_hearing con hearing_id conserva identidad, exige revisión, motivo y clave; update_work_item admite authority_email:null y, separadamente, reclasificación workflow_type+stage con catálogo vivo, motivo y revisión. get_capabilities.correction_availability determina si esas variantes están liberadas; nunca presumas disponibilidad de una variante por el permiso de la herramienta base. La remisión no acredita terminación. No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo explícitamente.",
@@ -87,7 +89,7 @@ export default defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-16",
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-17",
   }),
   tools: [
     getUserContext,
@@ -109,6 +111,8 @@ export default defineMcp({
     listDetectedProcesses,
     listClients,
     getClient,
+    createClient,
+    updateClient,
     addNote,
     addHearing,
     listAppScreens,

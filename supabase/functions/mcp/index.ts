@@ -1124,7 +1124,7 @@ var list_clients_default = defineTool10({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    let q = sb.from("clients").select("id, name, id_number, email, city, created_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
+    let q = sb.from("clients").select("id, name, id_number, email, city, created_at, updated_at").is("deleted_at", null).order("name", { ascending: true }).limit(limit ?? 50);
     if (search) q = q.or(`name.ilike.%${search}%,id_number.ilike.%${search}%`);
     const { data, error } = await q;
     if (error) return errorResult(error.message);
@@ -1157,7 +1157,7 @@ var get_client_default = defineTool11({
     if (unauth) return errorResult(unauth);
     if (!client_id && !name) return errorResult("Indica client_id o name.");
     const sb = sbForUser(ctx);
-    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at").is("deleted_at", null).limit(1);
+    let q = sb.from("clients").select("id, name, id_number, email, city, address, notes, created_at, updated_at").is("deleted_at", null).limit(1);
     if (client_id) q = q.eq("id", client_id);
     else if (name) q = q.ilike("name", `%${name}%`);
     const { data, error } = await q;
@@ -1172,17 +1172,91 @@ var get_client_default = defineTool11({
   }
 });
 
-// src/lib/mcp/tools/add-note.ts
+// src/lib/mcp/tools/create-client.ts
 import { defineTool as defineTool12 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z11 } from "npm:zod@^3.25.76";
-var add_note_default = defineTool12({
+var create_client_default = defineTool12({
+  name: "create_client",
+  title: "Crear cliente",
+  description: "Creates a client (name, identification, email, city) in the user's directory. Never merges by name; if the same normalized identification already exists for this user it returns a conflict with that client's id and creates nothing. Requires manage grant and idempotency_key.",
+  inputSchema: {
+    name: z11.string().trim().min(1).max(300).describe("Nombre o raz\xF3n social."),
+    id_number: z11.string().trim().max(60).optional().describe("Identificaci\xF3n (c\xE9dula/NIT); se compara normalizada (sin puntos, guiones ni espacios)."),
+    email: z11.string().trim().email().max(200).optional(),
+    city: z11.string().trim().max(120).optional(),
+    idempotency_key: z11.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("mcp_create_client", {
+      p_name: args.name,
+      p_id_number: args.id_number ?? null,
+      p_email: args.email ?? null,
+      p_city: args.city ?? null,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data ?? {};
+    if (r.ok !== true) {
+      return textResult(
+        "Ya existe un cliente tuyo con esa identificaci\xF3n; no se cre\xF3 otra ficha. Usa update_client si corresponde corregirlo.",
+        r
+      );
+    }
+    return textResult(r.replayed ? "Cliente ya creado con esta clave (resultado confirmado)." : "Cliente creado.", r);
+  }
+});
+
+// src/lib/mcp/tools/update-client.ts
+import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z12 } from "npm:zod@^3.25.76";
+var update_client_default = defineTool13({
+  name: "update_client",
+  title: "Corregir datos de un cliente",
+  description: "Corrects name, identification, email or city of an own, non-archived client. Requires expected_updated_at (from get_client/list_clients); a stale revision or an identification already used by another of the user's clients changes nothing. Null clears identification, email or city. Requires manage grant and idempotency_key.",
+  inputSchema: {
+    id: z12.string().uuid().describe("UUID del cliente."),
+    expected_updated_at: z12.string().datetime({ offset: true }).describe("updated_at le\xEDdo del cliente; si cambi\xF3, no se modifica nada."),
+    name: z12.string().trim().min(1).max(300).optional(),
+    id_number: z12.string().trim().max(60).nullable().optional(),
+    email: z12.string().trim().email().max(200).nullable().optional(),
+    city: z12.string().trim().max(120).nullable().optional(),
+    idempotency_key: z12.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const patch = {};
+    for (const k of ["name", "id_number", "email", "city"]) {
+      if (args[k] !== void 0) patch[k] = args[k] ?? null;
+    }
+    if (Object.keys(patch).length === 0) return errorResult("Indica al menos un campo a corregir.");
+    const { data, error } = await sbForUser(ctx).rpc("mcp_update_client", {
+      p_client_id: args.id,
+      p_patch: patch,
+      p_expected_updated_at: args.expected_updated_at,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data ?? {};
+    return textResult(r.replayed ? "Correcci\xF3n ya aplicada con esta clave (resultado confirmado)." : "Cliente actualizado.", r);
+  }
+});
+
+// src/lib/mcp/tools/add-note.ts
+import { defineTool as defineTool14 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z13 } from "npm:zod@^3.25.76";
+var add_note_default = defineTool14({
   name: "add_note",
   title: "Agregar nota a un asunto",
   description: "Appends a timestamped note to a matter's notes field. Never deletes, reclassifies or changes the lifecycle of a matter. Requires a manage grant (see get_capabilities).",
   inputSchema: {
-    radicado: z11.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
-    id: z11.string().uuid().optional().describe("UUID del asunto."),
-    content: z11.string().trim().min(1).max(4e3).describe("Texto de la nota.")
+    radicado: z13.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
+    id: z13.string().uuid().optional().describe("UUID del asunto."),
+    content: z13.string().trim().min(1).max(4e3).describe("Texto de la nota.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ radicado, id, content }, ctx) => {
@@ -1212,8 +1286,8 @@ var add_note_default = defineTool12({
 });
 
 // src/lib/mcp/tools/search.ts
-import { defineTool as defineTool13 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z12 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool15 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z14 } from "npm:zod@^3.25.76";
 var MATCHED_FIELD_KEYS = {
   radicado: "radicado",
   "radicado parcial": "radicado_parcial",
@@ -1228,17 +1302,17 @@ var MATCHED_FIELD_KEYS = {
   "correo del despacho": "correo_despacho",
   "correo vinculado": "correo_vinculado"
 };
-var search_default = defineTool13({
+var search_default = defineTool15({
   name: "search",
   title: "B\xFAsqueda libre",
   description: "Normalized free-text search across the caller's matters: radicado in ANY form (23 digits, hyphenated, spaced, 21-digit base, 22-digit missing leading zero, base+instance) plus partial radicados, t\xEDtulo, partes, cliente y su identificaci\xF3n, despacho, ciudad, tipo, etapa, correo del despacho y correos vinculados confirmados. Multi-token queries are AND across fields. Each result reports `matched_on` (why it surfaced). Results are RLS-scoped to the caller.",
   inputSchema: {
-    query: z12.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
-    workflow_type: z12.string().trim().optional().describe("Filtro opcional: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
-    client_id: z12.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
-    status: z12.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
-    city: z12.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
-    limit: z12.number().int().min(1).max(50).optional().describe("M\xE1ximo de resultados (default 20).")
+    query: z14.string().trim().min(2).describe("Texto libre: parte, despacho, ciudad, correo del despacho, radicado (cualquier forma o parcial) o t\xEDtulo."),
+    workflow_type: z14.string().trim().optional().describe("Filtro opcional: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
+    client_id: z14.string().uuid().optional().describe("Filtro opcional por cliente (UUID)."),
+    status: z14.string().trim().optional().describe("Filtro opcional por estado del asunto (p. ej. ACTIVE)."),
+    city: z14.string().trim().optional().describe("Filtro opcional por ciudad del despacho."),
+    limit: z14.number().int().min(1).max(50).optional().describe("M\xE1ximo de resultados (default 20).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ query, workflow_type, client_id, status, city, limit }, ctx) => {
@@ -1296,17 +1370,17 @@ var search_default = defineTool13({
 });
 
 // src/lib/mcp/tools/list-alerts.ts
-import { defineTool as defineTool14 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z13 } from "npm:zod@^3.25.76";
-var list_alerts_default = defineTool14({
+import { defineTool as defineTool16 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z15 } from "npm:zod@^3.25.76";
+var list_alerts_default = defineTool16({
   name: "list_alerts",
   title: "Alertas del abogado",
   description: "Lists the caller's judicial alerts (alert_instances). Default: unresolved alerts (PENDING and ACKNOWLEDGED), newest first. Use it to answer 'how many unread alerts do I have'.",
   inputSchema: {
-    work_item_id: z13.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z13.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
-    status: z13.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
-    limit: z13.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
+    work_item_id: z15.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z15.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
+    status: z15.string().trim().optional().describe("pending | acknowledged | resolved | all. Default: pendientes + reconocidas."),
+    limit: z15.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
@@ -1365,19 +1439,19 @@ var list_alerts_default = defineTool14({
 });
 
 // src/lib/mcp/tools/list-hearings.ts
-import { defineTool as defineTool15 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z14 } from "npm:zod@^3.25.76";
-var list_hearings_default = defineTool15({
+import { defineTool as defineTool17 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z16 } from "npm:zod@^3.25.76";
+var list_hearings_default = defineTool17({
   name: "list_hearings",
   title: "Audiencias programadas",
   description: "Lists hearings from the canonical work_item_hearings table, RLS-scoped to the caller, split three ways: `audiencias_programadas` (a date AND a status that is not held/cancelled/postponed \u2014 the standing agenda), `audiencias_celebradas_o_canceladas` (history, kept apart), and `marcadores_sin_fecha` (detected placeholders with no date, never part of the agenda). Optionally filter by matter and by date range (ISO dates, America/Bogota calendar).",
   inputSchema: {
-    work_item_id: z14.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z14.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    date_from: z14.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
-    date_to: z14.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
-    include_placeholders: z14.boolean().optional().describe("Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."),
-    limit: z14.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
+    work_item_id: z16.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z16.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    date_from: z16.string().trim().optional().describe("Fecha inicial ISO (YYYY-MM-DD)."),
+    date_to: z16.string().trim().optional().describe("Fecha final ISO (YYYY-MM-DD)."),
+    include_placeholders: z16.boolean().optional().describe("Incluir los marcadores sin fecha (default true, siempre en una lista aparte)."),
+    limit: z16.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date_from, date_to, include_placeholders, limit }, ctx) => {
@@ -1445,17 +1519,17 @@ var list_hearings_default = defineTool15({
 });
 
 // src/lib/mcp/tools/list-tasks.ts
-import { defineTool as defineTool16 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z15 } from "npm:zod@^3.25.76";
-var list_tasks_default = defineTool16({
+import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z17 } from "npm:zod@^3.25.76";
+var list_tasks_default = defineTool18({
   name: "list_tasks",
   title: "Tareas de expedientes",
   description: "Lists the caller's tasks (work_item_tasks), optionally filtered by matter and status. Default: open tasks ordered by due date.",
   inputSchema: {
-    work_item_id: z15.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
-    radicado: z15.string().trim().optional().describe("Limitar a un asunto por radicado."),
-    status: z15.enum(["PENDIENTE", "COMPLETADA", "OPEN", "PENDING", "DONE", "COMPLETED", "all"]).optional().describe("PENDIENTE o COMPLETADA (tambi\xE9n acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."),
-    limit: z15.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
+    work_item_id: z17.string().uuid().optional().describe("Limitar a un asunto (UUID)."),
+    radicado: z17.string().trim().optional().describe("Limitar a un asunto por radicado."),
+    status: z17.enum(["PENDIENTE", "COMPLETADA", "OPEN", "PENDING", "DONE", "COMPLETED", "all"]).optional().describe("PENDIENTE o COMPLETADA (tambi\xE9n acepta OPEN/PENDING y DONE/COMPLETED); all incluye ambos."),
+    limit: z17.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
@@ -1483,16 +1557,16 @@ var list_tasks_default = defineTool16({
 });
 
 // src/lib/mcp/tools/get-document-url.ts
-import { defineTool as defineTool17 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z16 } from "npm:zod@^3.25.76";
-var get_document_url_default = defineTool17({
+import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z18 } from "npm:zod@^3.25.76";
+var get_document_url_default = defineTool19({
   name: "get_document_url",
   title: "Enlace del documento de una publicaci\xF3n",
   description: "Returns a short-lived download URL for the PDF attached to a publicaci\xF3n (estado electr\xF3nico) of one of the caller's matters. It never generates new documents; it only exposes an existing attachment under the established access policy.",
   inputSchema: {
-    work_item_id: z16.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z16.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
-    document_id: z16.string().uuid().describe("UUID de la publicaci\xF3n (estado) cuyo PDF se solicita.")
+    work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
+    document_id: z18.string().uuid().describe("UUID de la publicaci\xF3n (estado) cuyo PDF se solicita.")
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, document_id }, ctx) => {
@@ -1546,8 +1620,8 @@ var get_document_url_default = defineTool17({
 });
 
 // src/lib/mcp/tools/list-act-attachments.ts
-import { defineTool as defineTool18 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z17 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z19 } from "npm:zod@^3.25.76";
 
 // src/lib/act-attachments-inventory.ts
 var ANDROMEDA_DOCUMENT_BUCKETS = [
@@ -1785,14 +1859,14 @@ async function getActAttachments(args) {
 }
 
 // src/lib/mcp/tools/list-act-attachments.ts
-var list_act_attachments_default = defineTool18({
+var list_act_attachments_default = defineTool20({
   name: "list_act_attachments",
   title: "Anexos de una actuaci\xF3n",
   description: "Attachment inventory for a caller-owned act: announced count (null when unknown), stored links, header checks, full-file recovery and attribution reported separately. This tool only checks up to 1024 bytes; cabeceras_verificadas does NOT mean a complete, readable or correctly attributed PDF. verificados remains zero and recuperacion_completa false after header checks alone. Missing annexes are not recovered. Returned links with cabecera_pdf are unverified complete files. Act and matter use caller RLS; optional matter must match. Read-only; no court fetch, file creation or permission changes.",
   inputSchema: {
-    act_id: z17.string().uuid().describe("UUID de la actuaci\xF3n."),
-    work_item_id: z17.string().uuid().optional().describe("Opcional: UUID del asunto; debe ser el de la actuaci\xF3n."),
-    radicado: z17.string().trim().optional().describe("Opcional: radicado del asunto; debe ser el de la actuaci\xF3n.")
+    act_id: z19.string().uuid().describe("UUID de la actuaci\xF3n."),
+    work_item_id: z19.string().uuid().optional().describe("Opcional: UUID del asunto; debe ser el de la actuaci\xF3n."),
+    radicado: z19.string().trim().optional().describe("Opcional: radicado del asunto; debe ser el de la actuaci\xF3n.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ act_id, work_item_id, radicado }, ctx) => {
@@ -1812,25 +1886,25 @@ var list_act_attachments_default = defineTool18({
 });
 
 // src/lib/mcp/tools/add-hearing.ts
-import { defineTool as defineTool19 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z18 } from "npm:zod@^3.25.76";
-var add_hearing_default = defineTool19({
+import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z20 } from "npm:zod@^3.25.76";
+var add_hearing_default = defineTool21({
   name: "add_hearing",
   title: "Agendar audiencia",
   description: "Schedules a hearing or explicitly corrects an existing hearing by hearing_id, expected revision, evidence reason and idempotency key. Corrections preserve identity and audit; require the correction RPC to be released. Never deletes or changes the matter lifecycle. Requires manage permission.",
   inputSchema: {
-    work_item_id: z18.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z18.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
-    date: z18.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
-    description: z18.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
-    location: z18.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
-    modality: z18.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."),
-    hearing_id: z18.string().uuid().optional().describe("Para corregir una audiencia existente sin cambiar su identidad; omitir para crear."),
-    expected_updated_at: z18.string().datetime({ offset: true }).optional().describe("Revisi\xF3n le\xEDda de la audiencia, obligatoria al corregir."),
-    reason: z18.string().trim().min(5).max(2e3).optional().describe("Fuente y motivo de correcci\xF3n; obligatorio al corregir."),
-    idempotency_key: z18.string().min(8).max(200).optional(),
-    status: z18.enum(["planned", "scheduled", "held", "postponed", "cancelled"]).optional().describe("Solo al corregir; held requiere occurred_at acreditado."),
-    occurred_at: z18.string().datetime({ offset: true }).optional()
+    work_item_id: z20.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z20.string().trim().optional().describe("Radicado en cualquier forma: 23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia."),
+    date: z20.string().trim().describe("Fecha y hora ISO 8601, p. ej. 2026-08-14T09:00:00-05:00 (hora de Bogot\xE1)."),
+    description: z20.string().trim().min(1).max(500).describe("Nombre o descripci\xF3n de la audiencia."),
+    location: z20.string().trim().max(300).optional().describe("Lugar o enlace de la audiencia."),
+    modality: z20.enum(["presencial", "virtual", "mixta"]).optional().describe("Modalidad; si se omite se deduce virtual solo para enlaces HTTP, presencial en otro caso."),
+    hearing_id: z20.string().uuid().optional().describe("Para corregir una audiencia existente sin cambiar su identidad; omitir para crear."),
+    expected_updated_at: z20.string().datetime({ offset: true }).optional().describe("Revisi\xF3n le\xEDda de la audiencia, obligatoria al corregir."),
+    reason: z20.string().trim().min(5).max(2e3).optional().describe("Fuente y motivo de correcci\xF3n; obligatorio al corregir."),
+    idempotency_key: z20.string().min(8).max(200).optional(),
+    status: z20.enum(["planned", "scheduled", "held", "postponed", "cancelled"]).optional().describe("Solo al corregir; held requiere occurred_at acreditado."),
+    occurred_at: z20.string().datetime({ offset: true }).optional()
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async ({ work_item_id, radicado, date, description, location, modality, hearing_id, expected_updated_at, reason, idempotency_key, status, occurred_at }, ctx) => {
@@ -1881,17 +1955,17 @@ var add_hearing_default = defineTool19({
 });
 
 // src/lib/mcp/tools/list-email-links.ts
-import { defineTool as defineTool20 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z19 } from "npm:zod@^3.25.76";
-var list_email_links_default = defineTool20({
+import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z21 } from "npm:zod@^3.25.76";
+var list_email_links_default = defineTool22({
   name: "list_email_links",
   title: "Correos vinculados al expediente",
   description: "Lists the email metadata linked to one matter (work_item_email_links): subject, direction, sender, date, evidence type, how it was matched, confidence, attachments and the Outlook web link. Read-only; Andromeda never stores email bodies.",
   inputSchema: {
-    work_item_id: z19.string().uuid().optional().describe("UUID del asunto."),
-    radicado: z19.string().trim().optional().describe("Radicado del asunto (alternativa al UUID)."),
-    status: z19.enum(["CONFIRMED", "SUGGESTED", "DISMISSED", "ALL"]).optional().describe("Estado del v\xEDnculo. Default: CONFIRMED + SUGGESTED."),
-    limit: z19.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
+    work_item_id: z21.string().uuid().optional().describe("UUID del asunto."),
+    radicado: z21.string().trim().optional().describe("Radicado del asunto (alternativa al UUID)."),
+    status: z21.enum(["CONFIRMED", "SUGGESTED", "DISMISSED", "ALL"]).optional().describe("Estado del v\xEDnculo. Default: CONFIRMED + SUGGESTED."),
+    limit: z21.number().int().min(1).max(100).optional().describe("M\xE1ximo de filas (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, radicado, status, limit }, ctx) => {
@@ -1923,15 +1997,15 @@ var list_email_links_default = defineTool20({
 });
 
 // src/lib/mcp/tools/list-detected-processes.ts
-import { defineTool as defineTool21 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z20 } from "npm:zod@^3.25.76";
-var list_detected_processes_default = defineTool21({
+import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z22 } from "npm:zod@^3.25.76";
+var list_detected_processes_default = defineTool23({
   name: "list_detected_processes",
   title: "Procesos detectados en el correo",
   description: "Lists judicial case numbers (radicados) found in the caller's mailbox that do NOT exist in their Andromeda portfolio yet (detected_processes queue). Use it to help the lawyer triage which ones deserve a matter. Read-only: creating the matter always happens in the app.",
   inputSchema: {
-    status: z20.enum(["PENDING", "DISMISSED", "CREATED", "ALL"]).optional().describe("Estado de la detecci\xF3n. Default: PENDING."),
-    limit: z20.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+    status: z22.enum(["PENDING", "DISMISSED", "CREATED", "ALL"]).optional().describe("Estado de la detecci\xF3n. Default: PENDING."),
+    limit: z22.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ status, limit }, ctx) => {
@@ -1959,8 +2033,8 @@ var list_detected_processes_default = defineTool21({
 });
 
 // src/lib/mcp/tools/atenia-health-overview.ts
-import { defineTool as defineTool22 } from "npm:@lovable.dev/mcp-js@0.20.0";
-var atenia_health_overview_default = defineTool22({
+import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_health_overview_default = defineTool24({
   name: "atenia_health_overview",
   title: "Atenia \xB7 Salud de la plataforma (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Returns the current Andromeda platform health snapshot: latest Atenia preflight verdict, service heartbeats and the last cron runs. Non-admin callers get a clean refusal.",
@@ -1999,8 +2073,8 @@ var atenia_health_overview_default = defineTool22({
 });
 
 // src/lib/mcp/tools/atenia-provider-status.ts
-import { defineTool as defineTool23 } from "npm:@lovable.dev/mcp-js@0.20.0";
-var atenia_provider_status_default = defineTool23({
+import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+var atenia_provider_status_default = defineTool25({
   name: "atenia_provider_status",
   title: "Atenia \xB7 Estado de proveedores judiciales (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Per-provider status from the latest Atenia preflight run (CPNU, SAMAI, Publicaciones Procesales, SAMAI Estados), including consecutive failures. Non-admin callers get a clean refusal.",
@@ -2040,15 +2114,15 @@ var atenia_provider_status_default = defineTool23({
 });
 
 // src/lib/mcp/tools/atenia-recent-incidents.ts
-import { defineTool as defineTool24 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z21 } from "npm:zod@^3.25.76";
-var atenia_recent_incidents_default = defineTool24({
+import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z23 } from "npm:zod@^3.25.76";
+var atenia_recent_incidents_default = defineTool26({
   name: "atenia_recent_incidents",
   title: "Atenia \xB7 Incidentes recientes (solo administradores)",
   description: "PLATFORM ADMINS ONLY. Lists WARN/ERROR system health events and failed cron runs in the last N days (default 7). Non-admin callers get a clean refusal.",
   inputSchema: {
-    days: z21.number().int().min(1).max(90).optional().describe("Ventana en d\xEDas (default 7)."),
-    limit: z21.number().int().min(1).max(200).optional().describe("M\xE1ximo de eventos (default 100).")
+    days: z23.number().int().min(1).max(90).optional().describe("Ventana en d\xEDas (default 7)."),
+    limit: z23.number().int().min(1).max(200).optional().describe("M\xE1ximo de eventos (default 100).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ days, limit }, ctx) => {
@@ -2076,7 +2150,7 @@ var atenia_recent_incidents_default = defineTool24({
 });
 
 // src/lib/mcp/tools/list-app-screens.ts
-import { defineTool as defineTool25 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
 var BASE = "https://andromeda.legal";
 var SCREENS = [
   { path: "/app/dashboard", nombre: "Tablero", para: "Resumen del d\xEDa: novedades, tableros por tipo de proceso y pendientes." },
@@ -2103,7 +2177,7 @@ var SCREENS = [
   { path: "/app/connect", nombre: "Conectar asistente", para: "Instrucciones para conectar ChatGPT, Claude u otro cliente MCP." },
   { path: "/app/new-process", nombre: "Nuevo proceso", para: "Alta de un asunto nuevo y su inscripci\xF3n al monitoreo." }
 ];
-var list_app_screens_default = defineTool25({
+var list_app_screens_default = defineTool27({
   name: "list_app_screens",
   title: "Pantallas de Andromeda y enlaces directos",
   description: "Maps every Andromeda screen to what it shows and returns a clickable deep link. Use it to tell the user exactly where in the app to look, or to build a link to a specific matter (/app/radicados/<radicado>). Read-only; it does not render the UI.",
@@ -2124,7 +2198,7 @@ var list_app_screens_default = defineTool25({
 });
 
 // src/lib/mcp/tools/describe-data-model.ts
-import { defineTool as defineTool26 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
 function entry(_table, que_es, columnas_clave) {
   return { que_es, columnas_clave };
 }
@@ -2287,7 +2361,7 @@ var READABLE_TABLES = {
     "created_at"
   ])
 };
-var describe_data_model_default = defineTool26({
+var describe_data_model_default = defineTool28({
   name: "describe_data_model",
   title: "Modelo de datos consultable",
   description: "Lists the Andromeda tables that `query_table` can read, what each one holds, its key columns (validated against the real schema), and how many rows the caller can actually see under RLS. Start here before composing a `query_table` call.",
@@ -2320,26 +2394,26 @@ var describe_data_model_default = defineTool26({
 });
 
 // src/lib/mcp/tools/query-table.ts
-import { defineTool as defineTool27 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z22 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z24 } from "npm:zod@^3.25.76";
 var OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"];
-var query_table_default = defineTool27({
+var query_table_default = defineTool29({
   name: "query_table",
   title: "Consultar una tabla de Andromeda",
   description: "Runs a filtered, ordered, limited read against one catalogued Andromeda table using the caller's own credentials (RLS enforced). Call `describe_data_model` first for table and column names. Read-only: it can never write, delete, or run raw SQL.",
   inputSchema: {
-    table: z22.string().trim().describe("Nombre de la tabla (ver `describe_data_model`)."),
-    columns: z22.string().trim().optional().describe("Columnas separadas por coma. Default: todas."),
-    filters: z22.array(
-      z22.object({
-        column: z22.string().trim(),
-        op: z22.enum(OPERATORS).describe("eq, neq, gt, gte, lt, lte, like, ilike, is, in"),
-        value: z22.string().describe("Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false.")
+    table: z24.string().trim().describe("Nombre de la tabla (ver `describe_data_model`)."),
+    columns: z24.string().trim().optional().describe("Columnas separadas por coma. Default: todas."),
+    filters: z24.array(
+      z24.object({
+        column: z24.string().trim(),
+        op: z24.enum(OPERATORS).describe("eq, neq, gt, gte, lt, lte, like, ilike, is, in"),
+        value: z24.string().describe("Valor. Para `in` usa coma: A,B,C. Para `is` usa null/true/false.")
       })
     ).max(8).optional().describe("Condiciones combinadas con AND."),
-    order_by: z22.string().trim().optional().describe("Columna de ordenamiento."),
-    descending: z22.boolean().optional().describe("Orden descendente (default true cuando hay order_by)."),
-    limit: z22.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
+    order_by: z24.string().trim().optional().describe("Columna de ordenamiento."),
+    descending: z24.boolean().optional().describe("Orden descendente (default true cuando hay order_by)."),
+    limit: z24.number().int().min(1).max(200).optional().describe("M\xE1ximo de filas (default 50).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ table, columns, filters, order_by, descending, limit }, ctx) => {
@@ -2396,33 +2470,33 @@ var query_table_default = defineTool27({
 });
 
 // src/lib/mcp/tools/update-work-item.ts
-import { defineTool as defineTool28 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z23 } from "npm:zod@^3.25.76";
-var update_work_item_default = defineTool28({
+import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z25 } from "npm:zod@^3.25.76";
+var update_work_item_default = defineTool30({
   name: "update_work_item",
   title: "Editar datos de un asunto",
   description: "Updates descriptive fields and explicit monitoring switches atomically. authority_email:null clears an obsolete court email. Separately, explicit workflow_type+stage reclassification requires revision, evidence reason, idempotency and released correction availability. Never replaces radicado, deletes children or changes lifecycle.",
   inputSchema: {
-    radicado: z23.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
-    id: z23.string().uuid().optional().describe("UUID del asunto."),
-    title: z23.string().trim().max(300).optional().describe("Car\xE1tula / t\xEDtulo del asunto."),
-    description: z23.string().trim().max(4e3).optional(),
-    demandantes: z23.string().trim().max(1e3).optional(),
-    demandados: z23.string().trim().max(1e3).optional(),
-    authority_name: z23.string().trim().max(300).optional().describe("Nombre del despacho."),
-    authority_email: z23.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina expl\xEDcitamente un correo desactualizado, sin inventar reemplazo."),
-    authority_city: z23.string().trim().max(120).optional(),
-    expediente_url: z23.string().trim().url().max(2e3).optional(),
-    client_id: z23.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
-    is_flagged: z23.boolean().optional().describe("Marcar/desmarcar como destacado."),
-    monitoring_enabled: z23.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
-    monitoring_off_reason: z23.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
-    email_linking_enabled: z23.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos."),
-    idempotency_key: z23.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
-    workflow_type: z23.string().trim().min(2).optional().describe("Reclasificaci\xF3n expl\xEDcita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."),
-    stage: z23.string().trim().min(1).optional().describe("Etapa de destino validada contra el cat\xE1logo vivo del tipo de proceso."),
-    expected_updated_at: z23.string().datetime({ offset: true }).optional(),
-    reason: z23.string().trim().min(5).max(2e3).optional().describe("Motivo y evidencia de la reclasificaci\xF3n.")
+    radicado: z25.string().trim().optional().describe("Radicado del asunto (cualquier forma)."),
+    id: z25.string().uuid().optional().describe("UUID del asunto."),
+    title: z25.string().trim().max(300).optional().describe("Car\xE1tula / t\xEDtulo del asunto."),
+    description: z25.string().trim().max(4e3).optional(),
+    demandantes: z25.string().trim().max(1e3).optional(),
+    demandados: z25.string().trim().max(1e3).optional(),
+    authority_name: z25.string().trim().max(300).optional().describe("Nombre del despacho."),
+    authority_email: z25.string().trim().email().max(200).nullable().optional().describe("Correo del despacho; null elimina expl\xEDcitamente un correo desactualizado, sin inventar reemplazo."),
+    authority_city: z25.string().trim().max(120).optional(),
+    expediente_url: z25.string().trim().url().max(2e3).optional(),
+    client_id: z25.string().uuid().optional().describe("Cliente al que se vincula el asunto."),
+    is_flagged: z25.boolean().optional().describe("Marcar/desmarcar como destacado."),
+    monitoring_enabled: z25.boolean().optional().describe("Pausar (false) o reanudar (true) el monitoreo autom\xE1tico. Usa la suspensi\xF3n expl\xEDcita del usuario (auditada); no se revierte sola."),
+    monitoring_off_reason: z25.string().trim().min(3).max(500).optional().describe("Motivo indicado por el usuario al pausar el monitoreo (obligatorio si monitoring_enabled=false)."),
+    email_linking_enabled: z25.boolean().optional().describe("Activar o desactivar la vinculaci\xF3n de correos."),
+    idempotency_key: z25.string().min(8).max(200).optional().describe(IDEMPOTENCY_KEY_DESCRIPTION),
+    workflow_type: z25.string().trim().min(2).optional().describe("Reclasificaci\xF3n expl\xEDcita, solo con stage, expected_updated_at, reason e idempotency_key; no se combina con otros cambios."),
+    stage: z25.string().trim().min(1).optional().describe("Etapa de destino validada contra el cat\xE1logo vivo del tipo de proceso."),
+    expected_updated_at: z25.string().datetime({ offset: true }).optional(),
+    reason: z25.string().trim().min(5).max(2e3).optional().describe("Motivo y evidencia de la reclasificaci\xF3n.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2493,28 +2567,28 @@ var update_work_item_default = defineTool28({
 });
 
 // src/lib/mcp/tools/manage-deadline.ts
-import { defineTool as defineTool29 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z24 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z26 } from "npm:zod@^3.25.76";
 var CLOSEABLE = ["FULFILLED", "CANCELLED", "DISMISSED"];
-var manage_deadline_default = defineTool29({
+var manage_deadline_default = defineTool31({
   name: "manage_deadline",
   title: "Crear, editar o cerrar un t\xE9rmino",
   description: "Creates a manual procedural deadline on a matter, edits its label/date/notes, or closes it as FULFILLED, CANCELLED or DISMISSED. It never computes a date by itself \u2014 the date given by the user is stored verbatim and marked as manual.",
   inputSchema: {
-    action: z24.enum(["create", "update", "close"]).describe("Qu\xE9 hacer con el t\xE9rmino."),
-    deadline_id: z24.string().uuid().optional().describe("Requerido para update y close."),
-    radicado: z24.string().trim().optional().describe("Asunto del t\xE9rmino (para create)."),
-    work_item_id: z24.string().uuid().optional().describe("UUID del asunto (para create)."),
-    deadline_type: z24.string().trim().max(80).optional().describe("Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."),
-    label: z24.string().trim().max(200).optional().describe("Nombre visible del t\xE9rmino."),
-    description: z24.string().trim().max(2e3).optional(),
-    trigger_event: z24.string().trim().max(200).optional().describe("Hecho que lo origina, tal como lo describe el usuario."),
-    trigger_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha del hecho (YYYY-MM-DD)."),
-    deadline_date: z24.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."),
-    business_days_count: z24.number().int().min(0).max(365).optional().describe("D\xEDas h\xE1biles del t\xE9rmino, si el usuario los indica."),
-    notes: z24.string().trim().max(2e3).optional(),
-    close_as: z24.enum(CLOSEABLE).optional().describe("Estado de cierre (para close)."),
-    close_reason: z24.string().trim().max(500).optional().describe("Motivo del cierre.")
+    action: z26.enum(["create", "update", "close"]).describe("Qu\xE9 hacer con el t\xE9rmino."),
+    deadline_id: z26.string().uuid().optional().describe("Requerido para update y close."),
+    radicado: z26.string().trim().optional().describe("Asunto del t\xE9rmino (para create)."),
+    work_item_id: z26.string().uuid().optional().describe("UUID del asunto (para create)."),
+    deadline_type: z26.string().trim().max(80).optional().describe("Tipo, p. ej. CONTESTACION_DEMANDA. Default: MANUAL."),
+    label: z26.string().trim().max(200).optional().describe("Nombre visible del t\xE9rmino."),
+    description: z26.string().trim().max(2e3).optional(),
+    trigger_event: z26.string().trim().max(200).optional().describe("Hecho que lo origina, tal como lo describe el usuario."),
+    trigger_date: z26.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha del hecho (YYYY-MM-DD)."),
+    deadline_date: z26.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de vencimiento indicada por el usuario (YYYY-MM-DD)."),
+    business_days_count: z26.number().int().min(0).max(365).optional().describe("D\xEDas h\xE1biles del t\xE9rmino, si el usuario los indica."),
+    notes: z26.string().trim().max(2e3).optional(),
+    close_as: z26.enum(CLOSEABLE).optional().describe("Estado de cierre (para close)."),
+    close_reason: z26.string().trim().max(500).optional().describe("Motivo del cierre.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2587,21 +2661,21 @@ var manage_deadline_default = defineTool29({
 });
 
 // src/lib/mcp/tools/manage-task.ts
-import { defineTool as defineTool30 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z25 } from "npm:zod@^3.25.76";
-var manage_task_default = defineTool30({
+import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z27 } from "npm:zod@^3.25.76";
+var manage_task_default = defineTool32({
   name: "manage_task",
   title: "Crear, editar o completar una tarea",
   description: "Creates a task on a matter, edits its title/description/priority/due date, or marks it done or reopened. Tasks are internal work reminders \u2014 they are never procedural deadlines.",
   inputSchema: {
-    action: z25.enum(["create", "update", "complete", "reopen"]),
-    task_id: z25.string().uuid().optional().describe("Requerido salvo para create."),
-    radicado: z25.string().trim().optional().describe("Asunto de la tarea (para create)."),
-    work_item_id: z25.string().uuid().optional(),
-    title: z25.string().trim().max(300).optional(),
-    description: z25.string().trim().max(3e3).optional(),
-    priority: z25.enum(["LOW", "MEDIUM", "HIGH", "URGENT", "BAJA", "MEDIA", "ALTA"]).optional().describe("LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."),
-    due_date: z25.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
+    action: z27.enum(["create", "update", "complete", "reopen"]),
+    task_id: z27.string().uuid().optional().describe("Requerido salvo para create."),
+    radicado: z27.string().trim().optional().describe("Asunto de la tarea (para create)."),
+    work_item_id: z27.string().uuid().optional(),
+    title: z27.string().trim().max(300).optional(),
+    description: z27.string().trim().max(3e3).optional(),
+    priority: z27.enum(["LOW", "MEDIUM", "HIGH", "URGENT", "BAJA", "MEDIA", "ALTA"]).optional().describe("LOW/BAJA, MEDIUM/MEDIA, HIGH/URGENT/ALTA; URGENT se conserva como ALTA porque no hay nivel separado."),
+    due_date: z27.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha l\xEDmite interna (YYYY-MM-DD).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2656,8 +2730,8 @@ var manage_task_default = defineTool30({
 });
 
 // src/lib/mcp/tools/email-integration-status.ts
-import { defineTool as defineTool31 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z26 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool33 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z28 } from "npm:zod@^3.25.76";
 
 // src/lib/email-connection-health.ts
 var EMAIL_HEALTH_POLICY = {
@@ -2702,14 +2776,14 @@ function emailHealthReason(c, now = Date.now()) {
 }
 
 // src/lib/mcp/tools/email-integration-status.ts
-var email_integration_status_default = defineTool31({
+var email_integration_status_default = defineTool33({
   name: "email_integration_status",
   title: "Estado de la integraci\xF3n de correo",
   description: "Reports the Outlook mailbox connection Andromeda reads from (provider, account, health, last sync, last token renewal and its outcome, failure code \u2014 never tokens) and the recent outbound mail Andromeda sent (alerts, digest, document delivery) with delivery state and failures. Reads `user_email_connections`, the same source as the web app.",
   inputSchema: {
-    include_outbox: z26.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
-    outbox_status: z26.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
-    limit: z26.number().int().min(1).max(100).optional().describe("M\xE1ximo de env\xEDos (default 20).")
+    include_outbox: z28.boolean().optional().describe("Incluir los env\xEDos recientes (default true)."),
+    outbox_status: z28.enum(["PENDING", "SENT", "FAILED", "ALL"]).optional().describe("Filtrar los env\xEDos. Default: ALL."),
+    limit: z28.number().int().min(1).max(100).optional().describe("M\xE1ximo de env\xEDos (default 20).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ include_outbox, outbox_status, limit }, ctx) => {
@@ -2754,16 +2828,16 @@ var email_integration_status_default = defineTool31({
 });
 
 // src/lib/mcp/tools/whatsapp-notices.ts
-import { defineTool as defineTool32 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z27 } from "npm:zod@^3.25.76";
-var whatsapp_notices_default = defineTool32({
+import { defineTool as defineTool34 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z29 } from "npm:zod@^3.25.76";
+var whatsapp_notices_default = defineTool34({
   name: "whatsapp_notices",
   title: "Avisos de WhatsApp a clientes",
   description: "Shows the client WhatsApp notice pipeline: recorded consents, drafts awaiting the lawyer's approval, and the audit log of messages already sent. Read-only. Approval and sending happen only in the app \u2014 never over MCP.",
   inputSchema: {
-    view: z27.enum(["all", "consents", "drafts", "sends"]).optional().describe("Qu\xE9 mostrar (default all)."),
-    draft_status: z27.enum(["PENDING", "APPROVED", "SENT", "DISCARDED", "EXPIRED", "FAILED", "ALL"]).optional(),
-    limit: z27.number().int().min(1).max(100).optional().describe("M\xE1ximo por secci\xF3n (default 30).")
+    view: z29.enum(["all", "consents", "drafts", "sends"]).optional().describe("Qu\xE9 mostrar (default all)."),
+    draft_status: z29.enum(["PENDING", "APPROVED", "SENT", "DISCARDED", "EXPIRED", "FAILED", "ALL"]).optional(),
+    limit: z29.number().int().min(1).max(100).optional().describe("M\xE1ximo por secci\xF3n (default 30).")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ view, draft_status, limit }, ctx) => {
@@ -2805,24 +2879,24 @@ var whatsapp_notices_default = defineTool32({
 });
 
 // src/lib/mcp/tools/whatsapp-prepare.ts
-import { defineTool as defineTool33 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z28 } from "npm:zod@^3.25.76";
-var whatsapp_prepare_default = defineTool33({
+import { defineTool as defineTool35 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z30 } from "npm:zod@^3.25.76";
+var whatsapp_prepare_default = defineTool35({
   name: "whatsapp_prepare",
   title: "Preparar avisos de WhatsApp (sin enviar)",
   description: "Records or revokes a client's WhatsApp consent, generates drafts from provider-reported facts, edits a draft's text, or discards one with a reason. It can NEVER approve or send a message \u2014 that always happens in the app, one message at a time.",
   inputSchema: {
-    action: z28.enum(["record_consent", "revoke_consent", "generate_drafts", "edit_draft", "discard_draft"]).describe("Qu\xE9 hacer. No existe acci\xF3n de aprobar ni de enviar."),
-    client_id: z28.string().uuid().optional().describe("Cliente (para record_consent)."),
-    phone_e164: z28.string().trim().regex(/^[1-9][0-9]{7,14}$/).optional().describe("N\xFAmero con indicativo, solo d\xEDgitos, sin '+'. Ej: 573001234567."),
-    consent_method: z28.string().trim().min(3).max(500).optional().describe("C\xF3mo autoriz\xF3 el cliente, con las palabras del abogado. Obligatorio para record_consent."),
-    consent_note: z28.string().trim().max(1e3).optional(),
-    consent_id: z28.string().uuid().optional().describe("Consentimiento a revocar."),
-    revocation_reason: z28.string().trim().max(500).optional(),
-    lookback_days: z28.number().int().min(1).max(30).optional().describe("Ventana de hechos para generate_drafts (default 7)."),
-    draft_id: z28.string().uuid().optional().describe("Borrador a editar o descartar."),
-    body_text: z28.string().trim().min(5).max(900).optional().describe("Texto corregido del borrador."),
-    discard_reason: z28.string().trim().min(3).max(500).optional().describe("Motivo del descarte (obligatorio).")
+    action: z30.enum(["record_consent", "revoke_consent", "generate_drafts", "edit_draft", "discard_draft"]).describe("Qu\xE9 hacer. No existe acci\xF3n de aprobar ni de enviar."),
+    client_id: z30.string().uuid().optional().describe("Cliente (para record_consent)."),
+    phone_e164: z30.string().trim().regex(/^[1-9][0-9]{7,14}$/).optional().describe("N\xFAmero con indicativo, solo d\xEDgitos, sin '+'. Ej: 573001234567."),
+    consent_method: z30.string().trim().min(3).max(500).optional().describe("C\xF3mo autoriz\xF3 el cliente, con las palabras del abogado. Obligatorio para record_consent."),
+    consent_note: z30.string().trim().max(1e3).optional(),
+    consent_id: z30.string().uuid().optional().describe("Consentimiento a revocar."),
+    revocation_reason: z30.string().trim().max(500).optional(),
+    lookback_days: z30.number().int().min(1).max(30).optional().describe("Ventana de hechos para generate_drafts (default 7)."),
+    draft_id: z30.string().uuid().optional().describe("Borrador a editar o descartar."),
+    body_text: z30.string().trim().min(5).max(900).optional().describe("Texto corregido del borrador."),
+    discard_reason: z30.string().trim().min(3).max(500).optional().describe("Motivo del descarte (obligatorio).")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -2895,7 +2969,7 @@ var whatsapp_prepare_default = defineTool33({
 });
 
 // src/lib/mcp/tools/get-capabilities.ts
-import { defineTool as defineTool34 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
 var MANAGE_TOOLS = [
   "add_note",
   "add_hearing",
@@ -2912,9 +2986,11 @@ var MANAGE_TOOLS = [
   "resolve_email_question",
   "add_email_association",
   "resolve_detected_process",
-  "assign_work_item_radicado"
+  "assign_work_item_radicado",
+  "create_client",
+  "update_client"
 ];
-var get_capabilities_default = defineTool34({
+var get_capabilities_default = defineTool36({
   name: "get_capabilities",
   title: "Permisos efectivos de esta conexi\xF3n",
   description: "Read-only. Returns this connection's effective access level (read or manage) as decided by Andromeda's database for the verified user and OAuth client. Call before proposing any change.",
@@ -2967,14 +3043,14 @@ var get_capabilities_default = defineTool34({
 });
 
 // src/lib/mcp/tools/list-workflow-stages.ts
-import { defineTool as defineTool35 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z29 } from "npm:zod@^3.25.76";
-var list_workflow_stages_default = defineTool35({
+import { defineTool as defineTool37 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z31 } from "npm:zod@^3.25.76";
+var list_workflow_stages_default = defineTool37({
   name: "list_workflow_stages",
   title: "Cat\xE1logo de etapas por tipo de proceso",
   description: "Read-only. Lists the stored stage codes for a workflow type exactly as the server validates them: the live database catalogue (with transitions) for catalog-governed workflows (PETICION, GOV_PROCEDURE), and the application vocabulary for litigation workflows. Only stages with movable=true can be targets; for CGP the matter's cgp_phase follows the target stage. Regressions are never allowed through the assistant.",
   inputSchema: {
-    workflow_type: z29.string().trim().min(2).describe("Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO.")
+    workflow_type: z31.string().trim().min(2).describe("Tipo de proceso: CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO.")
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ workflow_type }, ctx) => {
@@ -2989,8 +3065,8 @@ var list_workflow_stages_default = defineTool35({
 });
 
 // src/lib/mcp/tools/create-work-item.ts
-import { defineTool as defineTool36 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z30 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool38 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z32 } from "npm:zod@^3.25.76";
 
 // src/lib/workflow-phases.ts
 var WORKFLOW_PHASES = {
@@ -3229,19 +3305,19 @@ var MANAGE_ANNOTATIONS = {
 };
 
 // src/lib/mcp/tools/create-work-item.ts
-var create_work_item_default = defineTool36({
+var create_work_item_default = defineTool38({
   name: "create_work_item",
   title: "Crear asunto",
   description: "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
   inputSchema: {
-    workflow_type: z30.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
-    radicado: z30.string().trim().optional().describe("Radicado judicial compatible de 23 d\xEDgitos (con o sin guiones). Sin identificador compatible no hay consulta autom\xE1tica; esto no determina si el expediente existe jur\xEDdicamente."),
-    title: z30.string().trim().max(300).optional(),
-    client_id: z30.string().uuid().optional().describe("Cliente propio del usuario."),
-    demandantes: z30.string().trim().max(1e3).optional(),
-    demandados: z30.string().trim().max(1e3).optional(),
-    authority_name: z30.string().trim().max(300).optional().describe("Despacho, si se conoce."),
-    idempotency_key: z30.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    workflow_type: z32.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
+    radicado: z32.string().trim().optional().describe("Radicado judicial compatible de 23 d\xEDgitos (con o sin guiones). Sin identificador compatible no hay consulta autom\xE1tica; esto no determina si el expediente existe jur\xEDdicamente."),
+    title: z32.string().trim().max(300).optional(),
+    client_id: z32.string().uuid().optional().describe("Cliente propio del usuario."),
+    demandantes: z32.string().trim().max(1e3).optional(),
+    demandados: z32.string().trim().max(1e3).optional(),
+    authority_name: z32.string().trim().max(300).optional().describe("Despacho, si se conoce."),
+    idempotency_key: z32.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3270,18 +3346,18 @@ var create_work_item_default = defineTool36({
 });
 
 // src/lib/mcp/tools/change-work-item-lifecycle.ts
-import { defineTool as defineTool37 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z31 } from "npm:zod@^3.25.76";
-var change_work_item_lifecycle_default = defineTool37({
+import { defineTool as defineTool39 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z33 } from "npm:zod@^3.25.76";
+var change_work_item_lifecycle_default = defineTool39({
   name: "change_work_item_lifecycle",
   title: "Archivar, enviar a papelera o restaurar un asunto",
   description: "Recoverable lifecycle changes only: archive (kept indefinitely, monitoring off), trash (soft delete, recoverable until recovery_deadline \u2014 10 days \u2014 then purged by retention) or restore. Permanent deletion is never available here. Requires expected_updated_at from get_work_item, the user's explicit instruction and a manage grant.",
   inputSchema: {
-    work_item_id: z31.string().uuid(),
-    action: z31.enum(["archive", "trash", "restore"]),
-    expected_updated_at: z31.string().min(10).describe("updated_at del asunto tal como lo le\xEDste; si cambi\xF3, no se modifica nada."),
-    reason: z31.string().trim().max(500).optional(),
-    idempotency_key: z31.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z33.string().uuid(),
+    action: z33.enum(["archive", "trash", "restore"]),
+    expected_updated_at: z33.string().min(10).describe("updated_at del asunto tal como lo le\xEDste; si cambi\xF3, no se modifica nada."),
+    reason: z33.string().trim().max(500).optional(),
+    idempotency_key: z33.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -3301,18 +3377,18 @@ var change_work_item_lifecycle_default = defineTool37({
 });
 
 // src/lib/mcp/tools/move-work-item-stage.ts
-import { defineTool as defineTool38 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z32 } from "npm:zod@^3.25.76";
-var move_work_item_stage_default = defineTool38({
+import { defineTool as defineTool40 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z34 } from "npm:zod@^3.25.76";
+var move_work_item_stage_default = defineTool40({
   name: "move_work_item_stage",
   title: "Mover la etapa procesal de un asunto",
   description: "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
   inputSchema: {
-    work_item_id: z32.string().uuid(),
-    to_stage: z32.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
-    expected_updated_at: z32.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
-    reason: z32.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
-    idempotency_key: z32.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z34.string().uuid(),
+    to_stage: z34.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
+    expected_updated_at: z34.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
+    reason: z34.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
+    idempotency_key: z34.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3335,15 +3411,15 @@ var move_work_item_stage_default = defineTool38({
 });
 
 // src/lib/mcp/tools/list-stage-suggestions.ts
-import { defineTool as defineTool39 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z33 } from "npm:zod@^3.25.76";
-var list_stage_suggestions_default = defineTool39({
+import { defineTool as defineTool41 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z35 } from "npm:zod@^3.25.76";
+var list_stage_suggestions_default = defineTool41({
   name: "list_stage_suggestions",
   title: "Sugerencias de etapa pendientes",
   description: "Read-only. Lists PENDING stage suggestions (with the evidence that produced them) for the user's matters.",
   inputSchema: {
-    work_item_id: z33.string().uuid().optional(),
-    limit: z33.number().int().min(1).max(100).optional()
+    work_item_id: z35.string().uuid().optional(),
+    limit: z35.number().int().min(1).max(100).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, limit }, ctx) => {
@@ -3358,18 +3434,18 @@ var list_stage_suggestions_default = defineTool39({
 });
 
 // src/lib/mcp/tools/resolve-stage-suggestion.ts
-import { defineTool as defineTool40 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z34 } from "npm:zod@^3.25.76";
-var resolve_stage_suggestion_default = defineTool40({
+import { defineTool as defineTool42 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z36 } from "npm:zod@^3.25.76";
+var resolve_stage_suggestion_default = defineTool42({
   name: "resolve_stage_suggestion",
   title: "Aplicar o descartar una sugerencia de etapa",
   description: "Applies (moves the stage) or dismisses one PENDING stage suggestion. Apply checks the matter revision and the workflow catalogue; regressions are rejected. A suggestion already resolved by someone else returns a conflict. Only on the user's explicit decision; requires a manage grant.",
   inputSchema: {
-    suggestion_id: z34.string().uuid(),
-    decision: z34.enum(["apply", "dismiss"]),
-    expected_updated_at: z34.string().min(10).optional().describe("Obligatorio para apply: updated_at del asunto tal como lo le\xEDste."),
-    reason: z34.string().trim().max(500).optional(),
-    idempotency_key: z34.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    suggestion_id: z36.string().uuid(),
+    decision: z36.enum(["apply", "dismiss"]),
+    expected_updated_at: z36.string().min(10).optional().describe("Obligatorio para apply: updated_at del asunto tal como lo le\xEDste."),
+    reason: z36.string().trim().max(500).optional(),
+    idempotency_key: z36.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3394,17 +3470,17 @@ var resolve_stage_suggestion_default = defineTool40({
 });
 
 // src/lib/mcp/tools/resolve-alert.ts
-import { defineTool as defineTool41 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z35 } from "npm:zod@^3.25.76";
-var resolve_alert_default = defineTool41({
+import { defineTool as defineTool43 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z37 } from "npm:zod@^3.25.76";
+var resolve_alert_default = defineTool43({
   name: "resolve_alert",
   title: "Marcar vista o descartar una alerta",
   description: "Acts on an alert returned by list_alerts (never a notification ID). acknowledge marks it seen; dismiss closes it only when its allowed_actions include dismiss (alerts that clear automatically with their cause cannot be dismissed). Personal: never completes or closes a legal deadline. Requires a manage grant.",
   inputSchema: {
-    alert_id: z35.string().uuid(),
-    action: z35.enum(["acknowledge", "dismiss"]),
-    reason: z35.string().trim().max(300).optional(),
-    idempotency_key: z35.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    alert_id: z37.string().uuid(),
+    action: z37.enum(["acknowledge", "dismiss"]),
+    reason: z37.string().trim().max(300).optional(),
+    idempotency_key: z37.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3422,16 +3498,16 @@ var resolve_alert_default = defineTool41({
 });
 
 // src/lib/mcp/tools/list-notifications.ts
-import { defineTool as defineTool42 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z36 } from "npm:zod@^3.25.76";
-var list_notifications_default = defineTool42({
+import { defineTool as defineTool44 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z38 } from "npm:zod@^3.25.76";
+var list_notifications_default = defineTool44({
   name: "list_notifications",
   title: "Centro de notificaciones",
   description: "Read-only. Lists notification-center items (not alert_instances) with only the caller's personal state. Filters dismissed rows before stable created_at/id cursor pagination, so newest dismissed items never hide older unread items. State-query errors fail the entire call. Return next_cursor/has_more; cursor is a read position, not authorization. State changes during traversal may require a fresh first page.",
   inputSchema: {
-    limit: z36.number().int().min(1).max(100).optional(),
-    include_dismissed: z36.boolean().optional(),
-    cursor: z36.string().max(2e3).optional()
+    limit: z38.number().int().min(1).max(100).optional(),
+    include_dismissed: z38.boolean().optional(),
+    cursor: z38.string().max(2e3).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ limit, include_dismissed, cursor }, ctx) => {
@@ -3448,17 +3524,17 @@ var list_notifications_default = defineTool42({
 });
 
 // src/lib/mcp/tools/set-notification-state.ts
-import { defineTool as defineTool43 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z37 } from "npm:zod@^3.25.76";
-var set_notification_state_default = defineTool43({
+import { defineTool as defineTool45 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z39 } from "npm:zod@^3.25.76";
+var set_notification_state_default = defineTool45({
   name: "set_notification_state",
   title: "Marcar le\xEDdas, descartar o posponer notificaciones",
   description: "Changes the user's personal state for notification-center items from list_notifications (never alert IDs \u2014 use resolve_alert). Requires a manage grant.",
   inputSchema: {
-    notification_ids: z37.array(z37.string().uuid()).min(1).max(200),
-    action: z37.enum(["read", "dismiss", "snooze"]),
-    snooze_until: z37.string().min(10).optional().describe("Obligatorio para snooze (fecha futura ISO)."),
-    idempotency_key: z37.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    notification_ids: z39.array(z39.string().uuid()).min(1).max(200),
+    action: z39.enum(["read", "dismiss", "snooze"]),
+    snooze_until: z39.string().min(10).optional().describe("Obligatorio para snooze (fecha futura ISO)."),
+    idempotency_key: z39.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3476,16 +3552,16 @@ var set_notification_state_default = defineTool43({
 });
 
 // src/lib/mcp/tools/resolve-email-question.ts
-import { defineTool as defineTool44 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z38 } from "npm:zod@^3.25.76";
-var resolve_email_question_default = defineTool44({
+import { defineTool as defineTool46 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z40 } from "npm:zod@^3.25.76";
+var resolve_email_question_default = defineTool46({
   name: "resolve_email_question",
   title: "Responder una pregunta de asociaci\xF3n de correo",
   description: "Resolves one pending email-association question (discover globally with list_email_questions, or per matter with list_email_links), decided per message: confirm the chosen link (other suggestions dismissed) or dismiss every suggestion. Confirm is blocked on radicado conflicts; use add_email_association for a deliberate choice. Never changes a stage, completes a deadline or sends mail. Requires manage permission.",
   inputSchema: {
-    link_id: z38.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
-    decision: z38.enum(["confirm", "dismiss"]),
-    idempotency_key: z38.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    link_id: z40.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
+    decision: z40.enum(["confirm", "dismiss"]),
+    idempotency_key: z40.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3502,16 +3578,16 @@ var resolve_email_question_default = defineTool44({
 });
 
 // src/lib/mcp/tools/add-email-association.ts
-import { defineTool as defineTool45 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z39 } from "npm:zod@^3.25.76";
-var add_email_association_default = defineTool45({
+import { defineTool as defineTool47 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z41 } from "npm:zod@^3.25.76";
+var add_email_association_default = defineTool47({
   name: "add_email_association",
   title: "Asociar deliberadamente un correo a otro asunto",
   description: "Adds a confirmed manual association of an email (identified by one of its link IDs) to a matter the user manages, dismissing pending suggestions for that message and recording the manual override (including radicado conflicts). Existing confirmed associations are kept: this is not an exclusive move. Never changes stages or deadlines. Requires a manage grant.",
   inputSchema: {
-    link_id: z39.string().uuid().describe("Cualquier v\xEDnculo existente del correo."),
-    work_item_id: z39.string().uuid().describe("Asunto destino."),
-    idempotency_key: z39.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    link_id: z41.string().uuid().describe("Cualquier v\xEDnculo existente del correo."),
+    work_item_id: z41.string().uuid().describe("Asunto destino."),
+    idempotency_key: z41.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3528,17 +3604,17 @@ var add_email_association_default = defineTool45({
 });
 
 // src/lib/mcp/tools/resolve-detected-process.ts
-import { defineTool as defineTool46 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z40 } from "npm:zod@^3.25.76";
-var resolve_detected_process_default = defineTool46({
+import { defineTool as defineTool48 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z42 } from "npm:zod@^3.25.76";
+var resolve_detected_process_default = defineTool48({
   name: "resolve_detected_process",
   title: "Resolver un proceso detectado",
   description: "Resolves a PENDING detected process (list_detected_processes): dismiss, matched_existing (link to an existing matter with the same radicado base) or created (link to a matter created after the detection, e.g. with create_work_item). Requires a manage grant.",
   inputSchema: {
-    detected_process_id: z40.string().uuid(),
-    decision: z40.enum(["dismiss", "matched_existing", "created"]),
-    work_item_id: z40.string().uuid().optional().describe("Obligatorio salvo para dismiss."),
-    idempotency_key: z40.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    detected_process_id: z42.string().uuid(),
+    decision: z42.enum(["dismiss", "matched_existing", "created"]),
+    work_item_id: z42.string().uuid().optional().describe("Obligatorio salvo para dismiss."),
+    idempotency_key: z42.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3556,17 +3632,17 @@ var resolve_detected_process_default = defineTool46({
 });
 
 // src/lib/mcp/tools/list-updates.ts
-import { defineTool as defineTool47 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z41 } from "npm:zod@^3.25.76";
-var list_updates_default = defineTool47({
+import { defineTool as defineTool49 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z43 } from "npm:zod@^3.25.76";
+var list_updates_default = defineTool49({
   name: "list_updates",
   title: "Novedades incrementales (actuaciones, estados y ciclo de vida)",
   description: "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados and new matters appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. next_cursor is an opaque server-stored token bound to the user, the AI connection and the work_item_id filter (expires after 30 days; an expired cursor returns CURSOR_EXPIRED with the reconcile_since to use \u2014 it is never silently reset). Each pass has a fixed upper watermark; when has_more=false the durable checkpoint advances to that watermark and the next pass re-reads 15 minutes before it: deduplicate by dedupe_key (kind:id:revision), never by id alone. Each event shows the row's CURRENT state (intermediate revisions between polls collapse); permanent purges emit no event; a transaction committing more than 15 minutes after it started may be missed, so periodically run reconcile_since. Without cursor: last 3 days. `freshness` is always present (portfolio or work item scope, 30-day window) from per-provider sync checks on visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
   inputSchema: {
-    cursor: z41.string().max(200).optional().describe("next_cursor de la llamada anterior (c1.<id>). Sin cursor: \xFAltimos 3 d\xEDas."),
-    reconcile_since: z41.string().datetime().optional().describe("Relectura de filas actuales revisadas desde esta fecha ISO (m\xE1x. 400 d\xEDas), no historial ni instant\xE1nea completa; contin\xFAa con next_cursor. Ignora cursor."),
-    work_item_id: z41.string().uuid().optional(),
-    limit: z41.number().int().min(1).max(500).optional()
+    cursor: z43.string().max(200).optional().describe("next_cursor de la llamada anterior (c1.<id>). Sin cursor: \xFAltimos 3 d\xEDas."),
+    reconcile_since: z43.string().datetime().optional().describe("Relectura de filas actuales revisadas desde esta fecha ISO (m\xE1x. 400 d\xEDas), no historial ni instant\xE1nea completa; contin\xFAa con next_cursor. Ignora cursor."),
+    work_item_id: z43.string().uuid().optional(),
+    limit: z43.number().int().min(1).max(500).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ cursor, reconcile_since, work_item_id, limit }, ctx) => {
@@ -3581,13 +3657,13 @@ var list_updates_default = defineTool47({
 });
 
 // src/lib/mcp/tools/list-email-questions.ts
-import { defineTool as defineTool48 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z42 } from "npm:zod@^3.25.76";
-var list_email_questions_default = defineTool48({
+import { defineTool as defineTool50 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z44 } from "npm:zod@^3.25.76";
+var list_email_questions_default = defineTool50({
   name: "list_email_questions",
   title: "Preguntas pendientes de asociaci\xF3n de correo",
   description: "Read-only global pending inbox questions, grouped by internet_message_id (fallback message_id), with all RLS-visible candidate siblings, source metadata, radicado conflicts and allowed actions. Separates owned writable links from organization-view-only links. Bounded cursor pagination; no message bodies or mail sending. Use resolve_email_question only for explicit user decisions.",
-  inputSchema: { cursor: z42.string().max(2e3).optional(), limit: z42.number().int().min(1).max(50).optional() },
+  inputSchema: { cursor: z44.string().max(2e3).optional(), limit: z44.number().int().min(1).max(50).optional() },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ cursor, limit }, ctx) => {
     const denied = requireAuth(ctx);
@@ -3599,8 +3675,8 @@ var list_email_questions_default = defineTool48({
 });
 
 // src/lib/mcp/tools/assign-work-item-radicado.ts
-import { defineTool as defineTool49 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z43 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool51 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z45 } from "npm:zod@^3.25.76";
 
 // src/lib/radicado-utils.ts
 function normalizeRadicadoInput(input) {
@@ -3655,15 +3731,15 @@ function normalizeRadicado(input) {
 }
 
 // src/lib/mcp/tools/assign-work-item-radicado.ts
-var assign_work_item_radicado_default = defineTool49({
+var assign_work_item_radicado_default = defineTool51({
   name: "assign_work_item_radicado",
   title: "Asignar radicado a un asunto sin radicaci\xF3n",
   description: "Assigns a normalized exactly 23-digit string once to an ACTIVE owned matter with empty radicado, preserving leading zeros, stage, workflow and history. Requires explicit user instruction, manage permission, expected revision and idempotency key. Rejects existing identity, archived/deleted matters, duplicates including trash and monitored plan cap. Saved with scheduled synchronization pending; never calls providers, restores a matter or purges it. User EXECUTE remains review-gated.",
   inputSchema: {
-    work_item_id: z43.string().uuid(),
-    radicado: z43.string().min(1).max(200).describe("23 d\xEDgitos, con o sin separadores. No admite bases parciales ni n\xFAmeros."),
-    expected_updated_at: z43.string().datetime({ offset: true }).describe("Revisi\xF3n exacta de get_work_item; una revisi\xF3n antigua se rechaza."),
-    idempotency_key: z43.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z45.string().uuid(),
+    radicado: z45.string().min(1).max(200).describe("23 d\xEDgitos, con o sin separadores. No admite bases parciales ni n\xFAmeros."),
+    expected_updated_at: z45.string().datetime({ offset: true }).describe("Revisi\xF3n exacta de get_work_item; una revisi\xF3n antigua se rechaza."),
+    idempotency_key: z45.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3683,13 +3759,13 @@ var assign_work_item_radicado_default = defineTool49({
 });
 
 // src/lib/mcp/tools/list-freshness-issues.ts
-import { defineTool as defineTool50 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z44 } from "npm:zod@^3.25.76";
-var list_freshness_issues_default = defineTool50({
+import { defineTool as defineTool52 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z46 } from "npm:zod@^3.25.76";
+var list_freshness_issues_default = defineTool52({
   name: "list_freshness_issues",
   title: "Asuntos con consultas fallidas o sin consulta reciente",
   description: "Read-only RLS-scoped keyset page of identifiable matters with latest provider/operation failure or monitored matters without a recent check. Includes IDs, current attempts and per-provider last success. Pass next_after as after until has_more=false; position is not authorization. Current rows, 30-day checks and 90-day successes, no provider calls.",
-  inputSchema: { after: z44.string().uuid().optional(), limit: z44.number().int().min(1).max(200).optional(), work_item_id: z44.string().uuid().optional() },
+  inputSchema: { after: z46.string().uuid().optional(), limit: z46.number().int().min(1).max(200).optional(), work_item_id: z46.string().uuid().optional() },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ after, limit, work_item_id }, ctx) => {
     const denied = requireAuth(ctx);
@@ -3705,7 +3781,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.10",
+  version: "0.6.11",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -3722,7 +3798,7 @@ var mcp_default = defineMcp({
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
     "Permisos: `get_capabilities` verifica la sesi\xF3n, el permiso y la disponibilidad efectiva de cada acci\xF3n. Gestionar exige que el usuario lo active \xE9l mismo desde su sesi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones, y puede revocarlo en cualquier momento; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
-    "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`. Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
+    "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`, `create_client` y `update_client` (directorio de clientes: nunca fusiona por nombre; identificaci\xF3n repetida devuelve conflicto). Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
     "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. `get_capabilities` verifica disponibilidad de ejecuci\xF3n y permiso de gesti\xF3n en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
     "Correcciones expl\xEDcitas: add_hearing con hearing_id conserva identidad, exige revisi\xF3n, motivo y clave; update_work_item admite authority_email:null y, separadamente, reclasificaci\xF3n workflow_type+stage con cat\xE1logo vivo, motivo y revisi\xF3n. get_capabilities.correction_availability determina si esas variantes est\xE1n liberadas; nunca presumas disponibilidad de una variante por el permiso de la herramienta base. La remisi\xF3n no acredita terminaci\xF3n. No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
@@ -3733,7 +3809,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-16"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-17"
   }),
   tools: [
     get_user_context_default,
@@ -3755,6 +3831,8 @@ var mcp_default = defineMcp({
     list_detected_processes_default,
     list_clients_default,
     get_client_default,
+    create_client_default,
+    update_client_default,
     add_note_default,
     add_hearing_default,
     list_app_screens_default,

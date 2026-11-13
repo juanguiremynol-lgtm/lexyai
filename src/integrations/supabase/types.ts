@@ -27139,6 +27139,7 @@ export type Database = {
       _mcp_is_catalog_governed: { Args: { p_wf: string }; Returns: boolean }
       _mcp_is_trusted_backend: { Args: never; Returns: boolean }
       _mcp_message_radicado_bases: { Args: { p_meta: Json }; Returns: string[] }
+      _mcp_normalize_client_id_number: { Args: { p: string }; Returns: string }
       _mcp_require_first_party: { Args: never; Returns: Json }
       _mcp_stage_vocab: {
         Args: never
@@ -28649,6 +28650,16 @@ export type Database = {
         }
         Returns: Json
       }
+      mcp_create_client: {
+        Args: {
+          p_city: string
+          p_email: string
+          p_id_number: string
+          p_idempotency_key: string
+          p_name: string
+        }
+        Returns: Json
+      }
       mcp_create_work_item: {
         Args: {
           p_authority_name: string
@@ -28762,6 +28773,15 @@ export type Database = {
           p_idempotency_key: string
           p_ids: string[]
           p_until: string
+        }
+        Returns: Json
+      }
+      mcp_update_client: {
+        Args: {
+          p_client_id: string
+          p_expected_updated_at: string
+          p_idempotency_key: string
+          p_patch: Json
         }
         Returns: Json
       }
