@@ -37,3 +37,23 @@ export function cpnuNegativeEvidence(data: Record<string, unknown>): string | un
     return 'PENDING_UPSTREAM';
   return undefined;
 }
+
+/** Read an adapter verdict together with its evidence. A missing cache entry
+ * cannot establish that the judicial provider does not have the case. */
+export function cpnuNonDataOutcome(result: {
+  provider: string; ok: boolean; error?: string; httpStatus?: number;
+  sourceObservedAt?: string; scrapingInitiated?: boolean;
+} | null | undefined) {
+  if (!result || result.provider !== 'cpnu' || result.ok || result.scrapingInitiated) return null;
+  const { error, httpStatus } = result;
+  if (error === 'CPNU_PROVIDER_NOT_FOUND' && httpStatus === 410 && result.sourceObservedAt)
+    return { code: 'PROVIDER_NOT_FOUND', attempt: 'not_found' } as const;
+  if (error === 'PROCESO_PRIVADO' && httpStatus === 200)
+    return { code: 'PROCESO_PRIVADO', attempt: 'restricted' } as const;
+  if (error === 'RECORD_NOT_FOUND' && (httpStatus === 200 || httpStatus === 404))
+    return { code: 'RECORD_NOT_FOUND', attempt: 'not_found' } as const;
+  if (error === 'CPNU_SNAPSHOT_MISSING' && httpStatus === 404 ||
+      error === 'PENDING_UPSTREAM' && httpStatus === 200)
+    return { code: 'PENDING_UPSTREAM', attempt: 'error' } as const;
+  return null;
+}

@@ -14,6 +14,11 @@
 // ────────────────────────────── Canonical Codes ──────────────────────────────
 
 export const NORMALIZED_ERROR_CODES = [
+  'PERSISTENCE_FAILED',
+  'PERSISTENCE_UNKNOWN',
+  'PROCESO_PRIVADO',
+  'PENDING_UPSTREAM',
+  'RECORD_NOT_FOUND',
   'PROVIDER_TIMEOUT',
   'PROVIDER_NOT_FOUND',
   'PROVIDER_404',
@@ -50,6 +55,8 @@ export function normalizeTraceError(
 ): NormalizedErrorCode {
   const code = (rawCode || '').toUpperCase().replace(/[\s-]+/g, '_');
   const msg = (message || '').toUpperCase();
+  if (code === 'PERSISTENCE_FAILED' || code === 'PERSISTENCE_UNKNOWN' ||
+      code === 'PROCESO_PRIVADO' || code === 'PENDING_UPSTREAM' || code === 'RECORD_NOT_FOUND') return code;
 
   // 1. Scraping states (highest priority — these are transient, not failures)
   if (code.includes('SCRAPING_STUCK')) return 'SCRAPING_STUCK';
@@ -97,6 +104,11 @@ export function normalizeTraceError(
 // ────────────────────────────── Labels (Spanish) ──────────────────────────────
 
 const LABELS_ES: Record<NormalizedErrorCode, string> = {
+  PERSISTENCE_FAILED: 'Falló la escritura en la base de datos',
+  PERSISTENCE_UNKNOWN: 'Escritura pendiente de conciliación',
+  PROCESO_PRIVADO: 'Consulta restringida por el proveedor',
+  PENDING_UPSTREAM: 'Lectura pendiente del proveedor',
+  RECORD_NOT_FOUND: 'Registro ausente en la respuesta consultada',
   PROVIDER_TIMEOUT: 'Tiempo de espera excedido',
   PROVIDER_NOT_FOUND: 'Radicado no encontrado',
   PROVIDER_404: 'No encontrado (404)',
@@ -124,6 +136,11 @@ export function getErrorLabelEs(code: NormalizedErrorCode | string): string {
 // ────────────────────────────── Recommended Actions (Spanish) ──────────────────────────────
 
 const ACTIONS_ES: Record<NormalizedErrorCode, string> = {
+  PERSISTENCE_FAILED: 'Revisar la operación local y las filas pendientes.',
+  PERSISTENCE_UNKNOWN: 'Conciliar las filas con la base de datos antes de reintentar.',
+  PROCESO_PRIVADO: 'Conservar la constancia de la restricción de acceso.',
+  PENDING_UPSTREAM: 'Verificar la disponibilidad de la lectura en la siguiente revisión.',
+  RECORD_NOT_FOUND: 'Contrastar el alcance y la fecha de la respuesta antes de decidir sobre el monitoreo.',
   PROVIDER_TIMEOUT: 'Se reintentará automáticamente. Para casos pesados, separar actuaciones y publicaciones.',
   PROVIDER_NOT_FOUND: 'Verificar radicado. Si persiste, considerar suspender monitoreo.',
   PROVIDER_404: 'Verificar radicado en el portal del proveedor.',

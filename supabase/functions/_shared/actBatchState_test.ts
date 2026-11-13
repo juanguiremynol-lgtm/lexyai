@@ -1,5 +1,7 @@
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { ActDocState, ActLoadError, loadAllActiveActs, resolvePersistedAct } from "./actBatchState.ts";
+import { ActDocState, ActLoadError, enrichPersistedAct, loadAllActiveActs, resolvePersistedAct } from "./actBatchState.ts";
+import { normalizeTraceError } from './normalizeError.ts';
+import { strict as strictAssert } from 'node:assert';
 import { resolveActIdentity, type CandidateRow } from "./actOriginIdentity.ts";
 import { documentosEnrichmentPatch } from "./actDocumentos.ts";
 
@@ -180,4 +182,23 @@ Deno.test("batch: RPC row error is neither success nor normal skip", async () =>
   assertEquals(r.inserted, 0);
   assertEquals(r.skipped, 0);
   assertEquals(r.errors, ["not persisted"]);
+});
+Deno.test('enrichment: distinguish a confirmed PostgreSQL cancellation from an unknown write', async () => {
+  const row = {id:'row',source:'samai',description:'Acta',raw_data:{actuacion:'Acta'},documentos:null};
+  for (const [error,unknown] of [
+    [{code:'57014',message:'canceling statement due to statement timeout'},false],
+    [{code:'',message:'gateway timeout'},true],
+  ] as const) {
+    let writes = 0;
+    const query = {select(){return this},eq(){return this},maybeSingle(){return Promise.resolve({data:row})}};
+    const db = {from:()=>query,rpc:()=>({select:()=>{writes++;return Promise.resolve({data:null,error})}})};
+    await strictAssert.rejects(
+      enrichPersistedAct(db,'case','row',{actuacion:'Acta',documentos:[{id:'doc',nombre:'Documento'}]},{provider:'samai'}),
+      (e: unknown) => e instanceof ActLoadError && e.persistenceUnknown === unknown && e.sqlState === error.code,
+    );
+    strictAssert.equal(writes,1);
+    const code = unknown ? 'PERSISTENCE_UNKNOWN' : 'PERSISTENCE_FAILED';
+    strictAssert.equal(normalizeTraceError(code,500,error.message),code);
+  }
+  strictAssert.equal(normalizeTraceError('PROVIDER_TIMEOUT',504,'timeout'),'PROVIDER_TIMEOUT');
 });

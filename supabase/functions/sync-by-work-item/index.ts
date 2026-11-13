@@ -77,6 +77,7 @@ import {
 import { toOrchestratorResult, type OrchestratorFetchResult } from '../_shared/providerAdapters/bridge.ts';
 import { hearingAlreadyResolved, type VerifiedHearingEvidence } from '../_shared/verifiedHearingEvidence.ts';
 import { emptyReadPersistence } from '../_shared/emptyReadPersistence.ts';
+import { cpnuNonDataOutcome } from '../_shared/providerAdapters/cpnuReadEvidence.ts';
 
 // ============= FEATURE FLAG =============
 // Orchestrator sync can be enabled globally via env var or per-org via atenia_ai_config.
@@ -105,6 +106,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trace-id',
 };
+const serverClientOptions = { auth: { autoRefreshToken: false, persistSession: false } };
 
 // ============= P0-B.3 — SYNC BOUNDARY PRECONDITION =============
 // Lightweight in-isolate counters. Refusals must NOT become a new source of
@@ -228,6 +230,11 @@ interface SyncResult {
   partial?: boolean;
   source_complete?: boolean;
   code?: string; // Error code for client
+  persistence_summary?: {
+    parsed: number; inserted: number; updated: number; skipped_duplicate: number;
+    skipped_structural: number; rejected: number; errored: number; unaccounted: number;
+    not_processed?: number;
+  };
   persistence_unknown?: { fingerprint: string | null; reason: string }[];
   // Auto-scraping fields
   scraping_initiated?: boolean;
@@ -841,8 +848,8 @@ function classifyProviderError(
 
   const httpStatus = fetchResult.httpStatus;
   const errorMsg = (fetchResult.error || '').toLowerCase();
-  if (fetchResult.error === 'CPNU_PROVIDER_NOT_FOUND' && fetchResult.httpStatus === 410) return 'PROVIDER_NOT_FOUND';
-  if (fetchResult.error === 'CPNU_SNAPSHOT_MISSING') return 'PENDING_UPSTREAM';
+  const cpnuOutcome = cpnuNonDataOutcome(fetchResult);
+  if (cpnuOutcome) return cpnuOutcome.code;
   const samaiCode = (fetchResult.error || '').match(/^SAMAI_[A-Z_]+/);
   if (samaiCode) return samaiCode[0];
 
@@ -903,6 +910,9 @@ async function sealReadOutcome(
   effectsPending = false,
 ): Promise<void> {
   if (scrapingInitiated) return;
+  // The common non-data handler records the precise result without ever
+  // advancing a complete-read timestamp or incrementing failure counters.
+  if (cpnuNonDataOutcome(fetchResult)) return;
 
   const nowIso = new Date().toISOString();
   const answered =
@@ -1395,7 +1405,7 @@ async function executeViaOrchestrator(
 
 Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-Actuaciones-Version': '2026-11-13.1' } });
   }
 
   // Health check short-circuit
@@ -1423,7 +1433,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500, traceId);
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, serverClientOptions);
 
     // Auth check — skip for scheduled/cron callers using service role
     const authHeader = req.headers.get('Authorization');
@@ -1744,6 +1754,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     const result: SyncResult = {
       ok: false,
+      trace_id: traceId,
       work_item_id,
       workflow_type: workItem.workflow_type,
       inserted_count: 0,
@@ -2514,6 +2525,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         
         fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu'));
         stampCpnuBuscarMeta(result, fetchResult);
+        const cpnuOutcome = cpnuNonDataOutcome(fetchResult);
         
         // Log PROVIDER_RESPONSE trace step
         await logTrace(supabase, {
@@ -2523,10 +2535,10 @@ Deno.serve(withSyncTimeline(async (req) => {
           workflow_type: workItem.workflow_type,
           step: 'PROVIDER_RESPONSE_RECEIVED',
           provider: 'cpnu',
-          http_status: fetchResult.httpStatus || (fetchResult.ok ? 200 : 404),
+          http_status: fetchResult.httpStatus ?? null,
           latency_ms: fetchResult.latencyMs || 0,
           success: fetchResult.ok,
-          error_code: fetchResult.ok ? null : (fetchResult.isEmpty ? 'PROVIDER_404' : 'PROVIDER_ERROR'),
+          error_code: fetchResult.ok ? null : classifyProviderError(fetchResult, 'PROVIDER_ERROR'),
           message: fetchResult.error || (fetchResult.ok ? `Found ${fetchResult.actuaciones.length} actuaciones` : 'Not found'),
           meta: { 
             actuaciones_count: fetchResult.actuaciones.length,
@@ -2537,7 +2549,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         
         result.provider_attempts.push({
           provider: 'cpnu',
-          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          status: cpnuOutcome?.attempt ?? (fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error')),
           latencyMs: fetchResult.latencyMs || 0,
           message: fetchResult.error,
           actuacionesCount: fetchResult.actuaciones.length,
@@ -2613,7 +2625,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         
         // ============= CGP/LABORAL: NO SAMAI FALLBACK =============
         // If CPNU fails with an error (not 404/scraping), return 502 immediately
-        if (!fetchResult.ok && !fetchResult.scrapingInitiated) {
+        if (!fetchResult.ok && !fetchResult.scrapingInitiated && !cpnuOutcome) {
           // Check if it's an empty result (404) vs actual error
           if (fetchResult.isEmpty) {
             // 404 without scraping initiated - this shouldn't happen normally
@@ -2688,7 +2700,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ran successfully but found zero actuaciones. This is NOT a failure — it's a valid
     // empty result (common for newly filed cases or intermittent scraper gaps).
     // Redirect to the empty-handling path (line ~2470) by normalizing the fetchResult.
-    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && fetchResult.httpStatus !== 404 && !fetchResult.scrapingInitiated) {
+    if (fetchResult && !fetchResult.ok && fetchResult.isEmpty && fetchResult.httpStatus !== 404 && !fetchResult.scrapingInitiated && !cpnuNonDataOutcome(fetchResult)) {
       console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned isEmpty=true — treating as valid empty result, not error`);
       // Normalize: set ok=true so it falls through to the empty actuaciones handler below
       fetchResult.ok = true;
@@ -2750,6 +2762,27 @@ Deno.serve(withSyncTimeline(async (req) => {
         result.provider_used = 'samai';
         result.provider_order_reason = 'tutela_cpnu_empty_samai_fallback';
       }
+    }
+
+    // These responses diagnose what is available, without proving a complete
+    // read of actuaciones. Keep source time only when supplied by the adapter.
+    const cpnuOutcome = cpnuNonDataOutcome(fetchResult);
+    if (cpnuOutcome && fetchResult) {
+      result.ok = false;
+      result.partial = true;
+      result.source_complete = false;
+      result.provider_used = fetchResult.provider;
+      result.source_observed_at = fetchResult.sourceObservedAt;
+      result.trace_id = traceId;
+      result.code = cpnuOutcome.code;
+      const { error } = await supabase.from('work_items').update({
+        scrape_status: 'PARTIAL_SUCCESS', last_error_code: cpnuOutcome.code,
+        last_checked_at: new Date().toISOString(),
+        ...(cpnuOutcome.code === 'PROVIDER_NOT_FOUND' || cpnuOutcome.code === 'PROCESO_PRIVADO'
+          ? { provider_reachable: true, consecutive_failures: 0 } : {}),
+      }).eq('id', work_item_id);
+      if (error) throw error;
+      return jsonResponse(result);
     }
 
     // Handle fetch failure - with enhanced diagnostics and auto-scraping
@@ -2850,20 +2883,6 @@ Deno.serve(withSyncTimeline(async (req) => {
       // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read that
       // sealReadOutcome already stamped. It must not be rewritten here as a
       // failure: carry the provider's code, not a transport code.
-      if (fetchResult?.provider === 'cpnu' && fetchResult.error === 'CPNU_PROVIDER_NOT_FOUND' &&
-          fetchResult.httpStatus === 410 && fetchResult.sourceObservedAt) {
-        result.code = 'PROVIDER_NOT_FOUND';
-        result.ok = false;
-        result.partial = true;
-        result.source_complete = false;
-        result.source_observed_at = fetchResult.sourceObservedAt;
-        await supabase.from('work_items').update({
-          scrape_status: 'PARTIAL_SUCCESS', last_error_code: 'PROVIDER_NOT_FOUND',
-          last_checked_at: new Date().toISOString(), provider_reachable: true, consecutive_failures: 0,
-        }).eq('id', work_item_id);
-        result.trace_id = traceId;
-        return jsonResponse(result);
-      }
       if (!fetchResult?.scrapingInitiated && result.provider_attempts.some((a) => a.status === 'restricted')) {
         result.code = 'PROCESO_PRIVADO';
         await supabase
@@ -3199,6 +3218,20 @@ Deno.serve(withSyncTimeline(async (req) => {
           persistLedger.errored++;
           persistLedger.outcomes.push({ bucket: 'ERROR', fingerprint: decision.row.hash_fingerprint, reason: (error as Error).message });
           result.errors.push(`Act enrichment failed: ${(error as Error).message}`);
+          if (error instanceof ActLoadError && error.sqlState === '57014') {
+            result.code = 'PERSISTENCE_FAILED';
+            // The cancelled statement was rolled back. Stop before any more
+            // writes, and preserve both completed rows and the unprocessed tail.
+            result.persistence_summary = {
+              parsed: persistLedger.parsed, inserted: persistLedger.inserted, updated: persistLedger.updated,
+              skipped_duplicate: persistLedger.skippedDuplicate, skipped_structural: persistLedger.skippedStructural,
+              rejected: persistLedger.rejected, errored: persistLedger.errored,
+              unaccounted: persistLedger.parsed - persistLedger.inserted - persistLedger.updated
+                - persistLedger.skippedDuplicate - persistLedger.skippedStructural - persistLedger.rejected - persistLedger.errored,
+              not_processed: fetchResult.actuaciones.length - persistLedger.parsed,
+            };
+            throw error;
+          }
           if (error instanceof ActLoadError && error.persistenceUnknown) {
             result.persistence_unknown ??= [];
             result.persistence_unknown.push({ fingerprint: decision.row.hash_fingerprint, reason: error.message });
@@ -4080,7 +4113,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const adminDb = createClient(supabaseUrl, supabaseServiceKey);
+      const adminDb = createClient(supabaseUrl, supabaseServiceKey, serverClientOptions);
 
       // Import coverage matrix for compatibility gating
       const { isProviderCompatible } = await import("../_shared/providerCoverageMatrix.ts");
@@ -4623,7 +4656,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* ignore */ }
     }
 
-    const errorCode = failureResult?.persistence_unknown?.length ? 'PERSISTENCE_UNKNOWN'
+    const persistenceAborted = err instanceof ActLoadError && err.sqlState === '57014';
+    const errorCode = persistenceAborted ? 'PERSISTENCE_FAILED'
+      : failureResult?.persistence_unknown?.length ? 'PERSISTENCE_UNKNOWN'
       : errorDetail.isTimeout ? 'PROVIDER_TIMEOUT'
       : errorDetail.isNetworkError ? 'NETWORK_ERROR'
       : errorDetail.httpStatus === 503 ? 'PROVIDER_UNAVAILABLE'
@@ -4637,7 +4672,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const supabaseUrl = Deno.env.get('SUPABASE_URL');
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
       if (supabaseUrl && supabaseServiceKey) {
-        const supabaseForTrace = createClient(supabaseUrl, supabaseServiceKey);
+        const supabaseForTrace = createClient(supabaseUrl, supabaseServiceKey, serverClientOptions);
         await logTrace(supabaseForTrace, {
           trace_id: traceId,
           work_item_id: traceWorkItemId,
@@ -4658,8 +4693,23 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     } catch { /* trace logging should never fail the response */ }
 
-    if (failureResult?.persistence_unknown?.length) {
-      return jsonResponse({ ...failureResult, ok: false, code: errorCode, message: errorDetail.message }, 500);
+    if (failureResult && (persistenceAborted || failureResult.persistence_unknown?.length)) {
+      try {
+        const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, serverClientOptions);
+        if (failureResult.sync_run_id) {
+          const { error } = await db.from('external_sync_runs').update({
+            status: 'PARTIAL', error_code: errorCode, error_message: errorDetail.message,
+            finished_at: new Date().toISOString(), duration_ms: Date.now() - syncStartTime,
+            total_inserted_acts: failureResult.inserted_count, total_skipped_acts: failureResult.skipped_count,
+          }).eq('id', failureResult.sync_run_id);
+          if (error) console.warn('[sync-by-work-item] Failed to record interrupted persistence', error.code);
+        }
+        const { error } = await db.from('work_items').update({
+          scrape_status: 'PARTIAL_SUCCESS', last_error_code: errorCode, last_error_at: new Date().toISOString(),
+        }).eq('id', failureResult.work_item_id);
+        if (error) console.warn('[sync-by-work-item] Failed to record work item persistence status', error.code);
+      } catch (recordError) { console.warn('[sync-by-work-item] Persistence status unavailable', recordError); }
+      return jsonResponse({ ...failureResult, partial: true, source_complete: false, ok: false, code: errorCode, message: errorDetail.message }, 500);
     }
     return errorResponse(
       errorCode,

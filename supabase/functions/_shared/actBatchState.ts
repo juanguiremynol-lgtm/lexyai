@@ -23,7 +23,7 @@ export const ACT_IDENTITY_SELECT_COLUMNS =
   "id, act_date, description, fecha_registro_source, inicia_termino, raw_data, hash_fingerprint, source, recurso_consecutivo, documentos_observados_en";
 
 export class ActLoadError extends Error {
-  constructor(message: string, readonly persistenceUnknown = false) {
+  constructor(message: string, readonly persistenceUnknown = false, readonly sqlState?: string) {
     super(message);
     this.name = "ActLoadError";
   }
@@ -203,7 +203,12 @@ export async function enrichPersistedAct(
       p_expected_documentos: row.documentos ?? null,
       p_patch: update,
     }).select(ACT_SELECT_COLUMNS);
-    if (error) throw new ActLoadError(`enrichment RPC failed: ${String(error.code || '')} ${String(error.message || 'unknown error').slice(0, 400)}`, true);
+    if (error) {
+      const sqlState = String(error.code || '');
+      // PostgreSQL's 57014 explicitly cancels the statement. An HTTP timeout
+      // or lost gateway response cannot tell us whether the write committed.
+      throw new ActLoadError(`enrichment RPC failed: ${sqlState} ${String(error.message || 'unknown error').slice(0, 400)}`, sqlState !== '57014', sqlState);
+    }
     if (Array.isArray(data) && data.length === 1 && data[0].id === actId) return data[0];
     // Zero rows means another writer changed a compared value; retry from a
     // fresh read. No success count or downstream effect occurs here.

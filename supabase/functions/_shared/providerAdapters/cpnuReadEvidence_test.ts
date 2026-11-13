@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { cpnuSourceObservation, cpnuNegativeEvidence, cpnuObservedSnapshotIsCurrent } from './cpnuReadEvidence.ts';
+import { cpnuSourceObservation, cpnuNegativeEvidence, cpnuObservedSnapshotIsCurrent, cpnuNonDataOutcome } from './cpnuReadEvidence.ts';
 import { fetchFromCpnu } from './cpnuAdapter.ts';
 import { toOrchestratorResult } from './bridge.ts';
 
@@ -24,6 +24,7 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
       const result = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
       assert.equal(result.status, 'ERROR');
       assert.equal(result.errorMessage, code);
+      assert.equal(cpnuNonDataOutcome(toOrchestratorResult(result))?.code, code);
       assert.equal(calls.length,1);
       assert(!calls.some(u=>u.includes('/buscar')));
     }
@@ -58,9 +59,15 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
     const absent = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
     assert.equal(absent.status,'ERROR');assert.equal(absent.errorMessage,'CPNU_PROVIDER_NOT_FOUND');
     assert.equal(absent.sourceObservedAt,observed);
+    assert.deepEqual(cpnuNonDataOutcome(toOrchestratorResult(absent)),{code:'PROVIDER_NOT_FOUND',attempt:'not_found'});
+    globalThis.fetch = async () => Response.json({found:false},{status:404});
+    const missing = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
+    assert.equal(cpnuNonDataOutcome(toOrchestratorResult(missing))?.code,'PENDING_UPSTREAM');
     assert.equal(cpnuNegativeEvidence({...negative,proveedor_consultado:false}),'PENDING_UPSTREAM');
     globalThis.fetch = async () => Response.json({error:'Gone'},{status:410});
-    assert.equal((await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false})).errorMessage,'UPSTREAM_HTTP_410');
+    const gone = await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false});
+    assert.equal(gone.errorMessage,'UPSTREAM_HTTP_410');
+    assert.equal(cpnuNonDataOutcome(toOrchestratorResult(gone)),null);
     globalThis.fetch = async () => Response.json({status:'ok'});
     assert.equal((await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false})).errorMessage,'UNCLASSIFIED_PROVIDER_SHAPE');
     globalThis.fetch = async u => String(u).includes('pagina=2')
