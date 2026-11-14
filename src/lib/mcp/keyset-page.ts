@@ -10,7 +10,8 @@ const cursorSchema = z.object({
 export function readPageCursor(cursor: string | undefined, scope: string) {
   if (!cursor) return null;
   try {
-    const parsed = cursorSchema.parse(JSON.parse(atob(cursor.replace(/-/g, "+").replace(/_/g, "/"))));
+    const bytes = Uint8Array.from(atob(cursor.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    const parsed = cursorSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
     if (parsed.scope !== scope) throw new Error();
     return parsed;
   } catch { throw new Error("Cursor inválido o incompatible con los filtros."); }
@@ -25,9 +26,9 @@ export function pageBoundary(column: string, cursor: NonNullable<ReturnType<type
 export function finishPage<T extends { id: string }>(rows: T[], limit: number, column: keyof T, scope: string) {
   const items = rows.slice(0, limit);
   const has_more = rows.length > limit;
-  const last = items.at(-1);
+  const last = items[items.length - 1];
   const next_cursor = has_more && last
-    ? btoa(JSON.stringify({ v: 1, scope, value: last[column] ?? null, id: last.id }))
+    ? btoa(Array.from(new TextEncoder().encode(JSON.stringify({ v: 1, scope, value: last[column] ?? null, id: last.id })), b => String.fromCharCode(b)).join(""))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     : null;
   return { items, has_more, next_cursor };

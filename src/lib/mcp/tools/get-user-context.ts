@@ -38,8 +38,9 @@ export default defineTool({
         byType[key] = (byType[key] ?? 0) + 1;
         total++;
       }
-      if (!data || data.length < 1000) break;
-      after = data.at(-1)?.id;
+      if (!data) return errorResult("No se pudo verificar el conteo de asuntos activos.");
+      if (data.length === 0) break;
+      after = data[data.length - 1]?.id;
       if (!after) return errorResult("No se pudo continuar el conteo de asuntos.");
     }
     const name = (profile as { full_name?: string } | null)?.full_name ?? ctx.getUserEmail() ?? "Usuario";

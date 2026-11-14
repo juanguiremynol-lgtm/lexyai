@@ -271,7 +271,8 @@ var cursorSchema = z.object({
 function readPageCursor(cursor, scope) {
   if (!cursor) return null;
   try {
-    const parsed = cursorSchema.parse(JSON.parse(atob(cursor.replace(/-/g, "+").replace(/_/g, "/"))));
+    const bytes = Uint8Array.from(atob(cursor.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const parsed = cursorSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
     if (parsed.scope !== scope) throw new Error();
     return parsed;
   } catch {
@@ -284,8 +285,8 @@ function pageBoundary(column, cursor) {
 function finishPage(rows, limit, column, scope) {
   const items = rows.slice(0, limit);
   const has_more = rows.length > limit;
-  const last = items.at(-1);
-  const next_cursor = has_more && last ? btoa(JSON.stringify({ v: 1, scope, value: last[column] ?? null, id: last.id })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
+  const last = items[items.length - 1];
+  const next_cursor = has_more && last ? btoa(Array.from(new TextEncoder().encode(JSON.stringify({ v: 1, scope, value: last[column] ?? null, id: last.id })), (b) => String.fromCharCode(b)).join("")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
   return { items, has_more, next_cursor };
 }
 
@@ -705,8 +706,9 @@ var get_user_context_default = defineTool4({
         byType[key] = (byType[key] ?? 0) + 1;
         total++;
       }
-      if (!data || data.length < 1e3) break;
-      after = data.at(-1)?.id;
+      if (!data) return errorResult("No se pudo verificar el conteo de asuntos activos.");
+      if (data.length === 0) break;
+      after = data[data.length - 1]?.id;
       if (!after) return errorResult("No se pudo continuar el conteo de asuntos.");
     }
     const name = profile?.full_name ?? ctx.getUserEmail() ?? "Usuario";
