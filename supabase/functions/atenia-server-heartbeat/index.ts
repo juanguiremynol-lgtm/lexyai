@@ -22,7 +22,7 @@ const DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: { ...corsHeaders, "X-Andromeda-Heartbeat-Version": "e2e-auth-20261113-v1" } });
   }
 
   // Health check short-circuit
@@ -31,10 +31,13 @@ Deno.serve(async (req) => {
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
       return new Response(JSON.stringify({ status: "OK", function: "atenia-server-heartbeat" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-  } catch { /* not JSON, proceed normally */ }
+  } catch {
+    /* not JSON, proceed normally */
+  }
 
   // This caller dispatches privileged supervisor work; a public anon token
   // must not be able to escalate through its service-role client.
@@ -50,9 +53,7 @@ Deno.serve(async (req) => {
     const hbHandle = await startHeartbeat(supabase, "atenia-server-heartbeat", "cron");
 
     // Get all orgs with active subscriptions
-    const { data: orgs, error: orgsErr } = await supabase
-      .from("organizations")
-      .select("id, name");
+    const { data: orgs, error: orgsErr } = await supabase.from("organizations").select("id, name");
 
     if (orgsErr) throw orgsErr;
 
@@ -90,12 +91,16 @@ Deno.serve(async (req) => {
 
       if (!recentE2E) {
         console.log("[server-heartbeat] Running scheduled E2E batch...");
-        await supabase.functions.invoke("atenia-e2e-scheduled", {
+        const { data: e2eData, error: e2eError } = await supabase.functions.invoke("atenia-e2e-scheduled", {
           body: { mode: "FULL", trigger: "SCHEDULED" },
+          // Explicit bearer supports both legacy JWT and opaque service keys.
+          // Never log this header or persist it in the E2E payload.
+          headers: { Authorization: `Bearer ${serviceRoleKey}` },
         });
+        if (e2eError || !e2eData || e2eData.ok !== true) throw new Error("E2E_INVOKE_FAILED");
       }
-    } catch (e2eErr) {
-      console.warn("[server-heartbeat] E2E scheduled failed:", (e2eErr as Error).message);
+    } catch {
+      console.warn("[server-heartbeat] E2E scheduled failed");
     }
 
     // ── Periodic email alert system diagnostic (every ~6h guard) ──
@@ -142,9 +147,10 @@ Deno.serve(async (req) => {
 
         diagnosticResults.delivery = {
           ok: deliveryRate === -1 || deliveryRate >= 70,
-          detail: deliveryRate === -1
-            ? "No outbound emails in last 24h"
-            : `${sentOk}/${outbound.length} delivered (${deliveryRate}%), ${sentFailed} failed`,
+          detail:
+            deliveryRate === -1
+              ? "No outbound emails in last 24h"
+              : `${sentOk}/${outbound.length} delivered (${deliveryRate}%), ${sentFailed} failed`,
         };
 
         // 3. Check notification pipeline (all audience scopes)
@@ -232,7 +238,9 @@ Deno.serve(async (req) => {
               title: "⚠️ Sistema de email/alertas con fallos",
               payload: { checks: diagnosticResults, failed: failedChecks },
             });
-          } catch (_) { /* non-fatal */ }
+          } catch (_) {
+            /* non-fatal */
+          }
         }
 
         console.log(`[server-heartbeat] Email alert diagnostic: ${allOk ? "HEALTHY" : "DEGRADED"}`);
@@ -253,10 +261,7 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle();
 
-        if (
-          lastHeartbeat &&
-          Date.now() - new Date(lastHeartbeat.created_at).getTime() < DEDUP_WINDOW_MS
-        ) {
+        if (lastHeartbeat && Date.now() - new Date(lastHeartbeat.created_at).getTime() < DEDUP_WINDOW_MS) {
           results.push({ org_id: org.id, status: "SKIPPED", detail: "Recent heartbeat exists" });
           continue;
         }
@@ -265,16 +270,13 @@ Deno.serve(async (req) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 130_000); // 130s timeout
 
-        const { error: invokeErr } = await supabase.functions.invoke(
-          "atenia-ai-supervisor",
-          {
-            headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
-            body: {
-              mode: "HEARTBEAT",
-              organization_id: org.id,
-            },
-          }
-        );
+        const { error: invokeErr } = await supabase.functions.invoke("atenia-ai-supervisor", {
+          headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+          body: {
+            mode: "HEARTBEAT",
+            organization_id: org.id,
+          },
+        });
 
         clearTimeout(timeoutId);
 
@@ -313,12 +315,13 @@ Deno.serve(async (req) => {
                 timestamp: new Date().toISOString(),
               },
             });
-          } catch (_) { /* non-fatal */ }
+          } catch (_) {
+            /* non-fatal */
+          }
         }
       } catch (err) {
-        const reason = (err as Error).name === "AbortError"
-          ? "Timeout: supervisor tardó más de 130s"
-          : (err as Error).message;
+        const reason =
+          (err as Error).name === "AbortError" ? "Timeout: supervisor tardó más de 130s" : (err as Error).message;
         results.push({ org_id: org.id, status: "ERROR", detail: reason });
 
         // Log timeout/crash failure
@@ -334,7 +337,9 @@ Deno.serve(async (req) => {
             action_result: "failed",
             evidence: { error: reason, timestamp: new Date().toISOString() },
           });
-        } catch { /* non-blocking */ }
+        } catch {
+          /* non-blocking */
+        }
       }
     }
 
@@ -361,7 +366,7 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ ok: true, results_summary: { ok: okCount, skipped: skipCount, errors: errCount } }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
     // ── Record failure heartbeat ──
@@ -376,10 +381,12 @@ Deno.serve(async (req) => {
         error_message: (err as Error).message?.slice(0, 500),
         finished_at: new Date().toISOString(),
       });
-    } catch { /* non-fatal */ }
-    return new Response(
-      JSON.stringify({ ok: false, error: (err as Error).message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    } catch {
+      /* non-fatal */
+    }
+    return new Response(JSON.stringify({ ok: false, error: (err as Error).message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
