@@ -1,6 +1,8 @@
 # Roadmap
 
 ## Focused ACT retry targeting and manual repair reconciliation (2026-11-14)
+- [x] Version manual mcp_list_freshness_issues patches (install/rollback md5 4bd7…/0fa5…, not applied), static+catalog checks, PP upstream remediation doc.
+- [ ] PP_STORED_READ_INCOMPLETE (25) — blocked on external extractor fixes per docs/pp-source-remediation-20261114.md.
 - [x] Add exact service-role ACT task selection without fallback or PP slots; apply its gated claim RPC and focused tests.
 - [x] Record the three owner-applied monitoring repairs from their named audit rows with idempotent verification, rollback and unchanged live state.
 - [x] Deploy only process-retry-queue and record hashes, verification and visible cost.
