@@ -140,7 +140,6 @@ async function enqueueScrapingRetry(
     errorMessage?: string | null;
   }
 ): Promise<void> {
-  if (redundantSuccessTrace(event)) return;
   try {
     const nextRunAt = new Date(Date.now() + jitterMs(30_000, 60_000)).toISOString();
     
@@ -386,6 +385,7 @@ async function logTrace(
   supabase: any,
   event: Partial<TraceEvent> & { trace_id: string; step: string }
 ): Promise<void> {
+  if (redundantSuccessTrace(event)) return;
   try {
     // Compute normalized_error_code using canonical shared normalizer
     const normalizedCode = !event.success && event.error_code
