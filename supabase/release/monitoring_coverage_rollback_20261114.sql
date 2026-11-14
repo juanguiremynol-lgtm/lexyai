@@ -1,4 +1,7 @@
 -- Explicit rollback of the three audited manual repairs; not run by deployment.
+-- WARNING: RESET (security_invoker) restores definer-mode view access, which
+-- reopens the isolation defect this repair closed. This rollback is NOT an
+-- authorized automatic reversal; it may run only on explicit owner decision.
 BEGIN;
 SET LOCAL lock_timeout = '500ms';
 SET LOCAL statement_timeout = '15s';
