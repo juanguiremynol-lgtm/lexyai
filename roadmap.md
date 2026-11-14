@@ -1,10 +1,13 @@
 # Roadmap
 
 ## Authorized non-destructive corrections (2026-11-14)
-- [ ] Correct MCP lifecycle counters and stable work-item/act pagination with handler tests.
-- [ ] Diagnose persistence/coverage write costs; implement only evidenced safe optimizations and durable failure evidence.
-- [ ] Verify actual RPC execution gates without changing grants; preserve PP safeguards and judicial identifiers.
-- [ ] Run focused MCP/Deno checks, regenerate manifest, document changed files, rollback, release and precise blockers.
+- [x] Correct MCP lifecycle counters and stable work-item/act pagination with handler tests (76 MCP checks pass).
+- [x] Diagnose persistence/coverage write costs; omit two redundant success traces, persist pre-bucket failure evidence and correct false continuation acceptance; two functions deployed.
+- [x] Verify actual RPC execution gates without changing grants; preserve PP safeguards and judicial identifiers.
+- [x] Run focused MCP/Deno checks (83 Deno pass), regenerate manifest, document changed files, rollback, release and precise blockers.
+- [ ] Apply coverage-view optimization — blocked on isolated equivalence/performance acceptance; candidate SQL/rollback prepared only.
+- [ ] Publish MCP and verify authenticated pages — full app publication and hosted acceptance still required, candidate generation is not deployment.
+- [ ] Certify historical write-timeout cause and actual automatic drain — incident lock/trigger timing absent; no producer or record-write validation performed.
 
 ## Scoped association MCP audit (2026-11-05)
 - [x] Expose the existing publication association flag and minimal provenance in MCP without changing judicial records or stream identity.
