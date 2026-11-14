@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-18",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-19",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.12",
+      "version": "0.6.13",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -107,6 +107,20 @@
               "minimum": 1,
               "maximum": 100,
               "description": "Max rows to return (default 25)."
+            },
+            "lifecycle_state": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "ARCHIVED",
+                "ALL"
+              ],
+              "description": "Estado: ACTIVE por defecto; ALL incluye otros estados no borrados."
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "next_cursor de la página anterior, con los mismos filtros."
             }
           },
           "additionalProperties": false,
@@ -179,6 +193,11 @@
               "minimum": 1,
               "maximum": 200,
               "description": "Máximo de filas (default 50)."
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "next_cursor anterior; conserva asunto y filtros de fecha."
             }
           },
           "additionalProperties": false,
