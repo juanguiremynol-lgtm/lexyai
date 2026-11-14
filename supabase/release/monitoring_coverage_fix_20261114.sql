@@ -22,7 +22,7 @@ BEGIN
     RAISE EXCEPTION 'Equivalent retained indexes must exist before duplicate removal';
   END IF;
   IF to_regprocedure('public.detect_stale_monitoring(integer)') IS NOT NULL THEN
-    SELECT md5(pg_get_functiondef(to_regprocedure('public.detect_stale_monitoring(integer)'))::oid)
+    SELECT md5(pg_get_functiondef(to_regprocedure('public.detect_stale_monitoring(integer)')::oid))
       INTO v_function_hash;
     IF v_function_hash NOT IN ('b2b37d1e88f335e412326aa099f5b193','81078e852c70e526b9c80807abbae7f0') THEN
       RAISE EXCEPTION 'Unknown detect_stale_monitoring version: %', v_function_hash;
