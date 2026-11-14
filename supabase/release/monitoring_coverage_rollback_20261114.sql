@@ -1,129 +1,124 @@
--- Prepared only; NOT applied. Preserve existing view owner/options/ACL with CREATE OR REPLACE.
+-- Explicit rollback of the three audited manual repairs; not run by deployment.
 BEGIN;
-SET LOCAL lock_timeout='500ms';
-SET LOCAL statement_timeout='5s';
-CREATE OR REPLACE VIEW public.monitoring_coverage_v AS
-WITH base AS (
-         SELECT w.id,
-            w.radicado,
-            w.workflow_type,
-            w.organization_id,
-            w.owner_id,
-            w.monitoring_enabled,
-            w.status,
-            w.lifecycle_state,
-            provider_chain_for_workflow(w.workflow_type::text) AS expected_providers
-           FROM work_items w
-          WHERE w.status = 'ACTIVE'::item_status AND w.lifecycle_state = 'ACTIVE'::work_item_lifecycle_state AND w.deleted_at IS NULL
-        ), scoped AS (
-         SELECT b_1.id AS work_item_id,
-            ARRAY( SELECT p.p
-                   FROM unnest(b_1.expected_providers) p(p)
-                  WHERE provider_scope(p.p) = 'ACTS'::text) AS expected_acts,
-            ARRAY( SELECT p.p
-                   FROM unnest(b_1.expected_providers) p(p)
-                  WHERE provider_scope(p.p) <> 'ACTS'::text) AS expected_estados
-           FROM base b_1
-        ), last_row AS (
-         SELECT u.work_item_id,
-            max(u.created_at) AS last_ingest
-           FROM ( SELECT a.work_item_id,
-                    a.created_at
-                   FROM work_item_acts a
-                  WHERE a.is_archived IS NOT TRUE
-                UNION ALL
-                 SELECT p.work_item_id,
-                    p.created_at
-                   FROM work_item_publicaciones p
-                  WHERE p.is_archived IS NOT TRUE) u
-          GROUP BY u.work_item_id
-        ), row_counts AS (
-         SELECT b_1.id AS work_item_id,
-            ( SELECT count(*) AS count
-                   FROM work_item_acts a
-                  WHERE a.work_item_id = b_1.id AND a.is_archived IS NOT TRUE) AS act_count,
-            ( SELECT count(*) AS count
-                   FROM work_item_publicaciones p
-                  WHERE p.work_item_id = b_1.id AND p.is_archived IS NOT TRUE) AS publication_count
-           FROM base b_1
-        ), last_run AS (
-         SELECT r.work_item_id,
-            max(r.created_at) FILTER (WHERE r.status = ANY (ARRAY['SUCCESS'::text, 'PARTIAL'::text])) AS last_ok_run,
-            max(r.created_at) AS last_run
-           FROM external_sync_runs r
-          GROUP BY r.work_item_id
-        ), attempts AS (
-         SELECT x.work_item_id,
-            array_agg(DISTINCT lower(x.attempt ->> 'provider'::text)) AS providers
-           FROM ( SELECT r.work_item_id,
-                    jsonb_array_elements(
-                        CASE
-                            WHEN jsonb_typeof(r.provider_attempts) = 'array'::text THEN r.provider_attempts
-                            ELSE '[]'::jsonb
-                        END) AS attempt
-                   FROM external_sync_runs r
-                  WHERE r.created_at > (now() - '30 days'::interval)) x
-          WHERE (x.attempt ->> 'provider'::text) IS NOT NULL
-          GROUP BY x.work_item_id
-        )
- SELECT b.id AS work_item_id,
-    b.radicado,
-    b.workflow_type::text AS workflow_type,
-    b.organization_id,
-    b.owner_id,
-    b.monitoring_enabled,
-    b.expected_providers,
-    sc.expected_acts AS expected_acts_providers,
-    sc.expected_estados AS expected_estados_providers,
-    COALESCE(at.providers, ARRAY[]::text[]) AS enrolled_providers,
-    ARRAY( SELECT unnest(b.expected_providers) AS unnest
-        EXCEPT
-         SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest) AS missing_providers,
-    ARRAY( SELECT unnest(sc.expected_acts) AS unnest
-        EXCEPT
-         SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest) AS missing_acts_providers,
-    ARRAY( SELECT unnest(sc.expected_estados) AS unnest
-        EXCEPT
-         SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest) AS missing_estados_providers,
-    lr.last_ingest,
-    ru.last_ok_run,
-    ru.last_run,
-        CASE
-            WHEN b.radicado IS NULL OR length(regexp_replace(b.radicado, '\D'::text, ''::text, 'g'::text)) < 21 THEN 'SIN_RADICADO_VALIDO'::text
-            WHEN COALESCE(array_length(at.providers, 1), 0) = 0 THEN 'SIN_ENROLAMIENTO'::text
-            WHEN array_length(ARRAY( SELECT unnest(b.expected_providers) AS unnest
-            EXCEPT
-             SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest), 1) > 0 THEN 'ENROLAMIENTO_PARCIAL'::text
-            WHEN rc.act_count = 0 AND rc.publication_count = 0 AND ru.last_ok_run IS NOT NULL THEN 'LEIDO_Y_VACIO'::text
-            ELSE 'OK'::text
-        END AS coverage_status,
-        CASE
-            WHEN b.radicado IS NULL OR length(regexp_replace(b.radicado, '\D'::text, ''::text, 'g'::text)) < 21 THEN 'SIN_RADICADO_VALIDO'::text
-            WHEN COALESCE(array_length(sc.expected_acts, 1), 0) = 0 THEN 'SIN_CANAL'::text
-            WHEN array_length(ARRAY( SELECT unnest(sc.expected_acts) AS unnest
-            EXCEPT
-             SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest), 1) > 0 THEN 'SIN_ENROLAMIENTO'::text
-            WHEN rc.act_count > 0 THEN 'CUBIERTO'::text
-            WHEN ru.last_ok_run IS NULL THEN 'EN_VERIFICACION'::text
-            ELSE 'SIN_FILAS'::text
-        END AS acts_coverage_status,
-        CASE
-            WHEN b.radicado IS NULL OR length(regexp_replace(b.radicado, '\D'::text, ''::text, 'g'::text)) < 21 THEN 'SIN_RADICADO_VALIDO'::text
-            WHEN COALESCE(array_length(sc.expected_estados, 1), 0) = 0 THEN 'SIN_CANAL'::text
-            WHEN array_length(ARRAY( SELECT unnest(sc.expected_estados) AS unnest
-            EXCEPT
-             SELECT unnest(COALESCE(at.providers, ARRAY[]::text[])) AS unnest), 1) > 0 THEN 'SIN_ENROLAMIENTO'::text
-            WHEN rc.publication_count > 0 THEN 'CUBIERTO'::text
-            WHEN ru.last_ok_run IS NULL THEN 'EN_VERIFICACION'::text
-            ELSE 'SIN_FILAS'::text
-        END AS estados_coverage_status,
-    now()::date - lr.last_ingest::date AS days_since_ingest,
-    rc.act_count,
-    rc.publication_count
-   FROM base b
-     JOIN scoped sc ON sc.work_item_id = b.id
-     LEFT JOIN last_row lr ON lr.work_item_id = b.id
-     LEFT JOIN row_counts rc ON rc.work_item_id = b.id
-     LEFT JOIN last_run ru ON ru.work_item_id = b.id
-     LEFT JOIN attempts at ON at.work_item_id = b.id;;
+SET LOCAL lock_timeout = '500ms';
+SET LOCAL statement_timeout = '15s';
+
+DO $guard$
+BEGIN
+  IF to_regprocedure('public.detect_stale_monitoring(integer)') IS NOT NULL
+    AND md5(pg_get_functiondef('public.detect_stale_monitoring(integer)'::regprocedure))
+      <> '81078e852c70e526b9c80807abbae7f0' THEN
+    RAISE EXCEPTION 'Refusing to replace an unknown detect_stale_monitoring version';
+  END IF;
+END
+$guard$;
+
+ALTER VIEW public.monitoring_coverage_v RESET (security_invoker);
+
+CREATE INDEX IF NOT EXISTS idx_work_item_acts_org
+  ON public.work_item_acts USING btree (owner_id);
+CREATE INDEX IF NOT EXISTS idx_work_item_acts_work_item
+  ON public.work_item_acts USING btree (work_item_id);
+
+CREATE OR REPLACE FUNCTION public.detect_stale_monitoring(p_threshold_days integer DEFAULT 45)
+ RETURNS TABLE(work_item_id uuid, radicado text, reason text, days_since_ingest integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  r record;
+  v_day text := to_char(now() AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD');
+  v_reason text; v_title text; v_acts_expl boolean; v_estados_expl boolean;
+  v_missing text[];
+BEGIN
+  FOR r IN
+    SELECT mc.* FROM public.monitoring_coverage_v mc
+      JOIN public.v_monitored_work_items m ON m.id = mc.work_item_id
+     WHERE mc.monitoring_enabled
+       AND public.is_provider_monitored_workflow(mc.workflow_type)
+       -- Enrolment problems only. Emptiness is never an alert (IQ1b/IQ3b):
+       -- a new matter and a court that does not feed the expediente digital
+       -- are both normal, and neither says anything about the expediente.
+       AND (mc.acts_coverage_status IN ('SIN_ENROLAMIENTO','SIN_RADICADO_VALIDO')
+         OR mc.estados_coverage_status IN ('SIN_ENROLAMIENTO','SIN_RADICADO_VALIDO'))
+  LOOP
+    -- Per-channel explanation: a channel this court is evidenced not to use
+    -- explains its own absence and cannot make the other channel alertable.
+    SELECT bool_and(
+             public.despacho_silence_note(r.radicado, r.workflow_type, p) IS NOT NULL
+             OR public.despacho_profile_explains_absence(r.radicado, 'ACTS', now()))
+      INTO v_acts_expl
+      FROM unnest(COALESCE(r.expected_acts_providers, ARRAY[]::text[])) p;
+
+    SELECT bool_and(
+             public.despacho_silence_note(r.radicado, r.workflow_type, p) IS NOT NULL
+             OR public.despacho_profile_explains_absence(r.radicado, 'ESTADOS', now()))
+      INTO v_estados_expl
+      FROM unnest(COALESCE(r.expected_estados_providers, ARRAY[]::text[])) p;
+
+    v_missing := ARRAY[]::text[];
+    IF r.acts_coverage_status = 'SIN_ENROLAMIENTO' AND NOT COALESCE(v_acts_expl, false) THEN
+      v_missing := v_missing || COALESCE(r.missing_acts_providers, ARRAY[]::text[]);
+    END IF;
+    IF r.estados_coverage_status = 'SIN_ENROLAMIENTO' AND NOT COALESCE(v_estados_expl, false) THEN
+      v_missing := v_missing || COALESCE(r.missing_estados_providers, ARRAY[]::text[]);
+    END IF;
+
+    IF r.acts_coverage_status = 'SIN_RADICADO_VALIDO' OR r.estados_coverage_status = 'SIN_RADICADO_VALIDO' THEN
+      v_reason := 'SIN_RADICADO_VALIDO'; v_title := 'Proceso monitoreado sin radicado válido';
+    ELSIF array_length(v_missing, 1) > 0 THEN
+      v_reason := 'SIN_ENROLAMIENTO'; v_title := 'Cobertura incompleta de proveedores';
+    ELSE
+      CONTINUE;
+    END IF;
+
+    BEGIN
+      INSERT INTO public.alert_instances (
+        owner_id, organization_id, entity_id, entity_type,
+        severity, alert_type, alert_source, title, message, status, fingerprint, payload
+      ) VALUES (
+        r.owner_id, r.organization_id, r.work_item_id, 'WORK_ITEM',
+        'WARN'::public.alert_severity,
+        'MONITOREO_SIN_PROVEEDOR',
+        'SISTEMA', v_title,
+        'El proceso ' || COALESCE(r.radicado, '(sin radicado)') || ' está monitoreado pero ' ||
+        CASE WHEN v_reason = 'SIN_RADICADO_VALIDO'
+             THEN 'su radicado no permite consultar a los proveedores.'
+             ELSE 'no está inscrito con los proveedores esperados (' || array_to_string(v_missing, ', ') || ').' END ||
+        ' Esto no dice nada sobre el expediente: no significa que esté cerrado ni que no exista.',
+        'PENDING',
+        public.build_dedupe_key('monitoreo_' || lower(v_reason), r.work_item_id::text, v_day),
+        jsonb_build_object('radicado', r.radicado, 'reason', v_reason,
+          'acts_coverage_status', r.acts_coverage_status,
+          'estados_coverage_status', r.estados_coverage_status,
+          'act_count', r.act_count, 'publication_count', r.publication_count,
+          'last_ingest', r.last_ingest, 'last_ok_run', r.last_ok_run,
+          'expected_providers', r.expected_providers,
+          'enrolled_providers', r.enrolled_providers,
+          'missing_providers', v_missing)
+      ) ON CONFLICT (fingerprint) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING '[detect_stale_monitoring] alert insert failed: %', SQLERRM;
+    END;
+
+    work_item_id := r.work_item_id; radicado := r.radicado; reason := v_reason;
+    days_since_ingest := COALESCE(r.days_since_ingest, 9999);
+    RETURN NEXT;
+  END LOOP;
+END $function$;
+
+DO $verify$
+BEGIN
+  IF md5(pg_get_functiondef('public.detect_stale_monitoring(integer)'::regprocedure))
+    <> 'b2b37d1e88f335e412326aa099f5b193' THEN
+    RAISE EXCEPTION 'rollback function hash mismatch';
+  END IF;
+  IF to_regclass('public.idx_work_item_acts_org') IS NULL
+    OR to_regclass('public.idx_work_item_acts_work_item') IS NULL THEN
+    RAISE EXCEPTION 'rollback index state mismatch';
+  END IF;
+END
+$verify$;
+
 COMMIT;
