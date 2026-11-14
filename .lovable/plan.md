@@ -1,73 +1,43 @@
-# Alerta pp-sync-job: hallazgos de lectura y corrección mínima propuesta
+# Auditoría Andromeda, 14/11/2026 (solo lectura, verificada)
 
-No se editó, publicó ni invocó nada. Solo se leyeron archivos y datos ya guardados.
+## 1. REDIRGE
+Busqué `redirge|redirg|redirige` sin distinguir mayúsculas en todo el repositorio, incluidos los archivos ocultos y sin node_modules. No hay ninguna coincidencia. No supongo que exista un equivalente.
 
-## 1. Registros existentes (04-nov, 07:10–10:40 UTC)
+## 2. Mapa
+- Parte visible: React/Vite en `src/`. La lógica MCP fuente está en `src/lib/mcp/` (`index.ts` y 52 archivos en `tools/`).
+- Paquete MCP generado: `supabase/functions/mcp/index.ts`. Lo genera `scripts/build-mcp.mjs` y no se edita a mano. Solo se despliega cuando se publica la app.
+- Adaptadores: `adapter-cpnu`, `cpnu-sync`, `cpnu-job-poller`, `sync-by-work-item` (CPNU y SAMAI), `sync-publicaciones-by-work-item` y `sync-pp-by-work-item` (PP), `scheduled-samai-estados-monitor` y `scheduled-publicaciones-monitor`.
+- La API de PP en Cloud Run (`publicaciones-procesales-api-…run.app`) solo aparece en los registros como algo externo.
+- En el repositorio no hay manifiestos de Cloud Run ni de Scheduler. Esa infraestructura no fue observada.
+- Hay AGENTS.md solo en la raíz y en `src/lib/` (los dos leídos). También en `supabase/functions/_shared/`, que llegó como contexto.
 
-- El visor de registros no devuelve ninguna entrada de `sync-publicaciones-by-work-item` ni de `process-retry-queue` en esa ventana, porque ya está fuera de lo que conserva. No se pueden entregar los errores exactos desde ahí.
-- Lo que sí está guardado es la línea de tiempo de sincronización (07:00–11:00 UTC):
+## 3. 83 frente a 81 asuntos (causa confirmada)
+- Base de datos del titular c64c2ca1: 68 ACTIVE vigilados + 13 ACTIVE sin vigilar + 2 ARCHIVED con `deleted_at` nulo = 83. Hay además 36 DELETED. Total: 119.
+- `src/lib/mcp/tools/get-user-context.ts:18` filtra solo `deleted_at is null` (con tope de 1000) y la línea 31 llama "activos" a todos. Así cuenta los 2 archivados como activos.
+- `list-work-items.ts:23` aplica el mismo filtro, con lo que mezcla archivados. Además no tiene cursor ni offset (máximo 100) ni filtro de ciclo de vida.
+- No existe ninguna prueba para estas dos herramientas.
 
-| status           | error_code                   | provider | filas |
-| ---------------- | ---------------------------- | -------- | ----- |
-| pending_upstream | PENDING_UPSTREAM             | unknown  | 193   |
-| deduplicated     | DAILY_UPDATE_ALREADY_STARTED | unknown  | 74    |
-| error            | PROVIDER_UNRESOLVED          | unknown  | 35    |
-| skipped          | PROVIDER_UNRESOLVED          | unknown  | 4     |
-| success          | PROVIDER_UNRESOLVED          | unknown  | 3     |
-| success / error  | null / PROVIDER_ERROR        | cpnu     | 3     |
+## 4. Fallos de sincronización
+- **b2f9f64e, CPNU PERSISTENCE_FAILED (12:05):** según `sync_persist_buckets`, ERROR "canceling statement due to statement timeout" (57014) sobre `wi_b2f9f64e_742092e2534c5178`. Se abortó a propósito (`sync-by-work-item/index.ts:3228`). A las 18:01 el intento quedó deduplicado por el tope diario (DAILY_UPDATE_ALREADY_STARTED). La causa es un statement timeout al enriquecer el act; falta identificar cuál consulta.
+- **SAMAI 154b4c7d / 6153c00f / 8dedc53e, PERSISTENCE_FAILED (12:01–12:03):** no hay ninguna fila de bucket ACTS de samai en esa ventana. El código venía de `:3709` (ledger incompleto) o `:4674` (57014 antes de escribir el bucket). Causa sin confirmar. Antes, 8dedc53e tuvo SAMAI_SOURCE_OBSERVATION_STALE. A las 12:20 samai_estados terminó en success en los tres.
+- **7b038fac, POST_INGEST_EFFECTS_PENDING (17:00, cpnu):** la fuente estaba completa pero un efecto posterior quedó pendiente (`:4401`, `:943`). Hay pruebas en `hearingReviewOutcome_test.ts` y `workerRegression_test.ts`.
+- **PP_STORED_READ_INCOMPLETE** (`sync-publicaciones-by-work-item/index.ts:2081`) y **PP_NATIVE_DATE_CONFLICT** (`:2964`): son estados fail-closed a propósito. Hay pruebas en `syncTimelineVerdict_test.ts` y `ppRoleDateHandler_test.ts`.
+- No modifiqué ninguna evidencia.
 
-- Todas las filas tienen `deploy_sha=unset`. Las 35 filas de error coinciden con los 35 ítems FAILED del monitor, pero perdieron su causa real (EXTRACCION_DOCUMENTO_NO_VERIFICADA, PORTAL_TIMEOUT, etc.).
-- La correlación por UUID debe hacerse uniendo `estados_monitor_run_items` (motivo real) con la línea de tiempo por `work_item_id` + `sync_run_id`/tiempo. Es el primer paso de la validación.
+## 5. Brechas MCP
+- Sin paginación: `list_work_items`, y `get_user_context` está topada en 1000 filas.
+- Las escrituras de clientes y las demás RPC nuevas siguen detrás del gate `supabase/release/mcp_write_rpcs_enable.sql`. El fix de clientes 20261113 no está aplicado.
+- La lista completa de funciones de la interfaz sin herramienta MCP requiere cruzar `src/pages` con `tools/`. Es el paso 3 de abajo.
 
-## 2. Acceso a Cloud Run pp-sync-job
+## Correcciones propuestas (no ejecutadas)
+1. `get_user_context`: contar por `lifecycle_state` con `{active, archived, by_workflow_type}`, sin tope de 1000. Prueba: titular con 81 activos y 2 archivados, el resultado debe ser 81 activos y 2 archivados.
+2. `list_work_items`: añadir `lifecycle_state` (por defecto ACTIVE) y un cursor keyset `updated_at,id`. Debe devolver `lifecycle_state`.
+3. Inventario de la interfaz frente a MCP, solo lectura.
+4. SAMAI: leer los registros de `sync-by-work-item` de 12:01–12:04 buscando `persistence_summary` y 57014, para confirmar la causa antes de tocar código.
+5. CPNU 57014: con `supabase--slow_queries`, identificar la consulta del enriquecimiento. Optimizar índice o consulta sin cambiar instancia (Tiny).
+6. Después regenerar el paquete MCP, publicar y subir la revisión del marcador.
 
-- El código no tiene ninguna ruta, credencial ni capacidad documentada para leer el historial o los registros de Cloud Run (búsqueda sin resultados). Las únicas credenciales GCP que conoce el proyecto son las claves de las API de lectura de los proveedores.
-- **Límite declarado:** desde aquí no hay acceso autorizado a esos registros. Hace falta que Juan o Codex los lean desde la consola de GCP.
-
-## 3. Causa por capa
-
-**Demostrada (código y datos):**
-
-- `_shared/syncTimeline.ts` (líneas 155–211):
-  - Toma el proveedor solo de `provider_used`/`provider`. Ignora `backend_trace` y `provider` anidados, y por eso escribe `unknown`.
-  - Toma la causa solo de `error_code`/`code`. Ignora `reason`, `errors[]`, `result_code` y `failure_reason`. Además, cuando el proveedor es `unknown`, el insert pone `PROVIDER_UNRESOLVED` por defecto (línea 80), incluso en las filas `success` (3 casos).
-- `DEPLOY_SHA` sale de una variable de entorno que no existe (`?? "unset"`, línea 27). Ninguna publicación la define, así que el valor `unset` no es una regresión de despliegue.
-
-**Demostrada (datos del monitor):**
-
-- 35 de 53 fallos son negativas o parciales legítimas del lado PP/GCP: documento no verificado, OCR, contradicciones de planilla, autor no resuelto. Los 8 PORTAL_TIMEOUT de hoy y los 31 PORTAL_HTTP_502 del 3-nov vienen del portal. No son un defecto del consumidor.
-
-**Hipótesis (sin verificar):**
-
-- Los 193 pending_upstream y 74 deduplicados no convergen porque:
-  - el límite diario (correcto) difiere los reintentos hasta el día siguiente;
-  - los fallos documentales son deterministas, así que reintentar el mismo día no los cambia;
-  - un certificado `VENTANA_PUBLICA` con `consulta_completa_plan_diario=false` no satisface el plan diario. Esto es correcto: no debe contarse como cobertura diaria. Hay que confirmarlo leyendo la decisión de reintento en `estadosMonitor.ts` y `process-retry-queue`.
-- La causa de cada fallo de pp-sync-job en Cloud Run no se puede determinar sin sus registros.
-
-## 4. Corrección mínima propuesta (no implementada)
-
-Solo trazabilidad. Sin cambios en huellas, historia, límites diarios ni cobertura.
-
-1. En `syncTimeline.ts`:
-   - Proveedor: usar, en este orden, `provider_used`, luego `provider`, luego `backend_trace.provider`/`backend_trace.source`.
-   - Causa: usar, en este orden, `error_code`, `code`, `result_code`, `reason`, `failure_reason` y luego el primer `errors[].code`.
-   - No asignar `PROVIDER_UNRESOLVED` a filas `success`.
-   - Guardar `backend_trace.alcance` y `consulta_completa_plan_diario` en `metadata`, sin cambiar el estado.
-2. Un `VENTANA_PUBLICA` con plan diario incompleto queda como `partial`, nunca como `success` de cobertura diaria.
-3. Definir el secreto `DEPLOY_SHA` en cada publicación, o registrar la huella de origen. Esto requiere tu autorización, porque toca secretos.
-4. Prueba Deno dirigida: respuestas sintéticas con `backend_trace`, `reason` y `errors[]`, y un éxito sin proveedor. Comprobar el proveedor, la causa y que no aparezca PROVIDER_UNRESOLVED en un éxito.
-5. Validación de solo lectura después del despliegue: comparar las filas de la línea de tiempo del siguiente ciclo ordinario con `estados_monitor_run_items`. Las causas deben coincidir en 1:1 y no debe haber un `success` nuevo de cobertura.
-6. Funciones a republicar: el wrapper es compartido. Afecta a todas las funciones que usan `withSyncTimeline`, así que hace falta decidir si se publican solo las dos funciones PP o todas.
-
-## 5. Huella del 2-nov (3b7c79a0…2f49)
-
-- Ya no está vigente. `index.ts` actual tiene SHA `e7d7901d…2de6`, que es la publicación posterior de 1799308f/1192f51f, y `ppExplicitPublicationDates.ts` se mantiene en `e8ba0b52…2a`. La lógica del 2-nov sigue incluida en el archivo, pero esa huella de artefacto fue reemplazada.
-- No se pudo obtener desde aquí el hash del artefacto publicado ahora. La huella anterior se toma del registro de la última publicación.
-
-## Decisiones pendientes
-
-- ¿Se aprueba la corrección del punto 4?
-- ¿Qué funciones se republican?
-- ¿Se autoriza definir `DEPLOY_SHA`?
-- ¿Quién lee los registros de Cloud Run pp-sync-job?
+## Comandos de prueba
+- `bunx vitest run src/lib/mcp/__tests__`
+- `bun run check:mcp:source && bun run check:mcp:artifact`
+- `deno test supabase/functions/_shared/syncTimelineVerdict_test.ts supabase/functions/_shared/ppRoleDateHandler_test.ts supabase/functions/_shared/hearingReviewOutcome_test.ts supabase/functions/_shared/actBatchState_test.ts`
