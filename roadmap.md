@@ -1,5 +1,11 @@
 # Roadmap
 
+## Authorized non-destructive corrections (2026-11-14)
+- [ ] Correct MCP lifecycle counters and stable work-item/act pagination with handler tests.
+- [ ] Diagnose persistence/coverage write costs; implement only evidenced safe optimizations and durable failure evidence.
+- [ ] Verify actual RPC execution gates without changing grants; preserve PP safeguards and judicial identifiers.
+- [ ] Run focused MCP/Deno checks, regenerate manifest, document changed files, rollback, release and precise blockers.
+
 ## Scoped association MCP audit (2026-11-05)
 - [x] Expose the existing publication association flag and minimal provenance in MCP without changing judicial records or stream identity.
 - [x] Test real tool handlers with synthetic flagged/normal rows, legitimate 00/01 streams, pagination and read errors; validate generated MCP artifact (45 focused checks pass).
