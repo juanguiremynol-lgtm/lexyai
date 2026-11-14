@@ -1,5 +1,12 @@
 # Roadmap
 
+## Authorized judicial recovery continuation (2026-11-14)
+- [ ] Capture and recover the five named CPNU/SAMAI runs through canonical stored reads and fenced retries, preserving daily extraction admission.
+- [ ] Resume Ofelia and Pinar delayed retries if canonical capacity remains; never restart an active PP extraction.
+- [ ] Review existing official PP certificate recovery evidence without rewriting date/identity conflicts.
+- [ ] Verify the released MCP contract and correction/reclassification release gates without changing privileges.
+- [ ] Run focused tests, deploy only corrected functions, and record per-ID before/after evidence and blockers.
+
 ## Authorized non-destructive corrections (2026-11-14)
 - [x] Correct MCP lifecycle counters and stable work-item/act pagination with handler tests (76 MCP checks pass).
 - [x] Diagnose persistence/coverage write costs; omit two redundant success traces, persist pre-bucket failure evidence and correct false continuation acceptance; two functions deployed.
