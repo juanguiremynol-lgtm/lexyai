@@ -1,5 +1,10 @@
 # Roadmap
 
+## Focused ACT retry targeting and manual repair reconciliation (2026-11-14)
+- [x] Add exact service-role ACT task selection without fallback or PP slots; apply its gated claim RPC and focused tests.
+- [x] Record the three owner-applied monitoring repairs from their named audit rows with idempotent verification, rollback and unchanged live state.
+- [x] Deploy only process-retry-queue and record hashes, verification and visible cost.
+
 ## Authorized judicial recovery continuation (2026-11-14)
 - [ ] Complete stored-read recovery for the five named matters — stale-admission migration and retry fixes are deployed, and targeted rows are due; no authorized interactive caller was available and no post-retry outcome exists yet.
 - [ ] Observe Ofelia and Pinar delayed retries — existing rows were made due without resetting attempts; no new outcome yet, and active PP admissions remain fenced.
@@ -12,7 +17,7 @@
 - [x] Diagnose persistence/coverage write costs; omit two redundant success traces, persist pre-bucket failure evidence and correct false continuation acceptance; two functions deployed.
 - [x] Verify actual RPC execution gates without changing grants; preserve PP safeguards and judicial identifiers.
 - [x] Run focused MCP/Deno checks (83 Deno pass), regenerate manifest, document changed files, rollback, release and precise blockers.
-- [ ] Apply coverage-view optimization — blocked on isolated equivalence/performance acceptance; candidate SQL/rollback prepared only.
+- [x] Coverage/detector repairs applied manually by the owner and reconciled verbatim from the three named audit rows; canonical installer/rollback now preserve future view definitions with security_invoker=true.
 - [ ] Publish MCP and verify authenticated pages — full app publication and hosted acceptance still required, candidate generation is not deployment.
 - [ ] Certify historical write-timeout cause and actual automatic drain — incident lock/trigger timing absent; no producer or record-write validation performed.
 

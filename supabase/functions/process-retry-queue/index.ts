@@ -3,7 +3,7 @@ import { secondsUntil } from "../_shared/dailyUpdateGate.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
-import { FOLLOWUP_SLOTS, followupSlots } from "./slots.ts";
+import { resolveRetryTargets, retrySlots } from "./slots.ts";
 import { dispatchRetry } from "../_shared/retryDispatch.ts";
 import { breakerDeferral, ppDurableDeferral, retryOutcome } from "../_shared/retryOutcome.ts";
 import { isExclusiveSamaiPublication, retryItemDisposition, samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
@@ -23,25 +23,23 @@ Deno.serve(async req => {
   // Two cheap follow-up slots for already admitted PP runs (GET /runs only,
   // no new extraction) run first and never take the extraction slots, so
   // historical recoveries cannot starve them and they cannot starve first
-  // queries or actuaciones. A privileged caller may target one follow-up
-  // task; it still goes through the same claim predicate, lease and finish.
+  // queries or actuaciones. A privileged caller may target exactly one PP
+  // follow-up or ACT retry task; both use the canonical claim, lease and finish.
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const target = typeof body?.pp_poll_task_id === "string" && UUID_RE.test(body.pp_poll_task_id) ? body.pp_poll_task_id : null;
-  type Slot = readonly ["ACT_SCRAPE_RETRY" | "PUB_RETRY", boolean | "pp_poll"];
+  const selection = resolveRetryTargets(body);
+  if (!selection.ok) return json({ ok: false, error: "INVALID_RETRY_TARGET" }, 400);
+  const { ppTaskId, actTaskId } = selection.targets;
   // followup mode: ONLY follow-up slots, by construction (no extraction).
   const followupOnly = body?.mode === "followup";
-  const slots: readonly Slot[] = target ? [["PUB_RETRY", "pp_poll"]] : followupOnly ? followupSlots(FOLLOWUP_SLOTS) : [
-    ["PUB_RETRY", "pp_poll"], ["PUB_RETRY", "pp_poll"],
-    ["ACT_SCRAPE_RETRY", true], ["PUB_RETRY", true],
-    ["ACT_SCRAPE_RETRY", false], ["PUB_RETRY", false],
-  ];
+  const slots = retrySlots(selection.targets, followupOnly);
   try {
     for (const [kind, initial] of slots) {
       if (Date.now() - start > 100_000) break;
       const { data, error } = initial === "pp_poll"
-        ? await db.rpc("claim_sync_retry_pp_poll", { p_task_id: target })
-        : await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
+        ? await db.rpc("claim_sync_retry_pp_poll", { p_task_id: ppTaskId })
+        : actTaskId
+          ? await db.rpc("claim_sync_retry_act_task", { p_task_id: actTaskId })
+          : await db.rpc("claim_sync_retry", { p_kind: kind, p_initial: initial });
       if (error) throw error;
       const task = data?.[0];
       if (!task?.lease_token) { if (followupOnly) break; continue; }
