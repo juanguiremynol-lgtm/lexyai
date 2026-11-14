@@ -17,7 +17,7 @@
 - [x] Diagnose persistence/coverage write costs; omit two redundant success traces, persist pre-bucket failure evidence and correct false continuation acceptance; two functions deployed.
 - [x] Verify actual RPC execution gates without changing grants; preserve PP safeguards and judicial identifiers.
 - [x] Run focused MCP/Deno checks (83 Deno pass), regenerate manifest, document changed files, rollback, release and precise blockers.
-- [ ] Apply coverage-view optimization — blocked on isolated equivalence/performance acceptance; candidate SQL/rollback prepared only.
+- [x] Coverage/detector repairs applied manually by the owner and reconciled verbatim from the three named audit rows; canonical installer/rollback now preserve future view definitions with security_invoker=true.
 - [ ] Publish MCP and verify authenticated pages — full app publication and hosted acceptance still required, candidate generation is not deployment.
 - [ ] Certify historical write-timeout cause and actual automatic drain — incident lock/trigger timing absent; no producer or record-write validation performed.
 
