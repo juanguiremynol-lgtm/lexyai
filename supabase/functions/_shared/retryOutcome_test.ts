@@ -16,6 +16,17 @@ Deno.test("source disabled after the queue check is excluded without a provider 
     "RETRY");
 });
 
+Deno.test('an unresolved hearing handoff stops identical retries without closing the review', () => {
+  assertEquals(retryOutcome(200, {
+    ok: false, partial: true, source_complete: true, code: 'POST_INGEST_EFFECTS_PENDING',
+    hearing_document_review: { count: 1, only_unresolved_effect: true },
+  }), { outcome: 'INELIGIBLE', code: 'HEARING_DOCUMENT_REVIEW_REQUIRED' });
+  assertEquals(retryOutcome(200, {
+    ok: false, partial: true, source_complete: true, code: 'POST_INGEST_EFFECTS_PENDING',
+    hearing_document_review: { count: 1, only_unresolved_effect: false },
+  }), { outcome: 'RETRY', code: 'POST_INGEST_EFFECTS_PENDING' });
+});
+
 Deno.test('PP durable admission defers without spending attempts until its fixed deadline', () => {
   const now = Date.parse('2026-10-28T18:00:00Z');
   const payload = {pending_upstream:true,backend_trace:{backend_run_id:'21e9c43b-f2fd-4bb3-9247-01169937cad8',estado:'EN_CURSO',backend_admitted_at:'2026-10-28T17:00:00Z'}};

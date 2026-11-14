@@ -12,6 +12,16 @@ export function retryOutcome(httpStatus: number, payload: Record<string, unknown
   if (payload.pending_upstream || payload.scraping_initiated || payload.code === "SCRAPING_INITIATED" || payload.result_code === "PENDING_UPSTREAM") {
     return { outcome: "RETRY", code: "PENDING_UPSTREAM" };
   }
+  // A source-complete, fully persisted act whose only remaining effect is an
+  // unverified hearing handoff cannot be resolved by another identical read.
+  // Match the supervisor's explicit review outcome instead of consuming every
+  // generic retry and eventually disguising the same guard as an invocation
+  // failure. No hearing, stage or deadline is changed by this classification.
+  const hearingReview = payload.hearing_document_review;
+  if (hearingReview && typeof hearingReview === "object" && !Array.isArray(hearingReview)
+      && (hearingReview as Record<string, unknown>).only_unresolved_effect === true) {
+    return { outcome: "INELIGIBLE", code: "HEARING_DOCUMENT_REVIEW_REQUIRED" };
+  }
   if (payload.ok === true && !payload.errors && !payload.error && payload.status !== "PARTIAL") {
     return { outcome: "SUCCESS", code: null };
   }

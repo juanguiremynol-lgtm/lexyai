@@ -1,5 +1,12 @@
 # Roadmap
 
+## Authorized judicial recovery continuation (2026-11-14)
+- [ ] Complete stored-read recovery for the five named matters — stale-admission migration and retry fixes are deployed, and targeted rows are due; no authorized interactive caller was available and no post-retry outcome exists yet.
+- [ ] Observe Ofelia and Pinar delayed retries — existing rows were made due without resetting attempts; no new outcome yet, and active PP admissions remain fenced.
+- [x] Review Arcila PP evidence without rewriting dates/fingerprints; two stored downloads exist, but no certified full-read recovery justifies unification or another extraction.
+- [x] Verify MCP correction/reclassification signatures, negative release gate and unchanged privileges; no real MCP session was available.
+- [x] Apply stale acts admission recovery, preserve PP retry fencing, classify unresolved hearing reviews, run 24 focused checks and deploy only process-retry-queue.
+
 ## Authorized non-destructive corrections (2026-11-14)
 - [x] Correct MCP lifecycle counters and stable work-item/act pagination with handler tests (76 MCP checks pass).
 - [x] Diagnose persistence/coverage write costs; omit two redundant success traces, persist pre-bucket failure evidence and correct false continuation acceptance; two functions deployed.
