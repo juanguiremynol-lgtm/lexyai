@@ -1,9 +1,9 @@
 # Roadmap
 
 ## Focused ACT retry targeting and manual repair reconciliation (2026-11-14)
-- [ ] Add exact service-role ACT task selection without fallback or PP slots; apply its gated claim RPC and focused tests.
-- [ ] Record the three owner-applied monitoring repairs from their named audit rows with idempotent verification, rollback and unchanged live state.
-- [ ] Deploy only process-retry-queue and record hashes, verification and visible cost.
+- [x] Add exact service-role ACT task selection without fallback or PP slots; apply its gated claim RPC and focused tests.
+- [x] Record the three owner-applied monitoring repairs from their named audit rows with idempotent verification, rollback and unchanged live state.
+- [x] Deploy only process-retry-queue and record hashes, verification and visible cost.
 
 ## Authorized judicial recovery continuation (2026-11-14)
 - [ ] Complete stored-read recovery for the five named matters — stale-admission migration and retry fixes are deployed, and targeted rows are due; no authorized interactive caller was available and no post-retry outcome exists yet.
