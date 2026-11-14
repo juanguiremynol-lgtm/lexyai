@@ -32,6 +32,7 @@ import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
 import { runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
+import { dispatchContinuation } from '../_shared/continuationDispatch.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -516,11 +517,15 @@ Deno.serve(async (req) => {
     );
     for (const partialResult of partialOrgs) {
       try {
-        const { data: ledgerRow } = await supabase
+        const { data: ledgerRow, error: ledgerReadError } = await supabase
           .from("auto_sync_daily_ledger")
           .select("cursor_last_work_item_id, run_cutoff_time, items_skipped, items_succeeded, failure_reason")
           .eq("id", partialResult.ledger_id)
           .maybeSingle();
+        if (ledgerReadError || !ledgerRow) {
+          console.warn('[daily-sync] Continuation ledger unavailable', partialResult.ledger_id, ledgerReadError?.code);
+          continue;
+        }
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
         const effectiveCutoff = ledgerRow?.run_cutoff_time || runCutoffTime;
@@ -550,13 +555,13 @@ Deno.serve(async (req) => {
           // Merge item_timeout_counts from this run for the next continuation
           const mergedTimeoutCounts = { ...inheritedTimeoutCounts, ...(partialResult.item_timeout_counts || {}) };
           console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId} (skipped=${ledgerRow?.items_skipped ?? '?'}, reason=${ledgerRow?.failure_reason ?? 'none'})`);
-          try {
-            await fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
+          const dispatch = await dispatchContinuation(() => fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${supabaseServiceKey}`,
                 "Content-Type": "application/json",
               },
+              signal: AbortSignal.timeout(5_000),
               body: JSON.stringify({
                 org_id: partialResult.org_id,
                 resume_after_id: cursor,
@@ -570,18 +575,10 @@ Deno.serve(async (req) => {
                 is_overflow: isOverflow,
                 item_timeout_counts: mergedTimeoutCounts,
               }),
-            });
-          } catch (contDispatchErr) {
-            console.warn(`[daily-sync] Continuation trigger failed:`, contDispatchErr);
-            try {
-              await supabase.from("auto_sync_daily_ledger").update({
-                last_error: `continuation_dispatch: ${(contDispatchErr as Error).message}`,
-              }).eq("id", partialResult.ledger_id);
-            } catch (_ledgerErr) { /* non-blocking */ }
-          }
-          await supabase.from("auto_sync_daily_ledger").update({
-            continuation_enqueued: true,
-          }).eq("id", partialResult.ledger_id);
+            }));
+          const { error: dispatchRecordError } = await supabase.from("auto_sync_daily_ledger")
+            .update(dispatch).eq("id", partialResult.ledger_id);
+          if (dispatchRecordError) console.warn('[daily-sync] Continuation outcome not persisted', partialResult.ledger_id, dispatchRecordError.code);
         } else {
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: false,
