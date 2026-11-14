@@ -13,17 +13,35 @@ export default defineTool({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
 
-    const [{ data: profile }, { data: items }] = await Promise.all([
+    const [profileRead, archivedRead] = await Promise.all([
       sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
-      sb.from("work_items").select("workflow_type").is("deleted_at", null).limit(1000),
+      sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED"),
     ]);
+    if (profileRead.error) return errorResult(profileRead.error.message);
+    if (archivedRead.error) return errorResult(archivedRead.error.message);
+    if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");
+    const profile = profileRead.data;
 
     const byType: Record<string, number> = {};
-    for (const row of items ?? []) {
-      const key = (row as { workflow_type: string | null }).workflow_type ?? "SIN_TIPO";
-      byType[key] = (byType[key] ?? 0) + 1;
+    let total = 0;
+    let after: string | undefined;
+    // Page the minimal RLS-visible projection, not an artificial portfolio cap.
+    for (;;) {
+      let query = sb.from("work_items").select("id, workflow_type")
+        .is("deleted_at", null).eq("lifecycle_state", "ACTIVE")
+        .order("id", { ascending: true }).limit(1000);
+      if (after) query = query.gt("id", after);
+      const { data, error } = await query;
+      if (error) return errorResult(error.message);
+      for (const row of data ?? []) {
+        const key = row.workflow_type ?? "SIN_TIPO";
+        byType[key] = (byType[key] ?? 0) + 1;
+        total++;
+      }
+      if (!data || data.length < 1000) break;
+      after = data.at(-1)?.id;
+      if (!after) return errorResult("No se pudo continuar el conteo de asuntos.");
     }
-    const total = items?.length ?? 0;
     const name = (profile as { full_name?: string } | null)?.full_name ?? ctx.getUserEmail() ?? "Usuario";
     const firm = (profile as { firm_name?: string } | null)?.firm_name;
 
@@ -31,7 +49,7 @@ export default defineTool({
       `${name}${firm ? ` (${firm})` : ""} — ${total} asuntos activos: ${
         Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(", ") || "ninguno"
       }.`,
-      { profile: profile ?? null, active_work_items: total, by_workflow_type: byType },
+      { profile: profile ?? null, active_work_items: total, archived_work_items: archivedRead.count, by_workflow_type: byType },
     );
   },
 });

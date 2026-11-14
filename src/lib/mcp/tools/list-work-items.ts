@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { canonicalWorkflowType, errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { finishPage, pageBoundary, readPageCursor } from "../keyset-page";
 
 export default defineTool({
   name: "list_work_items",
@@ -11,25 +12,36 @@ export default defineTool({
     search: z.string().trim().optional().describe("Free-text match on radicado, título, partes, o autoridad."),
     workflow_type: z.string().trim().optional().describe("Filter by workflow_type: CGP, EJECUTIVO, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE ('PENAL' se acepta como alias de PENAL_906). Un proceso ejecutivo es EJECUTIVO, nunca CGP."),
     limit: z.number().int().min(1).max(100).optional().describe("Max rows to return (default 25)."),
+    lifecycle_state: z.enum(["ACTIVE", "ARCHIVED", "ALL"]).optional().describe("Estado: ACTIVE por defecto; ALL incluye otros estados no borrados."),
+    cursor: z.string().max(2048).optional().describe("next_cursor de la página anterior, con los mismos filtros."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async ({ search, workflow_type, limit }, ctx) => {
+  handler: async ({ search, workflow_type, limit, lifecycle_state, cursor }, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
+    const state = lifecycle_state ?? "ACTIVE";
+    const scope = JSON.stringify(["work_items", state, canonicalWorkflowType(workflow_type ?? ""), search ?? ""]);
+    let boundary;
+    try { boundary = readPageCursor(cursor, scope); } catch (error) { return errorResult((error as Error).message); }
+    const pageSize = limit ?? 25;
     let q = sb
       .from("work_items")
-      .select("id, radicado, workflow_type, stage, status, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at")
+      .select("id, radicado, workflow_type, stage, status, lifecycle_state, authority_name, authority_city, demandantes, demandados, title, last_action_date, last_action_description, updated_at")
       .is("deleted_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(limit ?? 25);
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false })
+      .limit(pageSize + 1);
+    if (state !== "ALL") q = q.eq("lifecycle_state", state);
+    if (boundary) q = q.or(pageBoundary("updated_at", boundary));
     if (workflow_type) q = q.eq("workflow_type", canonicalWorkflowType(workflow_type));
     if (search) {
-      const s = `%${search}%`;
+      const s = `"%${search.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}%"`;
       q = q.or(`radicado.ilike.${s},title.ilike.${s},authority_name.ilike.${s},demandantes.ilike.${s},demandados.ilike.${s}`);
     }
     const { data, error } = await q;
     if (error) return errorResult(error.message);
-    return textResult(`Encontrados ${data?.length ?? 0} asuntos.`, { items: data ?? [] });
+    const page = finishPage(data ?? [], pageSize, "updated_at", scope);
+    return textResult(`Encontrados ${page.items.length} asuntos en esta página.`, page);
   },
 });
