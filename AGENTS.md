@@ -1,6 +1,7 @@
 # Architecture rules
 
 - MCP portfolio summaries traverse the RLS-visible ACTIVE projection without a total cap; listing cursors bind filters and use descending date/id boundaries with nulls last, never identity or feed checkpoints — archived records and tied dates must not hide or duplicate pages.
+- Sync failure evidence precedes terminal tracing, preserves SQLSTATE/correlation/known ledger counts, and never retries an uncertain commit — pre-bucket failures must remain diagnosable.
 
 - Legal acceptance uses canonical database documents and the server current-version check; never accept fallback or title-only text, and never let a stale profile flag override a confirmed acceptance — preserves the displayed-text audit contract.
 
