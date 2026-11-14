@@ -83,11 +83,13 @@ Deno.serve(async req => {
               }
             }
           }
-          // One logical update per matter per Bogotá day: check before invoking
-          // (pp_poll follow-ups of an admitted run are continuations, exempt).
-          if (outcome === "RETRY" && initial !== "pp_poll") {
+          // One logical update per matter per Bogotá day: publication retries
+          // defer to their durable monitor. Acts reach the callee even when a
+          // cycle exists: terminal cycles may ingest a certified stored read,
+          // and its fenced admission recovers an abandoned STARTED lease.
+          if (outcome === "RETRY" && initial !== "pp_poll" && kind !== "ACT_SCRAPE_RETRY") {
             const { data: peek, error: peekError } = await db.rpc("peek_daily_update", {
-              _work_item_id: task.work_item_id, _channel: kind === "ACT_SCRAPE_RETRY" ? "acts" : "pubs" });
+              _work_item_id: task.work_item_id, _channel: "pubs" });
             if (!peekError && peek?.started) {
               outcome = "DEFERRED"; code = "DAILY_UPDATE_ALREADY_STARTED"; delaySeconds = secondsUntil(peek.next_eligible_at);
             }

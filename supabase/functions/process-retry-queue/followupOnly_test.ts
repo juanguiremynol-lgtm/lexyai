@@ -8,3 +8,10 @@ Deno.test("pp_poll slots claim only via the follow-up RPC and stop when none is 
   if (!/initial === "pp_poll"\s*\n?\s*\? await db\.rpc\("claim_sync_retry_pp_poll"/.test(src)) throw new Error("pp_poll must use follow-up claim");
   if (!src.includes("if (followupOnly) break;")) throw new Error("must exit cheaply when nothing is due");
 });
+
+Deno.test("acts reach fenced stored-read recovery while publication duplicates stay deferred", () => {
+  if (!src.includes('initial !== "pp_poll" && kind !== "ACT_SCRAPE_RETRY"')) {
+    throw new Error("the queue must not suppress the callee's acts stored-read continuation");
+  }
+  if (!src.includes('_channel: "pubs"')) throw new Error("publication duplicate peek must remain in force");
+});
