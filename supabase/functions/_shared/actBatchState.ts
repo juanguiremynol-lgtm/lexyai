@@ -48,7 +48,7 @@ export async function loadAllActiveActs(
       .eq("is_archived", false)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
-    if (error) throw new ActLoadError(`existing acts read failed at offset ${from}: ${error.message}`);
+    if (error) throw new ActLoadError(`existing acts read failed at offset ${from}: ${error.message}`, false, error.code);
     if (!Array.isArray(data)) throw new ActLoadError(`existing acts read returned no data at offset ${from}`);
     out.push(...data);
     if (data.length < pageSize) return out;
@@ -75,7 +75,7 @@ export async function loadAllActiveActIdentities(
       .eq("is_archived", false)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
-    if (error) throw new ActLoadError(`existing act identity read failed at offset ${from}: ${error.message}`);
+    if (error) throw new ActLoadError(`existing act identity read failed at offset ${from}: ${error.message}`, false, error.code);
     if (!Array.isArray(data)) throw new ActLoadError(`existing act identity read returned no data at offset ${from}`);
     out.push(...data);
     if (data.length < pageSize) return out;
@@ -121,7 +121,7 @@ export async function resolvePersistedAct(
     .eq("is_archived", false)
     .limit(1)
     .maybeSingle();
-  if (error) throw new ActLoadError(`persisted act read-back failed: ${error.message}`);
+  if (error) throw new ActLoadError(`persisted act read-back failed: ${error.message}`, true, error.code);
   if (!data || typeof data.id !== "string") return null;
   return data as PersistedAct;
 }
@@ -155,7 +155,7 @@ export async function enrichPersistedAct(
     const { data: row, error: readError } = await client.from('work_item_acts')
       .select(ACT_SELECT_COLUMNS).eq('work_item_id', workItemId).eq('id', actId)
       .eq('is_archived', false).maybeSingle();
-    if (readError || !row) throw new ActLoadError(`enrichment fresh read failed: ${readError?.message ?? 'row missing'}`);
+    if (readError || !row) throw new ActLoadError(`enrichment fresh read failed: ${readError?.message ?? 'row missing'}`, false, readError?.code);
     const storedOrigin = originFromRow(row);
     const incomingOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
     const relation = compareProviderOrigins(storedOrigin, incomingOrigin, opts.provider || row.source);

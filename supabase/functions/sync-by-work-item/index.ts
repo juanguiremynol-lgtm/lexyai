@@ -20,6 +20,7 @@ import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, samaiCo
 import { mayConsumeStoredCpnu, mayConsumeStoredSamai } from '../_shared/storedActAdmission.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActIdentities, compactActIdentityRow, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
+import { failureBucket, redundantSuccessTrace, type FailureLedger } from '../_shared/syncFailureEvidence.ts';
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
 // It is enabled only by an approved, backed-up repair naming explicit act ids.
@@ -384,6 +385,7 @@ async function logTrace(
   supabase: any,
   event: Partial<TraceEvent> & { trace_id: string; step: string }
 ): Promise<void> {
+  if (redundantSuccessTrace(event)) return;
   try {
     // Compute normalized_error_code using canonical shared normalizer
     const normalizedCode = !event.success && event.error_code
@@ -395,7 +397,7 @@ async function logTrace(
       || null;
 
     // Use 'any' cast since sync_traces table may not be in generated types yet
-    await (supabase.from('sync_traces') as any).insert({
+    const { error } = await (supabase.from('sync_traces') as any).insert({
       trace_id: event.trace_id,
       work_item_id: event.work_item_id || null,
       organization_id: event.organization_id || null,
@@ -411,6 +413,7 @@ async function logTrace(
       message: event.message?.slice(0, 500) || null, // Truncate messages
       meta: event.meta || {},
     });
+    if (error) console.warn('[sync-by-work-item] Trace write failed', event.trace_id, event.step, error.code);
   } catch (err) {
     // Fail silently - tracing should never break the main flow
     console.warn('[sync-by-work-item] Failed to log trace:', err);
@@ -1426,6 +1429,10 @@ Deno.serve(withSyncTimeline(async (req) => {
   const syncStartTime = Date.now();
   let failureResult: SyncResult | undefined;
   let traceWorkItemId: string | undefined;
+  let failureLedger: FailureLedger | undefined;
+  let failureOrganizationId: string | null = null;
+  let failurePhase = 'PRE_INGEST';
+  let failureBucketWritten = false;
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -3007,7 +3014,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // rejects, or that collide with a structural dedupe index, used to vanish from
     // every counter (the RPC swallowed them into `errors`), which produced phantom
     // PERSIST_MISMATCH runs and "0 novedades" reports while data was actually fine.
-    const persistLedger = {
+    const persistLedger: FailureLedger = {
       parsed: 0,
       inserted: 0,
       updated: 0,
@@ -3017,6 +3024,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       errored: 0,
       outcomes: [] as Array<Record<string, unknown>>,
     };
+    failureLedger = persistLedger;
+    failureOrganizationId = workItem.organization_id;
+    failurePhase = 'LOAD_IDENTITY_CANDIDATES';
 
     // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
     // This prevents SAMAI duplicates where the same court event produces slightly different
@@ -3138,6 +3148,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     };
 
     for (const act of fetchResult.actuaciones) {
+      failurePhase = 'ACT_PERSISTENCE';
       const actDate = parseColombianDate(act.fecha);
       
       // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
@@ -3683,6 +3694,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // ============= UPDATE WORK ITEM METADATA =============
+    failurePhase = 'POST_INGEST_EFFECTS';
     // Strategy: ALWAYS UPDATE work_item with latest provider data (overwrite)
     // This ensures metadata stays fresh on each sync
     // ── Layer 2A: Sync Integrity Check ──
@@ -4534,7 +4546,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     if (persistLedger.parsed > 0 || ledgerHasLoss) {
       try {
-        await supabase.from('sync_persist_buckets').insert({
+        const { error: bucketError } = await supabase.from('sync_persist_buckets').insert({
           work_item_id,
           organization_id: workItem.organization_id,
           sync_run_id: orchestratorSyncRunId,
@@ -4554,6 +4566,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             .filter((o) => o.bucket !== 'SKIPPED_DUPLICATE')
             .slice(0, 200),
         });
+        failureBucketWritten = !bucketError;
+        if (bucketError) console.warn('[sync-by-work-item] Ledger write failed', traceId, bucketError.code);
       } catch { /* ledger is best-effort */ }
     }
 
@@ -4670,9 +4684,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       } catch { /* ignore */ }
     }
 
-    const persistenceAborted = err instanceof ActLoadError && err.sqlState === '57014';
-    const errorCode = persistenceAborted ? 'PERSISTENCE_FAILED'
-      : failureResult?.persistence_unknown?.length ? 'PERSISTENCE_UNKNOWN'
+    const persistenceUnknown = err instanceof ActLoadError && err.persistenceUnknown || !!failureResult?.persistence_unknown?.length;
+    const persistenceAborted = err instanceof ActLoadError;
+    const errorCode = persistenceUnknown ? 'PERSISTENCE_UNKNOWN'
+      : persistenceAborted ? 'PERSISTENCE_FAILED'
       : errorDetail.isTimeout ? 'PROVIDER_TIMEOUT'
       : errorDetail.isNetworkError ? 'NETWORK_ERROR'
       : errorDetail.httpStatus === 503 ? 'PROVIDER_UNAVAILABLE'
@@ -4687,6 +4702,15 @@ Deno.serve(withSyncTimeline(async (req) => {
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
       if (supabaseUrl && supabaseServiceKey) {
         const supabaseForTrace = createClient(supabaseUrl, supabaseServiceKey, serverClientOptions);
+        if (traceWorkItemId && !failureBucketWritten && failureResult) {
+          const { error: evidenceError } = await supabaseForTrace.from('sync_persist_buckets').insert(failureBucket({
+            workItemId: traceWorkItemId, organizationId: failureOrganizationId,
+            runId: failureResult.sync_run_id ?? null, traceId,
+            provider: failureResult.provider_used ?? null, ledger: failureLedger,
+            sqlState: err instanceof ActLoadError ? err.sqlState : undefined, code: errorCode, phase: failurePhase,
+          }));
+          if (evidenceError) console.warn('[sync-by-work-item] Failure evidence unavailable', traceId, evidenceError.code);
+        }
         await logTrace(supabaseForTrace, {
           trace_id: traceId,
           work_item_id: traceWorkItemId,
@@ -4702,12 +4726,15 @@ Deno.serve(withSyncTimeline(async (req) => {
             is_timeout: errorDetail.isTimeout,
             provider_attempts: failureResult?.provider_attempts?.length || 0,
             persistence_unknown: failureResult?.persistence_unknown ?? [],
+            sql_state: err instanceof ActLoadError ? err.sqlState ?? null : null,
+            failure_phase: failurePhase,
+            persistence_summary: failureResult?.persistence_summary ?? null,
           },
         });
       }
     } catch { /* trace logging should never fail the response */ }
 
-    if (failureResult && (persistenceAborted || failureResult.persistence_unknown?.length)) {
+    if (failureResult && (persistenceAborted || persistenceUnknown)) {
       try {
         const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, serverClientOptions);
         if (failureResult.sync_run_id) {
@@ -4723,7 +4750,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         }).eq('id', failureResult.work_item_id);
         if (error) console.warn('[sync-by-work-item] Failed to record work item persistence status', error.code);
       } catch (recordError) { console.warn('[sync-by-work-item] Persistence status unavailable', recordError); }
-      return jsonResponse({ ...failureResult, partial: true, source_complete: false, ok: false, code: errorCode, message: errorDetail.message }, 500);
+      return jsonResponse({ ...failureResult, partial: true, source_complete: false, ok: false, code: errorCode, trace_id: traceId, message: errorDetail.message }, 500);
     }
     return errorResponse(
       errorCode,
