@@ -158,13 +158,13 @@ Deno.serve(async (req) => {
     // The work item must belong to the caller's scope before we attach evidence.
     let workItem: { id: string; organization_id: string | null } | null = null;
     if (workItemId) {
-      let q = admin.from("work_items").select("id, organization_id, owner_id").eq("id", workItemId);
+      let q = admin.from("work_items").select("id, organization_id, owner_id, workflow_type").eq("id", workItemId);
       const { data: wi } = await q.maybeSingle();
       const owns = wi &&
         ((wi.owner_id as string) === caller.userId ||
           (wi.organization_id && caller.orgIds.includes(wi.organization_id as string)));
       if (!owns) return json({ error: "El expediente no pertenece a tu cuenta." }, 403);
-      workItem = { id: wi!.id as string, organization_id: (wi!.organization_id as string) ?? null };
+      workItem = { id: wi!.id as string, organization_id: (wi!.organization_id as string) ?? null, workflow_type: (wi!.workflow_type as string) ?? null };
       audit.organization_id = workItem.organization_id ?? audit.organization_id;
     }
 
