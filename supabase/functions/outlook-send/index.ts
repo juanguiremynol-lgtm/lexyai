@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
     }
 
     // The work item must belong to the caller's scope before we attach evidence.
-    let workItem: { id: string; organization_id: string | null } | null = null;
+    let workItem: { id: string; organization_id: string | null; workflow_type?: string | null } | null = null;
     if (workItemId) {
       let q = admin.from("work_items").select("id, organization_id, owner_id, workflow_type").eq("id", workItemId);
       const { data: wi } = await q.maybeSingle();
