@@ -219,6 +219,8 @@ Deno.serve(async (req) => {
       )
       .eq("link_status", "SUGGESTED")
       .is("evidence_meta->>reevaluated_at", null)
+      // Administrative links follow peticionEmailLinking rules, not the radicado re-matcher.
+      .is("evidence_meta->>admin_class", null)
       .order("received_at", { ascending: false })
       .limit(batchSize * 4);
     if (userFilter) q = q.eq("user_id", userFilter);
@@ -488,7 +490,9 @@ Deno.serve(async (req) => {
       .from("work_item_email_links")
       .select("id", { count: "exact", head: true })
       .eq("link_status", "SUGGESTED")
-      .is("evidence_meta->>reevaluated_at", null);
+      .is("evidence_meta->>reevaluated_at", null)
+      // Administrative links follow peticionEmailLinking rules, not the radicado re-matcher.
+      .is("evidence_meta->>admin_class", null);
     if (userFilter) remainingQuery = remainingQuery.eq("user_id", userFilter);
     const { count } = await remainingQuery;
     summary.remaining = count ?? 0;

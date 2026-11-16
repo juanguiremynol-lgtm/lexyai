@@ -51,6 +51,12 @@ import {
   type AiGatewayState,
 } from "../_shared/aiClassifyEmail.ts";
 import { aiVerifyLink, makeAiVerifyHealthSink } from "../_shared/aiVerifyLink.ts";
+import {
+  decideAdministrativeLinks,
+  type AdminLinkContext,
+  type AdminWorkItem,
+} from "../_shared/peticionEmailLinking.ts";
+import { buildAdminLinkRow, recordAdminEmailEvent } from "../_shared/peticionEmailEvents.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -125,6 +131,70 @@ async function reconcileManualLink(
  * Identidad del titular del buzón: su nombre y el de su firma nunca deben
  * generar un match CLIENTE/PARTE (firma todos los correos salientes).
  */
+/**
+ * Administrative matters (PETICION / GOV_PROCEDURE) have no judicial radicado.
+ * Their deterministic identity comes from CONFIRMED links (message and
+ * conversation) and from the official tracking id stored on the matter.
+ */
+interface AdminPlaceholder { work_item_id: string; subject: string | null; at: number }
+
+async function loadAdminLinkContext(admin: Admin, conn: Connection): Promise<AdminLinkContext & { placeholders: AdminPlaceholder[] }> {
+  let q = admin
+    .from("work_items")
+    .select("id, organization_id, workflow_type, authority_email, radicado, email_linking_enabled, lifecycle_state")
+    .in("workflow_type", ["PETICION", "GOV_PROCEDURE"])
+    .is("deleted_at", null)
+    .limit(5000);
+  q = conn.organization_id ? q.eq("organization_id", conn.organization_id) : q.eq("owner_id", conn.user_id);
+  const { data: wis, error } = await q;
+  if (error) throw new Error(`Peticiones: ${error.message}`);
+  const ids = (wis ?? []).map((w: { id: string }) => w.id);
+  const ctx: AdminLinkContext & { placeholders: AdminPlaceholder[] } = {
+    placeholders: [],
+    items: [],
+    confirmedByInternetId: new Map(),
+    confirmedByConversation: new Map(),
+    selfAddress: conn.ms_account_email ?? null,
+  };
+  if (ids.length === 0) return ctx;
+  const [{ data: states }, { data: links }, { data: manual }] = await Promise.all([
+    admin.from("peticion_work_item_state").select("work_item_id, authority_radicado").in("work_item_id", ids),
+    admin.from("work_item_email_links").select("work_item_id, internet_message_id, conversation_id")
+      .in("work_item_id", ids).eq("link_status", "CONFIRMED"),
+    // Messages sent from Andromeda (outlook-send) awaiting their Sent Items copy.
+    admin.from("work_item_email_links").select("work_item_id, subject, received_at")
+      .in("work_item_id", ids).eq("direction", "sent").like("message_id", "manual:%"),
+  ]);
+  ctx.placeholders = (manual ?? []).map((m: { work_item_id: string; subject: string | null; received_at: string }) => ({
+    work_item_id: m.work_item_id, subject: m.subject, at: Date.parse(m.received_at),
+  }));
+  const officialById = new Map<string, string | null>(
+    (states ?? []).map((s: { work_item_id: string; authority_radicado: string | null }) => [s.work_item_id, s.authority_radicado]),
+  );
+  ctx.items = (wis ?? []).map((w: Record<string, unknown>): AdminWorkItem => {
+    const rad = (w.radicado as string | null) ?? null;
+    const judicialShape = (rad ?? "").replace(/\D/g, "").length === 23;
+    return {
+      id: w.id as string,
+      organization_id: (w.organization_id as string) ?? null,
+      workflow_type: (w.workflow_type as string) ?? null,
+      authority_email: (w.authority_email as string) ?? null,
+      authority_radicado: officialById.get(w.id as string) ?? (judicialShape ? null : rad),
+      email_linking_enabled: (w.email_linking_enabled as boolean) ?? null,
+      lifecycle_state: (w.lifecycle_state as string) ?? null,
+    };
+  });
+  for (const l of (links ?? []) as { work_item_id: string; internet_message_id: string | null; conversation_id: string | null }[]) {
+    rememberConfirmed(ctx, l.work_item_id, l.internet_message_id, l.conversation_id);
+  }
+  return ctx;
+}
+
+function rememberConfirmed(ctx: AdminLinkContext, wi: string, imid: string | null, conv: string | null) {
+  if (imid) (ctx.confirmedByInternetId.get(imid) ?? ctx.confirmedByInternetId.set(imid, new Set()).get(imid)!).add(wi);
+  if (conv) (ctx.confirmedByConversation.get(conv) ?? ctx.confirmedByConversation.set(conv, new Set()).get(conv)!).add(wi);
+}
+
 async function loadOwnerIdentity(admin: Admin, conn: Connection): Promise<OwnerIdentity> {
   const names: string[] = [];
   const emails: string[] = [conn.ms_account_email ?? ""].filter(Boolean);
@@ -616,6 +686,7 @@ async function syncConnection(
   const accessToken = await ensureAccessToken(admin, conn);
   const portfolio = await loadPortfolio(admin, conn);
   const owner = await loadOwnerIdentity(admin, conn);
+  const adminCtx = await loadAdminLinkContext(admin, conn);
   const knownRadicados = new Set(
     portfolio
       .map((p) => (p.radicado ?? "").replace(/\D/g, ""))
@@ -1029,6 +1100,56 @@ async function syncConnection(
         if (linkStatus === "CONFIRMED") summary.links_created++;
         else summary.suggestions_created++;
         if (evidence === "MEMORIAL_ENVIADO") summary.memorial_evidence++;
+      }
+
+      // ---- Administrative matters (PETICION / GOV_PROCEDURE) ----
+      // Deterministic identity only; authority mailbox => suggestion.
+      const genericWis = new Set(matches.filter((m) => m.confidence >= 0.5).map((m) => m.work_item_id));
+      if (direction === "sent" && adminCtx.placeholders.length > 0) {
+        const t = Date.parse(msg.sentDateTime ?? msg.receivedDateTime ?? "");
+        for (const ph of adminCtx.placeholders) {
+          if (genericWis.has(ph.work_item_id) || (ph.subject ?? "") !== (msg.subject ?? "")) continue;
+          if (!Number.isFinite(t) || Math.abs(t - ph.at) > 15 * 60_000) continue;
+          if (await reconcileManualLink(admin, ph.work_item_id, msg)) {
+            genericWis.add(ph.work_item_id);
+            rememberConfirmed(adminCtx, ph.work_item_id, msg.internetMessageId ?? null, msg.conversationId ?? null);
+          }
+        }
+      }
+      for (const decision of decideAdministrativeLinks(msg, adminCtx)) {
+        if (genericWis.has(decision.work_item_id)) continue;
+        const adminRow = buildAdminLinkRow({
+          userId: conn.user_id,
+          connectionId: conn.id,
+          msg,
+          direction,
+          decision,
+          provenance: { source: "OUTLOOK_SYNC", rule: decision.matched_by, at: new Date().toISOString() },
+        });
+        const { error: adminErr } = await admin
+          .from("work_item_email_links")
+          .upsert(adminRow, { onConflict: "message_id,work_item_id", ignoreDuplicates: true });
+        if (adminErr) {
+          console.error("[outlook-sync] admin link upsert", adminErr.message);
+          summary.errors++;
+          summary.last_error = adminErr.message.slice(0, 500);
+          continue;
+        }
+        if (decision.link_status === "CONFIRMED") {
+          summary.links_created++;
+          rememberConfirmed(adminCtx, decision.work_item_id, msg.internetMessageId ?? null, msg.conversationId ?? null);
+          try {
+            const { data: saved } = await admin.from("work_item_email_links").select("id, link_status")
+              .eq("message_id", msg.id).eq("work_item_id", decision.work_item_id).maybeSingle();
+            // A prior human DISMISSED decision is never overridden.
+            if (saved && (saved as { link_status: string }).link_status === "CONFIRMED") {
+              await recordAdminEmailEvent(admin, adminRow, (saved as { id: string }).id, null);
+            }
+          } catch (e) {
+            console.error("[outlook-sync] admin event", (e as Error).message);
+            summary.errors++;
+          }
+        } else summary.suggestions_created++;
       }
     }
   };

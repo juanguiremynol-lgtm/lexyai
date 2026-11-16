@@ -224,3 +224,8 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Liberación final: root aplica SQL revisado y publica app existente para activar MCP administrado; smoke externo posterior. Delta aprobado, once gates preservados; no existe despliegue MCP independiente soportado en este proyecto.
 - [x] 05-nov (código+pruebas; publicación espera revisión root): atribución real de proveedor PP/SAMAI en sync-publicaciones, invariante del registro de sincronización (sin éxito sin proveedor), get_work_item y lectores SQL de frescura con predicado verificado; pruebas; SQL solo para revisión; sin publicar hasta aprobación root.
 - [x] 05-nov señal fecha encabezado auto: extractor acotado (600 chars, inequívoco o desconocido) canónico+espejo, RPC publicacion_auto_text_prefix (SECURITY INVOKER, migración 0100 aplicada), list_publicaciones devuelve fecha estructurada/candidata/discrepancia con procedencias; MCP 0.6.9 preparado, sin despliegue aislado posible — espera publicación root.
+
+## Correo → peticiones (2026-11-16)
+- [x] Reglas de vínculo administrativo + pruebas; panel manual de petición; búsqueda/vinculación selectiva de Outlook (outlook-message-link desplegada).
+- [ ] Aplicar `supabase/release/admin_email_link_matched_by_20261116.sql` (base inaccesible) y luego desplegar outlook-sync.
+- [ ] Vincular los envíos CORNARE (471b2dd7) y Rionegro (d07617ae) desde la ficha con sesión del titular.

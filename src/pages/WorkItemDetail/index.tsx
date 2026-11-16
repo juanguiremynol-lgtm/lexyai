@@ -40,6 +40,7 @@ import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocume
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
 import { EmailLinksTab } from "./tabs/EmailLinksTab";
+import { PeticionAdminPanel } from "@/components/peticiones/PeticionAdminPanel";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
 import { PublicacionesPpTab } from "./tabs/PublicacionesPpTab";
@@ -398,6 +399,10 @@ export default function WorkItemDetail() {
           {/* CPACA SAMAI enrichment */}
           {workItem.workflow_type === 'CPACA' && (
             <CpacaDetailModule workItem={extendedWorkItem as unknown as WorkItem} />
+          )}
+
+          {(workItem.workflow_type === 'PETICION' || workItem.workflow_type === 'GOV_PROCEDURE') && (
+            <PeticionAdminPanel workItem={workItem as any} />
           )}
 
           {/* Radicado Analysis */}
