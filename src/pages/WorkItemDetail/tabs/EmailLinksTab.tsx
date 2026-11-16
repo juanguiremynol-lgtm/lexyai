@@ -33,6 +33,9 @@ const MATCH_LABELS: Record<string, string> = {
   PARTE: "Parte",
   CLIENTE: "Cliente",
   MANUAL: "Manual",
+  MENSAJE: "Mismo mensaje",
+  CONVERSACION: "Conversación confirmada",
+  IDENTIFICADOR_OFICIAL: "Radicado de la autoridad",
 };
 
 const SUBTYPE_LABELS: Record<string, string> = {
