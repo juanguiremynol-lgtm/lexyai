@@ -216,7 +216,10 @@ Deno.serve(async (req) => {
           matched_by: "MANUAL",
           matched_value: conn.ms_account_email ?? "envío desde Andromeda",
           confidence: 1,
-          evidence_type: asMemorial ? "MEMORIAL_ENVIADO" : "OTRO",
+          // A memorial discharges judicial deadlines; administrative matters never.
+          evidence_type: asMemorial && !["PETICION", "GOV_PROCEDURE"].includes(String(workItem.workflow_type ?? ""))
+            ? "MEMORIAL_ENVIADO"
+            : "OTRO",
           link_status: "CONFIRMED",
         })
         .select("id")

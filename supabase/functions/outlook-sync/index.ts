@@ -136,7 +136,9 @@ async function reconcileManualLink(
  * Their deterministic identity comes from CONFIRMED links (message and
  * conversation) and from the official tracking id stored on the matter.
  */
-async function loadAdminLinkContext(admin: Admin, conn: Connection): Promise<AdminLinkContext> {
+interface AdminPlaceholder { work_item_id: string; subject: string | null; at: number }
+
+async function loadAdminLinkContext(admin: Admin, conn: Connection): Promise<AdminLinkContext & { placeholders: AdminPlaceholder[] }> {
   let q = admin
     .from("work_items")
     .select("id, organization_id, workflow_type, authority_email, radicado, email_linking_enabled, lifecycle_state")
@@ -147,18 +149,25 @@ async function loadAdminLinkContext(admin: Admin, conn: Connection): Promise<Adm
   const { data: wis, error } = await q;
   if (error) throw new Error(`Peticiones: ${error.message}`);
   const ids = (wis ?? []).map((w: { id: string }) => w.id);
-  const ctx: AdminLinkContext = {
+  const ctx: AdminLinkContext & { placeholders: AdminPlaceholder[] } = {
+    placeholders: [],
     items: [],
     confirmedByInternetId: new Map(),
     confirmedByConversation: new Map(),
     selfAddress: conn.ms_account_email ?? null,
   };
   if (ids.length === 0) return ctx;
-  const [{ data: states }, { data: links }] = await Promise.all([
+  const [{ data: states }, { data: links }, { data: manual }] = await Promise.all([
     admin.from("peticion_work_item_state").select("work_item_id, authority_radicado").in("work_item_id", ids),
     admin.from("work_item_email_links").select("work_item_id, internet_message_id, conversation_id")
       .in("work_item_id", ids).eq("link_status", "CONFIRMED"),
+    // Messages sent from Andromeda (outlook-send) awaiting their Sent Items copy.
+    admin.from("work_item_email_links").select("work_item_id, subject, received_at")
+      .in("work_item_id", ids).eq("direction", "sent").like("message_id", "manual:%"),
   ]);
+  ctx.placeholders = (manual ?? []).map((m: { work_item_id: string; subject: string | null; received_at: string }) => ({
+    work_item_id: m.work_item_id, subject: m.subject, at: Date.parse(m.received_at),
+  }));
   const officialById = new Map<string, string | null>(
     (states ?? []).map((s: { work_item_id: string; authority_radicado: string | null }) => [s.work_item_id, s.authority_radicado]),
   );
@@ -1096,6 +1105,17 @@ async function syncConnection(
       // ---- Administrative matters (PETICION / GOV_PROCEDURE) ----
       // Deterministic identity only; authority mailbox => suggestion.
       const genericWis = new Set(matches.filter((m) => m.confidence >= 0.5).map((m) => m.work_item_id));
+      if (direction === "sent" && adminCtx.placeholders.length > 0) {
+        const t = Date.parse(msg.sentDateTime ?? msg.receivedDateTime ?? "");
+        for (const ph of adminCtx.placeholders) {
+          if (genericWis.has(ph.work_item_id) || (ph.subject ?? "") !== (msg.subject ?? "")) continue;
+          if (!Number.isFinite(t) || Math.abs(t - ph.at) > 15 * 60_000) continue;
+          if (await reconcileManualLink(admin, ph.work_item_id, msg)) {
+            genericWis.add(ph.work_item_id);
+            rememberConfirmed(adminCtx, ph.work_item_id, msg.internetMessageId ?? null, msg.conversationId ?? null);
+          }
+        }
+      }
       for (const decision of decideAdministrativeLinks(msg, adminCtx)) {
         if (genericWis.has(decision.work_item_id)) continue;
         const adminRow = buildAdminLinkRow({

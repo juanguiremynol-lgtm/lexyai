@@ -147,6 +147,7 @@ if (import.meta.main) Deno.serve(async (req) => {
         const { error } = await admin.from("work_item_email_links").update({
           link_status: "CONFIRMED", matched_by: "MANUAL", confidence: 1,
           evidence_type: "OTRO", evidence_subtype: null, evidence_meta: row.evidence_meta,
+          ai_classified_at: row.ai_classified_at,
         }).eq("id", prior.id);
         if (error) throw new Error(error.message);
       }

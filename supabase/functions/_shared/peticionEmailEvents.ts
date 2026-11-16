@@ -57,6 +57,11 @@ export function buildAdminLinkRow(input: AdminLinkInput) {
     evidence_subtype: null,
     memorial_subtype: null,
     low_content: false,
+    // Excludes the row from the judicial semantics backfill (cron job 80 and
+    // email-semantics-backfill both require ai_classified_at IS NULL): a
+    // judicial subtype on an administrative link would create court deadlines.
+    ai_classified: false,
+    ai_classified_at: new Date().toISOString(),
     evidence_meta: {
       admin_class: cls,
       proposed_official_id: direction === "received" ? extractProposedOfficialId(msg) : null,
