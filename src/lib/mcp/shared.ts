@@ -26,6 +26,8 @@ function runtimeEnv(name: string): string | undefined {
   return v?.trim() || undefined;
 }
 
+import { backendFailureText, classifyBackendFailure } from "./backend-failure";
+
 export function supabaseProjectUrl(): string {
   const url = runtimeEnv("SUPABASE_URL") ?? runtimeEnv("VITE_SUPABASE_URL");
   if (!url) throw new Error("SUPABASE_URL no configurada en el runtime MCP");
@@ -183,8 +185,11 @@ export const MANAGE_REQUIRED =
 export async function requireWriteScope(ctx: ToolContext): Promise<string | null> {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  const { data, error } = await sbForUser(ctx).rpc("mcp_access_level");
-  if (error) return `No se pudo verificar el permiso de gestión: ${error.message}`;
+  let res;
+  try { res = await sbForUser(ctx).rpc("mcp_access_level"); }
+  catch (thrown) { return backendFailureText(classifyBackendFailure(thrown)); }
+  const { data, error, status } = res;
+  if (error) return backendFailureText(classifyBackendFailure(error, status));
   return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
 
