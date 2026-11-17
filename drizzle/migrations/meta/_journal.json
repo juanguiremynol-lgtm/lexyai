@@ -750,6 +750,13 @@
       "when": 1794921557032,
       "tag": "0106_peticion_operative_terms",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1794923196879,
+      "tag": "0107_peticion_authority_alerts_mcp_create",
+      "breakpoints": true
     }
   ]
 }

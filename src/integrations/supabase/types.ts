@@ -27212,6 +27212,7 @@ export type Database = {
         Returns: Json
       }
       _daily_gate_probe_cleanup: { Args: never; Returns: number }
+      _evaluate_peticion_system_events_core: { Args: never; Returns: Json }
       _mcp_apply_stage: {
         Args: {
           p_reason: string
@@ -27323,6 +27324,10 @@ export type Database = {
       _notification_ids_visible_to_caller: {
         Args: { p_ids: string[] }
         Returns: string[]
+      }
+      _peticion_admin_days_left: {
+        Args: { p_from: string; p_to: string }
+        Returns: number
       }
       _peticion_insert_component_deadline: {
         Args: {
@@ -28869,6 +28874,23 @@ export type Database = {
         }
         Returns: Json
       }
+      mcp_create_peticion: {
+        Args: {
+          p_authority_name: string
+          p_authority_reference: string
+          p_channel: string
+          p_client_id: string
+          p_components: string[]
+          p_idempotency_key: string
+          p_peticionario: string
+          p_presented: boolean
+          p_presented_on: string
+          p_source: string
+          p_support: string
+          p_title: string
+        }
+        Returns: Json
+      }
       mcp_create_work_item: {
         Args: {
           p_authority_name: string
@@ -29094,6 +29116,10 @@ export type Database = {
           p_received_on: string
           p_reviewed: boolean
         }
+        Returns: Json
+      }
+      peticion_status: {
+        Args: { p_today?: string; p_work_item_id: string }
         Returns: Json
       }
       peticion_terms_summary: {
@@ -29574,6 +29600,10 @@ export type Database = {
       }
       suspend_work_item_monitoring: {
         Args: { p_reason: string; p_work_item_id: string }
+        Returns: Json
+      }
+      sync_peticion_alerts: {
+        Args: { p_today?: string; p_work_item?: string }
         Returns: Json
       }
       sync_suggestion_alerts: { Args: never; Returns: Json }
