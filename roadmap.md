@@ -240,5 +240,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Ampliación de tipos de vínculo administrativo aplicada (0105) con verificación previa
 - [x] outlook-sync: peticiones solo del dueño del buzón, fuera del emparejador judicial; desplegada
 - [ ] Vincular los envíos del 16/11 a CORNARE y Rionegro desde la sesión del titular (botón «Buscar correo en Outlook»)
-- [ ] Siguiente encargo: control de términos desde la radicación (el panel aún pide recepción probada para fijar el ancla)
+- [x] Control de términos desde la presentación documentada (0106), sin acuse; CORNARE y Rionegro con plazos 30/11 y 07/12
 - [ ] Disparador que anote la novedad al confirmar una sugerencia desde la cola
+
+## Términos de peticiones desde la presentación (2026-11-17)
+- [x] Registro de presentación, componentes mixtos, corrección con motivo y versión, prórroga y respuesta por componente
+- [x] Evaluador diario por componente; sin efectos de silencio automáticos con base solo en el envío
+- [ ] Ocho peticiones restantes sin fecha de presentación: requieren que el titular registre la fecha (no se infiere)
+- [ ] Política de escritura directa en la ficha administrativa sigue abierta a la organización (cambio de permisos fuera de esta fase)

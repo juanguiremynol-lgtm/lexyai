@@ -6,6 +6,7 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import { useDisabledDocTypes } from "@/hooks/useDisabledDocTypes";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthoritySelector } from "@/components/authorities/AuthoritySelector";
+import { PETICION_COMPONENTS, validatePresentation, buildPresentationRpcArgs, friendlyRpcError } from "@/lib/peticion-admin";
 import {
   Dialog,
   DialogContent,
@@ -188,6 +189,8 @@ export function CreateWorkItemWizard({
   
   // Peticion-specific
   const [filingDate, setFilingDate] = useState('');
+  const [peticionComponents, setPeticionComponents] = useState<string[]>(['GENERAL_INTERVENCION']);
+  const [peticionSupport, setPeticionSupport] = useState('');
   const [entityName, setEntityName] = useState('');
   // Fase 5 / A.3: structured reference to `authorities`, alongside the free text.
   const [authorityId, setAuthorityId] = useState<string | null>(null);
@@ -576,6 +579,23 @@ export function CreateWorkItemWizard({
         queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
         queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
         
+        // PETICION with a declared presentation date: compute terms in the same flow (server RPC, owner-checked).
+        if (workflowType === 'PETICION' && workItem?.id && filingDate) {
+          const form = { presented_on: filingDate, source: 'USUARIO_DECLARADO', support: peticionSupport.trim() || 'Fecha de presentación declarada al crear el asunto',
+            components: peticionComponents, reason: '', email_link_id: null };
+          const errors = validatePresentation(form, new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10), null);
+          if (errors.length) {
+            toast.warning(`Asunto creado, pero los plazos no se calcularon: ${errors.join(' ')}`);
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            void (supabase as any).rpc('peticion_register_presentation', buildPresentationRpcArgs(workItem.id, form, null))
+              .then(({ error }: { error: { message: string } | null }) => {
+                if (error) toast.warning(`Asunto creado, pero los plazos no se calcularon: ${friendlyRpcError(error.message)}`);
+                else toast.success('Plazos de respuesta calculados desde la presentación');
+              });
+          }
+        }
+
         onOpenChange(false);
         onSuccess?.();
         
@@ -1355,13 +1375,42 @@ export function CreateWorkItemWizard({
                       }}
                     />
                     <div className="space-y-2">
-                      <Label>Fecha de Radicación</Label>
+                      <Label>Fecha de presentación (envío al canal oficial o radicación en plataforma)</Label>
                       <Input
                         type="date"
                         value={filingDate}
                         onChange={(e) => setFilingDate(e.target.value)}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Con esta fecha se calculan de inmediato los plazos de respuesta, sin esperar acuse ni radicado. Si la deja vacía, podrá registrarla luego en el asunto.
+                      </p>
                     </div>
+                    {filingDate && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Componentes de la petición</Label>
+                          {PETICION_COMPONENTS.map((c) => (
+                            <label key={c.code} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={peticionComponents.includes(c.code)}
+                                onChange={() => setPeticionComponents((prev) => prev.includes(c.code) ? prev.filter((x) => x !== c.code) : [...prev, c.code])}
+                              />
+                              {c.label}{c.days ? ` — ${c.days} días hábiles` : ''}
+                            </label>
+                          ))}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Soporte de la presentación</Label>
+                          <Input
+                            value={peticionSupport}
+                            onChange={(e) => setPeticionSupport(e.target.value)}
+                            placeholder="Ej.: correo enviado al buzón oficial de la entidad"
+                            maxLength={1000}
+                          />
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
                 
