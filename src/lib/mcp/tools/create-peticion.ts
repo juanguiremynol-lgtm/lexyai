@@ -26,7 +26,7 @@ export default defineTool({
   name: "create_peticion",
   title: "Crear petición (con presentación)",
   description:
-    "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task — never a fictitious term. Requires the user's explicit instruction and a manage grant.",
+    "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task — never a fictitious term. Requires the user's explicit instruction and a manage grant. Use after the petition was REALLY sent through an official email/portal: keep the send date and support, search first for an existing matter (reference, client, authority, trash) and never duplicate; no receipt/acknowledgement is required to start the terms (next business day = day 1). Never for drafts, nor for reiterations or replies of an existing petition. Re-read with get_work_item afterwards.",
   inputSchema: {
     title: z.string().trim().max(300).optional(),
     client_id: z.string().uuid().optional().describe("Cliente propio del usuario."),

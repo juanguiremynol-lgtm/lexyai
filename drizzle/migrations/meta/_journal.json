@@ -778,6 +778,13 @@
       "when": 1794924234929,
       "tag": "0110_register_filing_credential_pattern_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1794925305399,
+      "tag": "0111_retire_register_filing",
+      "breakpoints": true
     }
   ]
 }

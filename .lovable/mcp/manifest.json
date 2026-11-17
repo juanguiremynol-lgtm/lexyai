@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-8-0",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-8-1",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -131,7 +131,7 @@
       {
         "name": "get_work_item",
         "title": "Detalle de asunto",
-        "description": "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts. Every matter also returns `presentaciones` (registered filings, newest first; presented ≠ received).",
+        "description": "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -1599,7 +1599,7 @@
       {
         "name": "create_work_item",
         "title": "Crear asunto",
-        "description": "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
+        "description": "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant. Use after a confirmed REAL external filing of a NEW demanda/tutela/administrative matter (or newly assumed representation): first search for an existing matter (radicado/reference, client, authority, trash); if it exists do not create another — link mail with the existing email tools. Never call it for drafts, unfiled writs, or each memorial/recurso/reply of an existing matter. CPACA = judicial (SAMAI); GOV_PROCEDURE = administrative procedure incl. traffic/environmental sanctioning (no SAMAI). Filing a demanda never starts the answer term without accredited notification. New petitions: use create_peticion. Re-read with get_work_item afterwards.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -1659,7 +1659,7 @@
       {
         "name": "create_peticion",
         "title": "Crear petición (con presentación)",
-        "description": "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task — never a fictitious term. Requires the user's explicit instruction and a manage grant.",
+        "description": "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task — never a fictitious term. Requires the user's explicit instruction and a manage grant. Use after the petition was REALLY sent through an official email/portal: keep the send date and support, search first for an existing matter (reference, client, authority, trash) and never duplicate; no receipt/acknowledgement is required to start the terms (next business day = day 1). Never for drafts, nor for reiterations or replies of an existing petition. Re-read with get_work_item afterwards.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -1753,180 +1753,6 @@
             "presented",
             "idempotency_key"
           ],
-          "additionalProperties": false,
-          "$schema": "http://json-schema.org/draft-07/schema#"
-        },
-        "outputSchema": null
-      },
-      {
-        "name": "register_filing",
-        "title": "Registrar presentación (radicación)",
-        "description": "Records a filing the user ACCREDITS was already presented (demanda, tutela, memorial, recurso, impugnación, descargos, solicitud administrativa). Never sends email nor files anything with an authority. Attaches a new filing event to an existing matter (work_item_id or exact 23-digit radicado) or creates exactly ONE new matter with its event in the same transaction. Presentation is never receipt, admission or notification; no judicial term is created — demanda/tutela/memorial/recurso/descargos get status PENDING_LEGAL_TRIGGER_REVIEW and one review task. New petitions must use create_peticion. Workflow is never inferred from the authority name: CPACA is judicial (SAMAI); administrative sanctioning files (tránsito, ambiental…) are GOV_PROCEDURE with procedure_subtype; a superintendence acting jurisdictionally is CGP with tribunal_type AUTORIDAD_JURISDICCIONAL. Requires a manage grant.",
-        "annotations": {
-          "readOnlyHint": false,
-          "destructiveHint": false,
-          "idempotentHint": true,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "action_kind": {
-              "type": "string",
-              "enum": [
-                "DEMANDA",
-                "TUTELA",
-                "MEMORIAL",
-                "RECURSO",
-                "IMPUGNACION",
-                "DESCARGOS",
-                "PETICION",
-                "SOLICITUD_ADMINISTRATIVA",
-                "OTRO"
-              ]
-            },
-            "filed_on": {
-              "type": "string",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-              "description": "Fecha declarada de presentación YYYY-MM-DD (Bogotá). Nunca la fecha de creación de la ficha."
-            },
-            "channel": {
-              "type": "string",
-              "enum": [
-                "EMAIL_OFICIAL",
-                "PLATAFORMA",
-                "PRESENCIAL",
-                "OTRO"
-              ]
-            },
-            "filing_reference": {
-              "type": "string",
-              "minLength": 3,
-              "maxLength": 1000,
-              "description": "Soporte de presentación: descripción y enlace o identificador (sin contraseñas ni enlaces firmados)."
-            },
-            "external_reference": {
-              "type": "string",
-              "maxLength": 120,
-              "description": "SPOA, comparendo, expediente sancionador o radicado administrativo, tal cual (no se exige 23 dígitos)."
-            },
-            "observaciones": {
-              "type": "string",
-              "maxLength": 2000
-            },
-            "work_item_id": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Asunto existente donde registrar la presentación."
-            },
-            "radicado": {
-              "type": "string",
-              "description": "Radicado judicial de 23 dígitos de un asunto existente (o del nuevo)."
-            },
-            "workflow_type": {
-              "type": "string",
-              "enum": [
-                "CGP",
-                "EJECUTIVO",
-                "CPACA",
-                "TUTELA",
-                "LABORAL",
-                "PENAL_906",
-                "PETICION",
-                "GOV_PROCEDURE"
-              ],
-              "description": "Obligatorio para asunto nuevo; se valida contra el existente."
-            },
-            "procedure_subtype": {
-              "type": "string",
-              "enum": [
-                "TRANSITO_SANCIONATORIO",
-                "AMBIENTAL_SANCIONATORIO",
-                "OTRO_SANCIONATORIO",
-                "TRAMITE_ADMINISTRATIVO",
-                "DISCIPLINARIO",
-                "ESPECIAL"
-              ],
-              "description": "Solo GOV_PROCEDURE."
-            },
-            "tribunal_type": {
-              "type": "string",
-              "enum": [
-                "JUDICIAL",
-                "AUTORIDAD_JURISDICCIONAL",
-                "ADMINISTRATIVA"
-              ]
-            },
-            "related_work_item_id": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Asunto relacionado (p.ej. el trámite administrativo que impugna una demanda CPACA)."
-            },
-            "title": {
-              "type": "string",
-              "maxLength": 300
-            },
-            "client_id": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "demandantes": {
-              "type": "string",
-              "maxLength": 1000
-            },
-            "demandados": {
-              "type": "string",
-              "maxLength": 1000
-            },
-            "authority_name": {
-              "type": "string",
-              "maxLength": 300
-            },
-            "idempotency_key": {
-              "type": "string",
-              "minLength": 8,
-              "maxLength": 200,
-              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
-            }
-          },
-          "required": [
-            "action_kind",
-            "filed_on",
-            "channel",
-            "filing_reference",
-            "idempotency_key"
-          ],
-          "additionalProperties": false,
-          "$schema": "http://json-schema.org/draft-07/schema#"
-        },
-        "outputSchema": null
-      },
-      {
-        "name": "list_filings",
-        "title": "Presentaciones registradas",
-        "description": "Lists filings the firm registered as presented (newest first), optionally for one matter. legal_effect is always PRESENTADO_NO_ACREDITADA_RECEPCION: a filing is never proof of receipt, admission or notification. Read-only.",
-        "annotations": {
-          "readOnlyHint": true,
-          "idempotentHint": true,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "work_item_id": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "radicado": {
-              "type": "string"
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "description": "Default 50."
-            }
-          },
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },

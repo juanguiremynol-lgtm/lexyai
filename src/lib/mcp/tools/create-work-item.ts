@@ -8,7 +8,7 @@ export default defineTool({
   name: "create_work_item",
   title: "Crear asunto",
   description:
-    "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant.",
+    "Creates a matter for the signed-in user with the same defaults as the app wizard (initial stage, monitoring rule, plan limits and duplicate check enforced by the database). Requires the user's explicit instruction and a manage grant. Use after a confirmed REAL external filing of a NEW demanda/tutela/administrative matter (or newly assumed representation): first search for an existing matter (radicado/reference, client, authority, trash); if it exists do not create another — link mail with the existing email tools. Never call it for drafts, unfiled writs, or each memorial/recurso/reply of an existing matter. CPACA = judicial (SAMAI); GOV_PROCEDURE = administrative procedure incl. traffic/environmental sanctioning (no SAMAI). Filing a demanda never starts the answer term without accredited notification. New petitions: use create_peticion. Re-read with get_work_item afterwards.",
   inputSchema: {
     workflow_type: z.string().trim().min(2).describe("Tipo de proceso (CGP, CPACA, LABORAL, PENAL_906, TUTELA, PETICION, GOV_PROCEDURE, EJECUTIVO)."),
     radicado: z.string().trim().optional().describe("Radicado judicial compatible de 23 dígitos (con o sin guiones). Sin identificador compatible no hay consulta automática; esto no determina si el expediente existe jurídicamente."),
