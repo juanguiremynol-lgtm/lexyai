@@ -14275,6 +14275,93 @@ export type Database = {
           },
         ]
       }
+      peticion_anchor_versions: {
+        Row: {
+          components: string[]
+          created_at: string
+          created_by: string | null
+          id: string
+          organization_id: string | null
+          owner_id: string | null
+          presented_on: string
+          previous_components: string[] | null
+          previous_presented_on: string | null
+          reason: string | null
+          source: string
+          support: string
+          version: number
+          work_item_id: string
+        }
+        Insert: {
+          components: string[]
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          presented_on: string
+          previous_components?: string[] | null
+          previous_presented_on?: string | null
+          reason?: string | null
+          source: string
+          support: string
+          version: number
+          work_item_id: string
+        }
+        Update: {
+          components?: string[]
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string | null
+          presented_on?: string
+          previous_components?: string[] | null
+          previous_presented_on?: string | null
+          reason?: string | null
+          source?: string
+          support?: string
+          version?: number
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "peticion_anchor_versions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_anchor_versions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "peticion_anchor_versions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_anchor_versions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_anchor_versions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peticion_events: {
         Row: {
           created_at: string
@@ -14434,12 +14521,14 @@ export type Database = {
         Row: {
           anchor_provenance_note: string | null
           anchor_source: string | null
+          anchor_version: number
           attention_status: string | null
           authority_email_domain: string | null
           authority_name: string | null
           authority_radicado: string | null
           authority_received_at: string | null
           competent_authority_received_at: string | null
+          components: string[]
           created_at: string
           deadline_status: string | null
           id: string
@@ -14447,6 +14536,9 @@ export type Database = {
           legal_effect: string | null
           organization_id: string | null
           owner_id: string | null
+          presentation_email_link_id: string | null
+          presentation_source: string | null
+          presentation_support: string | null
           requires_manual_review: boolean
           sent_at: string | null
           silence_effect: string
@@ -14461,12 +14553,14 @@ export type Database = {
         Insert: {
           anchor_provenance_note?: string | null
           anchor_source?: string | null
+          anchor_version?: number
           attention_status?: string | null
           authority_email_domain?: string | null
           authority_name?: string | null
           authority_radicado?: string | null
           authority_received_at?: string | null
           competent_authority_received_at?: string | null
+          components?: string[]
           created_at?: string
           deadline_status?: string | null
           id?: string
@@ -14474,6 +14568,9 @@ export type Database = {
           legal_effect?: string | null
           organization_id?: string | null
           owner_id?: string | null
+          presentation_email_link_id?: string | null
+          presentation_source?: string | null
+          presentation_support?: string | null
           requires_manual_review?: boolean
           sent_at?: string | null
           silence_effect?: string
@@ -14488,12 +14585,14 @@ export type Database = {
         Update: {
           anchor_provenance_note?: string | null
           anchor_source?: string | null
+          anchor_version?: number
           attention_status?: string | null
           authority_email_domain?: string | null
           authority_name?: string | null
           authority_radicado?: string | null
           authority_received_at?: string | null
           competent_authority_received_at?: string | null
+          components?: string[]
           created_at?: string
           deadline_status?: string | null
           id?: string
@@ -14501,6 +14600,9 @@ export type Database = {
           legal_effect?: string | null
           organization_id?: string | null
           owner_id?: string | null
+          presentation_email_link_id?: string | null
+          presentation_source?: string | null
+          presentation_support?: string | null
           requires_manual_review?: boolean
           sent_at?: string | null
           silence_effect?: string
@@ -27222,6 +27324,34 @@ export type Database = {
         Args: { p_ids: string[] }
         Returns: string[]
       }
+      _peticion_insert_component_deadline: {
+        Args: {
+          p_anchor: string
+          p_component: string
+          p_days: number
+          p_due: string
+          p_extra: Json
+          p_supersedes: string
+          p_trigger_date: string
+          p_trigger_event: string
+          p_version: number
+          p_wi: Database["public"]["Tables"]["work_items"]["Row"]
+        }
+        Returns: string
+      }
+      _peticion_live_deadline: {
+        Args: { p_component: string; p_work_item: string }
+        Returns: string
+      }
+      _peticion_upsert_task: {
+        Args: {
+          p_component: string
+          p_due: string
+          p_note: string
+          p_wi: Database["public"]["Tables"]["work_items"]["Row"]
+        }
+        Returns: undefined
+      }
       accept_workflow_suggestion: {
         Args: {
           _suggestion_id: string
@@ -28919,6 +29049,56 @@ export type Database = {
           paused: boolean
           retry_at: string
         }[]
+      }
+      peticion_component_basis: {
+        Args: { p_component: string }
+        Returns: string
+      }
+      peticion_component_days: {
+        Args: { p_component: string }
+        Returns: number
+      }
+      peticion_component_label: {
+        Args: { p_component: string }
+        Returns: string
+      }
+      peticion_register_extension: {
+        Args: {
+          p_communicated_on: string
+          p_deadline_id: string
+          p_motivation: string
+          p_new_due: string
+          p_reviewed: boolean
+        }
+        Returns: Json
+      }
+      peticion_register_presentation: {
+        Args: {
+          p_components: string[]
+          p_create_tasks?: boolean
+          p_email_link_id?: string
+          p_expected_version?: number
+          p_presented_on: string
+          p_reason?: string
+          p_source: string
+          p_support: string
+          p_work_item_id: string
+        }
+        Returns: Json
+      }
+      peticion_register_response: {
+        Args: {
+          p_deadline_id: string
+          p_kind: string
+          p_notes: string
+          p_received_on: string
+          p_reviewed: boolean
+        }
+        Returns: Json
+      }
+      peticion_terms_summary: {
+        Args: { p_work_item_id: string }
+        Returns: Json
       }
       platform_create_courtesy_voucher: {
         Args: {
