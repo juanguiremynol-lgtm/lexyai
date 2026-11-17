@@ -229,3 +229,8 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Reglas de vínculo administrativo + pruebas; panel manual de petición; búsqueda/vinculación selectiva de Outlook (outlook-message-link desplegada).
 - [ ] Aplicar `supabase/release/admin_email_link_matched_by_20261116.sql` (base inaccesible) y luego desplegar outlook-sync.
 - [ ] Vincular los envíos CORNARE (471b2dd7) y Rionegro (d07617ae) desde la ficha con sesión del titular.
+
+## Acceso MCP (2026-11-17)
+- [x] Discriminar fallas de servidor vs credencial en get_capabilities/get_user_context/requireWriteScope (rev 0-6-20, pruebas)
+- [ ] Publicar la app cuando auth/base respondan (bloqueado: origen del backend 522 / pooler caído)
+- [ ] Verificación del titular desde el conector real tras publicar

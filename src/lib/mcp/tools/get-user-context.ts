@@ -1,5 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { backendFailureResult, classifyBackendFailure } from "../backend-failure";
 
 export default defineTool({
   name: "get_user_context",
@@ -13,12 +14,17 @@ export default defineTool({
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
 
-    const [profileRead, archivedRead] = await Promise.all([
+    let profileRead, archivedRead;
+    try {
+    [profileRead, archivedRead] = await Promise.all([
       sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
       sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED"),
     ]);
-    if (profileRead.error) return errorResult(profileRead.error.message);
-    if (archivedRead.error) return errorResult(archivedRead.error.message);
+    } catch (thrown) {
+      return backendFailureResult(classifyBackendFailure(thrown));
+    }
+    if (profileRead.error) return backendFailureResult(classifyBackendFailure(profileRead.error, profileRead.status));
+    if (archivedRead.error) return backendFailureResult(classifyBackendFailure(archivedRead.error, archivedRead.status));
     if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");
     const profile = profileRead.data;
 
@@ -31,8 +37,10 @@ export default defineTool({
         .is("deleted_at", null).eq("lifecycle_state", "ACTIVE")
         .order("id", { ascending: true }).limit(1000);
       if (after) query = query.gt("id", after);
-      const { data, error } = await query;
-      if (error) return errorResult(error.message);
+      let page;
+      try { page = await query; } catch (thrown) { return backendFailureResult(classifyBackendFailure(thrown)); }
+      const { data, error, status } = page;
+      if (error) return backendFailureResult(classifyBackendFailure(error, status));
       for (const row of data ?? []) {
         const key = row.workflow_type ?? "SIN_TIPO";
         byType[key] = (byType[key] ?? 0) + 1;

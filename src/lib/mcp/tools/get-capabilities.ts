@@ -1,5 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
+import { backendFailureResult, classifyBackendFailure, worstFailure, type BackendFailure } from "../backend-failure";
 
 const MANAGE_TOOLS = [
   "add_note", "add_hearing", "update_work_item", "manage_deadline", "manage_task", "whatsapp_prepare",
@@ -21,12 +22,22 @@ export default defineTool({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const [{ data: level, error: e1 }, { data: caller, error: e2 }, { data: availability, error: e3 }] = await Promise.all([
+    // Each RPC is settled independently so a thrown transport failure is classified, never swallowed.
+    const settled = await Promise.allSettled([
       sb.rpc("mcp_access_level"),
       sb.rpc("mcp_caller_context"),
       sb.rpc("mcp_mutation_availability"),
     ]);
-    if (e1 || e2 || e3) return errorResult("No se pudo verificar la disponibilidad de esta conexión. Vuelve a conectarla o reintenta la consulta.");
+    const failures: BackendFailure[] = [];
+    const values = settled.map((r) => {
+      if (r.status === "rejected") { failures.push(classifyBackendFailure(r.reason)); return null; }
+      const res = r.value as { data: unknown; error: unknown; status?: number };
+      if (res.error) { failures.push(classifyBackendFailure(res.error, res.status)); return null; }
+      return res.data;
+    });
+    const failure = worstFailure(failures);
+    if (failure) return backendFailureResult(failure);
+    const [level, caller, availability] = values;
     const c = (caller ?? {}) as Record<string, unknown>;
     const a = availability as { verified?: boolean; tools?: Record<string, { available?: boolean; execution_available?: boolean }> } | null;
     if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");

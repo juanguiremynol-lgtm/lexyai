@@ -38,6 +38,66 @@ function radicadoQueryVariants(query) {
   };
 }
 
+// src/lib/mcp/backend-failure.ts
+var UNAVAILABLE_SQLSTATES = /* @__PURE__ */ new Set(["57014", "57P01", "57P02", "57P03", "53300", "53400", "08000", "08001", "08003", "08006", "55P03"]);
+var NETWORK_RX = /fetch failed|failed to fetch|network|econnre|econnrefused|enotfound|eai_again|dns|socket|connection (?:terminated|reset|refused)|upstream|bad gateway|service unavailable|gateway time/i;
+var TIMEOUT_RX = /timeout|timed out|aborted/i;
+var SCHEMA_RX = /schema cache/i;
+function classifyBackendFailure(error, status) {
+  const e = error ?? {};
+  const code = typeof e.code === "string" ? e.code : "";
+  const msg = typeof e.message === "string" ? e.message : typeof error === "string" ? error : "";
+  const st = typeof status === "number" ? status : typeof e.status === "number" ? e.status : null;
+  if (code === "PGRST002" || SCHEMA_RX.test(msg)) return { kind: "BACKEND_UNAVAILABLE", signal: "PGRST002" };
+  if (UNAVAILABLE_SQLSTATES.has(code)) return { kind: "BACKEND_UNAVAILABLE", signal: code };
+  if (st !== null && st >= 500) return { kind: "BACKEND_UNAVAILABLE", signal: `HTTP_${st}` };
+  if (st === 408 || TIMEOUT_RX.test(msg) || e.name === "AbortError") return { kind: "BACKEND_UNAVAILABLE", signal: "TIMEOUT" };
+  if (NETWORK_RX.test(msg) || e.name === "TypeError") return { kind: "BACKEND_UNAVAILABLE", signal: "NETWORK" };
+  if (code === "PGRST301" || code === "PGRST302" || code === "PGRST303" || st === 401) return { kind: "AUTH_REQUIRED", signal: code || "HTTP_401" };
+  if (code === "42501" || code === "42883" || code === "PGRST202" || st === 403 || st === 404) {
+    return { kind: "EXECUTION_UNAVAILABLE", signal: code || `HTTP_${st}` };
+  }
+  return { kind: "SESSION_UNVERIFIED", signal: code || (st !== null ? `HTTP_${st}` : "UNKNOWN") };
+}
+var TEXT = {
+  AUTH_REQUIRED: "Andromeda rechaz\xF3 la credencial de esta conexi\xF3n. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda.",
+  SESSION_UNVERIFIED: "No se pudo verificar la sesi\xF3n de esta conexi\xF3n; no se autoriza proponer cambios. Reintenta en unos minutos; si persiste, revisa la conexi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones.",
+  BACKEND_UNAVAILABLE: "El servicio de datos de Andromeda no est\xE1 respondiendo en este momento (falla temporal del servidor, no de tu cuenta). No hace falta reconectar: reintenta en unos minutos. No se autoriza proponer cambios mientras tanto.",
+  EXECUTION_UNAVAILABLE: "La verificaci\xF3n de permisos no est\xE1 disponible para esta conexi\xF3n en este momento; no se autoriza proponer cambios. No es necesario reconectar."
+};
+function backendFailureText(f) {
+  return TEXT[f.kind];
+}
+function worstFailure(fs) {
+  const order = ["BACKEND_UNAVAILABLE", "AUTH_REQUIRED", "EXECUTION_UNAVAILABLE", "SESSION_UNVERIFIED"];
+  for (const k of order) {
+    const f = fs.find((x) => x.kind === k);
+    if (f) return f;
+  }
+  return null;
+}
+function backendFailureResult(f) {
+  const text = backendFailureText(f);
+  const structuredContent = {
+    reason: f.kind,
+    signal: f.signal,
+    access_verified: false,
+    can_manage: false,
+    retryable: f.kind === "BACKEND_UNAVAILABLE",
+    reconnect_recommended: f.kind === "AUTH_REQUIRED",
+    observed_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  return {
+    content: [{ type: "text", text: `${text}
+
+\`\`\`json
+${JSON.stringify(structuredContent)}
+\`\`\`` }],
+    structuredContent,
+    isError: true
+  };
+}
+
 // src/lib/mcp/shared.ts
 function runtimeEnv(name) {
   const rt = globalThis;
@@ -159,8 +219,14 @@ var MANAGE_REQUIRED = "Esta conexi\xF3n de IA es de solo lectura. Para que el as
 async function requireWriteScope(ctx) {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  const { data, error } = await sbForUser(ctx).rpc("mcp_access_level");
-  if (error) return `No se pudo verificar el permiso de gesti\xF3n: ${error.message}`;
+  let res;
+  try {
+    res = await sbForUser(ctx).rpc("mcp_access_level");
+  } catch (thrown) {
+    return backendFailureText(classifyBackendFailure(thrown));
+  }
+  const { data, error, status } = res;
+  if (error) return backendFailureText(classifyBackendFailure(error, status));
   return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
 function rpcErrorText(error) {
@@ -685,12 +751,17 @@ var get_user_context_default = defineTool4({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const [profileRead, archivedRead] = await Promise.all([
-      sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
-      sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED")
-    ]);
-    if (profileRead.error) return errorResult(profileRead.error.message);
-    if (archivedRead.error) return errorResult(archivedRead.error.message);
+    let profileRead, archivedRead;
+    try {
+      [profileRead, archivedRead] = await Promise.all([
+        sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
+        sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED")
+      ]);
+    } catch (thrown) {
+      return backendFailureResult(classifyBackendFailure(thrown));
+    }
+    if (profileRead.error) return backendFailureResult(classifyBackendFailure(profileRead.error, profileRead.status));
+    if (archivedRead.error) return backendFailureResult(classifyBackendFailure(archivedRead.error, archivedRead.status));
     if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");
     const profile = profileRead.data;
     const byType = {};
@@ -699,8 +770,14 @@ var get_user_context_default = defineTool4({
     for (; ; ) {
       let query = sb.from("work_items").select("id, workflow_type").is("deleted_at", null).eq("lifecycle_state", "ACTIVE").order("id", { ascending: true }).limit(1e3);
       if (after) query = query.gt("id", after);
-      const { data, error } = await query;
-      if (error) return errorResult(error.message);
+      let page;
+      try {
+        page = await query;
+      } catch (thrown) {
+        return backendFailureResult(classifyBackendFailure(thrown));
+      }
+      const { data, error, status } = page;
+      if (error) return backendFailureResult(classifyBackendFailure(error, status));
       for (const row of data ?? []) {
         const key = row.workflow_type ?? "SIN_TIPO";
         byType[key] = (byType[key] ?? 0) + 1;
@@ -3113,12 +3190,27 @@ var get_capabilities_default = defineTool36({
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
     const sb = sbForUser(ctx);
-    const [{ data: level, error: e1 }, { data: caller, error: e2 }, { data: availability, error: e3 }] = await Promise.all([
+    const settled = await Promise.allSettled([
       sb.rpc("mcp_access_level"),
       sb.rpc("mcp_caller_context"),
       sb.rpc("mcp_mutation_availability")
     ]);
-    if (e1 || e2 || e3) return errorResult("No se pudo verificar la disponibilidad de esta conexi\xF3n. Vuelve a conectarla o reintenta la consulta.");
+    const failures = [];
+    const values = settled.map((r) => {
+      if (r.status === "rejected") {
+        failures.push(classifyBackendFailure(r.reason));
+        return null;
+      }
+      const res = r.value;
+      if (res.error) {
+        failures.push(classifyBackendFailure(res.error, res.status));
+        return null;
+      }
+      return res.data;
+    });
+    const failure = worstFailure(failures);
+    if (failure) return backendFailureResult(failure);
+    const [level, caller, availability] = values;
     const c = caller ?? {};
     const a = availability;
     if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");
@@ -3922,7 +4014,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-19"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-20"
   }),
   tools: [
     get_user_context_default,
