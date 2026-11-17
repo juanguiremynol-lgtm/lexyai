@@ -4,12 +4,13 @@ import { errorResult, requireAuth, resolveWorkItem, sbForUser, textResult } from
 import { hasUsableRadicado, judicialQueryState, JUDICIAL_QUERY_LABELS } from "../../monitoring-reason";
 import { isVerifiedSuccess, publicCheckStatus, sourceEvidence, syncCheckState } from "../sync-check-state";
 import { PUBLICATION_ASSOCIATION_SELECT, publicationAssociation, publicationPageSummary } from "../publication-association";
+import { FILING_COLUMNS } from "./list-filings";
 
 export default defineTool({
   name: "get_work_item",
   title: "Detalle de asunto",
   description:
-    "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts.",
+    "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts. Every matter also returns `presentaciones` (registered filings, newest first; presented ≠ received).",
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
     radicado: z
@@ -86,6 +87,11 @@ export default defineTool({
       if (psError) return errorResult(`No se pudo calcular el estado de la petición: ${psError.message}`);
       peticion = ps;
     }
+    const { data: filingRows, error: filingsError } = await sb
+      .from("work_item_filings" as never).select(FILING_COLUMNS).eq("work_item_id", item.id as string)
+      .is("deleted_at", null).order("filed_on", { ascending: false }).limit(50);
+    if (filingsError) return errorResult(`No se pudieron leer las presentaciones: ${filingsError.message}`);
+    const presentaciones = ((filingRows ?? []) as unknown as Array<Record<string, string | null>>).map((f) => ({ ...f }));
     const acts = actsResult.data;
     const estados = (estadosResult.data ?? []).map((r) => publicationAssociation(r, item.radicado));
     const deadlines = deadlinesResult.data;
@@ -138,6 +144,7 @@ export default defineTool({
           explicacion: "Una consulta reciente o una muestra de estados no acredita la cobertura histórica completa del asunto.",
         },
         terminos_activos: deadlines ?? [],
+        presentaciones,
         ...(item.workflow_type === "PETICION" ? { peticion } : {}),
         audiencias: hearings ?? [],
         consultas: queryStates,

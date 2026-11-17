@@ -21960,6 +21960,164 @@ export type Database = {
           },
         ]
       }
+      work_item_filings: {
+        Row: {
+          action_kind: string
+          channel: string
+          created_at: string
+          created_by: string
+          deadline_effect: string
+          deleted_at: string | null
+          deleted_by: string | null
+          external_reference: string | null
+          filed_on: string
+          id: string
+          idempotency_key: string | null
+          legal_effect: string
+          observaciones: string | null
+          organization_id: string | null
+          origin: string
+          owner_id: string
+          procedure_subtype: string | null
+          related_work_item_id: string | null
+          review_task_id: string | null
+          source_event_key: string
+          source_reference: string
+          stage_or_status: string
+          term_calculation_status: string
+          tribunal_type: string | null
+          work_item_id: string
+          workflow_type: string
+        }
+        Insert: {
+          action_kind: string
+          channel: string
+          created_at?: string
+          created_by: string
+          deadline_effect: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          external_reference?: string | null
+          filed_on: string
+          id?: string
+          idempotency_key?: string | null
+          legal_effect?: string
+          observaciones?: string | null
+          organization_id?: string | null
+          origin?: string
+          owner_id: string
+          procedure_subtype?: string | null
+          related_work_item_id?: string | null
+          review_task_id?: string | null
+          source_event_key: string
+          source_reference: string
+          stage_or_status?: string
+          term_calculation_status?: string
+          tribunal_type?: string | null
+          work_item_id: string
+          workflow_type: string
+        }
+        Update: {
+          action_kind?: string
+          channel?: string
+          created_at?: string
+          created_by?: string
+          deadline_effect?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          external_reference?: string | null
+          filed_on?: string
+          id?: string
+          idempotency_key?: string | null
+          legal_effect?: string
+          observaciones?: string | null
+          organization_id?: string | null
+          origin?: string
+          owner_id?: string
+          procedure_subtype?: string | null
+          related_work_item_id?: string | null
+          review_task_id?: string | null
+          source_event_key?: string
+          source_reference?: string
+          stage_or_status?: string
+          term_calculation_status?: string
+          tribunal_type?: string | null
+          work_item_id?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_filings_related_work_item_id_fkey"
+            columns: ["related_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_related_work_item_id_fkey"
+            columns: ["related_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_related_work_item_id_fkey"
+            columns: ["related_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_related_work_item_id_fkey"
+            columns: ["related_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_related_work_item_id_fkey"
+            columns: ["related_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_filings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_hearings: {
         Row: {
           auto_detected: boolean
@@ -28959,6 +29117,30 @@ export type Database = {
       }
       mcp_reconcile_updates: {
         Args: { p_limit?: number; p_since: string; p_work_item_id?: string }
+        Returns: Json
+      }
+      mcp_register_filing: {
+        Args: {
+          p_action_kind: string
+          p_authority_name: string
+          p_channel: string
+          p_client_id: string
+          p_demandados: string
+          p_demandantes: string
+          p_external_reference: string
+          p_filed_on: string
+          p_idempotency_key: string
+          p_observaciones: string
+          p_origin: string
+          p_procedure_subtype: string
+          p_radicado: string
+          p_related_work_item_id: string
+          p_source_reference: string
+          p_title: string
+          p_tribunal_type: string
+          p_work_item_id: string
+          p_workflow_type: string
+        }
         Returns: Json
       }
       mcp_resolve_alert: {

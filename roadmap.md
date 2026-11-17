@@ -253,7 +253,8 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Atribución AUTORIDAD_ADMINISTRATIVA en plazos de peticiones (4 de La Macarena corregidos; judiciales intactos)
 - [x] Estado en tiempo real de peticiones (get_work_item.peticion) y alertas PETICION_DEADLINE/OVERDUE en la revisión diaria existente
 - [x] MCP create_peticion atómico e idempotente; borrador FECHA_PRESENTACION_PENDIENTE
-- [ ] register_filing (radicación de demanda/tutela/memorial/recurso en asunto existente o nuevo) — no hecho
-- [ ] Clasificación GOV_PROCEDURE por subtipo y SIC/SFC jurisdiccional — no hecho
+- [x] register_filing + list_filings (MCP) y pestaña Presentaciones con registro y recibo
+- [x] Subtipos GOV_PROCEDURE y superintendencia jurisdiccional (solo registros nuevos)
+- [ ] Registrar la radicación desde el asistente de creación de asuntos de la app (hoy: MCP o pestaña del asunto ya creado)
 - [ ] Panel de la app con el estado de la petición (las alertas ya salen en el centro de alertas)
 - [ ] Prueba real desde ChatGPT tras publicar

@@ -40,6 +40,7 @@ import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocume
 import { PartiesTab } from "./tabs/PartiesTab";
 import { HearingsTab } from "@/components/hearings/HearingsTab";
 import { EmailLinksTab } from "./tabs/EmailLinksTab";
+import { FilingsTab } from "./tabs/FilingsTab";
 import { PeticionAdminPanel } from "@/components/peticiones/PeticionAdminPanel";
 import NovedadesCpnuPanel from "@/components/work-items/NovedadesCpnuPanel";
 import NovedadesPpPanel from "@/components/work-items/NovedadesPpPanel";
@@ -475,6 +476,10 @@ export default function WorkItemDetail() {
                 <Scale className="h-4 w-4" />
                 Audiencias
               </TabsTrigger>
+              <TabsTrigger value="presentaciones" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
+                <FileText className="h-4 w-4" />
+                Presentaciones
+              </TabsTrigger>
               <TabsTrigger value="correos" className="gap-2 shrink-0 snap-start min-h-11 whitespace-nowrap">
                 <Mail className="h-4 w-4" />
                 Correos
@@ -516,6 +521,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="audiencias" className="mt-4">
               <HearingsTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="presentaciones" className="mt-4">
+              <FilingsTab workItem={extendedWorkItem} />
             </TabsContent>
 
             <TabsContent value="correos" className="mt-4">
