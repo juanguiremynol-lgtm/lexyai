@@ -232,5 +232,5 @@ Pendientes de plataforma (no trabajo jurídico):
 
 ## Acceso MCP (2026-11-17)
 - [x] Discriminar fallas de servidor vs credencial en get_capabilities/get_user_context/requireWriteScope (rev 0-6-20, pruebas)
-- [ ] Publicar la app cuando auth/base respondan (bloqueado: origen del backend 522 / pooler caído)
+- [x] Reinicio administrado + publicación; marcador mcp-rev-0-6-20 leído 12:43:42Z
 - [ ] Verificación del titular desde el conector real tras publicar
