@@ -234,3 +234,11 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Discriminar fallas de servidor vs credencial en get_capabilities/get_user_context/requireWriteScope (rev 0-6-20, pruebas)
 - [x] Reinicio administrado + publicación; marcador mcp-rev-0-6-20 leído 12:43:42Z
 - [ ] Verificación del titular desde el conector real tras publicar
+
+## Correo → peticiones, cierre seguro (2026-11-17)
+- [x] Vínculo manual Outlook: solo dueño, asunto activo, buzón propio; fallos parciales reportados (207)
+- [x] Ampliación de tipos de vínculo administrativo aplicada (0105) con verificación previa
+- [x] outlook-sync: peticiones solo del dueño del buzón, fuera del emparejador judicial; desplegada
+- [ ] Vincular los envíos del 16/11 a CORNARE y Rionegro desde la sesión del titular (botón «Buscar correo en Outlook»)
+- [ ] Siguiente encargo: control de términos desde la radicación (el panel aún pide recepción probada para fijar el ancla)
+- [ ] Disparador que anote la novedad al confirmar una sugerencia desde la cola

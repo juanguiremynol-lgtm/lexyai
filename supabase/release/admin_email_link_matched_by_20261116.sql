@@ -1,8 +1,17 @@
--- NOT YET APPLIED (database unreachable 2026-11-16 21:0x UTC). Apply before deploying outlook-sync.
--- Widens matched_by for administrative (PETICION/GOV_PROCEDURE) email links. Idempotent superset.
-ALTER TABLE public.work_item_email_links DROP CONSTRAINT IF EXISTS work_item_email_links_matched_by_chk;
-ALTER TABLE public.work_item_email_links ADD CONSTRAINT work_item_email_links_matched_by_chk CHECK (matched_by = ANY (ARRAY['RADICADO','RADICADO_PARCIAL','RADICADO_SIN_CERO','PARTE','DESPACHO','CLIENTE','MANUAL','MENSAJE','CONVERSACION','IDENTIFICADOR_OFICIAL']));
--- Rollback (only if no rows use the new values):
--- SELECT count(*) FROM public.work_item_email_links WHERE matched_by IN ('MENSAJE','CONVERSACION','IDENTIFICADOR_OFICIAL');
+-- APPLIED 2026-11-17 as drizzle/migrations/0105_admin_email_link_matched_by.sql
+-- (preflight: aborts unless the constraint is exactly the 7-value original
+-- and every row uses one of those values; idempotent when already widened).
+-- Verified after apply: constraint lists 10 values; row counts unchanged.
+--
+-- ROLLBACK (manual, only after outlook-sync is reverted and only if no row
+-- uses the new values; run inside one transaction):
+-- BEGIN;
+-- DO $$ BEGIN
+--   IF EXISTS (SELECT 1 FROM public.work_item_email_links
+--              WHERE matched_by IN ('MENSAJE','CONVERSACION','IDENTIFICADOR_OFICIAL')) THEN
+--     RAISE EXCEPTION 'ABORT: rows use administrative matched_by values';
+--   END IF; END $$;
 -- ALTER TABLE public.work_item_email_links DROP CONSTRAINT work_item_email_links_matched_by_chk;
--- ALTER TABLE public.work_item_email_links ADD CONSTRAINT work_item_email_links_matched_by_chk CHECK (matched_by = ANY (ARRAY['RADICADO','RADICADO_PARCIAL','RADICADO_SIN_CERO','PARTE','DESPACHO','CLIENTE','MANUAL']));
+-- ALTER TABLE public.work_item_email_links ADD CONSTRAINT work_item_email_links_matched_by_chk
+--   CHECK (matched_by = ANY (ARRAY['RADICADO','RADICADO_PARCIAL','RADICADO_SIN_CERO','PARTE','DESPACHO','CLIENTE','MANUAL']));
+-- COMMIT;

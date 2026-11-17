@@ -145,7 +145,9 @@ async function loadAdminLinkContext(admin: Admin, conn: Connection): Promise<Adm
     .in("workflow_type", ["PETICION", "GOV_PROCEDURE"])
     .is("deleted_at", null)
     .limit(5000);
-  q = conn.organization_id ? q.eq("organization_id", conn.organization_id) : q.eq("owner_id", conn.user_id);
+  // Mailbox owner's matters only: service_role must never auto-link mail into
+  // another member's matter of the same organization.
+  q = q.eq("owner_id", conn.user_id);
   const { data: wis, error } = await q;
   if (error) throw new Error(`Peticiones: ${error.message}`);
   const ids = (wis ?? []).map((w: { id: string }) => w.id);
@@ -217,6 +219,9 @@ async function loadPortfolio(admin: Admin, conn: Connection): Promise<PortfolioI
   let query = admin
     .from("work_items")
     .select("id, organization_id, radicado, authority_name, authority_email, demandantes, demandados, title, workflow_type, clients(name)")
+    // Administrative matters are linked only by the deterministic, owner-scoped
+    // rules (loadAdminLinkContext); the heuristic judicial matcher never sees them.
+    .or("workflow_type.is.null,workflow_type.not.in.(PETICION,GOV_PROCEDURE)")
     .limit(5000);
   query = conn.organization_id
     ? query.eq("organization_id", conn.organization_id)

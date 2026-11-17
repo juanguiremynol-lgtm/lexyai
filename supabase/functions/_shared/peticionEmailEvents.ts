@@ -80,13 +80,15 @@ export async function recordAdminEmailEvent(
   actorUserId: string | null,
 ): Promise<"created" | "exists" | "skipped"> {
   if (row.link_status !== "CONFIRMED") return "skipped";
-  const { data: wi } = await admin.from("work_items")
+  const { data: wi, error: wiErr } = await admin.from("work_items")
     .select("id, owner_id, organization_id, workflow_type").eq("id", row.work_item_id).maybeSingle();
+  if (wiErr) throw new Error(`work_items: ${wiErr.message}`);
   if (!wi || wi.workflow_type !== "PETICION") return "skipped";
   const key = row.internet_message_id ?? row.message_id;
-  const { data: existing } = await admin.from("peticion_events").select("id")
+  const { data: existing, error: exErr } = await admin.from("peticion_events").select("id")
     .eq("work_item_id", row.work_item_id).eq("source", "EMAIL_EVIDENCE")
     .contains("metadata", { message_key: key }).limit(1);
+  if (exErr) throw new Error(`peticion_events read: ${exErr.message}`);
   if ((existing ?? []).length > 0) return "exists";
   const cls = row.evidence_meta.admin_class;
   const { error } = await admin.from("peticion_events").insert({
@@ -98,7 +100,7 @@ export async function recordAdminEmailEvent(
     source: "EMAIL_EVIDENCE",
     legal_effect: null,
     notes: cls === "ENVIO"
-      ? "Envío observado en Elementos enviados. No prueba recepción ni inicia términos."
+      ? "Envío observado en Elementos enviados: soporte de presentación. La recepción por la entidad no queda acreditada por este registro."
       : "Novedad recibida por correo; requiere revisión humana antes de registrar efectos.",
     metadata: {
       message_key: key,

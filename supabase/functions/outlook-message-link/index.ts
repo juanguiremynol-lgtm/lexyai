@@ -12,14 +12,15 @@
  *       -> reads THAT message from the caller's own mailbox by Graph id and
  *          stores a CONFIRMED MANUAL link with provenance + audit + event.
  *
- * Access to the matter is proven through the caller's own RLS session before
- * any service-role write. Bodies are never requested.
+ * Writes require owner + ACTIVE + own mailbox, decided server-side
+ * (authorize.ts) after a live auth-server session check. Bodies are never requested.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, ensureAccessToken, graphGet, GRAPH_BASE } from "../_shared/outlookGraph.ts";
 import { resolveCaller } from "../_shared/callerIdentity.ts";
 import type { GraphMessage } from "../_shared/emailMatcher.ts";
-import { ADMIN_WORKFLOWS, classifyAdministrativeEmail } from "../_shared/peticionEmailLinking.ts";
+import { classifyAdministrativeEmail } from "../_shared/peticionEmailLinking.ts";
+import { authorizeAdminMailAction } from "./authorize.ts";
 import { buildAdminLinkRow, recordAdminEmailEvent } from "../_shared/peticionEmailEvents.ts";
 
 const SELECT =
@@ -69,26 +70,39 @@ if (import.meta.main) Deno.serve(async (req) => {
   });
   const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-  // Access proof through the caller's own RLS.
-  const { data: wi, error: wiErr } = await userClient.from("work_items")
-    .select("id, organization_id, owner_id, workflow_type, authority_email, deleted_at")
-    .eq("id", v.workItemId).maybeSingle();
-  if (wiErr) return json({ error: wiErr.message }, 500);
-  if (!wi || wi.deleted_at) return json({ error: "Asunto no encontrado o sin permisos" }, 404);
-  if (!ADMIN_WORKFLOWS.has(String(wi.workflow_type))) {
-    return json({ error: "Solo aplica a peticiones y trámites administrativos" }, 400);
-  }
+  // Live session check against the auth server (revoked sessions fail here).
+  const { data: live, error: liveErr } = await userClient.auth.getUser();
+  if (liveErr || !live?.user || live.user.id !== caller.userId) return json({ error: "Sesión no válida" }, 401);
 
-  const { data: conn } = await admin.from("user_email_connections")
+  // Authorization is decided server-side on the canonical row (never on RLS
+  // read visibility): owner + ACTIVE + not deleted + own mailbox.
+  const { data: wi, error: wiErr } = await admin.from("work_items")
+    .select("id, organization_id, owner_id, workflow_type, authority_email, lifecycle_state, deleted_at")
+    .eq("id", v.workItemId).maybeSingle();
+  if (wiErr) return json({ error: "No se pudo leer el asunto" }, 503);
+
+  const { data: conn, error: connErr } = await admin.from("user_email_connections")
     .select("id, user_id, organization_id, ms_account_email, access_token_cipher, access_token_nonce, refresh_token_cipher, refresh_token_nonce, token_expires_at, scopes")
     .eq("provider", "outlook").eq("user_id", caller.userId).eq("status", "CONNECTED").maybeSingle();
-  if (!conn) return json({ error: "No tienes un buzón de Outlook conectado." }, 400);
+  if (connErr) return json({ error: "No se pudo leer el buzón" }, 503);
+
+  const auth = authorizeAdminMailAction(wi, caller.userId, v.action, conn);
+  if (!auth.ok) {
+    if (wi && auth.status === 403) {
+      await admin.from("audit_logs").insert({
+        organization_id: wi.organization_id, actor_user_id: caller.userId, actor_type: "USER",
+        action: "EMAIL_LINK_MANUAL_OUTLOOK_DENIED", entity_type: "work_item", entity_id: wi.id,
+        metadata: { action: v.action, reason: auth.error },
+      });
+    }
+    return json({ error: auth.error }, auth.status);
+  }
 
   try {
-    const token = await ensureAccessToken(admin, conn);
+    const token = await ensureAccessToken(admin, conn!);
 
     if (v.action === "search") {
-      const term = v.query ?? (wi.authority_email ? `participants:${wi.authority_email}` : null);
+      const term = v.query ?? (wi!.authority_email ? `participants:${wi!.authority_email}` : null);
       if (!term) return json({ error: "Escribe un texto para buscar." }, 400);
       const res = await graphGet(
         `${GRAPH_BASE}/me/mailFolders/${v.folder}/messages?$search=${encodeURIComponent(`"${term}"`)}&$top=25&$select=${SELECT}`,
@@ -96,10 +110,11 @@ if (import.meta.main) Deno.serve(async (req) => {
       );
       const messages = ((res.value as GraphMessage[]) ?? []);
       const ids = messages.map((m) => m.id);
-      const { data: existing } = ids.length
+      const { data: existing, error: exErr } = ids.length
         ? await admin.from("work_item_email_links").select("message_id, link_status")
-          .eq("work_item_id", wi.id).in("message_id", ids)
-        : { data: [] };
+          .eq("work_item_id", wi!.id).in("message_id", ids)
+        : { data: [], error: null };
+      if (exErr) throw new Error("No se pudo leer el estado de vínculos");
       const status = new Map((existing ?? []).map((e: { message_id: string; link_status: string }) => [e.message_id, e.link_status]));
       return json({
         ok: true,
@@ -124,22 +139,23 @@ if (import.meta.main) Deno.serve(async (req) => {
     if (!msg?.id) return json({ error: "Mensaje no encontrado en tu buzón" }, 404);
     const from = (msg.from?.emailAddress?.address ?? "").toLowerCase();
     const direction: "sent" | "received" =
-      from && from === (conn.ms_account_email ?? "").toLowerCase() ? "sent" : "received";
+      from && from === (conn!.ms_account_email ?? "").toLowerCase() ? "sent" : "received";
 
     const row = buildAdminLinkRow({
       userId: caller.userId,
-      connectionId: conn.id,
+      connectionId: conn!.id,
       msg,
       direction,
       decision: {
-        work_item_id: wi.id, organization_id: wi.organization_id, link_status: "CONFIRMED",
+        work_item_id: wi!.id, organization_id: wi!.organization_id, link_status: "CONFIRMED",
         matched_by: "MANUAL", matched_value: "vínculo manual", confidence: 1,
       },
       provenance: { source: "MANUAL_OUTLOOK_SEARCH", by_user: caller.userId, at: new Date().toISOString() },
     });
 
-    const { data: prior } = await admin.from("work_item_email_links").select("id, link_status")
-      .eq("message_id", msg.id).eq("work_item_id", wi.id).maybeSingle();
+    const { data: prior, error: priorErr } = await admin.from("work_item_email_links").select("id, link_status")
+      .eq("message_id", msg.id).eq("work_item_id", wi!.id).maybeSingle();
+    if (priorErr) throw new Error("No se pudo leer el vínculo previo");
     let linkId: string;
     if (prior) {
       linkId = prior.id;
@@ -153,23 +169,41 @@ if (import.meta.main) Deno.serve(async (req) => {
       }
     } else {
       const { data: ins, error } = await admin.from("work_item_email_links").insert(row).select("id").single();
-      if (error) throw new Error(error.message);
-      linkId = ins.id;
+      if (error && error.code === "23505") {
+        // Concurrent retry won the insert: reuse that row (idempotent).
+        const { data: again, error: againErr } = await admin.from("work_item_email_links").select("id")
+          .eq("message_id", msg.id).eq("work_item_id", wi!.id).single();
+        if (againErr) throw new Error("No se pudo releer el vínculo");
+        linkId = again.id;
+      } else if (error) throw new Error(error.message);
+      else linkId = ins.id;
     }
-    const event = await recordAdminEmailEvent(admin, row, linkId, caller.userId);
+    // The link is committed at this point; event/audit failures are reported
+    // as partial, never as full success.
+    let event: string;
+    try {
+      event = await recordAdminEmailEvent(admin, row, linkId, caller.userId);
+    } catch (e) {
+      console.error("[outlook-message-link] event", e instanceof Error ? e.message : e);
+      event = "failed";
+    }
+    let auditOk = true;
     if (!prior || prior.link_status !== "CONFIRMED") {
-      await admin.from("audit_logs").insert({
-        organization_id: wi.organization_id,
+      const { error: auditErr } = await admin.from("audit_logs").insert({
+        organization_id: wi!.organization_id,
         actor_user_id: caller.userId,
         actor_type: "USER",
         action: "EMAIL_LINK_MANUAL_OUTLOOK",
         entity_type: "work_item",
-        entity_id: wi.id,
+        entity_id: wi!.id,
         metadata: { link_id: linkId, direction, admin_class: classifyAdministrativeEmail(msg, direction),
-          internet_message_id: msg.internetMessageId ?? null, previous_status: prior?.link_status ?? null },
+          internet_message_id: msg.internetMessageId ?? null, previous_status: prior?.link_status ?? null, event },
       });
+      if (auditErr) { auditOk = false; console.error("[outlook-message-link] audit", auditErr.message); }
     }
-    return json({ ok: true, link_id: linkId, direction, already_confirmed: prior?.link_status === "CONFIRMED", event });
+    const complete = event !== "failed" && auditOk;
+    return json({ ok: complete, partial: !complete, link_id: linkId, direction,
+      already_confirmed: prior?.link_status === "CONFIRMED", event, audit: auditOk ? "ok" : "failed" }, complete ? 200 : 207);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error inesperado";
     console.error("[outlook-message-link]", message);
