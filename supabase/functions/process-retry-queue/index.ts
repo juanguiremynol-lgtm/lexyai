@@ -1,4 +1,4 @@
-/** Bounded retry drain. Cadence remains UTC 05–13 hourly plus 18:00. */
+/** Bounded retry drain. Cadence: due-only every 5 min 12:02–15:57 UTC (job 67, EXISTS-gated) plus 16:30 final call (job 95). */
 import { secondsUntil } from "../_shared/dailyUpdateGate.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
