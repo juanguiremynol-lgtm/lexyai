@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { errorResult, requireAuth, sbForUser, textResult } from "../shared";
-import { backendFailureResult, classifyBackendFailure, worstFailure, type BackendFailure } from "../backend-failure";
+import { backendFailureResult, classifyBackendFailure, settleQuery, worstFailure } from "../backend-failure";
 
 const MANAGE_TOOLS = [
   "add_note", "add_hearing", "update_work_item", "manage_deadline", "manage_task", "whatsapp_prepare",
@@ -21,23 +21,17 @@ export default defineTool({
   handler: async (_args, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    // Each RPC is settled independently so a thrown transport failure is classified, never swallowed.
-    const settled = await Promise.allSettled([
-      sb.rpc("mcp_access_level"),
-      sb.rpc("mcp_caller_context"),
-      sb.rpc("mcp_mutation_availability"),
+    let sb: ReturnType<typeof sbForUser>;
+    try { sb = sbForUser(ctx); } catch (thrown) { return backendFailureResult(classifyBackendFailure(thrown)); }
+    // Each RPC is settled independently (sync throws included); an observed outage outranks other symptoms.
+    const results = await Promise.all([
+      settleQuery<unknown>(() => sb.rpc("mcp_access_level")),
+      settleQuery<unknown>(() => sb.rpc("mcp_caller_context")),
+      settleQuery<unknown>(() => sb.rpc("mcp_mutation_availability")),
     ]);
-    const failures: BackendFailure[] = [];
-    const values = settled.map((r) => {
-      if (r.status === "rejected") { failures.push(classifyBackendFailure(r.reason)); return null; }
-      const res = r.value as { data: unknown; error: unknown; status?: number };
-      if (res.error) { failures.push(classifyBackendFailure(res.error, res.status)); return null; }
-      return res.data;
-    });
-    const failure = worstFailure(failures);
+    const failure = worstFailure(results.flatMap((r) => (r.ok ? [] : [r.failure])));
     if (failure) return backendFailureResult(failure);
-    const [level, caller, availability] = values;
+    const [level, caller, availability] = results.map((r) => (r.ok ? r.data : null));
     const c = (caller ?? {}) as Record<string, unknown>;
     const a = availability as { verified?: boolean; tools?: Record<string, { available?: boolean; execution_available?: boolean }> } | null;
     if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");

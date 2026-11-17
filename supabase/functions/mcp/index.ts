@@ -39,31 +39,43 @@ function radicadoQueryVariants(query) {
 }
 
 // src/lib/mcp/backend-failure.ts
+var SAFE_CODE_RX = /^(?:PGRST\d{3}|[0-9A-Z]{5})$/;
+var PGRST_UNAVAILABLE = /* @__PURE__ */ new Set(["PGRST000", "PGRST001", "PGRST002", "PGRST003"]);
+var PGRST_AUTH = /* @__PURE__ */ new Set(["PGRST300", "PGRST301", "PGRST302", "PGRST303"]);
+var EXECUTION_CODES = /* @__PURE__ */ new Set(["PGRST202", "PGRST203", "42501", "42883"]);
 var UNAVAILABLE_SQLSTATES = /* @__PURE__ */ new Set(["57014", "57P01", "57P02", "57P03", "53300", "53400", "08000", "08001", "08003", "08006", "55P03"]);
-var NETWORK_RX = /fetch failed|failed to fetch|network|econnre|econnrefused|enotfound|eai_again|dns|socket|connection (?:terminated|reset|refused)|upstream|bad gateway|service unavailable|gateway time/i;
-var TIMEOUT_RX = /timeout|timed out|aborted/i;
-var SCHEMA_RX = /schema cache/i;
+var NETWORK_RX = /fetch failed|failed to fetch|networkerror|network request failed|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:terminated|reset|refused)/i;
+var TIMEOUT_RX = /timed? ?out|etimedout/i;
+var SCHEMA_LOAD_RX = /could not query the database for the schema cache/i;
+function safeCode(raw) {
+  return typeof raw === "string" && SAFE_CODE_RX.test(raw) ? raw : null;
+}
 function classifyBackendFailure(error, status) {
   const e = error ?? {};
-  const code = typeof e.code === "string" ? e.code : "";
-  const msg = typeof e.message === "string" ? e.message : typeof error === "string" ? error : "";
+  const code = safeCode(e.code);
+  const msg = typeof e.message === "string" ? e.message : "";
+  const causeMsg = typeof e.cause?.message === "string" ? String(e.cause.message) : "";
+  const causeCode = typeof e.cause?.code === "string" ? String(e.cause.code) : "";
   const st = typeof status === "number" ? status : typeof e.status === "number" ? e.status : null;
-  if (code === "PGRST002" || SCHEMA_RX.test(msg)) return { kind: "BACKEND_UNAVAILABLE", signal: "PGRST002" };
-  if (UNAVAILABLE_SQLSTATES.has(code)) return { kind: "BACKEND_UNAVAILABLE", signal: code };
-  if (st !== null && st >= 500) return { kind: "BACKEND_UNAVAILABLE", signal: `HTTP_${st}` };
-  if (st === 408 || TIMEOUT_RX.test(msg) || e.name === "AbortError") return { kind: "BACKEND_UNAVAILABLE", signal: "TIMEOUT" };
-  if (NETWORK_RX.test(msg) || e.name === "TypeError") return { kind: "BACKEND_UNAVAILABLE", signal: "NETWORK" };
-  if (code === "PGRST301" || code === "PGRST302" || code === "PGRST303" || st === 401) return { kind: "AUTH_REQUIRED", signal: code || "HTTP_401" };
-  if (code === "42501" || code === "42883" || code === "PGRST202" || st === 403 || st === 404) {
-    return { kind: "EXECUTION_UNAVAILABLE", signal: code || `HTTP_${st}` };
+  if (code) {
+    if (PGRST_UNAVAILABLE.has(code) || UNAVAILABLE_SQLSTATES.has(code)) return { kind: "BACKEND_UNAVAILABLE", signal: code };
+    if (EXECUTION_CODES.has(code)) return { kind: "EXECUTION_UNAVAILABLE", signal: code };
+    if (PGRST_AUTH.has(code)) return { kind: "AUTH_REQUIRED", signal: code };
   }
-  return { kind: "SESSION_UNVERIFIED", signal: code || (st !== null ? `HTTP_${st}` : "UNKNOWN") };
+  if (st !== null && st >= 500) return { kind: "BACKEND_UNAVAILABLE", signal: `HTTP_${st}` };
+  if (SCHEMA_LOAD_RX.test(msg)) return { kind: "BACKEND_UNAVAILABLE", signal: "PGRST002" };
+  if (st === 408 || e.name === "AbortError" || e.name === "TimeoutError" || TIMEOUT_RX.test(msg)) return { kind: "BACKEND_UNAVAILABLE", signal: "TIMEOUT" };
+  if (NETWORK_RX.test(msg) || NETWORK_RX.test(causeMsg) || NETWORK_RX.test(causeCode)) return { kind: "BACKEND_UNAVAILABLE", signal: "NETWORK" };
+  if (st === 401) return { kind: "AUTH_REQUIRED", signal: "HTTP_401" };
+  if (st === 403 || st === 404) return { kind: "EXECUTION_UNAVAILABLE", signal: `HTTP_${st}` };
+  if (error instanceof Error && !code && st === null) return { kind: "SESSION_UNVERIFIED", signal: "INTERNAL" };
+  return { kind: "SESSION_UNVERIFIED", signal: code ?? (st !== null ? `HTTP_${st}` : "UNKNOWN") };
 }
 var TEXT = {
   AUTH_REQUIRED: "Andromeda rechaz\xF3 la credencial de esta conexi\xF3n. Vuelve a conectar el asistente e inicia sesi\xF3n en Andromeda.",
-  SESSION_UNVERIFIED: "No se pudo verificar la sesi\xF3n de esta conexi\xF3n; no se autoriza proponer cambios. Reintenta en unos minutos; si persiste, revisa la conexi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones.",
-  BACKEND_UNAVAILABLE: "El servicio de datos de Andromeda no est\xE1 respondiendo en este momento (falla temporal del servidor, no de tu cuenta). No hace falta reconectar: reintenta en unos minutos. No se autoriza proponer cambios mientras tanto.",
-  EXECUTION_UNAVAILABLE: "La verificaci\xF3n de permisos no est\xE1 disponible para esta conexi\xF3n en este momento; no se autoriza proponer cambios. No es necesario reconectar."
+  SESSION_UNVERIFIED: "No se pudo verificar la sesi\xF3n de esta conexi\xF3n; no se autoriza proponer cambios. Reintenta m\xE1s tarde; si persiste, revisa la conexi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones.",
+  BACKEND_UNAVAILABLE: "El servicio de datos de Andromeda no respondi\xF3 a esta consulta. Este fallo por s\xED solo no indica que haya que reconectar, aunque no descarta otro problema de la conexi\xF3n. Reintenta m\xE1s tarde; mientras tanto no se autoriza proponer cambios.",
+  EXECUTION_UNAVAILABLE: "La verificaci\xF3n de permisos no est\xE1 disponible para esta conexi\xF3n en este momento; no se autoriza proponer cambios. Este fallo no indica por s\xED solo que haya que reconectar."
 };
 function backendFailureText(f) {
   return TEXT[f.kind];
@@ -75,6 +87,15 @@ function worstFailure(fs) {
     if (f) return f;
   }
   return null;
+}
+async function settleQuery(make) {
+  try {
+    const res = await make();
+    if (res.error) return { ok: false, failure: classifyBackendFailure(res.error, res.status) };
+    return { ok: true, data: res.data, count: res.count ?? null };
+  } catch (thrown) {
+    return { ok: false, failure: classifyBackendFailure(thrown) };
+  }
 }
 function backendFailureResult(f) {
   const text = backendFailureText(f);
@@ -219,14 +240,9 @@ var MANAGE_REQUIRED = "Esta conexi\xF3n de IA es de solo lectura. Para que el as
 async function requireWriteScope(ctx) {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  let res;
-  try {
-    res = await sbForUser(ctx).rpc("mcp_access_level");
-  } catch (thrown) {
-    return backendFailureText(classifyBackendFailure(thrown));
-  }
-  const { data, error, status } = res;
-  if (error) return backendFailureText(classifyBackendFailure(error, status));
+  const res = await settleQuery(() => sbForUser(ctx).rpc("mcp_access_level"));
+  if (!res.ok) return backendFailureText(res.failure);
+  const data = res.data;
   return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
 function rpcErrorText(error) {
@@ -750,40 +766,39 @@ var get_user_context_default = defineTool4({
   handler: async (_input, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    let profileRead, archivedRead;
+    let sb;
     try {
-      [profileRead, archivedRead] = await Promise.all([
-        sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle(),
-        sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED")
-      ]);
+      sb = sbForUser(ctx);
     } catch (thrown) {
       return backendFailureResult(classifyBackendFailure(thrown));
     }
-    if (profileRead.error) return backendFailureResult(classifyBackendFailure(profileRead.error, profileRead.status));
-    if (archivedRead.error) return backendFailureResult(classifyBackendFailure(archivedRead.error, archivedRead.status));
+    const [profileRead, archivedRead] = await Promise.all([
+      settleQuery(() => sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle()),
+      settleQuery(() => sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED"))
+    ]);
+    const firstFailure = worstFailure([profileRead, archivedRead].flatMap((r) => r.ok ? [] : [r.failure]));
+    if (firstFailure) return backendFailureResult(firstFailure);
+    if (!profileRead.ok || !archivedRead.ok) return errorResult("No se pudo verificar el contexto.");
     if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");
     const profile = profileRead.data;
     const byType = {};
     let total = 0;
     let after;
     for (; ; ) {
-      let query = sb.from("work_items").select("id, workflow_type").is("deleted_at", null).eq("lifecycle_state", "ACTIVE").order("id", { ascending: true }).limit(1e3);
-      if (after) query = query.gt("id", after);
-      let page;
-      try {
-        page = await query;
-      } catch (thrown) {
-        return backendFailureResult(classifyBackendFailure(thrown));
-      }
-      const { data, error, status } = page;
-      if (error) return backendFailureResult(classifyBackendFailure(error, status));
-      for (const row of data ?? []) {
+      const cursor = after;
+      const page = await settleQuery(() => {
+        let query = sb.from("work_items").select("id, workflow_type").is("deleted_at", null).eq("lifecycle_state", "ACTIVE").order("id", { ascending: true }).limit(1e3);
+        if (cursor) query = query.gt("id", cursor);
+        return query;
+      });
+      if (!page.ok) return backendFailureResult(page.failure);
+      const data = page.data;
+      if (!data) return errorResult("No se pudo verificar el conteo de asuntos activos.");
+      for (const row of data) {
         const key = row.workflow_type ?? "SIN_TIPO";
         byType[key] = (byType[key] ?? 0) + 1;
         total++;
       }
-      if (!data) return errorResult("No se pudo verificar el conteo de asuntos activos.");
       if (data.length === 0) break;
       after = data[data.length - 1]?.id;
       if (!after) return errorResult("No se pudo continuar el conteo de asuntos.");
@@ -3189,28 +3204,20 @@ var get_capabilities_default = defineTool36({
   handler: async (_args, ctx) => {
     const unauth = requireAuth(ctx);
     if (unauth) return errorResult(unauth);
-    const sb = sbForUser(ctx);
-    const settled = await Promise.allSettled([
-      sb.rpc("mcp_access_level"),
-      sb.rpc("mcp_caller_context"),
-      sb.rpc("mcp_mutation_availability")
+    let sb;
+    try {
+      sb = sbForUser(ctx);
+    } catch (thrown) {
+      return backendFailureResult(classifyBackendFailure(thrown));
+    }
+    const results = await Promise.all([
+      settleQuery(() => sb.rpc("mcp_access_level")),
+      settleQuery(() => sb.rpc("mcp_caller_context")),
+      settleQuery(() => sb.rpc("mcp_mutation_availability"))
     ]);
-    const failures = [];
-    const values = settled.map((r) => {
-      if (r.status === "rejected") {
-        failures.push(classifyBackendFailure(r.reason));
-        return null;
-      }
-      const res = r.value;
-      if (res.error) {
-        failures.push(classifyBackendFailure(res.error, res.status));
-        return null;
-      }
-      return res.data;
-    });
-    const failure = worstFailure(failures);
+    const failure = worstFailure(results.flatMap((r) => r.ok ? [] : [r.failure]));
     if (failure) return backendFailureResult(failure);
-    const [level, caller, availability] = values;
+    const [level, caller, availability] = results.map((r) => r.ok ? r.data : null);
     const c = caller ?? {};
     const a = availability;
     if (a?.verified !== true || !a.tools) return errorResult("Disponibilidad no verificada; no se autoriza proponer cambios.");

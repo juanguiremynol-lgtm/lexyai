@@ -26,7 +26,7 @@ function runtimeEnv(name: string): string | undefined {
   return v?.trim() || undefined;
 }
 
-import { backendFailureText, classifyBackendFailure } from "./backend-failure";
+import { backendFailureText, settleQuery } from "./backend-failure";
 
 export function supabaseProjectUrl(): string {
   const url = runtimeEnv("SUPABASE_URL") ?? runtimeEnv("VITE_SUPABASE_URL");
@@ -185,11 +185,9 @@ export const MANAGE_REQUIRED =
 export async function requireWriteScope(ctx: ToolContext): Promise<string | null> {
   const unauth = requireAuth(ctx);
   if (unauth) return unauth;
-  let res;
-  try { res = await sbForUser(ctx).rpc("mcp_access_level"); }
-  catch (thrown) { return backendFailureText(classifyBackendFailure(thrown)); }
-  const { data, error, status } = res;
-  if (error) return backendFailureText(classifyBackendFailure(error, status));
+  const res = await settleQuery<unknown>(() => sbForUser(ctx).rpc("mcp_access_level"));
+  if (!res.ok) return backendFailureText(res.failure);
+  const data = res.data;
   return data === "manage" || data === "first_party" ? null : MANAGE_REQUIRED;
 }
 

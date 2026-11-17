@@ -1,0 +1,32 @@
+{
+  "timestamp_utc": "2026-11-17T12:37:30Z",
+  "head_before_commit": "0517a7d766aeb74e84b1a133e0eb14cd949ee25e",
+  "results": [
+    {
+      "command": "npx vitest run src/lib/mcp/__tests__/backend-failure.test.ts",
+      "exit_code": 0,
+      "tests_total": 35,
+      "passed": 35,
+      "failed": 0
+    },
+    {
+      "command": "npx vitest run src/lib/mcp",
+      "exit_code": 0,
+      "test_suites_incl_describe_blocks": 25,
+      "tests_total": 116,
+      "passed": 116,
+      "failed": 0
+    },
+    {
+      "command": "npm run check:mcp:source (tsc -p tsconfig.mcp.json)",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run check:mcp:artifact (build-mcp.mjs + check-mcp-artifact.ts)",
+      "exit_code": 0,
+      "artifact_marker_mcp-rev-0-6-20_occurrences": 1,
+      "artifact_contains_new_classifier_lines": 10
+    }
+  ],
+  "not_a_live_test": "Mocks of the SDK client only; no real OAuth session, no token, no production query."
+}
