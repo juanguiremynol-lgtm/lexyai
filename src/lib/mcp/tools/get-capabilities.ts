@@ -29,7 +29,7 @@ export default defineTool({
       settleQuery<unknown>(() => sb.rpc("mcp_caller_context")),
       settleQuery<unknown>(() => sb.rpc("mcp_mutation_availability")),
     ]);
-    const failure = worstFailure(results.flatMap((r) => (r.ok ? [] : [r.failure])));
+    const failure = worstFailure(results.flatMap((r) => (r.failure ? [r.failure] : [])));
     if (failure) return backendFailureResult(failure);
     const [level, caller, availability] = results.map((r) => (r.ok ? r.data : null));
     const c = (caller ?? {}) as Record<string, unknown>;

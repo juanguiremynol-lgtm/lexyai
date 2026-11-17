@@ -34,11 +34,11 @@ EXECUTION_UNAVAILABLE; PGRST000-003 = backend). Errors are aggregated (outage ou
 sync throws are fail-closed; a page failure returns no partial count; bare TypeErrors are INTERNAL, not NETWORK;
 signal is whitelisted (SQLSTATE/PGRSTnnn/HTTP_nnn/NETWORK/TIMEOUT/INTERNAL/UNKNOWN). Results: see
 docs/mcp-access-verification-20261117.json.
-Marker bumped to mcp-rev-0-6-20.
+Marker bumped to mcp-rev-0-6-21 (0-6-20 + type-only fix for build).
 
 ## Recovery (12:37-12:43 UTC)
 - Not paused (status never INACTIVE), so "Wake up" did not apply. Managed backend restart requested 12:37:53Z (no reset/restore/data change).
 - 12:43:01 auth health 200 (0.34 s); 12:43:07 OAuth metadata 200, JWKS 200 (ES256), anonymous rpc/mcp_access_level 401/42501 (expected: anon has no EXECUTE).
-- App published (MCP ships only with app publish); 12:43:42 public marker reads mcp-rev-0-6-20; unauthenticated initialize -> 401.
+- App published (MCP ships only with app publish); 12:43:42 public marker reads mcp-rev-0-6-21 (0-6-20 + type-only fix for build); unauthenticated initialize -> 401.
 - Root cause of the origin outage remains undetermined. No timeout, session, grant, consent, Outlook function or migration changed.
 - Authenticated end-to-end check pending: owner runs get_user_context/get_capabilities/get_work_item from ChatGPT.

@@ -78,15 +78,20 @@ export function worstFailure(fs: BackendFailure[]): BackendFailure | null {
   return null;
 }
 
+/** Both branches carry every field so narrowing works without strictNullChecks. */
+export type SettledQuery<T> =
+  | { ok: true; data: T; count: number | null; failure: null }
+  | { ok: false; data: null; count: null; failure: BackendFailure };
+
 /** Runs a query builder (or its construction) fail-closed: sync throws, rejections and error payloads all classify. */
 export async function settleQuery<T>(make: () => PromiseLike<{ data: T; error: unknown; status?: number; count?: number | null }>):
-  Promise<{ ok: true; data: T; count: number | null } | { ok: false; failure: BackendFailure }> {
+  Promise<SettledQuery<T>> {
   try {
     const res = await make();
-    if (res.error) return { ok: false, failure: classifyBackendFailure(res.error, res.status) };
-    return { ok: true, data: res.data, count: res.count ?? null };
+    if (res.error) return { ok: false, data: null, count: null, failure: classifyBackendFailure(res.error, res.status) };
+    return { ok: true, data: res.data, count: res.count ?? null, failure: null };
   } catch (thrown) {
-    return { ok: false, failure: classifyBackendFailure(thrown) };
+    return { ok: false, data: null, count: null, failure: classifyBackendFailure(thrown) };
   }
 }
 

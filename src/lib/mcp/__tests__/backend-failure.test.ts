@@ -40,7 +40,7 @@ describe("classifyBackendFailure", () => {
   it("transport throws need transport evidence", () => {
     expect(classifyBackendFailure(new TypeError("fetch failed")).kind).toBe("BACKEND_UNAVAILABLE");
     expect(classifyBackendFailure(Object.assign(new Error("x"), { name: "AbortError" })).signal).toBe("TIMEOUT");
-    expect(classifyBackendFailure(new TypeError("x", { cause: { code: "ENOTFOUND" } })).signal).toBe("NETWORK");
+    expect(classifyBackendFailure(Object.assign(new TypeError("x"), { cause: { code: "ENOTFOUND" } })).signal).toBe("NETWORK");
     // A programming TypeError is not a network outage.
     expect(classifyBackendFailure(new TypeError("Cannot read properties of undefined (reading 'rpc')"))).toEqual({ kind: "SESSION_UNVERIFIED", signal: "INTERNAL" });
   });
@@ -67,7 +67,7 @@ describe("classifyBackendFailure", () => {
 
   it("settleQuery catches synchronous construction throws", async () => {
     const r = await settleQuery(() => { throw new TypeError("fetch failed"); });
-    expect(r).toEqual({ ok: false, failure: { kind: "BACKEND_UNAVAILABLE", signal: "NETWORK" } });
+    expect(r).toEqual({ ok: false, data: null, count: null, failure: { kind: "BACKEND_UNAVAILABLE", signal: "NETWORK" } });
   });
 });
 

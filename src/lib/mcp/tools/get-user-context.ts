@@ -19,7 +19,7 @@ export default defineTool({
       settleQuery(() => sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle()),
       settleQuery(() => sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED")),
     ]);
-    const firstFailure = worstFailure([profileRead, archivedRead].flatMap((r) => (r.ok ? [] : [r.failure])));
+    const firstFailure = worstFailure([profileRead, archivedRead].flatMap((r) => (r.failure ? [r.failure] : [])));
     if (firstFailure) return backendFailureResult(firstFailure);
     if (!profileRead.ok || !archivedRead.ok) return errorResult("No se pudo verificar el contexto.");
     if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");

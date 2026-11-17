@@ -91,10 +91,10 @@ function worstFailure(fs) {
 async function settleQuery(make) {
   try {
     const res = await make();
-    if (res.error) return { ok: false, failure: classifyBackendFailure(res.error, res.status) };
-    return { ok: true, data: res.data, count: res.count ?? null };
+    if (res.error) return { ok: false, data: null, count: null, failure: classifyBackendFailure(res.error, res.status) };
+    return { ok: true, data: res.data, count: res.count ?? null, failure: null };
   } catch (thrown) {
-    return { ok: false, failure: classifyBackendFailure(thrown) };
+    return { ok: false, data: null, count: null, failure: classifyBackendFailure(thrown) };
   }
 }
 function backendFailureResult(f) {
@@ -776,7 +776,7 @@ var get_user_context_default = defineTool4({
       settleQuery(() => sb.from("profiles").select("full_name, firm_name, email, timezone").eq("id", ctx.getUserId()).maybeSingle()),
       settleQuery(() => sb.from("work_items").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("lifecycle_state", "ARCHIVED"))
     ]);
-    const firstFailure = worstFailure([profileRead, archivedRead].flatMap((r) => r.ok ? [] : [r.failure]));
+    const firstFailure = worstFailure([profileRead, archivedRead].flatMap((r) => r.failure ? [r.failure] : []));
     if (firstFailure) return backendFailureResult(firstFailure);
     if (!profileRead.ok || !archivedRead.ok) return errorResult("No se pudo verificar el contexto.");
     if (archivedRead.count === null) return errorResult("No se pudo verificar el conteo de archivados.");
@@ -3215,7 +3215,7 @@ var get_capabilities_default = defineTool36({
       settleQuery(() => sb.rpc("mcp_caller_context")),
       settleQuery(() => sb.rpc("mcp_mutation_availability"))
     ]);
-    const failure = worstFailure(results.flatMap((r) => r.ok ? [] : [r.failure]));
+    const failure = worstFailure(results.flatMap((r) => r.failure ? [r.failure] : []));
     if (failure) return backendFailureResult(failure);
     const [level, caller, availability] = results.map((r) => r.ok ? r.data : null);
     const c = caller ?? {};
@@ -4021,7 +4021,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-20"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-21"
   }),
   tools: [
     get_user_context_default,
