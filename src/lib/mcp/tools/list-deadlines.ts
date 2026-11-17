@@ -13,7 +13,7 @@ export default defineTool({
   name: "list_deadlines",
   title: "Términos procesales",
   description:
-    "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations — request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / DESCONOCIDO); DESCONOCIDO means the attribution is unknown, not the client's.",
+    "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations — request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / AUTORIDAD_ADMINISTRATIVA / DESCONOCIDO); AUTORIDAD_ADMINISTRATIVA marks a petition response term owed by the entity — the lawyer's duty is only to evaluate tutela if it expires unanswered; DESCONOCIDO means the attribution is unknown, not the client's.",
   inputSchema: {
     status: z.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
     radicado: z

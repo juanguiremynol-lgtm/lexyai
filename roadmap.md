@@ -248,3 +248,12 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Evaluador diario por componente; sin efectos de silencio automáticos con base solo en el envío
 - [ ] Ocho peticiones restantes sin fecha de presentación: requieren que el titular registre la fecha (no se infiere)
 - [ ] Política de escritura directa en la ficha administrativa sigue abierta a la organización (cambio de permisos fuera de esta fase)
+
+## Radicación / términos / alertas de peticiones (2026-11-17)
+- [x] Atribución AUTORIDAD_ADMINISTRATIVA en plazos de peticiones (4 de La Macarena corregidos; judiciales intactos)
+- [x] Estado en tiempo real de peticiones (get_work_item.peticion) y alertas PETICION_DEADLINE/OVERDUE en la revisión diaria existente
+- [x] MCP create_peticion atómico e idempotente; borrador FECHA_PRESENTACION_PENDIENTE
+- [ ] register_filing (radicación de demanda/tutela/memorial/recurso en asunto existente o nuevo) — no hecho
+- [ ] Clasificación GOV_PROCEDURE por subtipo y SIC/SFC jurisdiccional — no hecho
+- [ ] Panel de la app con el estado de la petición (las alertas ya salen en el centro de alertas)
+- [ ] Prueba real desde ChatGPT tras publicar

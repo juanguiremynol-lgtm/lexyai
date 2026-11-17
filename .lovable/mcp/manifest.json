@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-6-21",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-7-0",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.6.13",
+      "version": "0.7.0",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -131,7 +131,7 @@
       {
         "name": "get_work_item",
         "title": "Detalle de asunto",
-        "description": "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+        "description": "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -359,7 +359,7 @@
       {
         "name": "list_deadlines",
         "title": "Términos procesales",
-        "description": "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations — request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / DESCONOCIDO); DESCONOCIDO means the attribution is unknown, not the client's.",
+        "description": "Lists procedural deadlines (términos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations — request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / AUTORIDAD_ADMINISTRATIVA / DESCONOCIDO); AUTORIDAD_ADMINISTRATIVA marks a petition response term owed by the entity — the lawyer's duty is only to evaluate tutela if it expires unanswered; DESCONOCIDO means the attribution is unknown, not the client's.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -1649,6 +1649,108 @@
           },
           "required": [
             "workflow_type",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_peticion",
+        "title": "Crear petición (con presentación)",
+        "description": "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task — never a fictitious term. Requires the user's explicit instruction and a manage grant.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "client_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Cliente propio del usuario."
+            },
+            "peticionario": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "Quien presenta la petición."
+            },
+            "authority_name": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Autoridad administrativa destinataria."
+            },
+            "referencia_autoridad": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "Radicado o referencia administrativa tal como la dio la entidad (no es un radicado judicial; no se rellena con ceros)."
+            },
+            "presented": {
+              "type": "boolean",
+              "description": "true solo si la petición YA fue presentada por un canal válido."
+            },
+            "fecha_presentacion": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Fecha de presentación YYYY-MM-DD (Bogotá)."
+            },
+            "presentado_hoy_confirmado": {
+              "type": "boolean",
+              "description": "Usar solo si el usuario confirmó expresamente que se presentó hoy."
+            },
+            "canal": {
+              "type": "string",
+              "enum": [
+                "EMAIL_OFICIAL",
+                "PLATAFORMA",
+                "OTRO"
+              ]
+            },
+            "fuente": {
+              "type": "string",
+              "enum": [
+                "USUARIO_DECLARADO",
+                "OUTLOOK",
+                "PLATAFORMA"
+              ],
+              "description": "De dónde sale la fecha."
+            },
+            "soporte": {
+              "type": "string",
+              "maxLength": 900,
+              "description": "Descripción del soporte (correo enviado, recibo del portal…)."
+            },
+            "componentes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "DOCUMENTOS_INFORMACION",
+                  "GENERAL_INTERVENCION",
+                  "CONSULTA",
+                  "ESPECIAL"
+                ]
+              },
+              "maxItems": 4,
+              "description": "Partes de la petición: documentos/información (10), general/intervención (15), consulta (30), especial (revisión manual)."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "presented",
             "idempotency_key"
           ],
           "additionalProperties": false,

@@ -4,7 +4,7 @@ import { backendFailureResult, classifyBackendFailure, settleQuery, worstFailure
 
 const MANAGE_TOOLS = [
   "add_note", "add_hearing", "update_work_item", "manage_deadline", "manage_task", "whatsapp_prepare",
-  "create_work_item", "change_work_item_lifecycle", "move_work_item_stage", "resolve_stage_suggestion",
+  "create_work_item", "create_peticion", "change_work_item_lifecycle", "move_work_item_stage", "resolve_stage_suggestion",
   "resolve_alert", "set_notification_state", "resolve_email_question", "add_email_association",
   "resolve_detected_process",
   "assign_work_item_radicado",

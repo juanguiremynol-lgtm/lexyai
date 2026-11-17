@@ -9,7 +9,7 @@ export default defineTool({
   name: "get_work_item",
   title: "Detalle de asunto",
   description:
-    "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+    "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogotá; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts.",
   inputSchema: {
     id: z.string().uuid().optional().describe("work_item UUID."),
     radicado: z
@@ -79,6 +79,13 @@ export default defineTool({
     ]);
     const failedRead = [actsResult, estadosResult, deadlinesResult, hearingsResult].find((r) => r.error);
     if (failedRead?.error) return errorResult(`No se pudo leer el detalle del asunto: ${failedRead.error.message}`);
+    // PETICION: structured, live (Bogotá) status computed read-only by the database.
+    let peticion: unknown = null;
+    if (item.workflow_type === "PETICION") {
+      const { data: ps, error: psError } = await sb.rpc("peticion_status", { p_work_item_id: item.id } as never);
+      if (psError) return errorResult(`No se pudo calcular el estado de la petición: ${psError.message}`);
+      peticion = ps;
+    }
     const acts = actsResult.data;
     const estados = (estadosResult.data ?? []).map((r) => publicationAssociation(r, item.radicado));
     const deadlines = deadlinesResult.data;
@@ -131,6 +138,7 @@ export default defineTool({
           explicacion: "Una consulta reciente o una muestra de estados no acredita la cobertura histórica completa del asunto.",
         },
         terminos_activos: deadlines ?? [],
+        ...(item.workflow_type === "PETICION" ? { peticion } : {}),
         audiencias: hearings ?? [],
         consultas: queryStates,
         consulta_estado: queryStates.length ? null : JUDICIAL_QUERY_LABELS[judicialQueryState({ compatible: hasUsableRadicado(item.radicado) })],

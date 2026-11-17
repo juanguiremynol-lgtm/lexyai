@@ -52,9 +52,11 @@ export function deadlineBucket(
 export function deadlineAttribution(row: {
   bound_party_role?: string | null;
   is_judge_side?: boolean | null;
-}): "CLIENTE" | "CONTRAPARTE" | "DESPACHO" | "DESCONOCIDO" {
-  if (row.is_judge_side) return "DESPACHO";
+}): "CLIENTE" | "CONTRAPARTE" | "DESPACHO" | "AUTORIDAD_ADMINISTRATIVA" | "DESCONOCIDO" {
   const r = String(row.bound_party_role ?? "").toUpperCase();
+  // Petition response terms bind the administrative authority, never the judge or the client.
+  if (r === "AUTORIDAD_ADMINISTRATIVA") return "AUTORIDAD_ADMINISTRATIVA";
+  if (row.is_judge_side) return "DESPACHO";
   if (!r) return "DESCONOCIDO";
   if (r.includes("CLIENT") || r.includes("PROPIO") || r.includes("MANDANTE")) return "CLIENTE";
   if (r.includes("CONTRAPART") || r.includes("OPPOS") || r.includes("DEMANDAD") || r.includes("DEMANDANT")) {

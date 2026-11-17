@@ -596,7 +596,7 @@ function publicationPageSummary(rows) {
 var get_work_item_default = defineTool2({
   name: "get_work_item",
   title: "Detalle de asunto",
-  description: "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogot\xE1; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts.",
+  description: "Fetches one legal matter with recent actuaciones and estados. Per-source verified_success requires a complete scope observed today in Bogot\xE1; evidence distinguishes a stored read from a new query and does not certify historical coverage. Publication association warnings remain visible as history, never accredited; absence of a warning is not proof. Counts are bounded page counts. For PETICION it also returns `peticion`: sheet creation date vs presentation date, source and support, components, per-component first business day, due date, live status (ACTIVE/OVERDUE/ANSWERED/PENDING_EVIDENCE or FALTA_FECHA_PRESENTACION), provisional vs effective due, legal basis, next tutela review date and active alerts.",
   inputSchema: {
     id: z3.string().uuid().optional().describe("work_item UUID."),
     radicado: z3.string().trim().optional().describe(
@@ -643,6 +643,12 @@ var get_work_item_default = defineTool2({
     ]);
     const failedRead = [actsResult, estadosResult, deadlinesResult, hearingsResult].find((r) => r.error);
     if (failedRead?.error) return errorResult(`No se pudo leer el detalle del asunto: ${failedRead.error.message}`);
+    let peticion = null;
+    if (item.workflow_type === "PETICION") {
+      const { data: ps, error: psError } = await sb.rpc("peticion_status", { p_work_item_id: item.id });
+      if (psError) return errorResult(`No se pudo calcular el estado de la petici\xF3n: ${psError.message}`);
+      peticion = ps;
+    }
     const acts = actsResult.data;
     const estados = (estadosResult.data ?? []).map((r) => publicationAssociation(r, item.radicado));
     const deadlines = deadlinesResult.data;
@@ -714,6 +720,7 @@ var get_work_item_default = defineTool2({
           explicacion: "Una consulta reciente o una muestra de estados no acredita la cobertura hist\xF3rica completa del asunto."
         },
         terminos_activos: deadlines ?? [],
+        ...item.workflow_type === "PETICION" ? { peticion } : {},
         audiencias: hearings ?? [],
         consultas: queryStates,
         consulta_estado: queryStates.length ? null : JUDICIAL_QUERY_LABELS[judicialQueryState({ compatible: hasUsableRadicado(item.radicado) })]
@@ -1205,8 +1212,9 @@ function deadlineBucket(status, requiresManualReview) {
   return "CERRADO";
 }
 function deadlineAttribution(row) {
-  if (row.is_judge_side) return "DESPACHO";
   const r = String(row.bound_party_role ?? "").toUpperCase();
+  if (r === "AUTORIDAD_ADMINISTRATIVA") return "AUTORIDAD_ADMINISTRATIVA";
+  if (row.is_judge_side) return "DESPACHO";
   if (!r) return "DESCONOCIDO";
   if (r.includes("CLIENT") || r.includes("PROPIO") || r.includes("MANDANTE")) return "CLIENTE";
   if (r.includes("CONTRAPART") || r.includes("OPPOS") || r.includes("DEMANDAD") || r.includes("DEMANDANT")) {
@@ -1228,7 +1236,7 @@ function deadlineUrgency(deadlineDate, today, businessDaysRemaining) {
 var list_deadlines_default = defineTool9({
   name: "list_deadlines",
   title: "T\xE9rminos procesales",
-  description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations \u2014 request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / DESCONOCIDO); DESCONOCIDO means the attribution is unknown, not the client's.",
+  description: "Lists procedural deadlines (t\xE9rminos). By default only genuinely active deadlines are returned. Deadlines awaiting manual review (REQUIERE_REVISION_MANUAL and equivalents) are NOT active obligations \u2014 request them explicitly with status='pending_review' and never present them as live. Each row states who the term binds (CLIENTE / CONTRAPARTE / DESPACHO / AUTORIDAD_ADMINISTRATIVA / DESCONOCIDO); AUTORIDAD_ADMINISTRATIVA marks a petition response term owed by the entity \u2014 the lawyer's duty is only to evaluate tutela if it expires unanswered; DESCONOCIDO means the attribution is unknown, not the client's.",
   inputSchema: {
     status: z9.enum(["pending", "pending_review", "all"]).optional().describe("Default: pending (solo activos)."),
     radicado: z9.string().trim().optional().describe("Limitar a un asunto por radicado (23 d\xEDgitos, con guiones, con espacios, base de 21 d\xEDgitos, 22 d\xEDgitos sin cero inicial o base+instancia)."),
@@ -3183,6 +3191,7 @@ var MANAGE_TOOLS = [
   "manage_task",
   "whatsapp_prepare",
   "create_work_item",
+  "create_peticion",
   "change_work_item_lifecycle",
   "move_work_item_stage",
   "resolve_stage_suggestion",
@@ -3557,19 +3566,83 @@ var create_work_item_default = defineTool38({
   }
 });
 
-// src/lib/mcp/tools/change-work-item-lifecycle.ts
+// src/lib/mcp/tools/create-peticion.ts
 import { defineTool as defineTool39 } from "npm:@lovable.dev/mcp-js@0.20.0";
 import { z as z34 } from "npm:zod@^3.25.76";
-var change_work_item_lifecycle_default = defineTool39({
+var PETICION_COMPONENTS = ["DOCUMENTOS_INFORMACION", "GENERAL_INTERVENCION", "CONSULTA", "ESPECIAL"];
+function resolvePresentationDate(args, today) {
+  if (!args.presented) {
+    if (args.fecha_presentacion || args.presentado_hoy_confirmado) {
+      return { date: null, error: "Indica presented=true si la petici\xF3n ya fue presentada." };
+    }
+    return { date: null };
+  }
+  if (args.fecha_presentacion) return { date: args.fecha_presentacion };
+  if (args.presentado_hoy_confirmado) return { date: today };
+  return { date: null, error: "FECHA_PRESENTACION_REQUERIDA: indica fecha_presentacion (YYYY-MM-DD) o confirma expl\xEDcitamente que fue hoy. Nunca se usa la fecha de creaci\xF3n de la ficha." };
+}
+var create_peticion_default = defineTool39({
+  name: "create_peticion",
+  title: "Crear petici\xF3n (con presentaci\xF3n)",
+  description: "Creates a PETICION matter and, when it was already presented, registers the documented presentation and computes the authority's response terms (10/15/30 business days per component, administrative calendar) in ONE atomic, idempotent database transaction. Without a presentation it creates a draft with status FECHA_PRESENTACION_PENDIENTE and an informative task \u2014 never a fictitious term. Requires the user's explicit instruction and a manage grant.",
+  inputSchema: {
+    title: z34.string().trim().max(300).optional(),
+    client_id: z34.string().uuid().optional().describe("Cliente propio del usuario."),
+    peticionario: z34.string().trim().max(1e3).optional().describe("Quien presenta la petici\xF3n."),
+    authority_name: z34.string().trim().max(300).optional().describe("Autoridad administrativa destinataria."),
+    referencia_autoridad: z34.string().trim().max(120).optional().describe("Radicado o referencia administrativa tal como la dio la entidad (no es un radicado judicial; no se rellena con ceros)."),
+    presented: z34.boolean().describe("true solo si la petici\xF3n YA fue presentada por un canal v\xE1lido."),
+    fecha_presentacion: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Fecha de presentaci\xF3n YYYY-MM-DD (Bogot\xE1)."),
+    presentado_hoy_confirmado: z34.boolean().optional().describe("Usar solo si el usuario confirm\xF3 expresamente que se present\xF3 hoy."),
+    canal: z34.enum(["EMAIL_OFICIAL", "PLATAFORMA", "OTRO"]).optional(),
+    fuente: z34.enum(["USUARIO_DECLARADO", "OUTLOOK", "PLATAFORMA"]).optional().describe("De d\xF3nde sale la fecha."),
+    soporte: z34.string().trim().max(900).optional().describe("Descripci\xF3n del soporte (correo enviado, recibo del portal\u2026)."),
+    componentes: z34.array(z34.enum(PETICION_COMPONENTS)).max(4).optional().describe("Partes de la petici\xF3n: documentos/informaci\xF3n (10), general/intervenci\xF3n (15), consulta (30), especial (revisi\xF3n manual)."),
+    idempotency_key: z34.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    const resolved = resolvePresentationDate(args, bogotaToday());
+    if (resolved.error) return errorResult(resolved.error);
+    if (args.presented && (!args.canal || !args.fuente || !args.soporte || !args.componentes?.length)) {
+      return errorResult("Para una petici\xF3n presentada indica canal, fuente, soporte y al menos un componente.");
+    }
+    const { data, error } = await sbForUser(ctx).rpc("mcp_create_peticion", {
+      p_title: args.title ?? null,
+      p_client_id: args.client_id ?? null,
+      p_peticionario: args.peticionario ?? null,
+      p_authority_name: args.authority_name ?? null,
+      p_authority_reference: args.referencia_autoridad ?? null,
+      p_presented: args.presented,
+      p_presented_on: resolved.date,
+      p_channel: args.canal ?? null,
+      p_source: args.fuente ?? null,
+      p_support: args.soporte ?? null,
+      p_components: args.componentes ?? null,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    const r = data;
+    const msg = r.status === "FECHA_PRESENTACION_PENDIENTE" ? "Petici\xF3n creada como borrador: FECHA_PRESENTACION_PENDIENTE. No se calcul\xF3 ning\xFAn t\xE9rmino; qued\xF3 una tarea para registrar la fecha." : `Petici\xF3n creada y presentaci\xF3n registrada (${String(r.presented_on)}). T\xE9rminos calculados desde la presentaci\xF3n documentada; la recepci\xF3n por la entidad no queda acreditada.`;
+    return textResult(`${msg}${r.replayed ? " (respuesta repetida, sin duplicar)" : ""}`, r);
+  }
+});
+
+// src/lib/mcp/tools/change-work-item-lifecycle.ts
+import { defineTool as defineTool40 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z35 } from "npm:zod@^3.25.76";
+var change_work_item_lifecycle_default = defineTool40({
   name: "change_work_item_lifecycle",
   title: "Archivar, enviar a papelera o restaurar un asunto",
   description: "Recoverable lifecycle changes only: archive (kept indefinitely, monitoring off), trash (soft delete, recoverable until recovery_deadline \u2014 10 days \u2014 then purged by retention) or restore. Permanent deletion is never available here. Requires expected_updated_at from get_work_item, the user's explicit instruction and a manage grant.",
   inputSchema: {
-    work_item_id: z34.string().uuid(),
-    action: z34.enum(["archive", "trash", "restore"]),
-    expected_updated_at: z34.string().min(10).describe("updated_at del asunto tal como lo le\xEDste; si cambi\xF3, no se modifica nada."),
-    reason: z34.string().trim().max(500).optional(),
-    idempotency_key: z34.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z35.string().uuid(),
+    action: z35.enum(["archive", "trash", "restore"]),
+    expected_updated_at: z35.string().min(10).describe("updated_at del asunto tal como lo le\xEDste; si cambi\xF3, no se modifica nada."),
+    reason: z35.string().trim().max(500).optional(),
+    idempotency_key: z35.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   handler: async (args, ctx) => {
@@ -3589,18 +3662,18 @@ var change_work_item_lifecycle_default = defineTool39({
 });
 
 // src/lib/mcp/tools/move-work-item-stage.ts
-import { defineTool as defineTool40 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z35 } from "npm:zod@^3.25.76";
-var move_work_item_stage_default = defineTool40({
+import { defineTool as defineTool41 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z36 } from "npm:zod@^3.25.76";
+var move_work_item_stage_default = defineTool41({
   name: "move_work_item_stage",
   title: "Mover la etapa procesal de un asunto",
   description: "Moves an active matter to another valid stage of its workflow (see list_workflow_stages), validated server-side like the app boards: governed workflows follow configured transitions (including allowed regressions); backward or cross-phase moves require the user's reason. Unknown stages and stale revisions are rejected; inference settings are untouched. Only on the user's explicit instruction; requires a manage grant.",
   inputSchema: {
-    work_item_id: z35.string().uuid(),
-    to_stage: z35.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
-    expected_updated_at: z35.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
-    reason: z35.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
-    idempotency_key: z35.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z36.string().uuid(),
+    to_stage: z36.string().trim().min(1).describe("C\xF3digo de etapa del cat\xE1logo."),
+    expected_updated_at: z36.string().min(10).describe("updated_at del asunto tal como lo le\xEDste."),
+    reason: z36.string().trim().max(500).optional().describe("Motivo del usuario; obligatorio (m\xEDn. 5 caracteres) para retrocesos o cambios de fase."),
+    idempotency_key: z36.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3623,15 +3696,15 @@ var move_work_item_stage_default = defineTool40({
 });
 
 // src/lib/mcp/tools/list-stage-suggestions.ts
-import { defineTool as defineTool41 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z36 } from "npm:zod@^3.25.76";
-var list_stage_suggestions_default = defineTool41({
+import { defineTool as defineTool42 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z37 } from "npm:zod@^3.25.76";
+var list_stage_suggestions_default = defineTool42({
   name: "list_stage_suggestions",
   title: "Sugerencias de etapa pendientes",
   description: "Read-only. Lists PENDING stage suggestions (with the evidence that produced them) for the user's matters.",
   inputSchema: {
-    work_item_id: z36.string().uuid().optional(),
-    limit: z36.number().int().min(1).max(100).optional()
+    work_item_id: z37.string().uuid().optional(),
+    limit: z37.number().int().min(1).max(100).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ work_item_id, limit }, ctx) => {
@@ -3646,18 +3719,18 @@ var list_stage_suggestions_default = defineTool41({
 });
 
 // src/lib/mcp/tools/resolve-stage-suggestion.ts
-import { defineTool as defineTool42 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z37 } from "npm:zod@^3.25.76";
-var resolve_stage_suggestion_default = defineTool42({
+import { defineTool as defineTool43 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z38 } from "npm:zod@^3.25.76";
+var resolve_stage_suggestion_default = defineTool43({
   name: "resolve_stage_suggestion",
   title: "Aplicar o descartar una sugerencia de etapa",
   description: "Applies (moves the stage) or dismisses one PENDING stage suggestion. Apply checks the matter revision and the workflow catalogue; regressions are rejected. A suggestion already resolved by someone else returns a conflict. Only on the user's explicit decision; requires a manage grant.",
   inputSchema: {
-    suggestion_id: z37.string().uuid(),
-    decision: z37.enum(["apply", "dismiss"]),
-    expected_updated_at: z37.string().min(10).optional().describe("Obligatorio para apply: updated_at del asunto tal como lo le\xEDste."),
-    reason: z37.string().trim().max(500).optional(),
-    idempotency_key: z37.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    suggestion_id: z38.string().uuid(),
+    decision: z38.enum(["apply", "dismiss"]),
+    expected_updated_at: z38.string().min(10).optional().describe("Obligatorio para apply: updated_at del asunto tal como lo le\xEDste."),
+    reason: z38.string().trim().max(500).optional(),
+    idempotency_key: z38.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3682,17 +3755,17 @@ var resolve_stage_suggestion_default = defineTool42({
 });
 
 // src/lib/mcp/tools/resolve-alert.ts
-import { defineTool as defineTool43 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z38 } from "npm:zod@^3.25.76";
-var resolve_alert_default = defineTool43({
+import { defineTool as defineTool44 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z39 } from "npm:zod@^3.25.76";
+var resolve_alert_default = defineTool44({
   name: "resolve_alert",
   title: "Marcar vista o descartar una alerta",
   description: "Acts on an alert returned by list_alerts (never a notification ID). acknowledge marks it seen; dismiss closes it only when its allowed_actions include dismiss (alerts that clear automatically with their cause cannot be dismissed). Personal: never completes or closes a legal deadline. Requires a manage grant.",
   inputSchema: {
-    alert_id: z38.string().uuid(),
-    action: z38.enum(["acknowledge", "dismiss"]),
-    reason: z38.string().trim().max(300).optional(),
-    idempotency_key: z38.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    alert_id: z39.string().uuid(),
+    action: z39.enum(["acknowledge", "dismiss"]),
+    reason: z39.string().trim().max(300).optional(),
+    idempotency_key: z39.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3710,16 +3783,16 @@ var resolve_alert_default = defineTool43({
 });
 
 // src/lib/mcp/tools/list-notifications.ts
-import { defineTool as defineTool44 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z39 } from "npm:zod@^3.25.76";
-var list_notifications_default = defineTool44({
+import { defineTool as defineTool45 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z40 } from "npm:zod@^3.25.76";
+var list_notifications_default = defineTool45({
   name: "list_notifications",
   title: "Centro de notificaciones",
   description: "Read-only. Lists notification-center items (not alert_instances) with only the caller's personal state. Filters dismissed rows before stable created_at/id cursor pagination, so newest dismissed items never hide older unread items. State-query errors fail the entire call. Return next_cursor/has_more; cursor is a read position, not authorization. State changes during traversal may require a fresh first page.",
   inputSchema: {
-    limit: z39.number().int().min(1).max(100).optional(),
-    include_dismissed: z39.boolean().optional(),
-    cursor: z39.string().max(2e3).optional()
+    limit: z40.number().int().min(1).max(100).optional(),
+    include_dismissed: z40.boolean().optional(),
+    cursor: z40.string().max(2e3).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ limit, include_dismissed, cursor }, ctx) => {
@@ -3736,17 +3809,17 @@ var list_notifications_default = defineTool44({
 });
 
 // src/lib/mcp/tools/set-notification-state.ts
-import { defineTool as defineTool45 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z40 } from "npm:zod@^3.25.76";
-var set_notification_state_default = defineTool45({
+import { defineTool as defineTool46 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z41 } from "npm:zod@^3.25.76";
+var set_notification_state_default = defineTool46({
   name: "set_notification_state",
   title: "Marcar le\xEDdas, descartar o posponer notificaciones",
   description: "Changes the user's personal state for notification-center items from list_notifications (never alert IDs \u2014 use resolve_alert). Requires a manage grant.",
   inputSchema: {
-    notification_ids: z40.array(z40.string().uuid()).min(1).max(200),
-    action: z40.enum(["read", "dismiss", "snooze"]),
-    snooze_until: z40.string().min(10).optional().describe("Obligatorio para snooze (fecha futura ISO)."),
-    idempotency_key: z40.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    notification_ids: z41.array(z41.string().uuid()).min(1).max(200),
+    action: z41.enum(["read", "dismiss", "snooze"]),
+    snooze_until: z41.string().min(10).optional().describe("Obligatorio para snooze (fecha futura ISO)."),
+    idempotency_key: z41.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3764,16 +3837,16 @@ var set_notification_state_default = defineTool45({
 });
 
 // src/lib/mcp/tools/resolve-email-question.ts
-import { defineTool as defineTool46 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z41 } from "npm:zod@^3.25.76";
-var resolve_email_question_default = defineTool46({
+import { defineTool as defineTool47 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z42 } from "npm:zod@^3.25.76";
+var resolve_email_question_default = defineTool47({
   name: "resolve_email_question",
   title: "Responder una pregunta de asociaci\xF3n de correo",
   description: "Resolves one pending email-association question (discover globally with list_email_questions, or per matter with list_email_links), decided per message: confirm the chosen link (other suggestions dismissed) or dismiss every suggestion. Confirm is blocked on radicado conflicts; use add_email_association for a deliberate choice. Never changes a stage, completes a deadline or sends mail. Requires manage permission.",
   inputSchema: {
-    link_id: z41.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
-    decision: z41.enum(["confirm", "dismiss"]),
-    idempotency_key: z41.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    link_id: z42.string().uuid().describe("ID del v\xEDnculo sugerido elegido."),
+    decision: z42.enum(["confirm", "dismiss"]),
+    idempotency_key: z42.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3790,16 +3863,16 @@ var resolve_email_question_default = defineTool46({
 });
 
 // src/lib/mcp/tools/add-email-association.ts
-import { defineTool as defineTool47 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z42 } from "npm:zod@^3.25.76";
-var add_email_association_default = defineTool47({
+import { defineTool as defineTool48 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z43 } from "npm:zod@^3.25.76";
+var add_email_association_default = defineTool48({
   name: "add_email_association",
   title: "Asociar deliberadamente un correo a otro asunto",
   description: "Adds a confirmed manual association of an email (identified by one of its link IDs) to a matter the user manages, dismissing pending suggestions for that message and recording the manual override (including radicado conflicts). Existing confirmed associations are kept: this is not an exclusive move. Never changes stages or deadlines. Requires a manage grant.",
   inputSchema: {
-    link_id: z42.string().uuid().describe("Cualquier v\xEDnculo existente del correo."),
-    work_item_id: z42.string().uuid().describe("Asunto destino."),
-    idempotency_key: z42.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    link_id: z43.string().uuid().describe("Cualquier v\xEDnculo existente del correo."),
+    work_item_id: z43.string().uuid().describe("Asunto destino."),
+    idempotency_key: z43.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3816,17 +3889,17 @@ var add_email_association_default = defineTool47({
 });
 
 // src/lib/mcp/tools/resolve-detected-process.ts
-import { defineTool as defineTool48 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z43 } from "npm:zod@^3.25.76";
-var resolve_detected_process_default = defineTool48({
+import { defineTool as defineTool49 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z44 } from "npm:zod@^3.25.76";
+var resolve_detected_process_default = defineTool49({
   name: "resolve_detected_process",
   title: "Resolver un proceso detectado",
   description: "Resolves a PENDING detected process (list_detected_processes): dismiss, matched_existing (link to an existing matter with the same radicado base) or created (link to a matter created after the detection, e.g. with create_work_item). Requires a manage grant.",
   inputSchema: {
-    detected_process_id: z43.string().uuid(),
-    decision: z43.enum(["dismiss", "matched_existing", "created"]),
-    work_item_id: z43.string().uuid().optional().describe("Obligatorio salvo para dismiss."),
-    idempotency_key: z43.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    detected_process_id: z44.string().uuid(),
+    decision: z44.enum(["dismiss", "matched_existing", "created"]),
+    work_item_id: z44.string().uuid().optional().describe("Obligatorio salvo para dismiss."),
+    idempotency_key: z44.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3844,17 +3917,17 @@ var resolve_detected_process_default = defineTool48({
 });
 
 // src/lib/mcp/tools/list-updates.ts
-import { defineTool as defineTool49 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z44 } from "npm:zod@^3.25.76";
-var list_updates_default = defineTool49({
+import { defineTool as defineTool50 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z45 } from "npm:zod@^3.25.76";
+var list_updates_default = defineTool50({
   name: "list_updates",
   title: "Novedades incrementales (actuaciones, estados y ciclo de vida)",
   description: "Read-only resumable feed of changes selected by row revision (updated_at), so corrections and archivals of older actuaciones/estados and new matters appear; detected_at is immutable and only for display. Kinds stay separate; court dates are distinct from detection/change times. next_cursor is an opaque server-stored token bound to the user, the AI connection and the work_item_id filter (expires after 30 days; an expired cursor returns CURSOR_EXPIRED with the reconcile_since to use \u2014 it is never silently reset). Each pass has a fixed upper watermark; when has_more=false the durable checkpoint advances to that watermark and the next pass re-reads 15 minutes before it: deduplicate by dedupe_key (kind:id:revision), never by id alone. Each event shows the row's CURRENT state (intermediate revisions between polls collapse); permanent purges emit no event; a transaction committing more than 15 minutes after it started may be missed, so periodically run reconcile_since. Without cursor: last 3 days. `freshness` is always present (portfolio or work item scope, 30-day window) from per-provider sync checks on visible matters: only status=success is a successful check (empty/error/skipped/rejected/pending_upstream/partial are not). An empty page never means providers were checked.",
   inputSchema: {
-    cursor: z44.string().max(200).optional().describe("next_cursor de la llamada anterior (c1.<id>). Sin cursor: \xFAltimos 3 d\xEDas."),
-    reconcile_since: z44.string().datetime().optional().describe("Relectura de filas actuales revisadas desde esta fecha ISO (m\xE1x. 400 d\xEDas), no historial ni instant\xE1nea completa; contin\xFAa con next_cursor. Ignora cursor."),
-    work_item_id: z44.string().uuid().optional(),
-    limit: z44.number().int().min(1).max(500).optional()
+    cursor: z45.string().max(200).optional().describe("next_cursor de la llamada anterior (c1.<id>). Sin cursor: \xFAltimos 3 d\xEDas."),
+    reconcile_since: z45.string().datetime().optional().describe("Relectura de filas actuales revisadas desde esta fecha ISO (m\xE1x. 400 d\xEDas), no historial ni instant\xE1nea completa; contin\xFAa con next_cursor. Ignora cursor."),
+    work_item_id: z45.string().uuid().optional(),
+    limit: z45.number().int().min(1).max(500).optional()
   },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ cursor, reconcile_since, work_item_id, limit }, ctx) => {
@@ -3869,13 +3942,13 @@ var list_updates_default = defineTool49({
 });
 
 // src/lib/mcp/tools/list-email-questions.ts
-import { defineTool as defineTool50 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z45 } from "npm:zod@^3.25.76";
-var list_email_questions_default = defineTool50({
+import { defineTool as defineTool51 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z46 } from "npm:zod@^3.25.76";
+var list_email_questions_default = defineTool51({
   name: "list_email_questions",
   title: "Preguntas pendientes de asociaci\xF3n de correo",
   description: "Read-only global pending inbox questions, grouped by internet_message_id (fallback message_id), with all RLS-visible candidate siblings, source metadata, radicado conflicts and allowed actions. Separates owned writable links from organization-view-only links. Bounded cursor pagination; no message bodies or mail sending. Use resolve_email_question only for explicit user decisions.",
-  inputSchema: { cursor: z45.string().max(2e3).optional(), limit: z45.number().int().min(1).max(50).optional() },
+  inputSchema: { cursor: z46.string().max(2e3).optional(), limit: z46.number().int().min(1).max(50).optional() },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ cursor, limit }, ctx) => {
     const denied = requireAuth(ctx);
@@ -3887,8 +3960,8 @@ var list_email_questions_default = defineTool50({
 });
 
 // src/lib/mcp/tools/assign-work-item-radicado.ts
-import { defineTool as defineTool51 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z46 } from "npm:zod@^3.25.76";
+import { defineTool as defineTool52 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z47 } from "npm:zod@^3.25.76";
 
 // src/lib/radicado-utils.ts
 function normalizeRadicadoInput(input) {
@@ -3943,15 +4016,15 @@ function normalizeRadicado(input) {
 }
 
 // src/lib/mcp/tools/assign-work-item-radicado.ts
-var assign_work_item_radicado_default = defineTool51({
+var assign_work_item_radicado_default = defineTool52({
   name: "assign_work_item_radicado",
   title: "Asignar radicado a un asunto sin radicaci\xF3n",
   description: "Assigns a normalized exactly 23-digit string once to an ACTIVE owned matter with empty radicado, preserving leading zeros, stage, workflow and history. Requires explicit user instruction, manage permission, expected revision and idempotency key. Rejects existing identity, archived/deleted matters, duplicates including trash and monitored plan cap. Saved with scheduled synchronization pending; never calls providers, restores a matter or purges it. User EXECUTE remains review-gated.",
   inputSchema: {
-    work_item_id: z46.string().uuid(),
-    radicado: z46.string().min(1).max(200).describe("23 d\xEDgitos, con o sin separadores. No admite bases parciales ni n\xFAmeros."),
-    expected_updated_at: z46.string().datetime({ offset: true }).describe("Revisi\xF3n exacta de get_work_item; una revisi\xF3n antigua se rechaza."),
-    idempotency_key: z46.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+    work_item_id: z47.string().uuid(),
+    radicado: z47.string().min(1).max(200).describe("23 d\xEDgitos, con o sin separadores. No admite bases parciales ni n\xFAmeros."),
+    expected_updated_at: z47.string().datetime({ offset: true }).describe("Revisi\xF3n exacta de get_work_item; una revisi\xF3n antigua se rechaza."),
+    idempotency_key: z47.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
   },
   annotations: { ...MANAGE_ANNOTATIONS },
   handler: async (args, ctx) => {
@@ -3971,13 +4044,13 @@ var assign_work_item_radicado_default = defineTool51({
 });
 
 // src/lib/mcp/tools/list-freshness-issues.ts
-import { defineTool as defineTool52 } from "npm:@lovable.dev/mcp-js@0.20.0";
-import { z as z47 } from "npm:zod@^3.25.76";
-var list_freshness_issues_default = defineTool52({
+import { defineTool as defineTool53 } from "npm:@lovable.dev/mcp-js@0.20.0";
+import { z as z48 } from "npm:zod@^3.25.76";
+var list_freshness_issues_default = defineTool53({
   name: "list_freshness_issues",
   title: "Asuntos con consultas fallidas o sin consulta reciente",
   description: "Read-only RLS-scoped keyset page of identifiable matters with latest provider/operation failure or monitored matters without a recent check. Includes IDs, current attempts and per-provider last success. Pass next_after as after until has_more=false; position is not authorization. Current rows, 30-day checks and 90-day successes, no provider calls.",
-  inputSchema: { after: z47.string().uuid().optional(), limit: z47.number().int().min(1).max(200).optional(), work_item_id: z47.string().uuid().optional() },
+  inputSchema: { after: z48.string().uuid().optional(), limit: z48.number().int().min(1).max(200).optional(), work_item_id: z48.string().uuid().optional() },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   handler: async ({ after, limit, work_item_id }, ctx) => {
     const denied = requireAuth(ctx);
@@ -3993,7 +4066,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.6.13",
+  version: "0.7.0",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -4010,7 +4083,7 @@ var mcp_default = defineMcp({
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
     "WhatsApp a clientes: `whatsapp_notices` (consentimientos, borradores, enviados) y `whatsapp_prepare` (registrar/revocar consentimiento, preparar, editar o descartar borradores). NINGUNA herramienta aprueba ni env\xEDa mensajes: eso solo ocurre en la pantalla Avisos WhatsApp, uno por uno.",
     "Permisos: `get_capabilities` verifica la sesi\xF3n, el permiso y la disponibilidad efectiva de cada acci\xF3n. Gestionar exige que el usuario lo active \xE9l mismo desde su sesi\xF3n en Andromeda \u2192 Configuraci\xF3n \u2192 Conexiones, y puede revocarlo en cualquier momento; ning\xFAn argumento de herramienta (confirm, user_id, client_id) lo sustituye, y la base de datos verifica el permiso en cada escritura.",
-    "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`, `create_client` y `update_client` (directorio de clientes: nunca fusiona por nombre; identificaci\xF3n repetida devuelve conflicto). Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
+    "Escritura (solo con instrucci\xF3n expl\xEDcita del usuario y permiso de gesti\xF3n): `add_note`, `add_hearing`, `update_work_item`, `manage_deadline`, `manage_task`, `create_work_item`, `create_peticion` (petici\xF3n + fecha de presentaci\xF3n + t\xE9rminos en una sola operaci\xF3n; sin fecha queda FECHA_PRESENTACION_PENDIENTE), `change_work_item_lifecycle` (archivar, papelera recuperable 10 d\xEDas, restaurar), `move_work_item_stage` y `resolve_stage_suggestion` (con `list_workflow_stages` y `list_stage_suggestions`), `resolve_alert` (alertas de `list_alerts`) y `set_notification_state` (notificaciones de `list_notifications`), `resolve_email_question` y `add_email_association`, `resolve_detected_process`, `create_client` y `update_client` (directorio de clientes: nunca fusiona por nombre; identificaci\xF3n repetida devuelve conflicto). Cada escritura exige `idempotency_key`; las de etapa y ciclo de vida exigen `expected_updated_at`. Nunca hay borrado definitivo, cambio de radicado o tipo de proceso, administraci\xF3n de cuentas ni env\xEDo de correos; asociar un correo o descartar una alerta nunca cambia etapas ni cumple t\xE9rminos.",
     "Continuaci\xF3n de creaci\xF3n: `assign_work_item_radicado` asigna exactamente 23 d\xEDgitos solo a un asunto propio ACTIVE sin radicado, con revisi\xF3n e idempotencia; nunca reemplaza identidad ni restaura. Guarda sin consultar proveedores; sincronizaci\xF3n programada pendiente. `get_capabilities` verifica disponibilidad de ejecuci\xF3n y permiso de gesti\xF3n en tiempo de consulta. `list_notifications` filtra descartadas antes de paginar con next_cursor/has_more.",
     "Novedades: `list_updates` entrega actuaciones, estados y ciclo de vida por revisi\xF3n; deduplica por dedupe_key y consulta freshness. freshness.issues identifica asuntos con fallos o sin consulta reciente incluso sin eventos; contin\xFAa su p\xE1gina con `list_freshness_issues` y next_after. reconcile_since relee filas actuales hasta 400 d\xEDas, no historial completo ni purgas; commits tard\xEDos de m\xE1s de 15 minutos pueden perderse.",
     "Correcciones expl\xEDcitas: add_hearing con hearing_id conserva identidad, exige revisi\xF3n, motivo y clave; update_work_item admite authority_email:null y, separadamente, reclasificaci\xF3n workflow_type+stage con cat\xE1logo vivo, motivo y revisi\xF3n. get_capabilities.correction_availability determina si esas variantes est\xE1n liberadas; nunca presumas disponibilidad de una variante por el permiso de la herramienta base. La remisi\xF3n no acredita terminaci\xF3n. No inventes plazos ni cifras: si una herramienta no devuelve el dato, dilo expl\xEDcitamente.",
@@ -4021,7 +4094,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-6-21"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-7-0"
   }),
   tools: [
     get_user_context_default,
@@ -4059,6 +4132,7 @@ var mcp_default = defineMcp({
     get_capabilities_default,
     list_workflow_stages_default,
     create_work_item_default,
+    create_peticion_default,
     change_work_item_lifecycle_default,
     move_work_item_stage_default,
     list_stage_suggestions_default,
