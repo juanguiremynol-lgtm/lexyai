@@ -145,17 +145,19 @@ export async function heartbeatNoOp(
 
 // ─── Known jobs and their expected intervals (minutes) ───────────────
 
+// Daily cadence (2026-11-17): every scheduled job runs at most once per Bogotá day
+// (bounded continuation windows excepted), so expectations are 24h + slack.
 // P1.1 — intervals realigned to the reduced cron cadences. A stale expectation
 // here turns every reduced job into a permanent false "missed job" alert.
 export const KNOWN_PLATFORM_JOBS: Record<string, { label: string; expectedIntervalMinutes: number }> = {
   "scheduled-daily-sync":           { label: "Sync Diario",              expectedIntervalMinutes: 1440 },
   "scheduled-publicaciones-monitor": { label: "Monitor Publicaciones",   expectedIntervalMinutes: 1440 },
-  "atenia-server-heartbeat":        { label: "Server Heartbeat",         expectedIntervalMinutes: 420 },
-  "atenia-cron-watchdog":           { label: "Cron Watchdog",            expectedIntervalMinutes: 90 },
+  "atenia-server-heartbeat":        { label: "Server Heartbeat",         expectedIntervalMinutes: 1500 },
+  "atenia-cron-watchdog":           { label: "Cron Watchdog",            expectedIntervalMinutes: 1500 },
   "atenia-ai-supervisor":           { label: "AI Supervisor",            expectedIntervalMinutes: 1440 },
   "atenia-platform-sweep":          { label: "Platform Sweep",           expectedIntervalMinutes: 1440 },
-  "atenia-self-health":             { label: "Self-Health Check",        expectedIntervalMinutes: 90 },
-  "process-retry-queue":            { label: "Retry Queue Processor",    expectedIntervalMinutes: 25 },
+  "atenia-self-health":             { label: "Self-Health Check",        expectedIntervalMinutes: 1500 },
+  "process-retry-queue":            { label: "Retry Queue Processor",    expectedIntervalMinutes: 1500 },
   "atenia-daily-report":            { label: "Daily Ops Report",         expectedIntervalMinutes: 1440 },
   "global-master-sync":             { label: "Global Master Sync (Manual)", expectedIntervalMinutes: 0 },
 };

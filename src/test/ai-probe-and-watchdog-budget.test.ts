@@ -42,19 +42,34 @@ describe("paid AI probe eliminated from scheduled self-health", () => {
   });
 });
 
-describe("watchdog heartbeat tolerance matches 6h cadence", () => {
-  it("HEARTBEAT_MAX_GAP_MINUTES is 420 (6h + 60min slack)", () => {
+describe("watchdog heartbeat tolerance matches daily cadence", () => {
+  it("HEARTBEAT_MAX_GAP_MINUTES is 1500 (24h + 60min slack)", () => {
     const m = watchdog.match(/HEARTBEAT_MAX_GAP_MINUTES\s*=\s*(\d+)/);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(420);
+    expect(Number(m![1])).toBe(1500);
   });
 
-  it("a 1h or 6h gap does NOT retrigger; only >7h does", () => {
-    const GAP = 420;
+  it("a normal daily gap does NOT retrigger; only >25h does", () => {
+    const GAP = 1500;
     const wouldTrigger = (gapMinutes: number) => gapMinutes > GAP;
-    expect(wouldTrigger(60)).toBe(false); // 1h after last OK run
-    expect(wouldTrigger(360)).toBe(false); // exactly at next scheduled run
-    expect(wouldTrigger(419)).toBe(false); // within slack
-    expect(wouldTrigger(421)).toBe(true); // genuinely absent
+    expect(wouldTrigger(1440)).toBe(false); // next daily run
+    expect(wouldTrigger(1499)).toBe(false); // within slack
+    expect(wouldTrigger(1501)).toBe(true); // a whole day missed
+  });
+});
+
+describe("daily cron cadence release script", () => {
+  const fs = require("fs");
+  const install: string = fs.readFileSync("supabase/release/cron_daily_cadence_20261117.sql", "utf8");
+  const rows = [...install.matchAll(/\((\d+),'[^']+','([^']+)','([^']+)'/g)].slice(0, 23);
+  const windowed = new Set(["21", "67", "74", "97", "99", "100"]);
+  it("every ordinary job runs at most once per day; continuations stay inside a bounded window", () => {
+    expect(rows.length).toBe(23);
+    for (const [, id, , to] of rows) {
+      const [min, hour] = to.split(" ");
+      if (id === "71") { expect(to).toBe("*/15 * * * *"); continue; } // transactional outbox exception
+      if (windowed.has(id)) { expect(hour).toMatch(/^\d+-\d+$/); const [a, b] = hour.split("-").map(Number); expect(b - a).toBeLessThanOrEqual(4); continue; }
+      expect(min).toMatch(/^\d+$/); expect(hour).toMatch(/^\d+$/);
+    }
   });
 });
