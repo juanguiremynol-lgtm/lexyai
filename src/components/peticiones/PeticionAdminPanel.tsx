@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   MANUAL_EVENT_CODES, EVENT_LABELS, PETICION_COMPONENTS, PRESENTATION_SOURCES, EXTENSION_VALIDITY_LABELS,
-  validatePresentation, buildPresentationRpcArgs, validateAuthority, buildAuthorityPayload, friendlyRpcError,
+  getPresentationAnchorMode, validatePresentation, buildPresentationRpcArgs, validateAuthority, buildAuthorityPayload, friendlyRpcError,
   type PresentationForm, type CurrentAnchor, type AuthorityForm as AuthorityFormData,
 } from "@/lib/peticion-admin";
 
@@ -99,9 +99,9 @@ function PresentationSection({ workItem }: Props) {
 
   const current: CurrentAnchor | null = state ? {
     sent_at: state.sent_at, components: state.components ?? [], anchor_version: state.anchor_version ?? 0,
-    anchor_source: state.anchor_source === "PRESENTACION_DOCUMENTADA" ? state.anchor_source : null,
+    anchor_source: state.anchor_source,
   } : null;
-  const hasAnchor = !!current?.anchor_source;
+  const anchorMode = getPresentationAnchorMode(current);
   const blank: PresentationForm = { presented_on: "", source: "USUARIO_DECLARADO", support: "", components: ["GENERAL_INTERVENCION"], reason: "", email_link_id: null };
   const [form, setForm] = useState<PresentationForm>(blank);
   const [editing, setEditing] = useState(false);
@@ -151,7 +151,7 @@ function PresentationSection({ workItem }: Props) {
         </p>
       </div>
 
-      {!hasAnchor && !editing && (
+      {anchorMode === "new" && !editing && (
         <Alert>
           <AlertTitle>Falta la fecha de presentación</AlertTitle>
           <AlertDescription className="space-y-2">
@@ -161,7 +161,18 @@ function PresentationSection({ workItem }: Props) {
         </Alert>
       )}
 
-      {hasAnchor && !editing && (
+      {anchorMode === "legacy" && !editing && (
+        <Alert>
+          <AlertTitle>Fecha base anterior registrada</AlertTitle>
+          <AlertDescription className="space-y-2">
+            {state.authority_received_at && <p>Recepción registrada: {fmt(state.authority_received_at)}.</p>}
+            <p>La fecha de recepción no se usará como fecha de presentación. Indique la fecha de presentación y el motivo del cambio para calcular los plazos.</p>
+            <Button size="sm" onClick={() => setEditing(true)}>Registrar presentación</Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {anchorMode === "documented" && !editing && (
         <div className="space-y-1 rounded-md border p-3 text-sm">
           <p><b>Base:</b> presentada el {fmt(state.sent_at)}{holidayName ? ` (festivo: ${holidayName})` : ""} · versión {state.anchor_version}</p>
           <p><b>Origen:</b> {PRESENTATION_SOURCES.find((s) => s.code === state.presentation_source)?.label ?? state.presentation_source}</p>
@@ -205,7 +216,7 @@ function PresentationSection({ workItem }: Props) {
               </label>
             ))}
           </div>
-          {hasAnchor && <div className="space-y-1"><Label>Motivo de la corrección</Label><Textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Rebote, fecha real distinta, traslado, componente mal clasificado…" /></div>}
+          {anchorMode !== "new" && <div className="space-y-1"><Label htmlFor="peticion-presentation-reason">Motivo de la corrección</Label><Textarea id="peticion-presentation-reason" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Rebote, fecha real distinta, traslado, componente mal clasificado…" /></div>}
           <div className="flex gap-2">
             <Button onClick={() => save.mutate()} disabled={save.isPending}>Guardar y calcular plazos</Button>
             <Button variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>

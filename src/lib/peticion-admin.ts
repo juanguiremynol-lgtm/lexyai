@@ -69,6 +69,11 @@ export interface CurrentAnchor {
   anchor_source: string | null;
 }
 
+export function getPresentationAnchorMode(current: CurrentAnchor | null): "new" | "legacy" | "documented" {
+  if (current?.anchor_source === "PRESENTACION_DOCUMENTADA") return "documented";
+  return current?.anchor_source != null ? "legacy" : "new";
+}
+
 /** Client-side mirror of the server checks; the RPC remains authoritative. */
 export function validatePresentation(f: PresentationForm, today: string, current: CurrentAnchor | null): string[] {
   const errors: string[] = [];
@@ -81,12 +86,11 @@ export function validatePresentation(f: PresentationForm, today: string, current
   if (f.support.length > 1000) errors.push("Soporte demasiado largo.");
   if (f.components.length === 0) errors.push("Seleccione al menos un componente de la petición.");
   if (f.components.some((c) => !PETICION_COMPONENTS.some((p) => p.code === c))) errors.push("Componente inválido.");
-  if (current?.anchor_source) {
-    const removed = current.components.filter((c) => !f.components.includes(c));
-    const changed = current.sent_at !== f.presented_on;
-    if ((changed || removed.length > 0) && !f.reason.trim()) {
-      errors.push("Indique el motivo de la corrección (rebote, fecha real distinta, traslado…).");
-    }
+  const mode = getPresentationAnchorMode(current);
+  const requiresReason = mode === "legacy" || (mode === "documented" && current != null &&
+    (current.sent_at !== f.presented_on || current.components.some((c) => !f.components.includes(c))));
+  if (requiresReason && !f.reason.trim()) {
+    errors.push("Indique el motivo de la corrección (rebote, fecha real distinta, traslado…).");
   }
   return errors;
 }
@@ -99,7 +103,7 @@ export function buildPresentationRpcArgs(workItemId: string, f: PresentationForm
     p_support: f.support.trim(),
     p_components: [...new Set(f.components)].sort(),
     p_reason: f.reason.trim() || null,
-    p_expected_version: current?.anchor_source ? current.anchor_version : null,
+    p_expected_version: getPresentationAnchorMode(current) !== "new" ? current?.anchor_version ?? null : null,
     p_create_tasks: createTasks,
     p_email_link_id: f.email_link_id,
   };

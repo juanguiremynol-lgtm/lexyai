@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildPresentationRpcArgs, validatePresentation, buildAuthorityPayload, friendlyRpcError,
+  getPresentationAnchorMode, buildPresentationRpcArgs, validatePresentation, buildAuthorityPayload, friendlyRpcError,
   type PresentationForm, type CurrentAnchor,
 } from "../peticion-admin";
 
@@ -36,6 +36,19 @@ describe("peticion presentation (operative term start)", () => {
     expect(a.p_expected_version).toBe(1);
     expect(buildPresentationRpcArgs("w", base, null).p_expected_version).toBeNull();
   });
+  it.each(["MANUAL", "AUTHORITY_RECEIPT", "SEND_DATE", "COMPETENT_AUTHORITY_RECEIPT"])(
+    "treats %s as an existing versioned anchor, requiring a reason even when date and components match",
+    (anchor_source) => {
+      const legacy = { ...current, anchor_source, anchor_version: 0 };
+      expect(getPresentationAnchorMode(legacy)).toBe("legacy");
+      expect(validatePresentation(base, "2026-11-17", legacy)).toHaveLength(1);
+      const correction = { ...base, reason: "  Presentación documentada según constancia  " };
+      expect(validatePresentation(correction, "2026-11-17", legacy)).toEqual([]);
+      expect(buildPresentationRpcArgs("w", correction, legacy)).toMatchObject({
+        p_expected_version: 0, p_presented_on: "2026-11-16", p_reason: "Presentación documentada según constancia",
+      });
+    },
+  );
   it("authority metadata never carries anchor fields", () => {
     const p = buildAuthorityPayload({ authority_name: "CORNARE", authority_email_domain: "CORNARE.gov.co", authority_radicado: "" }, { work_item_id: "w", owner_id: "o", organization_id: null });
     expect(p).not.toHaveProperty("anchor_source");
