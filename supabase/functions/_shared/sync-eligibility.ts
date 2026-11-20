@@ -33,8 +33,6 @@ export interface SelectOptions {
   onlyRecentlyAccessed?: boolean;
   /** Snapshot boundary: only include items created_at <= this timestamp */
   cutoffTime?: string;
-  /** Work item IDs to exclude (e.g. dead-lettered items) */
-  excludeIds?: string[];
 }
 
 /**
@@ -42,12 +40,12 @@ export interface SelectOptions {
  *
  * Eligibility rules (canonical):
  *   - monitoring_enabled = true
+ *   - scraping_enabled = true
  *   - workflow_type IN SYNC_ENABLED_WORKFLOWS
  *   - stage NOT IN TERMINAL_STAGES
  *   - radicado IS NOT NULL
  *   - organization_id matches
  *   - created_at <= cutoffTime (if provided, for snapshot stability)
- *   - id NOT IN excludeIds (if provided, for dead-letter exclusion)
  *
  * Results are ordered by id ASC for deterministic cursor pagination.
  */
@@ -65,6 +63,7 @@ export async function selectEligibleWorkItems(
       .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
+      .eq("scraping_enabled", true)
       .is("deleted_at", null)
       .eq("lifecycle_state", "ACTIVE")
       .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
@@ -84,14 +83,6 @@ export async function selectEligibleWorkItems(
     // Item 1: Snapshot boundary — exclude items created after the run started
     if (options?.cutoffTime) {
       query = query.lte("created_at", options.cutoffTime);
-    }
-
-    // CRITICAL: excludeIds must be applied in SQL (before LIMIT), not in JS post-fetch.
-    // Otherwise a page can be entirely consumed by excluded rows, producing an empty
-    // result that breaks cursor-driven pagination loops.
-    if (options?.excludeIds && options.excludeIds.length > 0) {
-      const list = options.excludeIds.map((id) => `"${id}"`).join(",");
-      query = query.not("id", "in", `(${list})`);
     }
 
     const pageSize = Math.min(200, target - items.length);

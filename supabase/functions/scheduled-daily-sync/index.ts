@@ -33,7 +33,6 @@ import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
 import { runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
 import { monitoredOrganizations, summarizeDryRun } from "./inventory.ts";
-import { dispatchContinuation } from '../_shared/continuationDispatch.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,7 +90,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync", revision: "daily-inventory-20261120-v2" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync", revision: "daily-includes-prior-failures-20261120" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -210,6 +209,8 @@ Deno.serve(async (req) => {
     is_continuation?: boolean;
     continuation_of?: string;
     continuation_count?: number;
+    continuation_parent_run_id?: string;
+    continuation_queued_day?: string;
     run_cutoff_time?: string;
     chain_id?: string;
     trigger_source?: string;
@@ -236,6 +237,29 @@ Deno.serve(async (req) => {
   const manualInitiatorUserId = bodyParams.manual_initiator_user_id || null;
   // Carry forward per-item timeout counts across continuation rounds
   const inheritedTimeoutCounts: Record<string, number> = bodyParams.item_timeout_counts || {};
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Missing Supabase configuration", run_id: runId, chain_id: chainId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  if (bodyParams.continuation_queued_day !== undefined || bodyParams.continuation_parent_run_id !== undefined) {
+    const day = bogotaDay();
+    const valid = isContinuation && continuationOf && resumeAfterId && bodyParams.org_id && runCutoffTime &&
+      bodyParams.continuation_parent_run_id && bodyParams.continuation_queued_day === day;
+    const { data: parent, error } = valid ? await supabase.from("auto_sync_daily_ledger").select("id")
+      .eq("id", continuationOf).eq("organization_id", bodyParams.org_id).eq("run_date", day)
+      .eq("run_id", bodyParams.continuation_parent_run_id).eq("chain_id", chainId)
+      .eq("cursor_last_work_item_id", resumeAfterId).eq("run_cutoff_time", runCutoffTime)
+      .eq("continuation_enqueued", true).maybeSingle() : { data: null, error: null };
+    if (error || !parent) {
+      return new Response(JSON.stringify({ ok: false, reason: error ? "CONTINUATION_PARENT_UNAVAILABLE" : "STALE_CONTINUATION" }),
+        { status: error ? 503 : 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
 
   // Guard: max continuations to prevent infinite loops
   if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
@@ -286,15 +310,6 @@ Deno.serve(async (req) => {
   }
 
   console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} overflow=${isOverflow} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'} trigger=${triggerSource}`);
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing Supabase configuration", run_id: runId, chain_id: chainId }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   if (bodyParams.work_item_id) {
     const { data: item, error: itemError } = await supabase
@@ -464,6 +479,7 @@ Deno.serve(async (req) => {
     } catch (_logErr) { /* non-blocking */ }
 
     // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL/BUDGET_EXHAUSTED runs ──
+    let continuationsScheduled = 0;
     const partialOrgs = allResults.filter(r =>
       r.status === "PARTIAL" || r.status === "CONTINUING" ||
       (r.status === "FAILED" && r.failure_reason === "BUDGET_EXHAUSTED")
@@ -472,7 +488,7 @@ Deno.serve(async (req) => {
       try {
         const { data: ledgerRow, error: ledgerReadError } = await supabase
           .from("auto_sync_daily_ledger")
-          .select("cursor_last_work_item_id, run_cutoff_time, items_skipped, items_succeeded, failure_reason")
+          .select("cursor_last_work_item_id, items_skipped, failure_reason")
           .eq("id", partialResult.ledger_id)
           .maybeSingle();
         if (ledgerReadError || !ledgerRow) {
@@ -481,7 +497,6 @@ Deno.serve(async (req) => {
         }
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
-        const effectiveCutoff = ledgerRow?.run_cutoff_time || runCutoffTime;
 
         if (cursor && cursor === resumeAfterId) {
           console.warn(`[daily-sync] No progress detected for org=${partialResult.org_id} — cursor unchanged (${cursor.slice(0, 8)}). Stopping chain.`);
@@ -494,8 +509,7 @@ Deno.serve(async (req) => {
 
         const hasSkippedWork = (ledgerRow?.items_skipped ?? partialResult.skipped ?? 0) > 0;
         const hasBudgetExhaustion = (ledgerRow?.failure_reason === "BUDGET_EXHAUSTED") || (partialResult.failure_reason === "BUDGET_EXHAUSTED");
-        if (partialResult.synced === 0 && !hasSkippedWork && !hasBudgetExhaustion) {
-          console.warn(`[daily-sync] No items synced and no skipped work for org=${partialResult.org_id} — stopping chain to prevent infinite loop.`);
+        if (!hasSkippedWork && !hasBudgetExhaustion) {
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: false,
             continuation_block_reason: "NO_PENDING_WORK",
@@ -508,30 +522,16 @@ Deno.serve(async (req) => {
           // Merge item_timeout_counts from this run for the next continuation
           const mergedTimeoutCounts = { ...inheritedTimeoutCounts, ...(partialResult.item_timeout_counts || {}) };
           console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId} (skipped=${ledgerRow?.items_skipped ?? '?'}, reason=${ledgerRow?.failure_reason ?? 'none'})`);
-          const dispatch = await dispatchContinuation(() => fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${supabaseServiceKey}`,
-                "Content-Type": "application/json",
-              },
-              signal: AbortSignal.timeout(5_000),
-              body: JSON.stringify({
-                org_id: partialResult.org_id,
-                resume_after_id: cursor,
-                is_continuation: true,
-                continuation_of: partialResult.ledger_id,
-                continuation_count: nextCount,
-                run_cutoff_time: effectiveCutoff,
-                chain_id: chainId,
-                trigger_source: triggerSource,
-                manual_initiator_user_id: manualInitiatorUserId,
-                is_overflow: isOverflow,
-                item_timeout_counts: mergedTimeoutCounts,
-              }),
-            }));
-          const { error: dispatchRecordError } = await supabase.from("auto_sync_daily_ledger")
-            .update(dispatch).eq("id", partialResult.ledger_id);
-          if (dispatchRecordError) console.warn('[daily-sync] Continuation outcome not persisted', partialResult.ledger_id, dispatchRecordError.code);
+          const { data: receipt, error } = await supabase.rpc("enqueue_daily_sync_continuation_20261120", {
+            _parent_id: partialResult.ledger_id,
+            _run_id: runId,
+            _chain_id: chainId,
+            _resume_after_id: cursor,
+            _continuation_count: nextCount,
+            _item_timeout_counts: mergedTimeoutCounts,
+          });
+          if (receipt?.enqueued === true) continuationsScheduled++;
+          else console.warn("[daily-sync] Continuation queue receipt unavailable", partialResult.ledger_id, error?.code ?? receipt?.code);
         } else {
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: false,
@@ -579,7 +579,7 @@ Deno.serve(async (req) => {
       run_cutoff_time: runCutoffTime,
       trigger_source: triggerSource,
       orgs: allResults,
-      continuations_scheduled: partialOrgs.length,
+      continuations_scheduled: continuationsScheduled,
       total_synced: totalSynced,
       total_errors: totalErrors,
       total_dead_lettered: totalDeadLettered,
@@ -670,8 +670,7 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${svcKey}` },
       body: JSON.stringify({ batch_size: 50, source: "scheduled-daily-sync" }),
     }).catch((e) => console.warn("[daily-sync] backfill kick failed", (e as Error).message));
-    const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
-    rt?.waitUntil?.(kick);
+    keepRunning(kick);
   } catch (_e) { /* non-blocking */ }
 
   return new Response(
@@ -816,24 +815,15 @@ async function syncOrganization(
   }
 
   try {
-    // Load dead-lettered item IDs for this org to exclude them
-    const { data: deadLetterRows, error: deadLetterError } = await supabase
-      .from("sync_item_failure_tracker")
-      .select("work_item_id")
-      .eq("organization_id", orgId)
-      .eq("dead_lettered", true);
-    if (deadLetterError) throw deadLetterError;
-    const deadLetteredIds = (deadLetterRows || []).map((r: any) => r.work_item_id);
-
-    // Count total eligible items
+    // Preserve historical failures in the tracker. The daily source lease
+    // and extraction admission limit attempts for each work item today.
     const allItems = await selectEligibleWorkItems(supabase, orgId, {
       afterId: isContinuation ? resumeAfterId : undefined,
       cutoffTime: runCutoffTime,
-      excludeIds: deadLetteredIds,
     });
     const expectedTotal = allItems.length;
 
-    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} dead_lettered_excluded=${deadLetteredIds.length} continuation=${isContinuation} overflow=${isOverflow}`);
+    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} continuation=${isContinuation} overflow=${isOverflow}`);
 
     // Write ledger RUNNING with expected_total
     await updateLedger(supabase, ledgerId, {
@@ -870,7 +860,6 @@ async function syncOrganization(
         afterId: cursor,
         limit: PAGE_SIZE,
         cutoffTime: runCutoffTime,
-        excludeIds: deadLetteredIds,
       });
 
       if (pageItems.length === 0) {
@@ -1135,7 +1124,7 @@ async function syncOrganization(
       remaining_estimate: itemsSkipped,
       dead_letter_count: deadLetterCount,
       timeout_count: timeoutCount,
-      dead_lettered_excluded: deadLetteredIds.length,
+      dead_lettered_excluded: 0,
       // New observability fields
       skipped_radicados: skippedRadicados.slice(0, 50),
       skipped_reasons: skippedReasons,
@@ -1249,6 +1238,11 @@ type AckOutcome =
   | { kind: "dispatched" }
   | { kind: "error"; error: any };
 
+function keepRunning(task: Promise<unknown>): void {
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  runtime?.waitUntil?.(task);
+}
+
 async function syncSingleItemWithAck(
   supabase: any, item: EligibleWorkItem, orgId: string, ackMs: number, allowBuscar: boolean,
 ): Promise<AckOutcome> {
@@ -1268,9 +1262,9 @@ async function syncSingleItemWithAck(
   const first = await Promise.race([call, ack]);
   if (first.kind !== "dispatched" || settled) return settled ? await call : first;
 
-  // Keep the in-flight call alive; swallow its late rejection so it cannot
-  // surface as an unhandled error after the loop has moved on.
-  call.catch(() => {});
+  // This promise also seals the durable source attempt after ingestion. Retain
+  // it across the scheduler response; the result still belongs to the callee.
+  keepRunning(call);
   return { kind: "dispatched" };
 }
 

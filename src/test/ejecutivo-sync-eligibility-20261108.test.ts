@@ -33,7 +33,7 @@ function database(rows: Row[]) {
   };
 }
 
-const base = { organization_id: "org", monitoring_enabled: true, deleted_at: null,
+const base = { organization_id: "org", monitoring_enabled: true, scraping_enabled: true, deleted_at: null,
   lifecycle_state: "ACTIVE", stage: null, radicado: "05001310302120250021100" };
 
 describe("executive cases in daily source eligibility", () => {
@@ -45,6 +45,7 @@ describe("executive cases in daily source eligibility", () => {
       { ...base, id: "4", workflow_type: "EJECUTIVO", monitoring_enabled: false },
       { ...base, id: "5", workflow_type: "EJECUTIVO", radicado: "1234" },
       { ...base, id: "6", workflow_type: "EJECUTIVO", organization_id: "another" },
+      { ...base, id: "7", workflow_type: "EJECUTIVO", scraping_enabled: false },
     ];
     const result = await selectEligibleWorkItems(database(rows), "org");
     expect(result.map((row) => row.id)).toEqual(["1", "2"]);

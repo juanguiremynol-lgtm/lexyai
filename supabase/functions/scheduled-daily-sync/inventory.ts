@@ -30,7 +30,7 @@ interface Candidate {
   radicado: string;
   workflow_type: string;
   stage: string | null;
-  sync_item_failure_tracker: { dead_lettered: boolean } | null;
+  scraping_enabled: boolean;
 }
 
 interface Summary {
@@ -44,7 +44,7 @@ interface Summary {
 export async function summarizeDryRun(db: Database, cutoff: string): Promise<Summary[]> {
   const orgs = new Map<string, Summary>();
   let cursor: string | undefined;
-  const fields = "id,organization_id,radicado,workflow_type,stage,sync_item_failure_tracker(dead_lettered)";
+  const fields = "id,organization_id,radicado,workflow_type,stage,scraping_enabled";
   while (true) {
     let q = activeMonitored(db, fields).lte("created_at", cutoff).order("id").limit(200);
     if (cursor) q = q.gt("id", cursor);
@@ -61,7 +61,7 @@ export async function summarizeDryRun(db: Database, cutoff: string): Promise<Sum
       let reason: string | undefined;
       if (!SYNC_ENABLED_WORKFLOWS.some(w => w === row.workflow_type)) reason = "workflow_ineligible";
       else if (TERMINAL_STAGES.some(stage => stage === row.stage)) reason = "terminal_stage";
-      else if (row.sync_item_failure_tracker?.dead_lettered) reason = "dead_lettered";
+      else if (!row.scraping_enabled) reason = "scraping_disabled";
       else if (row.radicado.replace(/\D/g, "").length !== 23) reason = "invalid_radicado_format";
       if (reason) s.exclusion_reasons[reason] = (s.exclusion_reasons[reason] ?? 0) + 1;
       else {
