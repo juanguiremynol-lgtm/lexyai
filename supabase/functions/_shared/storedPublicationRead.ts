@@ -1,5 +1,43 @@
 import type { DailyAdmission } from './dailyUpdateGate.ts';
 import { matchingCompletedHistory } from './ppDurableContract.ts';
+import { parseDate, plausibleCivilDate } from './canonicalPublicacionMapper.ts';
+
+type PublicWindow = { desde: string; hasta: string };
+
+/** The reader returns a case's accumulated inventory even for a specific run.
+ * The run's certificate only describes the listings in its requested window. */
+export function scopeStoredPPWindow(history: Record<string, unknown>, window: PublicWindow) {
+  const body = { ...history };
+  const rows = Array.isArray(history.publicaciones) ? history.publicaciones : history.actuaciones;
+  let undated = 0;
+  const civilDay = (value: unknown) => typeof value === 'string' ? plausibleCivilDate(parseDate(value)) : null;
+  const inWindow = (date: string | null) => date != null && date >= window.desde && date <= window.hasta;
+  if (Array.isArray(rows)) {
+    const selected = history.run_status === 'SUCCESS_EMPTY' ? [] : rows.filter(row => {
+      const date = civilDay(row?.estado?.fecha_publicacion_portal || row?.estado?.fecha_publicacion);
+      if (date == null) undated++;
+      return inWindow(date);
+    });
+    if (Array.isArray(history.publicaciones)) body.publicaciones = selected;
+    if (Array.isArray(history.actuaciones)) body.actuaciones = selected;
+  }
+  for (const field of ['estados_sin_documento', 'provider_no_document']) {
+    const notices = history[field];
+    if (Array.isArray(notices)) {
+      body[field] = notices.filter(row => inWindow(civilDay(row?.fecha_iso ?? row?.fecha_publicacion ?? row?.fecha_fijacion ?? row?.fecha)));
+    }
+  }
+  return { body, unscoped: !Array.isArray(rows) || undated > 0 };
+}
+
+export function ppPlanCompletion(history: Record<string, unknown>, day: string): boolean | null {
+  if (history.consulta_completa_plan_diario !== true) {
+    return history.consulta_completa_plan_diario === false ? false : null;
+  }
+  const plan = history.plan_diario as { dia_bogota?: string; consulta_completa?: boolean; publica?: Record<string, unknown> } | undefined;
+  return plan?.dia_bogota === day && plan.consulta_completa === true &&
+    plan.publica?.backend_run_id === history.backend_run_id && plan.publica?.radicado === history.radicado ? true : null;
+}
 
 /** A terminal extraction admission can consume a later stored result. An
  * active extraction is never displaced and this path never authorizes POST. */

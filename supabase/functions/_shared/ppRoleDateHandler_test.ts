@@ -36,18 +36,24 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
   let explicit=false, mixed=false, duplicate=false, insertedFingerprint='';
   let windowOutcome: 'SUCCESS_EMPTY' | 'SUCCESS_WITH_DATA' | null = null;
   let retainedInventory = true;
+  const receiptId = '2affda21-852e-4dda-8d12-0370a5a7d178';
+  let receiptScenario: 'valid' | 'superseded' | 'active' | null = null;
   const observedAt = new Date().toISOString();
   const windowDate = (offset: number) => new Date(Date.parse(observedAt) - 5 * 3600_000 + offset * 86400_000).toISOString().slice(0,10);
+  const history = (outcome: string, actuaciones: unknown[]) => ({
+    radicado, backend_run_id:'f5c1fa1d-a06f-439d-a947-959bc2c2f68d', run_status:outcome,
+    tipo_cobertura:'RECIENTE', consulta_completa:true, persistencia_completa:true, alcance_consulta_completa:'VENTANA_PUBLICA',
+    ventana_solicitada:{desde:windowDate(-14),hasta:windowDate(0)}, intento_observado_en:observedAt,
+    consulta_completa_plan_diario:false, recuperacion_documental_completa:false, actuaciones,
+  });
   const writes: Record<string, any> = {};
   const calls:Array<{path:string;method:string;select:string|null}>=[];
   const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
   globalThis.fetch=async(input,init)=>{
     const req=new Request(input,init),u=new URL(req.url);calls.push({path:u.pathname,method:req.method,select:u.searchParams.get('select')});
     if(windowOutcome && u.host==='pp-fixture.invalid' && u.pathname===`/historico/${radicado}`) {
-      return json({radicado, backend_run_id:'f5c1fa1d-a06f-439d-a947-959bc2c2f68d', run_status:windowOutcome,
-        consulta_completa:true, persistencia_completa:true, alcance_consulta_completa:'VENTANA_PUBLICA',
-        ventana_solicitada:{desde:windowDate(-14),hasta:windowDate(0)}, intento_observado_en:observedAt,
-        consulta_completa_plan_diario:false, recuperacion_documental_completa:false, actuaciones:retainedInventory ? [raw] : []});
+      const recent = { ...raw, estado: { ...raw.estado, fecha_publicacion:windowDate(-1) } };
+      return json(history(windowOutcome, retainedInventory ? [raw, recent] : []));
     }
     if(u.host==='pp-fixture.invalid' && (u.pathname===`/historico/${radicado}` || u.pathname==='/procesar-radicado')) {
       const incoming=structuredClone(actual);
@@ -57,6 +63,20 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
         {...raw,estado:{...raw.estado,...(explicit?{fecha_fijacion_impresa:'2026-10-15'}:{})}},...(mixed?[{estado:{article_id:'987654',numero:'39',fecha_publicacion:'16-octubre-2026',titulo_original:'Estado 39'},documentos_pdf:[]}]:[])]});
     }
     if(u.host==='db-fixture.invalid'){
+      if(receiptScenario && u.pathname==='/rest/v1/daily_update_cycles') {
+        return json({ channels:{pubs:{status:receiptScenario==='active'?'STARTED':'FAILED',trace_id:'morning-run'}} });
+      }
+      if(receiptScenario && u.pathname==='/rest/v1/external_sync_run_payloads' && req.method==='GET') {
+        assert.equal(u.searchParams.get('id'), 'eq.'+receiptId);
+        assert.equal(u.searchParams.get('work_item_id'), 'eq.'+item);
+        assert.equal(u.searchParams.get('radicado'), 'eq.'+radicado);
+        return json({sync_run_id:'parent-original',payload_json:{kind:'HISTORICO_READ',radicado,http_status:200,
+          body:history('SUCCESS_EMPTY',[raw])}});
+      }
+      if(receiptScenario && u.pathname==='/rest/v1/external_sync_runs' && req.method==='GET') {
+        assert.equal(u.searchParams.get('organization_id'), 'eq.org-fixture');
+        return json({id:receiptScenario==='superseded'?'parent-newer':'parent-original'});
+      }
       if(u.pathname==='/rest/v1/rpc/admit_daily_update')return json(duplicate
         ? {admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:'2026-11-06',existing:{status:'PENDING_UPSTREAM'}}
         : {admitted:true,mode:'new',token:'fixture',run_date:'2026-11-06'});
@@ -93,7 +113,7 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
         return json([{id:'old-a',tipo_publicacion:old.tipo_publicacion,raw_data:old.raw_data,hash_fingerprint:old.hash_fingerprint},{id:'old-b',tipo_publicacion:old.tipo_publicacion,raw_data:old.raw_data,hash_fingerprint:'other'}]);
       }
       if(u.pathname==='/rest/v1/rpc/finish_daily_update')return json({});
-      if(windowOutcome && req.method==='POST' && ['/rest/v1/external_sync_runs','/rest/v1/work_item_sync_timeline'].includes(u.pathname)){
+      if((windowOutcome || receiptScenario) && req.method==='POST' && ['/rest/v1/external_sync_runs','/rest/v1/work_item_sync_timeline'].includes(u.pathname)){
         writes[u.pathname]=await req.json(); return json({id:'run-fixture'},201);
       }
       if(['/rest/v1/external_sync_runs','/rest/v1/provider_sync_traces','/rest/v1/external_sync_run_payloads','/rest/v1/work_item_sync_timeline','/rest/v1/sync_traces','/rest/v1/sync_persist_buckets','/rest/v1/sync_retry_queue'].includes(u.pathname))return json(null,201);
@@ -101,7 +121,9 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
     throw new Error(`Unexpected synthetic request ${req.method} ${u.host}${u.pathname}`);
   };
   (Deno as any).serve=(fn:typeof handler)=>{handler=fn};
-  const invoke=async()=>{calls.length=0;const res=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer synthetic-key'},body:JSON.stringify({work_item_id:item,_scheduled:true})}));return await res.json();};
+  const invoke=async()=>{calls.length=0;const res=await handler!(new Request('https://edge-fixture.invalid',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer synthetic-key'},body:JSON.stringify({
+    work_item_id:item,_scheduled:true,...(receiptScenario ? {_pp_stored_receipt_id:receiptId} : {}),
+  })}));return await res.json();};
   try {
     await import('../sync-publicaciones-by-work-item/index.ts'); assert.ok(handler);
     await t.step('a corrected state role cannot duplicate a conflicting legacy article',async()=>{
@@ -155,7 +177,9 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
         for (const key of Object.keys(writes)) delete writes[key];
         const result=await invoke();
         assert.equal(result.ok,true,JSON.stringify(result)); assert.equal(result.inserted_count,0);
-        assert.ok(result.skipped_count>0); assert.equal(result.result_code,outcome);
+        assert.equal(result.skipped_count,outcome==='SUCCESS_EMPTY'?0:1); assert.equal(result.result_code,outcome);
+        assert.equal(calls.filter(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones').length,
+          outcome==='SUCCESS_EMPTY'?0:1);
         assert.deepEqual(result.pp_window,{outcome,from:windowDate(-14),to:windowDate(0),daily_plan_complete:false,documents_complete:false});
         const attempt=writes['/rest/v1/external_sync_runs'].provider_attempts[0];
         assert.equal(attempt.outcome,`RUN_${outcome}`); assert.deepEqual(attempt.pp_window,result.pp_window);
@@ -180,5 +204,23 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
         assert.equal(calls.some(c=>c.path==='/rest/v1/work_item_coverage_gaps'),false);
       });
     }
+    await t.step('reconcile only the latest empty receipt without external requests or admission writes',async()=>{
+      windowOutcome=null;
+      for (const scenario of ['valid','superseded','active'] as const) {
+        receiptScenario=scenario;
+        const result=await invoke();
+        assert.equal(result.ok,scenario==='valid');
+        assert.ok(!calls.some(c=>c.path.startsWith('/historico/') || c.path==='/procesar-radicado'));
+        assert.ok(!calls.some(c=>c.path.includes('admit_daily_update') || c.path.includes('finish_daily_update') ||
+          c.path.includes('rpc_upsert_work_item_publicaciones') || c.path.includes('sync_retry_queue')));
+        if (scenario==='valid') {
+          assert.equal(result.source_query_attempted,false);
+          assert.equal(result.source_observed_at,observedAt);
+          assert.equal(result.pp_window.daily_plan_complete,false);
+          assert.equal(result.backend_trace.stored_receipt_id,receiptId);
+          assert.equal(writes['/rest/v1/work_item_sync_timeline'].status,'empty');
+        }
+      }
+    });
   } finally {globalThis.fetch=oldFetch;(Deno as any).serve=oldServe;for(const [k,v] of Object.entries(saved))v===undefined?Deno.env.delete(k):Deno.env.set(k,v);}
 }});

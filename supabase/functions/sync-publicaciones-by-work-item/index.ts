@@ -45,7 +45,7 @@ export function sanitizeRunBody(body: unknown): Record<string, unknown> | null {
 import { samaiEnrollmentDecision } from "../_shared/retryEligibility.ts";
 import { completedSamaiRead, mayReadStoredSamai } from "../_shared/completedPublicRead.ts";
 import { redundantSamaiPublicationRoute } from "../_shared/storedSamaiRead.ts";
-import { certifiedStoredPPHistory, mayReadStoredPP, storedReadEvidence } from '../_shared/storedPublicationRead.ts';
+import { certifiedStoredPPHistory, mayReadStoredPP, ppPlanCompletion, scopeStoredPPWindow, storedReadEvidence } from '../_shared/storedPublicationRead.ts';
 import { certifiedHistoricalRows, parseHistoricalWindow, type HistoricalWindow } from '../_shared/ppHistoricalReplay.ts';
 import { emptySamaiBuckets, samaiAccountingComplete, type SamaiPersistBucket } from '../_shared/samaiPublicationAccounting.ts';
 import { withSyncTimeline } from "../_shared/syncTimeline.ts";
@@ -90,6 +90,7 @@ type SyncRequest = {
   _scheduled?: boolean;
   _historical_pp_replay?: unknown;
   _samai_stored_only?: boolean;
+  _pp_stored_receipt_id?: unknown;
 };
 
 type InsertedPublication = {
@@ -1628,7 +1629,7 @@ function extractPublicacionesFromResponse(
 
 Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-PP-Revision': 'certified-window-20261120' } });
   }
 
   // Health check short-circuit
@@ -1686,11 +1687,24 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     const { work_item_id, _scheduled } = payload;
     const samaiStoredOnly = payload._samai_stored_only === true;
+    const ppReceiptRequested = Object.prototype.hasOwnProperty.call(payload, '_pp_stored_receipt_id');
+    const ppReceiptId = typeof payload._pp_stored_receipt_id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload._pp_stored_receipt_id)
+      ? payload._pp_stored_receipt_id : null;
     if (samaiStoredOnly && (!isServiceRole || _scheduled !== true)) {
       return errorResponse('SAMAI_STORED_ONLY_FORBIDDEN', 'La reconciliación almacenada requiere una llamada interna autorizada.', 403);
     }
+    if (ppReceiptRequested && (!isServiceRole || _scheduled !== true)) {
+      return errorResponse('FORBIDDEN', 'El recibo almacenado requiere una llamada interna autorizada.', 403);
+    }
+    if (ppReceiptRequested && !ppReceiptId) {
+      return errorResponse('INVALID_HISTORICAL_WINDOW', 'El identificador del recibo no es válido.', 400);
+    }
     const historicalRequested = Object.prototype.hasOwnProperty.call(payload, '_historical_pp_replay');
-    if (samaiStoredOnly && historicalRequested) return errorResponse('INCOMPATIBLE_MODES', 'Los modos de lectura no se pueden combinar.', 400);
+    const storedOnly = samaiStoredOnly || ppReceiptId !== null;
+    if ((storedOnly && historicalRequested) || (samaiStoredOnly && ppReceiptId)) {
+      return errorResponse('INCOMPATIBLE_MODES', 'Los modos de lectura no se pueden combinar.', 400);
+    }
     if (historicalRequested && (!isServiceRole || _scheduled !== true)) {
       return errorResponse('HISTORICAL_REPLAY_FORBIDDEN', 'La recuperación histórica requiere una llamada interna autorizada.', 403);
     }
@@ -1888,7 +1902,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // PP is invoked whenever it appears in the estados cascade (PRIMARY for
     // CGP/LABORAL/PENAL_906, PRIMARY for TUTELA, absent for CPACA).
     const shouldFetchPP = routing.estados.includes("PP");
-    if (historical && !shouldFetchPP) {
+    if ((historical || ppReceiptId) && !shouldFetchPP) {
       return errorResponse('HISTORICAL_PP_NOT_IN_ROUTE', 'Publicaciones Procesales no está habilitado para este tipo de asunto.', 409);
     }
     if (!shouldFetchPP) {
@@ -1964,7 +1978,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // and log it to provider_sync_traces below.
     const gateStatus = await checkRescrapeGate(supabase, work_item_id);
     // ITER55 B1 — the sync cooldown folds into the TRIGGER gate, not the read.
-    const triggerAllowed = gateStatus.allow && !readOnlyDueToCooldown;
+    const triggerAllowed = !storedOnly && gateStatus.allow && !readOnlyDueToCooldown;
     let rescrapeDecision: RescrapeDecision = { triggered: false, reason: 'not_evaluated' };
     // A stored, still-open durable run is followed with GET /runs only — no
     // new POST while its bounded follow-up window (72h from first app
@@ -2003,8 +2017,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       const t = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       return jsonResponse(dailyDuplicateBody(work_item_id, t, { admitted: false, reason: 'DAILY_ADMISSION_UNAVAILABLE' }), 200);
     }
-    if (samaiStoredOnly && activeRunId) {
-      return errorResponse('SAMAI_STORED_ONLY_ACTIVE_RUN', 'Una corrida activa no puede sustituirse por una lectura almacenada.', 409);
+    if (storedOnly && activeRunId) {
+      return errorResponse(ppReceiptId ? 'PP_STORED_READ_INCOMPLETE' : 'SAMAI_STORED_ONLY_ACTIVE_RUN',
+        'Una corrida activa no puede sustituirse por una lectura almacenada.', 409);
     }
     if (activeRunId) {
       // One GET /runs per run per interval for every caller (cron99, manual,
@@ -2022,7 +2037,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (!historical && !activeRunId) {
       const dailyTraceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
       let dailyAdmission;
-      if (samaiStoredOnly) {
+      if (storedOnly) {
         // This mode must not create, reset or seal a daily admission. Read an
         // existing terminal ledger only, and never expose its fencing token.
         const day = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
@@ -2030,7 +2045,8 @@ Deno.serve(withSyncTimeline(async (req) => {
           .select('channels').eq('work_item_id',work_item_id).eq('run_date',day).maybeSingle();
         const prior = (cycle?.channels as Record<string, any> | null)?.pubs;
         if (cycleError || !prior || !['DONE','PARTIAL','FAILED','PENDING_UPSTREAM'].includes(String(prior.status))) {
-          return errorResponse('SAMAI_STORED_ONLY_NO_TERMINAL_ADMISSION', 'No hay una admisión diaria terminada para reconciliar.', 409);
+          return errorResponse(ppReceiptId ? 'PP_STORED_READ_INCOMPLETE' : 'SAMAI_STORED_ONLY_NO_TERMINAL_ADMISSION',
+            'No hay una admisión diaria terminada para reconciliar.', 409);
         }
         dailyAdmission = {admitted:false,reason:'DAILY_UPDATE_ALREADY_STARTED',run_date:day,
           existing:{status:prior.status,trace_id:prior.trace_id}};
@@ -2062,12 +2078,35 @@ Deno.serve(withSyncTimeline(async (req) => {
               next_eligible_at: nextRead }), 200);
           }
           providerAttempts.publicaciones = true;
-          let stored = gateStatus.backendRunId
-            ? await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, gateStatus.backendRunId)
-            : await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, { allow: false });
+          let stored: FetchResultV3;
+          if (ppReceiptId) {
+            const { data: receipt, error: receiptError } = await supabase.from('external_sync_run_payloads')
+              .select('sync_run_id,payload_json')
+              .eq('id', ppReceiptId).eq('work_item_id', work_item_id).eq('radicado', normalizedRadicado)
+              .eq('provider_name', 'publicaciones').eq('stage', 'response').maybeSingle();
+            const { data: parent, error: parentError } = await supabase.from('external_sync_runs')
+              .select('id')
+              .eq('work_item_id', work_item_id).eq('organization_id', workItem.organization_id)
+              .eq('trigger_source', 'sync-publicaciones-by-work-item')
+              .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle();
+            const capture = receipt?.payload_json as (HistoricoRead & { kind?: string }) | null;
+            if (receiptError || parentError || !parent || receipt?.sync_run_id !== parent.id ||
+                capture?.kind !== 'HISTORICO_READ' || capture.http_status !== 200 || capture.radicado !== normalizedRadicado) {
+              return errorResponse('PP_STORED_READ_INCOMPLETE', 'El recibo capturado no coincide con la última corrida de Publicaciones del asunto.', 409);
+            }
+            const capturedBody = capture.body as Record<string, unknown> | null;
+            if (capturedBody?.run_status !== 'SUCCESS_EMPTY' || capturedBody.tipo_cobertura !== 'RECIENTE') {
+              return errorResponse('PP_STORED_READ_INCOMPLETE', 'El recibo no certifica una ventana reciente sin novedades.', 409);
+            }
+            stored = { ok: true, found: false, publicaciones: [], latencyMs: 0, historicoRead: capture };
+          } else {
+            stored = gateStatus.backendRunId
+              ? await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, gateStatus.backendRunId)
+              : await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, { allow: false });
+          }
           // A legacy ledger may have no UUID. Its stored feed can advertise a
           // separate current daily certificate; follow that exact UUID only.
-          if (!certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date)) {
+          if (!ppReceiptId && !certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date)) {
             const body = stored.historicoRead?.body as Record<string, any> | undefined;
             const daily = completedDailyReference({ radicado: normalizedRadicado,
               consulta_diaria: body?.plan_diario?.publica }, normalizedRadicado);
@@ -2171,11 +2210,19 @@ Deno.serve(withSyncTimeline(async (req) => {
         // certifiedStoredPPHistory verifies the radicado, run, time and window.
         // Its verdict describes that public window, independently of stored inventory.
         const window = daily.ventana_solicitada as { desde: string; hasta: string };
+        const scoped = scopeStoredPPWindow(daily, window);
+        const recent = extractPublicacionesFromResponse(scoped.body, fetchResult.latencyMs);
+        fetchResult = { ...fetchResult, ...recent };
+        if (scoped.unscoped) {
+          fetchResult.readIncomplete = true;
+          result.source_complete = false;
+          result.error_code = 'PP_WINDOW_ROWS_UNAVAILABLE';
+        }
         result.pp_window = {
           outcome: daily.run_status as 'SUCCESS_EMPTY' | 'SUCCESS_WITH_DATA',
           from: window.desde,
           to: window.hasta,
-          daily_plan_complete: typeof daily.consulta_completa_plan_diario === 'boolean' ? daily.consulta_completa_plan_diario : null,
+          daily_plan_complete: ppPlanCompletion(daily, bogotaDay),
           documents_complete: typeof daily.recuperacion_documental_completa === 'boolean' ? daily.recuperacion_documental_completa : null,
         };
       }
@@ -2204,6 +2251,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
+        ...(ppReceiptId ? { stored_receipt_id: ppReceiptId } : {}),
         persisted_partial_read: fetchResult.persistedPartial ?? null,
         followed_run_id: runRead?.run_id ?? null,
         consulta_completa: pick('consulta_completa'),
@@ -2250,7 +2298,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         console.warn('[sync-pub] follow-up ledger update failed', e instanceof Error ? e.message : 'unknown');
       }
     }
-    if (!historical) try {
+    if (!historical && !ppReceiptId) try {
       await supabase.from('provider_sync_traces' as any).insert({
         work_item_id,
         organization_id: workItem.organization_id,
@@ -2306,7 +2354,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const isTutelaUnion = workItem.workflow_type === 'TUTELA';
     let nativeSamaiStoredReadBaseUrl: string | null = null;
     let tutelaSamaiEnabled = false;
-    if (isTutelaUnion && !historical) {
+    if (isTutelaUnion && !historical && !ppReceiptId) {
       const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
         .select('enabled').eq('work_item_id', work_item_id).eq('provider_key', 'samai_estados').eq('scope', 'PUBS').maybeSingle();
       const decision = samaiEnrollmentDecision(enrollmentError, enrollment);
@@ -2606,7 +2654,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         await writePublicacionesAttemptRow(
           supabase, workItem, work_item_id, result, _scheduled, isServiceRole, 'pending_upstream',
         );
-        if (!samaiStoredOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+        if (!storedOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
         return jsonResponse({ ...result, pending_upstream: true }, 200);
       }
 
@@ -3291,7 +3339,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     // An incomplete batch or failed verification must not advance the baseline.
-    if (result.inserted_count > 0 && result.errors.length === 0 && !fetchResult.readIncomplete && newestInsertedFingerprint) {
+    if (!ppReceiptId && result.inserted_count > 0 && result.errors.length === 0 && !fetchResult.readIncomplete && newestInsertedFingerprint) {
       const { error: baselineError } = await supabase.from('work_items').update({
         latest_estado_fingerprint:newestInsertedFingerprint, latest_estado_at:new Date().toISOString(),
       }).eq('id',work_item_id);
@@ -3348,7 +3396,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       (result as any).status = fetchResult.readIncomplete ? 'PENDING_UPSTREAM' : 'CONTRACT_MISMATCH';
       if (fetchResult.readIncomplete) (result as any).pending_upstream = true;
       result.warnings.push('Se conserva el inventario obtenido; la consulta pública diaria sigue incompleta u obsoleta.');
-      if (!samaiStoredOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
+      if (!storedOnly) await schedulePubRecheck(supabase, work_item_id, workItem, normalizedRadicado, result, true);
     }
 
     { const attributed = attributeAttemptedProviders(providerAttempts); if (attributed) result.provider_used = attributed; }
@@ -3361,7 +3409,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
     // Set initial sync completion marker only on a completed read.
-    if (result.ok) try {
+    if (result.ok && !ppReceiptId) try {
       await supabase
         .from('work_items')
         .update({ pubs_initial_sync_completed_at: new Date().toISOString() } as any)
@@ -3389,7 +3437,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminDb = createClient(supabaseUrl, supabaseServiceKey);
 
-      const { data: pubGlobalRoutes } = samaiStoredOnly ? {data: []} : await adminDb
+      const { data: pubGlobalRoutes } = storedOnly ? {data: []} : await adminDb
         .from('provider_category_routes_global')
         .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('workflow', workItem.workflow_type)
@@ -3397,7 +3445,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .eq('enabled', true)
         .order('priority');
 
-      const { data: pubOrgRoutes } = samaiStoredOnly ? {data: []} : await adminDb
+      const { data: pubOrgRoutes } = storedOnly ? {data: []} : await adminDb
         .from('provider_category_routes_org_override')
         .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('organization_id', workItem.organization_id)
