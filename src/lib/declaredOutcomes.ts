@@ -1,19 +1,13 @@
-/**
- * declaredOutcomes — LT2. The outcome values that DECIDE.
- *
- * Ninety-seven distinct result strings are produced by the code; most are
- * written once and read by a human, and those stay undeclared — they are
- * documentation. These are the ones a branch, a retry rule, an alert or a
- * membership test compares, which makes them a vocabulary.
- *
- * Mirrored in `sync_vocabulary` (domain `outcome`) with the SAME CASE.
- * `src/test/lt3-declared-outcomes.test.ts` fails the build when the code
- * decides on a value that is absent here.
- */
+/** Case-sensitive outcome codes retained for current and historical evidence.
+ * Catalog additions mirror public.sync_vocabulary (domain outcome). */
 export const DECLARED_OUTCOMES = [
   "AUTH_FAILED",
+  "AUTH_REQUIRED",
   "CONNECTED",
+  "CONTRACT_MISMATCH",
   "CPNU_SYNC_FAILED",
+  "DAILY_ADMISSION_UNAVAILABLE",
+  "DAILY_UPDATE_ALREADY_STARTED",
   "DB_CONSTRAINT",
   "DB_WRITE_FAILED",
   "FAILED",
@@ -24,16 +18,27 @@ export const DECLARED_OUTCOMES = [
   "NOT_FOUND",
   "PARSER_ERROR",
   "PENDING_UPSTREAM",
+  "PERSISTENCE_UNKNOWN",
+  "POST_INGEST_EFFECTS_PENDING",
+  "PP_DAILY_WINDOW_NOT_CERTIFIED",
+  "PP_NATIVE_DATE_CONFLICT",
+  "PP_STORED_READ_INCOMPLETE",
+  "PROCESO_PRIVADO",
   "PROVIDER_404",
   "PROVIDER_EMPTY_RESULT",
   "PROVIDER_ERROR",
+  "PROVIDER_NOT_FOUND",
   "PROVIDER_NO_DOCUMENT",
   "PROVIDER_RATE_LIMITED",
   "PROVIDER_TIMEOUT",
+  "PROVIDER_UNDECLARED",
+  "PROVIDER_UNRESOLVED",
   "PUB_RETRY",
   "RATE_LIMITED",
   "READ_FAILURE",
   "RECORD_NOT_FOUND",
+  "ROUTING_SKIP_SOURCE_DISABLED",
+  "SAMAI_INVENTORY_INCOMPLETE",
   "SCRAPING_STUCK",
   "SCRAPING_TIMEOUT",
   "SKIPPED",
