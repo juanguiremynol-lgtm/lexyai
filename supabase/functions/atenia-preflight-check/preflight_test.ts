@@ -12,6 +12,7 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
   const prior = Object.keys(env).map(k => [k, Deno.env.get(k)] as const);
   let handler!: (req: Request) => Promise<Response>;
   let rejectInsert = false, malformed = true, logged = 0;
+  let wrongPpCase = false;
   let admission = "RUN";
   const writes: Array<Record<string, unknown>> = [];
   const routes: string[] = [];
@@ -38,7 +39,8 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
       routes.push(pathname);
       if (hostname === "pp.invalid") {
         return malformed ? Response.json({ detail: "Not found" }, { status: 404 })
-          : Response.json({ radicado: pathname.split("/").at(-1) });
+          : Response.json({ radicado_completo: wrongPpCase ? "05001400301520240193001" : pathname.split("/").at(-1),
+            radicado_corto: "2024-01930", proceso: { año: "2024", consecutivo: "01930" } });
       }
       if (hostname === "cpnu.invalid") return Response.json(malformed ? { error: "application error" } : { data: { actuaciones: [] } });
       if (hostname === "estados.invalid") return Response.json({ result: { estados: [] } });
@@ -64,11 +66,16 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
     malformed = false;
     const complete = await (await invoke()).json();
     assert.equal(complete.overall, "ALL_PASS");
+    wrongPpCase = true;
+    const mismatch = await (await invoke()).json();
+    assert.equal(mismatch.overall, "PARTIAL");
+    assert.equal(mismatch.results.find((r: { provider: string }) => r.provider === "PUBLICACIONES").checks.data_shape.ok, false);
+    wrongPpCase = false;
     rejectInsert = true;
     const rejected = await invoke();
     assert.equal(rejected.status, 500);
     assert.equal((await rejected.json()).ok, false);
-    assert.equal(logged, 2);
+    assert.equal(logged, 3);
     assert.ok(routes.some(path => path.startsWith("/persistido/")));
     rejectInsert = false;
     const probe = (headers: Record<string,string>, trigger: string) => handler(new Request("https://handler.invalid", {
@@ -82,7 +89,7 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
     assert.equal((await probe({"x-cron-key":"test-cron"}, "CONTROLLED_DAILY_PREFLIGHT")).status, 202);
     assert.equal((await probe({"x-cron-key":"test-cron"}, "MANUAL")).status, 403);
     assert.equal(routes.length, routeCount);
-    assert.equal(logged, 2);
+    assert.equal(logged, 3);
   } finally {
     Deno.serve = originalServe;
     globalThis.fetch = originalFetch;

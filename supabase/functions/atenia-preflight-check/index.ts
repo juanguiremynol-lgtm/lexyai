@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check", revision: "20261120-evidence-v2" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check", revision: "20261120-evidence-v3" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -468,8 +468,11 @@ function matchesProbeShape(provider: string, radicado: string, value: unknown): 
     case "SAMAI": return Array.isArray(payload.feedCombinado) || Array.isArray(payload.actuaciones);
     case "SAMAI_ESTADOS": return Array.isArray(payload.estados) || Array.isArray(payload.actuaciones);
     case "PUBLICACIONES": {
-      const sample = payload.radicado ?? payload.numero_radicacion;
-      return typeof sample === "string" && sample.replace(/\D/g, "") === radicado.replace(/\D/g, "");
+      // /info returns the full identity alongside a proceso object with year and sequence.
+      const sample = body.radicado_completo ?? payload.radicado_completo ?? payload.radicado ?? payload.numero_radicacion;
+      if (typeof sample !== "string") return false;
+      const number = sample.replace(/[\s-]/g, "");
+      return /^\d{23}$/.test(number) && number === radicado.replace(/[\s-]/g, "");
     }
     default: return false;
   }
