@@ -20,7 +20,7 @@ import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, samaiCo
 import { mayConsumeStoredCpnu, mayConsumeStoredSamai } from '../_shared/storedActAdmission.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActIdentities, compactActIdentityRow, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
-import { observedTodayInBogota, parseSamaiBatchRequest, samaiBatchPrefix, SAMAI_BATCH_SIZE, storedSamaiPages } from "../_shared/samaiStoredBatches.ts";
+import { compactSamaiBatchAct, observedTodayInBogota, parseSamaiBatchRequest, samaiBatchPrefix, SAMAI_BATCH_SIZE, storedSamaiPages } from "../_shared/samaiStoredBatches.ts";
 import { failureBucket, redundantSuccessTrace, type FailureLedger } from '../_shared/syncFailureEvidence.ts';
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
@@ -1419,7 +1419,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'samai-stored-batches-20261120' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'samai-stored-batches-20261120-compact' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -1726,14 +1726,18 @@ Deno.serve(withSyncTimeline(async (req) => {
         const lockKey = `samai_replay_active:${work_item_id}:${day}`;
         const { data: existing, error } = await supabase.from('cron_state').select('key').eq('key', lockKey).maybeSingle();
         if (error || existing) return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'La corrida ya existe o su estado no pudo verificarse.', 409, traceId);
-        const stored = await fetchFromSamai(normalizeRadicado(workItem.radicado), true);
-        const pages = storedSamaiPages(stored.actuaciones, samaiBatch.expected);
+        const canonical = await sharedFetchFromSamai({ radicado: normalizeRadicado(workItem.radicado),
+          mode: 'monitoring', includeParties: false });
+        const stored = sharedResultToFetchResult(canonical);
+        const pages = storedSamaiPages(stored.actuaciones.map(compactSamaiBatchAct), samaiBatch.expected);
         if (!stored.ok || stored.sourceReadComplete !== true || !observedTodayInBogota(stored.sourceObservedAt) || !pages) {
           return jsonResponse({ ok: false, code: 'PENDING_UPSTREAM', source_complete: false,
             observed: stored.sourceObservedAt, received: stored.actuaciones.length, expected: samaiBatch.expected }, 409);
         }
         const attached = { run: samaiBatch.run, observed: stored.sourceObservedAt, expected: samaiBatch.expected,
           pages: pages.length, radicado: normalizeRadicado(workItem.radicado), organization: workItem.organization_id };
+        await logTrace(supabase, { trace_id: traceId, work_item_id, step:'PROVIDER_RESPONSE_RECEIVED',
+          provider:'samai', success:true, meta:{ actuaciones_count: stored.actuaciones.length, source_observed_at:stored.sourceObservedAt } });
         const { error: saveError } = await supabase.from('cron_state').insert([
           { key: lockKey, value: { ...attached, prepared_trace: traceId } },
           ...pages.map((rows, page) => ({ key: prefix + page, value: { ...attached, state: 'ready', page, rows } })),

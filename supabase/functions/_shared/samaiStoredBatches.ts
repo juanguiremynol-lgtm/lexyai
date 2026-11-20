@@ -34,3 +34,20 @@ export function observedTodayInBogota(observed: unknown, now = Date.now()) {
   const day = (ms: number) => new Date(ms - 5 * 3600_000).toISOString().slice(0, 10);
   return Number.isFinite(value) && value <= now && day(value) === day(now);
 }
+
+const ACT_EVIDENCE_FIELDS = [
+  'anotacion', 'anotacion_completa', 'detalle', 'descripcion', 'Anotación',
+  'Anotacion', 'Docum. a notif.', 'docum_a_notif', 'parte', '_idProceso', 'idProceso',
+  'run_type', 'previous_scan_at', 'provider_observed_at',
+] as const;
+
+/** The canonical ingest uses normalized attachment descriptors and a small
+ * set of supplemental scalar fields. Leave the full source envelope in SAMAI. */
+export function compactSamaiBatchAct<T extends Record<string, unknown>>(act: T) {
+  const raw = (act.raw_data ?? {}) as Record<string, unknown>;
+  const evidence: Record<string, unknown> = {};
+  for (const field of ACT_EVIDENCE_FIELDS) {
+    if (typeof raw[field] === 'string' || typeof raw[field] === 'number') evidence[field] = raw[field];
+  }
+  return { ...act, raw_data: evidence };
+}
