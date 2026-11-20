@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 import { componentTagger } from "lovable-tagger";
-import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
+import { projectMcpPlugin } from "./scripts/mcp-vite-plugin.mjs";
 
 // The preview plugin host may hand configResolved a config without envDir;
 // default it to the project root so the MCP plugin's loadEnv does not crash.
 function mcpPluginSafe() {
-  const plugin: any = mcpPlugin();
+  const plugin: any = projectMcpPlugin();
   const original = plugin.configResolved;
   if (typeof original === "function") {
     plugin.configResolved = function (config: any) {
