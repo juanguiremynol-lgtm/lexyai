@@ -12,6 +12,7 @@ import {
   sameAttemptStatus,
 } from "@/lib/syncVocabulary";
 import * as denoVocab from "../../supabase/functions/_shared/syncVocabulary.ts";
+import { restrictedAnswerProvider } from "../../supabase/functions/_shared/providerOutcome.ts";
 
 const WI = "11111111-2222-4333-8444-555555555555";
 const ctx = { work_item_id: WI, organization_id: null, source: "samai_estados" };
@@ -95,11 +96,21 @@ describe("AUD2 — canonical uppercase attempt status", () => {
   });
 });
 
-describe("AUD3 — restricted answers seal the read", () => {
-  it("sealReadOutcome treats restricted as answered", () => {
+describe("AUD3 — provider restrictions preserve the last complete read", () => {
+  it("attributes an explicit restriction and preserves independent failures", () => {
+    const restricted = { provider: "cpnu", status: "restricted" };
+    expect(restrictedAnswerProvider([restricted, { provider: "samai", status: "skipped" }])).toBe("cpnu");
+    for (const status of ["error", "timeout", "empty", "success"]) {
+      expect(restrictedAnswerProvider([restricted, { provider: "samai", status }])).toBeNull();
+    }
+    expect(restrictedAnswerProvider([])).toBeNull();
+  });
+  it("records the restriction as incomplete without advancing successful timestamps", () => {
     const src = readFileSync("supabase/functions/sync-by-work-item/index.ts", "utf8");
-    const body = src.slice(src.indexOf("async function sealReadOutcome"), src.indexOf("function jsonResponse"));
-    expect(body).toContain("'restricted'");
+    const body = src.slice(src.indexOf("if (cpnuOutcome || restrictedProvider)"), src.indexOf("// Handle fetch failure -"));
+    expect(body).toContain("result.source_complete = false");
+    expect(body).toContain("scrape_status: 'PARTIAL_SUCCESS'");
+    expect(body).not.toMatch(/last_synced_at|last_successful_sync_at/);
     expect(src).toContain('attempt.status === "restricted" ? "restricted"');
   });
 });

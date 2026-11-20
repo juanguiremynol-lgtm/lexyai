@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { ESTADO_LECTURA_COPY } from "../../supabase/functions/_shared/pauseNotices.ts";
 import {
   ESTADOS_SIGNAL_LABEL,
   ESTADOS_SIGNAL_EXPLANATION,
@@ -33,15 +34,16 @@ describe("JG3 · estados absence is observed, not attributed", () => {
     }
   });
 
-  it("the retry-queue alert never confirms a court failure", () => {
+  it("neither the retry drain nor the retained coverage notice attributes silence to the court", () => {
     const src = readFileSync(
       "supabase/functions/process-retry-queue/index.ts",
       "utf8",
     );
-    const start = src.indexOf("SIN_COBERTURA_ESTADOS_CONFIRMADA");
-    const block = src.slice(start, start + 2500).toLowerCase();
-    expect(block).toContain("no se concluye que el despacho no publique");
-    expect(block).not.toContain("se confirma que el despacho no publica");
-    expect(block).not.toContain("sin cobertura de estados electrónicos confirmada");
+    expect(src).not.toContain("SIN_COBERTURA_ESTADOS_CONFIRMADA");
+    expect(ESTADO_LECTURA_COPY.SILENCIO_CONOCIDO).toMatch(/sin estados recibidos/i);
+    for (const bad of FORBIDDEN) {
+      expect(src.toLowerCase()).not.toContain(bad);
+      expect(ESTADO_LECTURA_COPY.SILENCIO_CONOCIDO.toLowerCase()).not.toContain(bad);
+    }
   });
 });

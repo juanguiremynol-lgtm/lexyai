@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { digestHasContent } from "../../supabase/functions/scheduled-daily-digest/content.ts";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
@@ -77,7 +78,9 @@ describe("ZZ2 — the window is a calendar day in Bogotá", () => {
   });
 
   it("treats a never-read matter as content on a day with no novedades", () => {
-    expect(index).toMatch(/neverRead\.length > 0 \|\|/);
+    expect(index).toMatch(/rowCount:[^,]+\bneverRead\.length/);
+    expect(digestHasContent({ rowCount: 1, manualReviewCount: 0, coverageIncomplete: false })).toBe(true);
+    expect(digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: false })).toBe(false);
   });
 });
 

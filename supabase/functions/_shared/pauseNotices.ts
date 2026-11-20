@@ -34,7 +34,7 @@ export const ESTADO_LECTURA_COPY: Record<string, string> = {
   SIN_FILAS:
     "Leído y vacío: el proveedor respondió y no reporta filas. Es un estado normal en procesos nuevos y permanente en despachos que no alimentan el expediente digital.",
   SILENCIO_CONOCIDO:
-    "Silencio conocido: este despacho no publica por este canal. La ausencia está explicada.",
+    "Sin estados recibidos de este despacho por el canal consultado. La causa sigue pendiente de verificación.",
   PENDING_UPSTREAM:
     "Consulta sin resolver: el proveedor aceptó la solicitud y nunca la completó. No afirma nada sobre el expediente.",
 };

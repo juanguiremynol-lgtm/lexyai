@@ -23,7 +23,9 @@ function database(rows: Row[]) {
           if (op === "is" && value === null) selected = selected.filter((r) => r[key] !== null);
           return q;
         },
-        order: () => q,
+        order: () => { selected.sort((a, b) => String(a.id).localeCompare(String(b.id))); return q; },
+        gt: (key: string, cursor: string) => { selected = selected.filter(r => String(r[key]) > cursor); return q; },
+        limit: (size: number) => { selected = selected.slice(0, size); return q; },
         then: (resolve: (value: unknown) => unknown) => resolve({ data: selected, error: null }),
       };
       return q;

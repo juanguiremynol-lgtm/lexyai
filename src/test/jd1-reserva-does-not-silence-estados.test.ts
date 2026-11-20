@@ -20,6 +20,8 @@ const estadosCron = estadosCronRaw
   .join("\n");
 
 const edgeMirror = readFileSync("supabase/functions/_shared/reservaNotice.ts", "utf8");
+const selectionSql = readFileSync("supabase/migrations/20261020010000_public_monitor_durable.sql", "utf8")
+  .match(/INSERT INTO estados_monitor_run_items\(run_id,work_item_id,ordinal\)[\s\S]*?;/i)?.[0] ?? "";
 
 describe("JD1 — the estados cron selects on lifecycle only", () => {
   it("never reads any actuaciones-channel signal", () => {
@@ -31,13 +33,17 @@ describe("JD1 — the estados cron selects on lifecycle only", () => {
       "last_synced_at",
     ]) {
       expect(estadosCron).not.toContain(forbidden);
+      expect(selectionSql).not.toContain(forbidden);
     }
   });
 
-  it("filters only on the lawyer's own decision", () => {
-    expect(estadosCron).toContain('.eq("lifecycle_state", "ACTIVE")');
-    expect(estadosCron).toContain('.eq("monitoring_enabled", true)');
-    expect(estadosCron).toContain('.is("deleted_at", null)');
+  it("seeds the durable monitors from enabled active matters in the eligible workflows", () => {
+    expect(estadosCron).toContain('"scheduled-publicaciones-monitor"');
+    expect(estadosCron).toContain('"scheduled-samai-estados-monitor"');
+    expect(selectionSql).toContain("w.lifecycle_state='ACTIVE'");
+    expect(selectionSql).toContain("w.monitoring_enabled");
+    expect(selectionSql).toContain("w.deleted_at IS NULL");
+    expect(selectionSql).toContain("w.workflow_type::text=ANY(_workflows)");
   });
 });
 

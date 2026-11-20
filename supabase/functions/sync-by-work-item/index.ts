@@ -80,6 +80,7 @@ import { hearingAlreadyResolved, type VerifiedHearingEvidence } from '../_shared
 import { exclusivelyHearingReview, hearingReviewNote, type HearingReview } from '../_shared/hearingReviewOutcome.ts';
 import { emptyReadPersistence } from '../_shared/emptyReadPersistence.ts';
 import { cpnuNonDataOutcome } from '../_shared/providerAdapters/cpnuReadEvidence.ts';
+import { restrictedAnswerProvider } from '../_shared/providerOutcome.ts';
 
 // ============= FEATURE FLAG =============
 // Orchestrator sync can be enabled globally via env var or per-org via atenia_ai_config.
@@ -917,15 +918,11 @@ async function sealReadOutcome(
   if (scrapingInitiated) return;
   // The common non-data handler records the precise result without ever
   // advancing a complete-read timestamp or incrementing failure counters.
-  if (cpnuNonDataOutcome(fetchResult)) return;
+  if (cpnuNonDataOutcome(fetchResult) || (!fetchResult?.ok && restrictedAnswerProvider(providerAttempts))) return;
 
   const nowIso = new Date().toISOString();
   const answered =
     (fetchResult?.ok === true) ||
-    // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read: the
-    // provider replied that the matter is private. Omitting it here froze
-    // last_successful_sync_at at enrolment for matters whose only answer is
-    // the restriction. Case-insensitive: attempts may arrive canonicalised.
     providerAttempts.some((a) => {
       const st = String(a.status ?? '').toLowerCase();
       return st === 'success' || st === 'empty';
@@ -2776,18 +2773,21 @@ Deno.serve(withSyncTimeline(async (req) => {
     // These responses diagnose what is available, without proving a complete
     // read of actuaciones. Keep source time only when supplied by the adapter.
     const cpnuOutcome = cpnuNonDataOutcome(fetchResult);
-    if (cpnuOutcome && fetchResult) {
+    const restrictedProvider = !fetchResult?.ok && !fetchResult?.scrapingInitiated
+      ? restrictedAnswerProvider(result.provider_attempts) : null;
+    if (cpnuOutcome || restrictedProvider) {
+      const code = cpnuOutcome?.code ?? 'PROCESO_PRIVADO';
       result.ok = false;
       result.partial = true;
       result.source_complete = false;
-      result.provider_used = fetchResult.provider;
-      result.source_observed_at = fetchResult.sourceObservedAt;
+      result.provider_used = cpnuOutcome ? fetchResult!.provider : restrictedProvider;
+      result.source_observed_at = fetchResult?.provider === result.provider_used ? fetchResult?.sourceObservedAt : undefined;
       result.trace_id = traceId;
-      result.code = cpnuOutcome.code;
+      result.code = code;
       const { error } = await supabase.from('work_items').update({
-        scrape_status: 'PARTIAL_SUCCESS', last_error_code: cpnuOutcome.code,
+        scrape_status: 'PARTIAL_SUCCESS', last_error_code: code,
         last_checked_at: new Date().toISOString(),
-        ...(cpnuOutcome.code === 'PROVIDER_NOT_FOUND' || cpnuOutcome.code === 'PROCESO_PRIVADO'
+        ...(code === 'PROVIDER_NOT_FOUND' || code === 'PROCESO_PRIVADO'
           ? { provider_reachable: true, consecutive_failures: 0 } : {}),
       }).eq('id', work_item_id);
       if (error) throw error;
@@ -2889,25 +2889,6 @@ Deno.serve(withSyncTimeline(async (req) => {
         },
       });
       
-      // AUD3 — a restricted answer (PROCESO_PRIVADO) is an ANSWERED read that
-      // sealReadOutcome already stamped. It must not be rewritten here as a
-      // failure: carry the provider's code, not a transport code.
-      if (!fetchResult?.scrapingInitiated && result.provider_attempts.some((a) => a.status === 'restricted')) {
-        result.code = 'PROCESO_PRIVADO';
-        await supabase
-          .from('work_items')
-          .update({
-            scrape_status: 'SUCCESS',
-            last_checked_at: new Date().toISOString(),
-            last_error_code: 'PROCESO_PRIVADO',
-            consecutive_failures: 0,
-            provider_reachable: true,
-          })
-          .eq('id', work_item_id);
-        result.trace_id = traceId;
-        return jsonResponse(result);
-      }
-
       // Update scrape status to FAILED + track consecutive failures & 404s
       // CRITICAL: Only increment consecutive_404_count on strict 404-type signals.
       // SCRAPING_TIMEOUT, empty cache, and rate limits must NOT inflate this counter,

@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { digestSubject } from "../../supabase/functions/scheduled-daily-digest/content.ts";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
@@ -33,7 +34,9 @@ describe("JJ1 — mailbox connection is a headline condition", () => {
   });
 
   it("marks a broken connection in the subject line", () => {
-    expect(digestIndex).toMatch(/Conexión de correo caída/);
+    expect(digestIndex).toMatch(/critical = connectionIssues\.some\(\(c\) => c\.severity === "CRITICAL"\)/);
+    expect(digestSubject({ critical: true, estados: 0, actuaciones: 0, coverageIncomplete: true }))
+      .toMatch(/Conexión de correo caída.*0 novedades.*cobertura por verificar/);
   });
 });
 

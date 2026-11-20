@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { digestHasContent, digestSubject } from "../../supabase/functions/scheduled-daily-digest/content.ts";
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), "utf8");
 
@@ -47,9 +48,10 @@ describe("YY2 — the observed-behaviour sentence", () => {
 describe("YY3 — one-time reconciliation", () => {
   it("is content on its own and is never counted as novedad", () => {
     expect(digestIndex).toMatch(/digest_reconciliation_notices/);
-    expect(digestIndex).toMatch(/reconciliations\.length > 0/);
-    // The novedad counter is built from actuaciones + estados only.
-    expect(digestIndex).toMatch(/const novedades = actuaciones\.length \+ estados\.length;/);
+    expect(digestIndex).toMatch(/rowCount:[^,]+\breconciliations\.length/);
+    expect(digestHasContent({ rowCount: 1, manualReviewCount: 0, coverageIncomplete: false })).toBe(true);
+    expect(digestIndex).toMatch(/digestSubject\(\{\s*critical, estados: estados\.length, actuaciones: actuaciones\.length/);
+    expect(digestSubject({ critical: false, estados: 1, actuaciones: 2, coverageIncomplete: false })).toContain('3 novedades');
   });
 
   it("is consumed only by a real send, never by a preview", () => {
@@ -73,7 +75,7 @@ describe("YY4 — the estados monitor reports on its own channel only", () => {
 
   it("labels the Publicaciones channel and lets a routing skip stand", () => {
     expect(monitor).toMatch(/patch\.pp_estado = label/);
-    expect(monitor).toMatch(/if \(label !== "no_aplica"\) patch\.pp_ultima_sync = stampedAt/);
+    expect(monitor).toMatch(/if \(success && result\.reused_completed_read !== true && result\.source_query_attempted !== false\) patch\.pp_ultima_sync = stampedAt/);
   });
 });
 

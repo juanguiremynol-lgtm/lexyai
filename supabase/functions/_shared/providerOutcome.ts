@@ -1,3 +1,11 @@
+/** The orchestrator can retain a restriction even when its legacy fetch result is absent. */
+export function restrictedAnswerProvider(attempts: readonly { provider: string; status: string }[]): string | null {
+  const answers = attempts.filter(attempt => attempt.status !== 'skipped');
+  const provider = answers[0]?.provider;
+  return provider && answers.every(attempt => attempt.status === 'restricted' && attempt.provider === provider)
+    ? provider : null;
+}
+
 export type PersistedProviderOutcome =
   | "RUN_SUCCESS_WITH_DATA"
   | "RUN_SUCCESS_EMPTY"
