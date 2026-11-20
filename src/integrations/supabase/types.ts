@@ -27970,6 +27970,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      claim_atenia_daily_preflight: { Args: never; Returns: string }
       claim_daily_source_attempt: {
         Args: { _source: string; _work_item_id: string }
         Returns: Json
