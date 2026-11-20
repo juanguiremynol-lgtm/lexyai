@@ -216,7 +216,9 @@ export function buildIngestionMetadata(
 // ═══════════════════════════════════════════
 
 /**
- * Fetch the DB's max act_date for a given work item.
+ * Fetch the DB's max CPNU act_date for a given work item.
+ * Other sources (including email acknowledgements) are not evidence that a
+ * complete CPNU snapshot has regressed.
  * Returns YYYY-MM-DD or null.
  */
 export async function getDbMaxActDate(
@@ -229,6 +231,7 @@ export async function getDbMaxActDate(
       .select('act_date')
       .eq('work_item_id', workItemId)
       .eq('is_archived', false)
+      .ilike('source', 'cpnu')
       .order('act_date', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -239,7 +242,7 @@ export async function getDbMaxActDate(
 }
 
 /**
- * Get the historical record count for a work item (for heuristic 3).
+ * Get the historical CPNU record count for a work item (for heuristic 3).
  */
 export async function getHistoricalRecordCount(
   supabase: any,
@@ -250,7 +253,8 @@ export async function getHistoricalRecordCount(
       .from('work_item_acts')
       .select('id', { count: 'exact', head: true })
       .eq('work_item_id', workItemId)
-      .eq('is_archived', false);
+      .eq('is_archived', false)
+      .ilike('source', 'cpnu');
     return count || 0;
   } catch {
     return 0;
