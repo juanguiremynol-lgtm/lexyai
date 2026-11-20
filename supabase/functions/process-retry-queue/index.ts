@@ -131,13 +131,26 @@ Deno.serve(async req => {
     }
     if (followupOnly) return json({ ok: true, revision: "retry-pp-poll-20261028b", mode: "followup", processed: results.length, results });
     // No synthetic work-item SUCCESS timestamp: the provider ingestion owns it.
+    const queueAgeTargetHours = 48;
     const { count: overdueInitial, error: slaError } = await db.from("sync_retry_queue")
       .select("id", { count: "exact", head: true }).eq("attempt", 0)
-      .lt("created_at", new Date(Date.now() - 48 * 3600_000).toISOString());
+      .lt("created_at", new Date(Date.now() - queueAgeTargetHours * 3600_000).toISOString());
     if (slaError) throw slaError;
-    return json({ ok: true, revision: "retry-pp-poll-20261028", processed: results.length, results,
-      first_query_target_hours: 48, overdue_initial_queries: overdueInitial,
-      sla_met: overdueInitial === 0 });
+    return json({
+      ok: true, revision: "retry-queue-age-20261120", processed: results.length, results,
+      queue_age: {
+        target_hours: queueAgeTargetHours,
+        open_tasks_with_zero_counted_attempts_over_target: overdueInitial,
+        target_met: overdueInitial === null ? null : overdueInitial === 0,
+        includes_deferred_tasks: true,
+      },
+      source_first_query_sla: "NOT_EVALUATED",
+      source_daily_coverage: "NOT_EVALUATED",
+      // Existing callers receive their original fields and an explicit scope.
+      sla_scope: "QUEUE_AGE_ONLY",
+      first_query_target_hours: queueAgeTargetHours, overdue_initial_queries: overdueInitial,
+      sla_met: overdueInitial === 0,
+    });
   } catch (error) {
     console.error("[retry] drain failed", error instanceof Error ? error.message : "unknown");
     return json({ ok: false, error: "RETRY_DRAIN_FAILED", results }, 500);
