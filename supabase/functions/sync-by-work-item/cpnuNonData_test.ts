@@ -76,11 +76,19 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
     // Request a first application admission for CPNU's stored read. Even an
     // enabled second provider or orchestrator must not extend this operation.
     const activity: string[] = [];
+    const recorded: Record<string, any>[] = [];
+    const summaryWrites: Record<string, unknown>[] = [];
+    const observedAt = new Date(Date.now() - 1000).toISOString();
+    let cpnuEmpty = false;
     globalThis.fetch = async (input, init) => {
       const req = new Request(input, init);
       const url = new URL(req.url);
       activity.push(`${req.method} ${url.host}${url.pathname}`);
-      if (url.host === 'cpnu.unit.invalid') return Response.json({ found:false }, { status:404 });
+      if (url.host === 'cpnu.unit.invalid') {
+        return cpnuEmpty ? Response.json({numero_radicacion:'00000000000000000000000', fetchedAt:observedAt,
+          actuaciones:[], restringido:false, detalleCompleto:true, snapshot_origen:'memoria'})
+          : Response.json({ found:false }, { status:404 });
+      }
       assert.equal(url.host,'db.unit.invalid');
       if (url.pathname.endsWith('/work_items') && req.method === 'GET')
         return Response.json([{id:caseId,owner_id:orgId,organization_id:orgId,workflow_type:'TUTELA',
@@ -88,6 +96,8 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
       if (url.pathname.endsWith('/rpc/admit_daily_update')) return Response.json({admitted:true});
       if (url.pathname.endsWith('/work_item_provider_enrollment'))
         return Response.json([{provider_key:'CPNU',enabled:true},{provider_key:'SAMAI',enabled:true}]);
+      if (url.pathname.endsWith('/work_items') && req.method === 'PATCH') summaryWrites.push(await req.json());
+      if (url.pathname.endsWith('/work_item_sync_timeline') && req.method === 'POST') recorded.push(await req.json());
       if (req.method === 'HEAD') return new Response(null,{headers:{'content-range':'*/0'}});
       return Response.json([]);
     };
@@ -103,6 +113,15 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
     assert.ok(activity.some(x=>x.includes('admit_daily_update')));
     assert.deepEqual(activity.filter(x=>!x.includes('db.unit.invalid')),['GET cpnu.unit.invalid/snapshot']);
     assert.ok(!activity.some(x=>x.includes('atenia_ai_config')));
+    cpnuEmpty = true;
+    summaryWrites.length = 0;
+    const empty = await (await onlyStored({})).json();
+    assert.equal(empty.ok,true,JSON.stringify(empty));
+    assert.equal(empty.source_complete,true);
+    assert.equal(empty.source_observed_at,observedAt);
+    assert.deepEqual(empty.provider_attempts.map((x: {provider:string})=>x.provider),['cpnu']);
+    assert.deepEqual([recorded.at(-1)?.status,recorded.at(-1)?.error_code],['empty',null]);
+    assert.ok(!summaryWrites.some(p=>p.scrape_status || p.last_successful_sync_at || p.provider_sources));
   } finally {
     globalThis.fetch = originalFetch;
     Deno.serve = originalServe;

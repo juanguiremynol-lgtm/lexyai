@@ -206,8 +206,13 @@ export function withSyncTimeline(
       status = provider === "unknown" ? "skipped" : "empty";
     } else status = "success";
 
-    // A transport/body ok flag never erases an explicit failure cause.
-    const eventErrorCode = status === "pending_upstream" ? (errorCode ?? "PENDING_UPSTREAM") : errorCode;
+    // PROVIDER_EMPTY_RESULT is a compatibility code on the acts response.
+    // It describes a verified empty observation only after the producer has
+    // affirmed completeness and the response satisfies the empty verdict.
+    const certifiedActsEmpty = opts.function_name === "sync-by-work-item" && status === "empty"
+      && parsed?.ok === true && parsed?.source_complete === true && errorCode === "PROVIDER_EMPTY_RESULT";
+    const eventErrorCode = certifiedActsEmpty ? null
+      : status === "pending_upstream" ? (errorCode ?? "PENDING_UPSTREAM") : errorCode;
     const verifiedOutcome = enforceVerifiedOutcome({
       status, providers: canonicalizeProvider(provider).providers, error_code: eventErrorCode,
     });

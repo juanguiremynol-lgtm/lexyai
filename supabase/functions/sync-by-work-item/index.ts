@@ -1417,7 +1417,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'cpnu-source-scoped-20261120' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'stored-acts-evidence-20261120' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -1741,6 +1741,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const enrolledProviders = new Set<string>((enrollmentRows || [])
       .filter((row: any) => row.enabled === true)
       .map((row: any) => String(row.provider_key).toLowerCase()));
+    const preserveTutelaSummary = isCpnuReadOnly && workItem.workflow_type === 'TUTELA' && enrolledProviders.has('samai');
     console.info('[sync.phase]', JSON.stringify({ phase: 'enrollment_finish', trace_id: traceId,
       work_item_id, enabled_sources: [...enrolledProviders] }));
     // A continuation only ingests the stored CPNU job result: every other
@@ -2027,8 +2028,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       if (hasRadicado) {
         providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar, enabledProviders.has('cpnu')));
         providerLabels.push('cpnu');
-        providerPromises.push(fetchFromSamai(normalizedRadicado, enabledProviders.has('samai')));
-        providerLabels.push('samai');
+        if (!isCpnuReadOnly) {
+          providerPromises.push(fetchFromSamai(normalizedRadicado, enabledProviders.has('samai')));
+          providerLabels.push('samai');
+        }
       }
       // ITER48 — there is no tutelas provider to call. A tutela is the UNION of
       // the four real sources; CPNU + SAMAI above already cover actuaciones and
@@ -2158,7 +2161,12 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
       
       // ============= SMART CONSOLIDATION: TWO-TIER CROSS-PROVIDER DEDUP =============
-      if (allActuaciones.length > 0 && allSources.length > 1) {
+      if (isCpnuReadOnly && settledResults[0]?.status === 'fulfilled') {
+        // Keep CPNU's own outcome, including certified zero rows and refusals.
+        // The other enrolled sources are evaluated independently.
+        fetchResult = settledResults[0].value;
+        result.provider_order_reason = 'stored_cpnu';
+      } else if (allActuaciones.length > 0 && allSources.length > 1) {
         console.log(`[sync-by-work-item] TUTELA: Smart consolidation of ${allActuaciones.length} actuaciones from ${allSources.join(', ')}`);
         
         // Step 1: Group actuaciones by source, ordered by priority
@@ -2732,6 +2740,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fallback is triggered ONLY on empty/not-found — NEVER on transient error
     // (transient errors must be retried by the retry queue against the primary).
     if (
+      !isCpnuReadOnly &&
       workItem.workflow_type === 'TUTELA' &&
       fetchResult &&
       fetchResult.ok &&
@@ -2974,7 +2983,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .eq('id', work_item_id)
         .single();
       
-      const { error: emptyUpdateError } = await supabase
+      const { error: emptyUpdateError } = preserveTutelaSummary ? { error: null } : await supabase
         .from('work_items')
         .update({
           ...emptyReadPersistence(incompleteEmpty, currentItemEmpty?.consecutive_failures),
@@ -2985,8 +2994,10 @@ Deno.serve(withSyncTimeline(async (req) => {
         .eq('id', work_item_id);
       if (emptyUpdateError) throw emptyUpdateError;
       if (!incompleteEmpty) {
-        await recordEmptyInitialCompletion(supabase, work_item_id, fetchResult.sourceObservedAt);
-        await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+        if (!preserveTutelaSummary) {
+          await recordEmptyInitialCompletion(supabase, work_item_id, fetchResult.sourceObservedAt);
+          await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true);
+        }
         result.source_complete = true;
       }
       
@@ -4062,7 +4073,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       updatePayload.provider_sources = providerSources;
     }
 
-    const { error: itemUpdateError } = await supabase
+    const { error: itemUpdateError } = preserveTutelaSummary ? { error: null } : await supabase
       .from('work_items')
       .update(updatePayload)
       .eq('id', work_item_id);
@@ -4655,11 +4666,13 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     if (completeAfterEnrichment && !ledgerHasLoss && !verificationFailed) {
-      await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true, effectsPending);
       result.source_complete = true;
-      await supabase.from('work_items')
-        .update({ acts_initial_sync_completed_at: fetchResult.sourceObservedAt || new Date().toISOString() } as any)
-        .eq('id', work_item_id).is('acts_initial_sync_completed_at' as any, null);
+      if (!preserveTutelaSummary) {
+        await sealReadOutcome(supabase, work_item_id, fetchResult, result.provider_attempts, false, true, effectsPending);
+        await supabase.from('work_items')
+          .update({ acts_initial_sync_completed_at: fetchResult.sourceObservedAt || new Date().toISOString() } as any)
+          .eq('id', work_item_id).is('acts_initial_sync_completed_at' as any, null);
+      }
     }
     if (hearingReviews.length) {
       result.hearing_document_review = {
