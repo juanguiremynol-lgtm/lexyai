@@ -91,21 +91,23 @@ export async function writeTraceRecord(
 ): Promise<void> {
   const now = finishedAt ?? new Date();
   try {
-    await supabase.from("atenia_cron_runs").insert({
+    const { error } = await supabase.from("atenia_cron_runs").insert({
       id: trace.cron_run_id,
       job_name: trace.job_name,
       scheduled_for: trace.scheduled_at,
       started_at: startedAt.toISOString(),
       finished_at: now.toISOString(),
-      status,
+      status: status === "OK" ? "OK" : "FAILED",
       details: {
         run_mode: trace.run_mode,
         org_id: trace.org_id ?? null,
         chain_id: trace.chain_id ?? null,
         duration_ms: now.getTime() - startedAt.getTime(),
         ...details,
+        trace_outcome: status,
       },
     });
+    if (error) console.warn(`[traceContext] Trace ${trace.cron_run_id} for ${trace.job_name} was not stored (${error.code ?? "unknown SQLSTATE"})`);
   } catch (err) {
     console.warn(`[traceContext] Failed to write trace record for ${trace.job_name}:`, err);
   }
