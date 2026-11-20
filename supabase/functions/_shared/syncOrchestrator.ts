@@ -1239,10 +1239,8 @@ export async function orchestrateSync(
     // RR1 — an attempt that ANSWERED and had nothing is a complete read. It
     // used to fall through to FAILED, so a routine "sin novedades" CGP sync was
     // persisted as a failed run and reported as "All providers failed".
-    const hasAnsweredAbsence = allAttempts.some((a) =>
-      attemptIsAnsweredAbsence(a.status, a.error_code) ||
-      attemptIsRestricted(a.status, a.error_code)
-    );
+    const hasRestricted = allAttempts.some((a) => attemptIsRestricted(a.status, a.error_code));
+    const hasAnsweredAbsence = hasRestricted || allAttempts.some((a) => attemptIsAnsweredAbsence(a.status, a.error_code));
 
     // BUG 1c: providers reported data but nothing persisted → PERSIST_MISMATCH.
     // Any attempt whose inserted_count is 0 while its metadata indicates the
@@ -1274,10 +1272,29 @@ export async function orchestrateSync(
     // A kind that answered empty alongside a kind that never answered is a
     // PARTIAL read, not a total failure.
     if (anyUnavailable && hasAnsweredAbsence && status === "SUCCESS") status = "PARTIAL";
+    // A refusal answers the request but leaves a source unread. Keep this
+    // barrier even after a different provider's fetched rows are reconciled.
+    if (hasRestricted && status === "SUCCESS") status = "PARTIAL";
     const unavailableKinds = [
       actsUnavailable ? "ACTUACIONES" : null,
       estadosUnavailable ? "ESTADOS" : null,
     ].filter(Boolean).join(", ");
+
+    let errorCode: string | null = null;
+    let errorMessage: string | null = null;
+    if (allAttempts.length === 0) {
+      errorCode = "NO_PROVIDER_ROUTE";
+      errorMessage = `No provider was queried for workflow ${ctx.workflowType} — coverage matrix has no compatible route.`;
+    } else if (persistedZeroDespiteFeed && !hasRestricted) {
+      errorCode = "PERSIST_MISMATCH";
+      errorMessage = "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback).";
+    } else if (anyUnavailable) {
+      errorCode = "PROVIDER_UNAVAILABLE";
+      errorMessage = `No provider answered for ${unavailableKinds}. This run asserts nothing about the expediente — it is an absence of knowledge, not an absence of novedades.`;
+    } else if (hasRestricted && !hasErrors) {
+      errorCode = "PROCESO_PRIVADO";
+      errorMessage = "At least one provider restricted access to the expediente.";
+    }
 
     const result: SyncRunResult = {
       syncRunId,
@@ -1287,18 +1304,8 @@ export async function orchestrateSync(
       totalInsertedPubs,
       totalSkippedPubs,
       providerAttempts: allAttempts,
-      errorCode: allAttempts.length === 0
-        ? "NO_PROVIDER_ROUTE"
-        : (persistedZeroDespiteFeed
-          ? "PERSIST_MISMATCH"
-          : (anyUnavailable ? "PROVIDER_UNAVAILABLE" : null)),
-      errorMessage: allAttempts.length === 0
-        ? `No provider was queried for workflow ${ctx.workflowType} — coverage matrix has no compatible route.`
-        : (persistedZeroDespiteFeed
-          ? "Providers returned actuaciones but zero rows were persisted (silent write failure, upsert skipped, or trigger rollback)."
-          : (anyUnavailable
-            ? `No provider answered for ${unavailableKinds}. This run asserts nothing about the expediente — it is an absence of knowledge, not an absence of novedades.`
-            : null)),
+      errorCode,
+      errorMessage,
       durationMs: Date.now() - startTime,
       foundStatus: overallFoundStatus,
     };

@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { orchestrateSync, type ProviderFetchFn } from '../_shared/syncOrchestrator.ts';
 
 Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed provider', async () => {
   const caseId = '00000000-0000-4000-8000-000000000001';
@@ -22,6 +23,7 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
       [503,{error:'unavailable'},'CPNU_SYNC_FAILED','error'],
     ] as const) {
       const patches: Record<string,unknown>[] = [];
+      const runPatches: Record<string,unknown>[] = [];
       const timeline: Record<string,unknown>[] = [];
       const requests: string[] = [];
       globalThis.fetch = async (input,init) => {
@@ -34,6 +36,10 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
         assert.equal(url.host,'db.unit.invalid');
         if (url.pathname.endsWith('/atenia_ai_config'))
           return Response.json([{use_orchestrator_sync:http === 206}]);
+        if (url.pathname.endsWith('/external_sync_runs') && req.method === 'POST')
+          return Response.json({id:'00000000-0000-4000-8000-000000000003'});
+        if (url.pathname.endsWith('/external_sync_runs') && req.method === 'PATCH')
+          runPatches.push(await req.json());
         if (url.pathname.endsWith('/work_items') && req.method === 'GET')
           return Response.json([{id:caseId,owner_id:orgId,organization_id:orgId,workflow_type:'CGP',
             radicado:'00000000000000000000000',monitoring_enabled:true}]);
@@ -64,11 +70,29 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
         assert.equal(body.ok, false);
         assert.equal(body.source_complete, false);
         assert.ok(!patches.some(p => p.scrape_status === 'SUCCESS' || p.scrape_status === 'FAILED'));
+        assert.deepEqual(runPatches.map(run => [run.status, run.error_code]), [['PARTIAL','PROCESO_PRIVADO']]);
       }
     }
   } finally {
     globalThis.fetch = originalFetch;
     Deno.serve = originalServe;
     previous.forEach(([k,v])=>v===undefined?Deno.env.delete(k):Deno.env.set(k,v));
+  }
+});
+
+Deno.test('a restricted source keeps mixed fanout partial and preserves the other provider outcome', async () => {
+  const ctx = {workItemId:'wi',organizationId:'org',workflowType:'TUTELA',radicado:'00000000000000000000000',
+    invokedBy:'CRON',triggerSource:'test'} as const;
+  const options = {skipEstados:true,skipRunRecord:true,coverageOverrides:[],enabledProviders:new Set(['cpnu','samai'])};
+  const base = {ok:true,found:true,isEmpty:false,insertedCount:0,skippedCount:0,httpStatus:200,latencyMs:1,errorCode:null,errorMessage:null};
+  const restricted = {...base,ok:false,errorCode:'PROCESO_PRIVADO'};
+  const observed = {...base,metadata:{actuacionesCount:1}};
+  const failed = {...base,ok:false,found:false,errorCode:'PROVIDER_SERVER_ERROR',httpStatus:503};
+  for (const [second, attemptStatus, expectedCode] of [[observed,'success','PROCESO_PRIVADO'],[failed,'error',null]] as const) {
+    const providers = new Map<string,ProviderFetchFn>([['CPNU',async () => restricted],['SAMAI',async () => second]]);
+    const result = await orchestrateSync(ctx,providers,{},'','',options);
+    assert.equal(result.status,'PARTIAL');
+    assert.equal(result.errorCode,expectedCode);
+    assert.deepEqual(result.providerAttempts.map(a => a.status).sort(),['restricted',attemptStatus].sort());
   }
 });
