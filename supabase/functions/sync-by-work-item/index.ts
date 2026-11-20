@@ -20,6 +20,7 @@ import { admitDailyUpdate, admitCpnuContinuation, continuationProviders, samaiCo
 import { mayConsumeStoredCpnu, mayConsumeStoredSamai } from '../_shared/storedActAdmission.ts';
 import { extractActOrigin, resolveActIdentity, toActIdentityCandidate, buildAnexosInventario, type CandidateRow, type HistoricalRepairScope } from "../_shared/actOriginIdentity.ts";
 import { loadAllActiveActIdentities, compactActIdentityRow, resolvePersistedAct, ActLoadError, enrichPersistedAct } from "../_shared/actBatchState.ts";
+import { observedTodayInBogota, parseSamaiBatchRequest, samaiBatchPrefix, SAMAI_BATCH_SIZE, storedSamaiPages } from "../_shared/samaiStoredBatches.ts";
 import { failureBucket, redundantSuccessTrace, type FailureLedger } from '../_shared/syncFailureEvidence.ts';
 
 // ITER70 rev.3 — historical contamination repair is DISABLED in normal sync.
@@ -201,6 +202,7 @@ interface SyncRequest {
   allow_buscar?: boolean;
   _scheduled?: boolean; // When true, skip auth + org membership check (cron/fallback callers)
   _stored_acts_only?: boolean;
+  _samai_stored_batch?: unknown;
   /** Release-gate payload for deterministic testing (platform admin only) */
   release_gate?: {
     force_empty_provider?: string;
@@ -1417,7 +1419,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'stored-acts-evidence-20261120' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'samai-stored-batches-20261120' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -1457,6 +1459,8 @@ Deno.serve(withSyncTimeline(async (req) => {
     const { work_item_id, _scheduled, release_gate } = payload;
     let { force_refresh, allow_buscar } = payload;
     const storedActsRequested = payload._stored_acts_only === true;
+    const batchRequested = Object.prototype.hasOwnProperty.call(payload, '_samai_stored_batch');
+    const samaiBatch = parseSamaiBatchRequest(payload._samai_stored_batch);
     traceWorkItemId = work_item_id;
     
     if (!work_item_id) {
@@ -1464,6 +1468,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
     if (storedActsRequested && _scheduled !== true) {
       return errorResponse('FORBIDDEN', 'La lectura almacenada requiere una llamada interna autorizada.', 403, traceId);
+    }
+    if (batchRequested && (!samaiBatch || !storedActsRequested || _scheduled !== true)) {
+      return errorResponse('FORBIDDEN', 'La recuperación por lotes requiere una llamada interna de lectura almacenada.', 403, traceId);
     }
 
     let userId: string;
@@ -1593,7 +1600,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date, authority_name, authority_city, authority_department, monitoring_enabled, deleted_at')
+      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date, authority_name, authority_city, authority_department, monitoring_enabled, scraping_enabled, lifecycle_state, deleted_at')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -1698,8 +1705,68 @@ Deno.serve(withSyncTimeline(async (req) => {
     if (isContinuation && (force_refresh === true || allow_buscar !== false)) {
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, { admitted: false, reason: 'CONTINUATION_EXTRACTION_FORBIDDEN' }), 200);
     }
+    let batchFeed: FetchResult | null = null;
+    let batchClaim: { key: string; lease: string; value: Record<string, unknown> } | null = null;
+    const batchRows: Array<{ id: string; fingerprint: string }> = [];
+    if (samaiBatch) {
+      const day = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
+      const { data: cycle, error: cycleError } = await supabase.from('daily_update_cycles')
+        .select('channels').eq('work_item_id', work_item_id).eq('run_date', day).maybeSingle();
+      const actsGate = (cycle?.channels as Record<string, { status?: string }> | null)?.acts?.status;
+      const { data: enrollment, error: enrollmentError } = await supabase.from('work_item_provider_enrollment')
+        .select('enabled').eq('work_item_id', work_item_id).eq('provider_key', 'samai').eq('scope', 'ACTS').maybeSingle();
+      if (cycleError || enrollmentError || enrollment?.enabled !== true || workItem.workflow_type !== 'CPACA' ||
+          !['DONE', 'FAILED', 'PARTIAL', 'PENDING_UPSTREAM'].includes(actsGate ?? '') ||
+          !workItem.monitoring_enabled || !workItem.scraping_enabled || workItem.lifecycle_state !== 'ACTIVE' ||
+          workItem.deleted_at || !workItem.radicado || !isValidRadicado(workItem.radicado)) {
+        return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'La recuperación requiere una admisión terminal y SAMAI habilitado.', 409, traceId);
+      }
+      const prefix = samaiBatchPrefix(work_item_id, samaiBatch.run);
+      if (samaiBatch.mode === 'prepare') {
+        const lockKey = `samai_replay_active:${work_item_id}:${day}`;
+        const { data: existing, error } = await supabase.from('cron_state').select('key').eq('key', lockKey).maybeSingle();
+        if (error || existing) return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'La corrida ya existe o su estado no pudo verificarse.', 409, traceId);
+        const stored = await fetchFromSamai(normalizeRadicado(workItem.radicado), true);
+        const pages = storedSamaiPages(stored.actuaciones, samaiBatch.expected);
+        if (!stored.ok || stored.sourceReadComplete !== true || !observedTodayInBogota(stored.sourceObservedAt) || !pages) {
+          return jsonResponse({ ok: false, code: 'PENDING_UPSTREAM', source_complete: false,
+            observed: stored.sourceObservedAt, received: stored.actuaciones.length, expected: samaiBatch.expected }, 409);
+        }
+        const attached = { run: samaiBatch.run, observed: stored.sourceObservedAt, expected: samaiBatch.expected,
+          pages: pages.length, radicado: normalizeRadicado(workItem.radicado), organization: workItem.organization_id };
+        const { error: saveError } = await supabase.from('cron_state').insert([
+          { key: lockKey, value: { ...attached, prepared_trace: traceId } },
+          ...pages.map((rows, page) => ({ key: prefix + page, value: { ...attached, state: 'ready', page, rows } })),
+        ]);
+        if (saveError) throw saveError;
+        return jsonResponse({ ok: true, ...attached, source_query_attempted: false });
+      }
+      const key = prefix + samaiBatch.page;
+      const { data: entry, error: lookupError } = await supabase.from('cron_state').select('value').eq('key', key).maybeSingle();
+      const value = entry?.value as Record<string, unknown> | undefined;
+      if (lookupError || !value || value.organization !== workItem.organization_id ||
+          value.radicado !== normalizeRadicado(workItem.radicado) || !observedTodayInBogota(value.observed)) {
+        return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'Lote ausente, ajeno o fuera del día de observación.', 409, traceId);
+      }
+      if (value.state === 'done') return jsonResponse({ ok: true, cached: true, receipt: value.receipt });
+      const rows = value.rows as ActuacionRaw[] | undefined;
+      if (!Array.isArray(rows) || !rows.length || rows.length > SAMAI_BATCH_SIZE ||
+          !['ready', 'failed'].includes(String(value.state))) {
+        return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'Lote ocupado o inválido.', 409, traceId);
+      }
+      const lease = traceId;
+      const { data: claimed, error: claimError } = await supabase.from('cron_state')
+        .update({ value: { ...value, state: 'running', lease }, updated_at: new Date().toISOString() })
+        .eq('key', key).eq('value->>state', String(value.state)).select('key').maybeSingle();
+      if (claimError || !claimed) return errorResponse('DAILY_ADMISSION_UNAVAILABLE', 'Otro ejecutor tomó el lote.', 409, traceId);
+      batchClaim = { key, lease, value };
+      batchFeed = { ok: true, actuaciones: rows, provider: 'samai',
+        sourceObservedAt: String(value.observed), sourceReadComplete: true };
+    }
     console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_start', trace_id: traceId, work_item_id }));
-    const dailyAdmission = isContinuation
+    const dailyAdmission = batchClaim
+      ? { admitted: false, reason: 'DAILY_UPDATE_ALREADY_STARTED', existing: { status: 'PARTIAL' } }
+      : isContinuation
       ? await admitCpnuContinuation(supabase, work_item_id, (payload as any)?._cpnu_job_id, traceId)
       : await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId);
     console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_finish', trace_id: traceId,
@@ -1791,7 +1858,10 @@ Deno.serve(withSyncTimeline(async (req) => {
     // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
 
-    if (useOrchestrator) {
+    if (batchFeed) {
+      fetchResult = batchFeed;
+      result.provider_attempts.push({ provider: 'samai', status: 'success', latencyMs: 0, actuacionesCount: batchFeed.actuaciones.length });
+    } else if (useOrchestrator) {
       // ============= ORCHESTRATOR PATH (Phase 2.5) =============
       // Delegate provider selection, sequencing, CHAIN/FANOUT, concurrency,
       // and per-attempt recording to the shared orchestrator.
@@ -3248,6 +3318,7 @@ Deno.serve(withSyncTimeline(async (req) => {
           persistLedger.skippedDuplicate++;
           persistLedger.outcomes.push({ bucket: 'SKIPPED_DUPLICATE', fingerprint: persisted.hash_fingerprint, reason: 'existing origin confirmed after enrichment' });
           await applyPersistedHearing(persisted);
+          if (batchClaim) batchRows.push({ id: persisted.id, fingerprint: persisted.hash_fingerprint });
         } catch (error) {
           failedEnrichmentIds.add(decision.row.id);
           persistLedger.parsed++;
@@ -3540,6 +3611,9 @@ Deno.serve(withSyncTimeline(async (req) => {
         
         // A structural skip/rejection is not proof that this request persisted.
         if (!persistedAct) continue;
+        if (batchClaim && persistedAct.hash_fingerprint) {
+          batchRows.push({ id: persistedAct.id, fingerprint: persistedAct.hash_fingerprint });
+        }
         await applyPersistedHearing(persistedAct);
 
         // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
@@ -3595,7 +3669,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         // CRITICAL: Never auto-apply stages. All suggestions require explicit user approval.
         
         // Check if inference is enabled for this work item
-        if (workItem.stage_inference_enabled === false) {
+        if (batchClaim || workItem.stage_inference_enabled === false) {
           console.log(`[sync-by-work-item] Stage inference disabled for work item ${work_item_id}`);
         } else {
           // Check daily rate limit (once per work item per day)
@@ -3656,6 +3730,28 @@ Deno.serve(withSyncTimeline(async (req) => {
     }
 
     result.latest_event_date = latestDate;
+
+    if (batchClaim) {
+      const ids = batchRows.map(row => row.id);
+      const complete = persistenceIsComplete(persistLedger) && ids.length === fetchResult.actuaciones.length &&
+        new Set(ids).size === ids.length;
+      const { data: persisted, error: readError } = await supabase.from('work_item_acts').select('id,hash_fingerprint')
+        .eq('work_item_id', work_item_id).eq('is_archived', false).in('id', ids);
+      const byId = new Map((persisted ?? []).map((row: {id: string; hash_fingerprint: string}) => [row.id, row.hash_fingerprint]));
+      const verified = complete && !readError && batchRows.every(row => byId.get(row.id) === row.fingerprint);
+      const ok = verified && result.errors.length === 0;
+      const receipt = { ok, verified, batch_count: fetchResult.actuaciones.length, inserted: result.inserted_count,
+        skipped: result.skipped_count, observed: fetchResult.sourceObservedAt, trace: traceId, refs: batchRows,
+        errors: result.errors, hearing_reviews: hearingReviews };
+      const checkpoint = { ...batchClaim.value, state: ok ? 'done' : 'failed', receipt };
+      if (ok) delete (checkpoint as Record<string, unknown>).rows;
+      const { data: finished, error: finishError } = await supabase.from('cron_state')
+        .update({ value: checkpoint, updated_at: new Date().toISOString() })
+        .eq('key', batchClaim.key).eq('value->>lease', batchClaim.lease).select('key').maybeSingle();
+      if (finishError || !finished) return errorResponse('PERSISTENCE_UNKNOWN', 'El recibo del lote no quedó confirmado.', 503, traceId);
+      return jsonResponse({ ok, batch_count: receipt.batch_count, inserted_count: receipt.inserted,
+        skipped_count: receipt.skipped, verified, trace_id: traceId, source_query_attempted: false, errors: receipt.errors }, ok ? 200 : 409);
+    }
 
     // ============= HEARING BACKFILL PASS OVER work_item_acts =============
     // The extractor above runs per fetched act, but when the upstream provider

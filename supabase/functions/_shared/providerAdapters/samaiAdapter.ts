@@ -173,6 +173,7 @@ async function fetchFeedMode(
   return {
     ...buildSuccessResult(result, rawActuaciones, sujetos, options, startTime, response.status),
     sourceObservedAt: freshness.observedAt,
+    sourceReadComplete: true,
   };
 }
 

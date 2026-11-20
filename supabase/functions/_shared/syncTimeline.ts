@@ -131,7 +131,8 @@ export function withSyncTimeline(
         if (body) {
           workItemId = typeof body.work_item_id === "string" ? body.work_item_id : null;
           isHealthCheck = body.health_check === true;
-          isHistoricalReplay = Object.prototype.hasOwnProperty.call(body, "_historical_pp_replay");
+          isHistoricalReplay = Object.prototype.hasOwnProperty.call(body, "_historical_pp_replay")
+            || (opts.function_name === "sync-by-work-item" && Object.prototype.hasOwnProperty.call(body, "_samai_stored_batch"));
         }
       }
     } catch { /* ignore */ }
