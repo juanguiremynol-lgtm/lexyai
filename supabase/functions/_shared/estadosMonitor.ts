@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isCronCaller, CRON_HEADER } from "./cronAuth.ts";
 import { publicReadVerdict } from "./publicReadVerdict.ts";
+import { samaiAccountingComplete } from "./samaiPublicationAccounting.ts";
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
 
 // One case per hop: a hop must fit the ~150s edge wall clock, and one read
@@ -41,9 +42,41 @@ function ppLabelFromResult(success: boolean, errorCode: string | null, result: R
   return success ? "ok" : "error";
 }
 
+// A tutela response may combine PP and SAMAI. Its common verdict still gates
+// completion, but each monitor can only report evidence for its own source.
+function channelVerdict(channel: Channel, result: Record<string, unknown>, common: ReturnType<typeof publicReadVerdict>) {
+  const used = result.provider_used;
+  const exclusive = used === channel;
+  const mixed = used === "publicaciones+samai_estados";
+  const unverified = { success: false, code: "PROVIDER_UNRESOLVED", attributed: false, clockEligible: false };
+  if (exclusive) return { success: common.success, code: common.code, attributed: true, clockEligible: true };
+  if (!mixed) return unverified;
+  if (channel === "samai_estados") {
+    const summary = result.samai_estados_summary as Record<string, unknown> | undefined;
+    if (summary?.called !== true) return unverified;
+    if (typeof summary.error === "string" && summary.error.trim()) {
+      return { success: false, code: summary.error.trim().slice(0, 200), attributed: true, clockEligible: false };
+    }
+    if (summary.source_query_complete !== true || summary.contract_mismatch === true || !samaiAccountingComplete(summary)) {
+      return { success: false, code: "SAMAI_INVENTORY_INCOMPLETE", attributed: true, clockEligible: false };
+    }
+    if (!["SUCCESS", "EMPTY"].includes(String(summary.status)) || ![200, 404].includes(Number(summary.http_status))) return unverified;
+  } else {
+    const trace = result.backend_trace as Record<string, unknown> | undefined;
+    if (trace?.estado === "PARCIAL" && common.code?.startsWith("PP_")) {
+      return { success: false, code: common.code, attributed: true, clockEligible: false };
+    }
+    const window = result.pp_window as Record<string, unknown> | undefined;
+    if (window?.daily_plan_complete !== true || !["SUCCESS_EMPTY", "SUCCESS_WITH_DATA"].includes(String(window.outcome))) return unverified;
+  }
+  // Preserve aggregate persistence and failure barriers. The combined response
+  // supplies no independent source-attempt clock.
+  return common.success ? { success: true, code: null, attributed: true, clockEligible: false } : unverified;
+}
 
 export async function runEstadosMonitor(req: Request, channel: Channel): Promise<Response> {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders,
+    "X-Andromeda-Monitor-Revision": "channel-evidence-20261120" } });
   if (req.method !== "POST") return response({ error: "Método no permitido" }, 405);
   if (!isCronCaller(req)) return response({ error: "No autorizado" }, 401);
   const url = Deno.env.get("SUPABASE_URL");
@@ -127,14 +160,18 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       if (deferError || deferred !== true) return response({ error: "BREAKER_DEFER_FAILED", run_id: runId }, 503);
       return response({ ok: false, pending: true, error: breakerCode, retry_at: retryAt, run_id: runId });
     }
+    const scoped = channelVerdict(channel, result, {success, retryable, code: errorCode});
+    result = { ...result, monitor_evidence: { channel, attributed: scoped.attributed, common_error_code: errorCode } };
+    success = scoped.success;
+    errorCode = scoped.code;
     const { data: sealed, error: sealError } = await db.rpc("finish_public_monitor_item", {
       _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token,
       _success: success, _retryable: retryable, _error_code: errorCode, _result: result,
     });
     if (sealError || sealed !== true) return response({ error: sealError?.message ?? "Lease expired before completion", run_id: runId }, 503);
-    const label = ppLabelFromResult(success, errorCode, result);
+    const label = scoped.attributed ? ppLabelFromResult(success, errorCode, result) : "pending";
     const stampedAt = new Date().toISOString();
-    const patch: Record<string, unknown> = result.reused_completed_read === true || result.source_query_attempted === false ? {} : {
+    const patch: Record<string, unknown> = !scoped.clockEligible || result.reused_completed_read === true || result.source_query_attempted === false ? {} : {
       // YY4 — every attempt moves the attempt clock, whatever the outcome.
       last_sync_attempt_at: stampedAt,
     };
@@ -148,7 +185,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
     if (channel === "publicaciones") {
       patch.pp_estado = label;
       // A skip is not a read: it may relabel, but it must not move the clock.
-      if (success && result.reused_completed_read !== true && result.source_query_attempted !== false) patch.pp_ultima_sync = stampedAt;
+      if (success && scoped.clockEligible && result.reused_completed_read !== true && result.source_query_attempted !== false) patch.pp_ultima_sync = stampedAt;
     }
     if (Object.keys(patch).length) {
       const { error: labelError } = await db.from("work_items").update(patch).eq("id", item.work_item_id);

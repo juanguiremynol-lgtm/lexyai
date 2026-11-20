@@ -75,7 +75,7 @@ describe("YY4 — the estados monitor reports on its own channel only", () => {
 
   it("labels the Publicaciones channel and lets a routing skip stand", () => {
     expect(monitor).toMatch(/patch\.pp_estado = label/);
-    expect(monitor).toMatch(/if \(success && result\.reused_completed_read !== true && result\.source_query_attempted !== false\) patch\.pp_ultima_sync = stampedAt/);
+    expect(monitor).toMatch(/if \(success && scoped\.clockEligible && result\.reused_completed_read !== true && result\.source_query_attempted !== false\) patch\.pp_ultima_sync = stampedAt/);
   });
 });
 
