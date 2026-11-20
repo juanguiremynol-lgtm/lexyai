@@ -1,0 +1,74 @@
+import { strict as assert } from "node:assert";
+
+Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and requires a durable result", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const originalServe = Deno.serve;
+  const originalFetch = globalThis.fetch;
+  const env = {
+    SUPABASE_URL: "https://preflight-db.invalid", SUPABASE_ANON_KEY: "test-anon",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service", EXTERNAL_X_API_KEY: "test-upstream",
+    CPNU_BASE_URL: "https://cpnu.invalid", PUBLICACIONES_BASE_URL: "https://pp.invalid",
+    SAMAI_ESTADOS_BASE_URL: "https://estados.invalid",
+  };
+  const prior = Object.keys(env).map(k => [k, Deno.env.get(k)] as const);
+  let handler!: (req: Request) => Promise<Response>;
+  let rejectInsert = false, malformed = true, logged = 0;
+  const writes: Array<Record<string, unknown>> = [];
+  const routes: string[] = [];
+  try {
+    for (const [key, value] of Object.entries(env)) Deno.env.set(key, value);
+    Deno.serve = ((fn: typeof handler) => { handler = fn; }) as unknown as typeof Deno.serve;
+    await import("./index.ts");
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const { hostname, pathname } = new URL(request.url);
+      if (hostname === "preflight-db.invalid") {
+        if (pathname === "/auth/v1/user") return Response.json({ id: "test-user" });
+        if (pathname.endsWith("/provider_connectors")) return Response.json([]);
+        if (pathname.endsWith("/atenia_ai_actions")) { logged++; return Response.json({ id: "test-log" }); }
+        if (pathname.endsWith("/atenia_preflight_checks")) {
+          if (rejectInsert) return Response.json({ code: "23514", message: "simulated rejection" }, { status: 400 });
+          writes.push(await request.json());
+          return Response.json(null, { status: 201 });
+        }
+        throw new Error("unexpected database route: " + pathname);
+      }
+      routes.push(pathname);
+      if (hostname === "pp.invalid") {
+        return malformed ? Response.json({ detail: "Not found" }, { status: 404 })
+          : Response.json({ radicado: pathname.split("/").at(-1) });
+      }
+      if (hostname === "cpnu.invalid") return Response.json(malformed ? { error: "application error" } : { data: { actuaciones: [] } });
+      if (hostname === "estados.invalid") return Response.json({ result: { estados: [] } });
+      if (hostname === "samai-read-api-11974381924.us-central1.run.app") return Response.json({ result: { feedCombinado: [] } });
+      throw new Error("unrecognized provider in offline test");
+    };
+    const encode = (value: unknown) => btoa(JSON.stringify(value)).replaceAll("=", "").replaceAll("+", "-").replaceAll("/", "_");
+    // Real auth SDK delegates HS256 verification to the locally intercepted user endpoint.
+    const claims = { sub: "test-user", role: "service_role", exp: Math.floor(Date.now()/1000) + 600 };
+    const bearer = [encode({ alg: "HS256", typ: "JWT" }), encode(claims), encode("fixture")].join(".");
+    const invoke = () => handler(new Request("https://handler.invalid", {
+      method: "POST", headers: { authorization: "Bearer " + bearer, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "MANUAL" }),
+    }));
+    const partial = await invoke();
+    const first = await partial.json();
+    assert.equal(partial.status, 200, JSON.stringify(first));
+    assert.equal(first.overall, "PARTIAL");
+    assert.equal(first.decision, "PROCEED_DEGRADED");
+    assert.equal(writes[0].providers_passed, 2);
+    assert.equal(writes[0].providers_failed, 0);
+    assert.ok(routes.some(p => p.startsWith("/info/")));
+    malformed = false;
+    const complete = await (await invoke()).json();
+    assert.equal(complete.overall, "ALL_PASS");
+    rejectInsert = true;
+    const rejected = await invoke();
+    assert.equal(rejected.status, 500);
+    assert.equal((await rejected.json()).ok, false);
+    assert.equal(logged, 2);
+  } finally {
+    Deno.serve = originalServe;
+    globalThis.fetch = originalFetch;
+    for (const [k,v] of prior) { if (v === undefined) Deno.env.delete(k); else Deno.env.set(k,v); }
+  }
+}});
