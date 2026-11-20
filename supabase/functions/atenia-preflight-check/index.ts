@@ -12,6 +12,9 @@
  * or manually from the Supervisor Panel.
  */
 
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { matchesConfiguredServiceKey } from "../_shared/privilegedCaller.ts";
+import { bogotaDay } from "../_shared/dailyCompletion.ts";
 import { upstreamBaseUrl } from "../_shared/upstreamEndpoints.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { logAction } from "../_shared/action-logger.ts";
@@ -48,7 +51,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check", revision: "20261120-evidence-v1" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check", revision: "20261120-evidence-v2" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -65,9 +68,30 @@ Deno.serve(async (req) => {
   const trigger = body.trigger ?? "MANUAL";
 
   // ── Identity guard: provider diagnostics expose platform configuration ──
-  const caller = await resolveCaller(req);
+  const dailyTriggers = ["PRE_DAILY_SYNC", "PRE_HEARTBEAT", "CONTROLLED_DAILY_PREFLIGHT"];
+  const platformDaily = !orgId && dailyTriggers.includes(trigger);
+  const trusted = matchesConfiguredServiceKey(req) || (platformDaily && isCronCaller(req));
+  const caller = trusted ? { kind: "service" as const } : await resolveCaller(req);
   if (!isPrivileged(caller) && !canAccessOrg(caller, orgId)) {
     return forbidden(corsHeaders, "No autorizado para ejecutar el preflight");
+  }
+
+  // Scheduled callers share the same platform probe, including its recovery budget.
+  if (platformDaily) {
+    const { data: slot, error } = await supabase.rpc("claim_atenia_daily_preflight");
+    const json = (body: unknown, status: number) => Response.json(body, { status, headers: corsHeaders });
+    if (error) return json({ ok: false, error: "PREFLIGHT_ADMISSION_UNAVAILABLE" }, 503);
+    if (slot === "CACHED") {
+      const { data: receipt, error: readError } = await supabase.from("atenia_preflight_checks")
+        .select("overall_status,decision,results,started_at").is("organization_id", null)
+        .in("trigger", dailyTriggers).not("finished_at", "is", null)
+        .gte("started_at", bogotaDay() + "T00:00:00-05:00").lte("finished_at", new Date().toISOString())
+        .order("started_at", { ascending: false }).limit(1).maybeSingle();
+      if (readError || !receipt) return json({ ok: false, error: "PREFLIGHT_RECEIPT_UNAVAILABLE" }, 503);
+      return json({ ok: true, overall: receipt.overall_status, decision: receipt.decision,
+        results: receipt.results, observed_at: receipt.started_at, cached: true }, 200);
+    }
+    if (slot !== "RUN") return json({ ok: false, overall: "UNVERIFIED", decision: "PREFLIGHT_DEFERRED" }, 202);
   }
 
   const startTime = Date.now();
@@ -127,15 +151,14 @@ Deno.serve(async (req) => {
       },
       {
         // SAMAI Estados es el proveedor secundario para estados/publicaciones.
-        // Usa POST /snapshot con body { radicado } (ver samaiEstadosAdapter).
+        // Read the stored inventory. The daily GCP job owns the portal session.
         name: "SAMAI_ESTADOS",
         category: "ESTADOS" as const,
         role: "SECONDARY" as const,
         baseUrl: Deno.env.get("SAMAI_ESTADOS_BASE_URL"),
-        method: "POST" as const,
-        testEndpoint: (_r: string) => `/snapshot`,
-        testBody: (r: string) => JSON.stringify({ radicado: r }),
-        testRadicado: Deno.env.get("SAMAI_ESTADOS_TEST_RADICADO") ?? "05001400301520240193000",
+        method: "GET" as const,
+        testEndpoint: (r: string) => `/persistido/${encodeURIComponent(r)}`,
+        testRadicado: Deno.env.get("SAMAI_ESTADOS_TEST_RADICADO") ?? Deno.env.get("SAMAI_TEST_RADICADO") ?? "05001233300020240115300",
         apiKey: keyFor("SAMAI_ESTADOS"),
       },
     ];

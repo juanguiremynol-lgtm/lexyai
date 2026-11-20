@@ -39,6 +39,11 @@ function bearer(req: Request): string {
   return (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
 }
 
+export function matchesConfiguredServiceKey(req: Request): boolean {
+  const expected = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  return expected.length > 0 && timingSafeEqual(bearer(req), expected);
+}
+
 /** True when the request carries a service-role identity. Never throws. */
 export async function isPrivilegedCaller(req: Request): Promise<PrivilegedIdentity | null> {
   if (isCronCaller(req)) return "CRON_KEY";
@@ -46,8 +51,7 @@ export async function isPrivilegedCaller(req: Request): Promise<PrivilegedIdenti
   const token = bearer(req);
   if (!token) return null;
 
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (serviceKey && timingSafeEqual(token, serviceKey)) return "SERVICE_KEY";
+  if (matchesConfiguredServiceKey(req)) return "SERVICE_KEY";
 
   // A distinct-but-valid service_role JWT (e.g. a rotated key) still qualifies.
   try {

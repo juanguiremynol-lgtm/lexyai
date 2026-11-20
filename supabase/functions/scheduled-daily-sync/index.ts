@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync", revision: "daily-inventory-20261120" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync", revision: "daily-inventory-20261120-v2" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
       if (orgSummaries.length === 1) {
         const { data: receipt, error } = await sb.from("atenia_preflight_checks")
           .select("overall_status,decision,results,started_at")
-          .eq("organization_id", orgSummaries[0].org_id)
+          .or("organization_id.is.null,organization_id.eq." + orgSummaries[0].org_id)
           .gte("started_at", todayStr + "T00:00:00-05:00")
           .lte("started_at", new Date(dryRunStart).toISOString())
           .order("started_at", { ascending: false }).limit(1).maybeSingle();

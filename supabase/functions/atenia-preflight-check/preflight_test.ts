@@ -5,13 +5,14 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
   const originalFetch = globalThis.fetch;
   const env = {
     SUPABASE_URL: "https://preflight-db.invalid", SUPABASE_ANON_KEY: "test-anon",
-    SUPABASE_SERVICE_ROLE_KEY: "test-service", EXTERNAL_X_API_KEY: "test-upstream",
+    CRON_SERVICE_KEY: "test-cron", SUPABASE_SERVICE_ROLE_KEY: "test-service", EXTERNAL_X_API_KEY: "test-upstream",
     CPNU_BASE_URL: "https://cpnu.invalid", PUBLICACIONES_BASE_URL: "https://pp.invalid",
     SAMAI_ESTADOS_BASE_URL: "https://estados.invalid",
   };
   const prior = Object.keys(env).map(k => [k, Deno.env.get(k)] as const);
   let handler!: (req: Request) => Promise<Response>;
   let rejectInsert = false, malformed = true, logged = 0;
+  let admission = "RUN";
   const writes: Array<Record<string, unknown>> = [];
   const routes: string[] = [];
   try {
@@ -22,6 +23,8 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
       const request = new Request(input, init);
       const { hostname, pathname } = new URL(request.url);
       if (hostname === "preflight-db.invalid") {
+        if (pathname.endsWith("/rpc/claim_atenia_daily_preflight")) return Response.json(admission);
+        if (pathname.endsWith("/atenia_preflight_checks") && request.method === "GET") return Response.json({ overall_status:"PARTIAL", decision:"PROCEED_DEGRADED", results:[], started_at:new Date().toISOString() });
         if (pathname === "/auth/v1/user") return Response.json({ id: "test-user" });
         if (pathname.endsWith("/provider_connectors")) return Response.json([]);
         if (pathname.endsWith("/atenia_ai_actions")) { logged++; return Response.json({ id: "test-log" }); }
@@ -65,6 +68,20 @@ Deno.test({ name: "preflight verifies sample shape, distinguishes warnings, and 
     const rejected = await invoke();
     assert.equal(rejected.status, 500);
     assert.equal((await rejected.json()).ok, false);
+    assert.equal(logged, 2);
+    assert.ok(routes.some(path => path.startsWith("/persistido/")));
+    rejectInsert = false;
+    const probe = (headers: Record<string,string>, trigger: string) => handler(new Request("https://handler.invalid", {
+      method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ trigger }),
+    }));
+    const routeCount = routes.length;
+    admission = "CACHED";
+    const cached = await probe({authorization:"Bearer test-service"}, "PRE_DAILY_SYNC");
+    assert.equal((await cached.json()).cached, true);
+    admission = "DEFERRED";
+    assert.equal((await probe({"x-cron-key":"test-cron"}, "CONTROLLED_DAILY_PREFLIGHT")).status, 202);
+    assert.equal((await probe({"x-cron-key":"test-cron"}, "MANUAL")).status, 403);
+    assert.equal(routes.length, routeCount);
     assert.equal(logged, 2);
   } finally {
     Deno.serve = originalServe;
