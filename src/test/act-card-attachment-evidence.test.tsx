@@ -20,14 +20,15 @@ describe("act card distinguishes announcements from files", () => {
   it("does not hide a stored link because an act is CLASIFICADA or call it restricted", () => {
     const url = "https://storage.googleapis.com/andromeda-samai-documentos-2026/samai/file.pdf";
     render(<WorkItemActCard act={{ ...base, raw_data: { estado: "CLASIFICADA", anexos_documentos: [{ descripcion: "Memorial", urlDescarga: url }] } }} />);
-    expect(screen.getByRole("link", { name: /Descargar/ }).getAttribute("href")).toBe(url);
-    expect(screen.getByText("Contenido sin verificar")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Abrir archivo almacenado" }).getAttribute("href")).toBe(url);
+    expect(screen.getByRole("button", { name: "Descargar" })).toBeTruthy();
+    expect(screen.getByText("Archivo almacenado; lectura no registrada")).toBeTruthy();
     expect(screen.queryByText("Documento clasificado")).toBeNull();
   });
   it("retains a SAMAI descriptor without URLs and does not expose javascript URLs", () => {
     render(<WorkItemActCard act={{ ...base, raw_data: { anexos_documentos: [{ descripcion: "Anexo anunciado" }, { descripcion: "Entrada inválida", urlVer: "javascript:alert(1)" }] } }} />);
     expect(screen.getByText("Anexo anunciado")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.getAllByText("Sin enlace registrado")).toHaveLength(2);
+    expect(screen.getAllByText("Sin copia ni enlace disponible")).toHaveLength(2);
   });
 });

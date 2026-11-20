@@ -34,7 +34,7 @@ import {
 } from '../radicadoUtils.ts';
 import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
 import { internalBreakerRpc, isSharedSessionBlock, withSamaiEstadosBreaker } from './samaiEstadosBreaker.ts';
-import { storedSamaiObservedAt, validStoredSamaiRead } from '../storedSamaiRead.ts';
+import { storedSamaiObservedAt, storedSamaiRows, validStoredSamaiRead } from '../storedSamaiRead.ts';
 
 // ═══════════════════════════════════════════
 // CONSTANTS
@@ -113,7 +113,9 @@ async function fetchMonitoring(
   if (result.ok && validStoredSamaiRead(result.data, radicado)) {
     const identityMismatches: NonNullable<ProviderAdapterResult['identityMismatches']> = [];
     const rowOutcomes: NonNullable<ProviderAdapterResult['rowOutcomes']> = [];
-    const publicaciones = normalizeSamaiEstadosResponse(result.data, options, identityMismatches, rowOutcomes);
+    const publicaciones = normalizeSamaiEstadosResponse(
+      { actuaciones: storedSamaiRows(result.data) }, options, identityMismatches, rowOutcomes,
+    );
     return {
       provider: PROVIDER_KEY,
       status: publicaciones.length > 0 ? 'SUCCESS' : 'EMPTY',

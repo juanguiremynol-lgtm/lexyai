@@ -1,17 +1,18 @@
 import { isAndromedaCopyUrl } from './act-attachments-inventory';
 
 /** A storage URL and the old `disponible` flag are not reading evidence. */
-function readCopyEvidence(doc: Record<string, any>): boolean {
-  if (doc.descarga_estado !== 'descargado_y_leido') return false;
+function readCopyFormat(doc: Record<string, any>): 'pdf' | 'zip' | 'xlsx' | null {
+  if (doc.descarga_estado !== 'descargado_y_leido' || !hasDatedObservation(doc)) return null;
   const pdf = doc.pdf_verificacion;
   const archive = doc.archivo_verificacion;
   const hash = pdf?.sha256;
   if (pdf && Number.isSafeInteger(pdf.paginas) && pdf.paginas > 0
     && pdf.paginas_leidas === pdf.paginas && Number.isFinite(pdf.bytes) && pdf.bytes > 5
     && typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash)
-    && (!doc.sha256 || doc.sha256 === hash)) return true;
-  return archive?.lectura_completa === true && archive.crc_comprobado === true
-    && ['zip', 'xlsx'].includes(archive.formato);
+    && (!doc.sha256 || doc.sha256 === hash)) return 'pdf';
+  if (archive?.lectura_completa === true && archive.crc_comprobado === true
+    && (archive.formato === 'zip' || archive.formato === 'xlsx')) return archive.formato;
+  return null;
 }
 
 function hasDatedObservation(doc: Record<string, any>): boolean {
@@ -24,16 +25,16 @@ function hasDatedObservation(doc: Record<string, any>): boolean {
 export function actDocumentPresentation(doc: Record<string, any>, now = Date.now()) {
   const candidates = [doc.gcs_url, doc.url, doc.urlDescarga, doc.urlVer].filter((s): s is string => typeof s === 'string' && /^https:\/\//i.test(s));
   const own = candidates.find(isAndromedaCopyUrl) ?? null;
-  const readCopy = !!own && readCopyEvidence(doc);
+  const readCopy = own && readCopyFormat(doc);
   const legacyFailure = ['FALLIDO', 'FAILED', 'ERROR', 'ERROR_DESCARGA', 'INVALIDO']
     .includes(String(doc.estado || doc.resultado || doc.status || '').trim().toUpperCase());
-  const failedDownload = legacyFailure && !(readCopy && hasDatedObservation(doc));
+  const failedDownload = legacyFailure && !readCopy;
   const failedReading = !readCopy &&
     (doc.descarga_error?.kind === 'validation' || doc.recuperacion_cache?.originalNoValidado?.lectura_validada === false
       || String(doc.estado).toUpperCase() === 'INVALIDO');
   if (failedReading) return { href: null, stored: false, label: 'Lectura fallida – sin copia disponible', reason: 'El archivo no superó la comprobación de lectura. No se ofrece el enlace externo como sustituto.' };
   if (failedDownload) return { href: null, stored: false, label: 'Descarga fallida – sin copia disponible', reason: 'La descarga registrada falló. La URL conservada es una referencia del origen, no un archivo disponible.' };
-  if (readCopy) return { href: own, stored: true, label: 'Archivo almacenado; lectura registrada', reason: null };
+  if (readCopy) return { href: own, stored: true, readFormat: readCopy, label: 'Archivo almacenado; lectura registrada', reason: null };
   // Legacy own copies written before the reading observer existed carry no
   // descarga_estado at all. Hiding them would permanently conceal valid files,
   // so they stay openable but are labelled as not yet read.

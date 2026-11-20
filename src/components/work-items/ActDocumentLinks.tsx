@@ -4,8 +4,10 @@ import { actDocumentPresentation } from '@/lib/act-document-presentation';
 import { downloadDocument } from '@/lib/download-document';
 import { Button } from '@/components/ui/button';
 
-export function ActDocumentLinks({ document: doc }: { document: Record<string, any> }) {
-  const state = actDocumentPresentation(doc);
+export function ActDocumentLinks({ document: doc, presentation: state = actDocumentPresentation(doc) }: {
+  document: Record<string, any>;
+  presentation?: ReturnType<typeof actDocumentPresentation>;
+}) {
   const [downloading, setDownloading] = useState(false);
   const name = doc.nombre || doc.descripcion || 'documento.pdf';
   return <div className="flex flex-col gap-1">

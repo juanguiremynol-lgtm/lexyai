@@ -11,13 +11,13 @@ describe('active act table documentary evidence', () => {
   it('keeps classified act links visible without treating classification as denied access', () => {
     render(<ActuacionesTable acts={[act({ raw_data: { estado: 'CLASIFICADA', anexos_documentos: [{ id: 'a', descripcion: 'Anexo propio', urlDescarga: 'https://storage.googleapis.com/andromeda-samai-documentos-2026/a.pdf' }] } })]} />);
     expect(screen.getByText('2 anexo(s) anunciado(s)')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Abrir enlace registrado' }).getAttribute('href')).toContain('/a.pdf');
-    expect(screen.getByText('Recuperación automática pendiente; el enlace por sí solo no acredita un archivo disponible.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Abrir archivo almacenado' }).getAttribute('href')).toContain('/a.pdf');
+    expect(screen.getByText('Archivo almacenado; lectura no registrada')).toBeTruthy();
     expect(screen.queryByText('Clasificado')).toBeNull();
   });
   it('shows missing inventory as pending rather than hiding announced annexes', () => {
     render(<ActuacionesTable acts={[act({ raw_data: { anexos_observacion: { estado: 'detalle_sin_inventario' } } })]} />);
-    expect(screen.getByText(/La consulta automática del detalle no devolvió/)).toBeTruthy();
+    expect(screen.getByText(/el detalle no devolvió un inventario documental/i)).toBeTruthy();
     expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
   it('retains each document and its transient failure even with a registered link', () => {
@@ -33,7 +33,7 @@ describe('active act table documentary evidence', () => {
     expect(screen.queryByText(/texto de otra solicitud/)).toBeNull();
   });
   it('shows an actually read archive and preserves separate origin associations sharing stored bytes', () => {
-    const common = { nombre: 'Expediente ZIP', gcs_url: 'https://storage.googleapis.com/bucket/same.zip', sha256: 'a'.repeat(64), descarga_estado: 'descargado_y_leido', archivo_verificacion: { formato: 'zip', lectura_completa: true, crc_comprobado: true, miembros: [{name: '001.pdf'}, {name: '002.pdf'}] } };
+    const common = { nombre: 'Expediente ZIP', gcs_url: 'https://storage.googleapis.com/andromeda-samai-documentos-2026/same.zip', sha256: 'a'.repeat(64), descarga_estado: 'descargado_y_leido', descarga_observado_en: '2026-10-16T13:00:00Z', archivo_verificacion: { formato: 'zip', lectura_completa: true, crc_comprobado: true, miembros: [{name: '001.pdf'}, {name: '002.pdf'}] } };
     render(<ActuacionesTable acts={[act({ documentos: [{...common, url_origen:'https://example.org/source-a'}, {...common, url_origen:'https://example.org/source-b'}] as any })]} />);
     expect(screen.getAllByRole('link', {name:'Abrir archivo almacenado'})).toHaveLength(2);
     expect(screen.getAllByText(/2 documentos dentro del ZIP/)).toHaveLength(2);
@@ -42,7 +42,21 @@ describe('active act table documentary evidence', () => {
   it('does not mark an unvalidated archive as available', () => {
     render(<ActuacionesTable acts={[act({ documentos: [{nombre:'ZIP pendiente', gcs_url:'https://example.org/a.zip', sha256:'a', descarga_estado:'descargado_y_leido', archivo_verificacion:{formato:'zip',lectura_completa:true,crc_comprobado:false}}] as any })]} />);
     expect(screen.queryByRole('link', {name:'Abrir archivo almacenado'})).toBeNull();
-    expect(screen.getByText(/Recuperación automática pendiente; el enlace por sí solo/)).toBeTruthy();
+    expect(screen.getByText('Pendiente de recuperación automática')).toBeTruthy();
   });
 
+  it.each([
+    { bucket: 'andromeda-samai-documentos-2026', observedAt: undefined },
+    { bucket: 'otro-bucket', observedAt: '2026-10-16T13:00:00Z' },
+  ])('requires a dated reading in an owned bucket before reporting archive contents', ({ bucket, observedAt }) => {
+    const doc = {
+      nombre: 'ZIP', gcs_url: `https://storage.googleapis.com/${bucket}/archivo.zip`,
+      descarga_estado: 'descargado_y_leido', descarga_observado_en: observedAt, sha256: 'a'.repeat(64),
+      archivo_verificacion: { formato: 'zip', lectura_completa: true, crc_comprobado: true, miembros: [{ name: '001.pdf' }] },
+    };
+    render(<ActuacionesTable acts={[act({ documentos: [doc] })]} />);
+    expect(screen.queryByRole('link', { name: 'Abrir archivo almacenado' })).toBeNull();
+    expect(screen.queryByText(/documentos dentro del ZIP/)).toBeNull();
+    expect(screen.queryByText('Contenido: 001.pdf')).toBeNull();
+  });
 });

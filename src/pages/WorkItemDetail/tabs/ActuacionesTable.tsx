@@ -1,4 +1,5 @@
 import { ActDocumentLinks } from '@/components/work-items/ActDocumentLinks';
+import { actDocumentPresentation } from '@/lib/act-document-presentation';
 import { RelatedActDocuments } from '@/components/work-items/RelatedActDocuments';
 import { ActAttachmentInventory } from '@/components/work-items/ActAttachmentInventory';
 import { samaiGrantIdentity, sourceGrantToken } from '../../../../supabase/functions/_shared/samaiGrantIdentity';
@@ -303,21 +304,20 @@ function SamaiDocumentInventory({ act }: { act: WorkItemAct }) {
       <span className="text-muted-foreground">{inventory.causa}</span>
       {documents.map((doc, index) => {
         const d = doc as unknown as Record<string, unknown>;
-        const href = [d.gcs_url, d.url, d.urlDescarga, d.urlVer].find(isAbsoluteHttpUrl) as string | undefined;
+        const presentation = actDocumentPresentation(d);
         const cause = knownDocumentPendingCause(doc);
         const fileReading = d.archivo_verificacion as { formato?: string; lectura_completa?: boolean; crc_comprobado?: boolean; miembros?: { name: string }[]; hojas_leidas?: number } | undefined;
         const pdfReading = d.pdf_verificacion as { paginas?: number; avisos_lector?: string } | undefined;
-        const storedReading = d.descarga_estado === 'descargado_y_leido' && !!d.gcs_url && !!d.sha256
-          && (!!pdfReading || (fileReading?.lectura_completa === true && fileReading.crc_comprobado === true && ['zip', 'xlsx'].includes(fileReading.formato || '')));
         return (
           <div key={index} className="flex flex-col gap-0.5 border-l border-border pl-2">
             <span>{actDocumentoLabel(doc, index)}</span>
-            <ActDocumentLinks document={d} />
-            <span className="text-muted-foreground">{cause || (storedReading && fileReading?.lectura_completa
-              ? `Lectura automática registrada: ${fileReading.formato === 'zip' ? `${fileReading.miembros?.length || 0} documentos dentro del ZIP` : `${fileReading.hojas_leidas || 0} hojas de cálculo`}. No certifica integridad completa ni atribución del contenido.`
-              : storedReading && pdfReading ? `PDF almacenado y leído automáticamente (${pdfReading.paginas || '?'} páginas). Correspondencia del contenido con la actuación pendiente de revisión.`
-              : 'La recuperación de la copia propia sigue pendiente; el enlace del origen se muestra por separado.')}</span>
-            {fileReading?.miembros?.map(member => <span key={member.name} className="text-muted-foreground">Contenido: {member.name}</span>)}
+            <ActDocumentLinks document={d} presentation={presentation} />
+            {cause && <span className="text-muted-foreground">{cause}</span>}
+            {(presentation.readFormat === 'zip' || presentation.readFormat === 'xlsx') && fileReading && <>
+              <span className="text-muted-foreground">{fileReading.formato === 'zip' ? `${fileReading.miembros?.length || 0} documentos dentro del ZIP` : `${fileReading.hojas_leidas || 0} hojas de cálculo`}. Correspondencia del contenido con la actuación pendiente de revisión.</span>
+              {fileReading.miembros?.map(member => <span key={member.name} className="text-muted-foreground">Contenido: {member.name}</span>)}
+            </>}
+            {presentation.readFormat === 'pdf' && pdfReading && <span className="text-muted-foreground">PDF almacenado y leído automáticamente ({pdfReading.paginas} páginas). Correspondencia del contenido con la actuación pendiente de revisión.</span>}
             {(d.pdf_verificacion as { avisos_lector?: string } | undefined)?.avisos_lector && <span className="text-muted-foreground">La lectura automática del PDF registró avisos del lector; su contenido requiere cautela.</span>}
           </div>
         );

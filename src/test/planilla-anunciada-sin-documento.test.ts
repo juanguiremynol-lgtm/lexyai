@@ -94,15 +94,16 @@ describe("IW1 — planilla anunciada sin documento", () => {
       .planilla_sin_documento).toBe(true);
   });
 
-  it("still emits the providencia with its own PDF", () => {
+  it("retains the providencia's own candidate URL until recovery confirms the file", () => {
     const row = toCanonicalPubRow(providencia!, CTX);
-    expect(row.pdf_available).toBe(true);
+    expect(row.pdf_available).toBe(false);
+    expect(row.pdf_url).toBe(PAYLOAD_SIN_PLANILLA.actuaciones[0].pdf_url);
     expect(row.tipo_publicacion).toBe("Providencia");
   });
 });
 
 describe("IW1 — an estado WITH a PDF is unchanged", () => {
-  it("keeps pdf_available true and the planilla URL", () => {
+  it("keeps the planilla's candidate URL without asserting a recovered file", () => {
     const units = explodeProviderPublicaciones({
       actuaciones: [
         {
@@ -120,7 +121,8 @@ describe("IW1 — an estado WITH a PDF is unchanged", () => {
     const estado = units.find((u) => u.tipo === "Estado Electrónico")!;
     expect(estado.planilla_sin_documento).toBe(false);
     const row = toCanonicalPubRow(estado, CTX);
-    expect(row.pdf_available).toBe(true);
+    expect(row.pdf_available).toBe(false);
+    expect(row.pdf_url).toBe('https://publicaciones-procesales-api-x.run.app/pdf/EST');
   });
 });
 

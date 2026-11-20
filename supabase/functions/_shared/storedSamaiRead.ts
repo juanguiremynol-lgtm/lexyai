@@ -1,3 +1,8 @@
+/** The certificate covers this top-level inventory, including the older estados alias. */
+export function storedSamaiRows(data: any): unknown {
+  return data?.actuaciones ?? data?.estados;
+}
+
 /** Independent clocks for providencias and fijaciones; GET time is irrelevant. */
 export function validStoredSamaiRead(data: any, radicado: string, now = Date.now()) {
   const day = (ms: number) => new Date(ms - 5 * 3600_000).toISOString().slice(0, 10);
@@ -6,7 +11,7 @@ export function validStoredSamaiRead(data: any, radicado: string, now = Date.now
     return Number.isFinite(ms) && ms <= now + 60_000 && now - ms <= hours * 3600_000
       && (!sameDay || day(ms) === day(now));
   };
-  const rows = data?.actuaciones ?? data?.estados;
+  const rows = storedSamaiRows(data);
   const scope = data?.fijaciones;
   return data?.radicado === radicado && /^\d{23}$/.test(radicado)
     && data?.stored_read_only === true && data?.provider_queries === 0

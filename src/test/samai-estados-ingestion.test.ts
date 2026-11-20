@@ -37,19 +37,36 @@ function rowsFor(payload: unknown, ctx = context) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ingestión independiente de ESTADOS', () => {
-  it('llama snapshot y lleva cada publicación y sus documentos hasta el registro del RPC', async () => {
-    vi.stubGlobal('Deno', { env: { get: (key: string) => key === 'SAMAI_ESTADOS_BASE_URL' ? 'https://example.invalid/samai-estados' : undefined } });
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(mixedFeed), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  it.each(['actuaciones', 'estados', 'mixto'])('lleva el inventario certificado hasta el registro del RPC con el formato %s', async formato => {
+    const env: Record<string, string> = {
+      SAMAI_ESTADOS_BASE_URL: 'https://example.invalid/samai-estados',
+      SUPABASE_URL: 'https://example.invalid/db', SUPABASE_SERVICE_ROLE_KEY: 'fixture',
+    };
+    vi.stubGlobal('Deno', { env: { get: (key: string) => env[key] } });
+    const observedAt = new Date().toISOString();
+    const rows = [estado(101, 'uno'), estado(102, 'dos')].map(row => ({ ...row, Radicacion: context.source_radicado }));
+    const certificate = {
+      radicado: context.source_radicado, stored_read_only: true, provider_queries: 0,
+      consulta_completa: true, persistencia_completa: true, motivo_parcial: null, total_found: 2,
+      consultado_en: observedAt, providencias_consultadas_en: observedAt,
+      fijaciones_desplegable_leido_en: observedAt, fijaciones_fecha_mas_antigua_leida_en: observedAt,
+      fijaciones: { visible_dates: 1, covered_dates: 1 },
+      ...(formato === 'estados' ? { estados: rows } : { actuaciones: rows }),
+      ...(formato === 'mixto' ? { estados: [], result: { estados: [] } } : {}),
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(certificate), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
     const fetched = await fetchFromSamaiEstados({ radicado: context.source_radicado, mode: 'monitoring', workItemId: WI });
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('https://example.invalid/samai-estados/snapshot');
+    expect(fetchMock.mock.calls[0][0]).toBe(`https://example.invalid/samai-estados/persistido/${context.source_radicado}`);
+    expect(fetchMock.mock.calls[0][1]?.method ?? 'GET').toBe('GET');
+    expect(fetched.sourceReadComplete).toBe(true);
     expect(fetched.actuaciones).toEqual([]);
     expect(fetched.publicaciones).toHaveLength(2);
     expect(fetched.publicaciones.map((p) => p.attachments?.length)).toEqual([2, 2]);
-    const rows = samaiEstadosToProviderUnits(fetched.publicaciones).map((unit) => toCanonicalPubRow(unit, context));
-    expect(new Set(rows.map((row) => row.hash_fingerprint)).size).toBe(2);
-    rows.forEach((row, index) => {
+    const publications = samaiEstadosToProviderUnits(fetched.publicaciones).map((unit) => toCanonicalPubRow(unit, context));
+    expect(new Set(publications.map((row) => row.hash_fingerprint)).size).toBe(2);
+    publications.forEach((row, index) => {
       const id = index + 101;
       expect(row.raw_data).toMatchObject({ key: `samai_estados_actuaciones:${id}`, raw_data: { source_act_id: `samai_estados_actuaciones:${id}`, actuaciones_relacionadas: ['samai_actuaciones:9'], documentos: estado(id, '').documentos } });
       expect(row.annotation).toContain(`Anotación completa ${id}`);
@@ -59,6 +76,7 @@ describe('ingestión independiente de ESTADOS', () => {
       expect(canonicalPubIdentityFromRow(row, WI)).toBe(row.hash_fingerprint);
     });
     expect(normalizeSamaiActuaciones(mixedFeed.actuaciones, { workItemId: WI })).toHaveLength(1);
+    expect(rowsFor(mixedFeed)).toHaveLength(2);
     expect(samaiEstadosToProviderUnits(fetched.publicaciones).map(publicationDownloadUrls)).toEqual([
       ['https://example.invalid/101/providencia.pdf', 'https://example.invalid/101/estado.pdf'],
       ['https://example.invalid/102/providencia.pdf', 'https://example.invalid/102/estado.pdf'],
