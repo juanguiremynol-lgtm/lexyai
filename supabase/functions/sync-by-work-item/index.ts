@@ -200,6 +200,7 @@ interface SyncRequest {
   /** When false, CPNU adapter must not call /buscar even if snapshot is stale (cron cap) */
   allow_buscar?: boolean;
   _scheduled?: boolean; // When true, skip auth + org membership check (cron/fallback callers)
+  _stored_acts_only?: boolean;
   /** Release-gate payload for deterministic testing (platform admin only) */
   release_gate?: {
     force_empty_provider?: string;
@@ -230,6 +231,7 @@ interface SyncResult {
   trace_id?: string;
   sync_run_id?: string;
   source_observed_at?: string;
+  source_query_attempted?: boolean;
   partial?: boolean;
   source_complete?: boolean;
   code?: string; // Error code for client
@@ -1415,7 +1417,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'cpnu-restricted-20261120' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'cpnu-source-scoped-20261120' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -1454,10 +1456,14 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     const { work_item_id, _scheduled, release_gate } = payload;
     let { force_refresh, allow_buscar } = payload;
+    const storedActsRequested = payload._stored_acts_only === true;
     traceWorkItemId = work_item_id;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
+    }
+    if (storedActsRequested && _scheduled !== true) {
+      return errorResponse('FORBIDDEN', 'La lectura almacenada requiere una llamada interna autorizada.', 403, traceId);
     }
 
     let userId: string;
@@ -1686,6 +1692,9 @@ Deno.serve(withSyncTimeline(async (req) => {
     // retries, sweep/e2e, manual and force). Only a system continuation of an
     // already admitted CPNU job may proceed without opening a new update.
     const isContinuation = !!_scheduled && (payload as any)?._continuation === 'cpnu_job';
+    if (storedActsRequested && (isContinuation || release_gate || force_refresh === true || allow_buscar !== false)) {
+      return errorResponse('CONTINUATION_EXTRACTION_FORBIDDEN', 'La lectura almacenada requiere allow_buscar=false y carece de modos de extracción.', 400, traceId);
+    }
     if (isContinuation && (force_refresh === true || allow_buscar !== false)) {
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, { admitted: false, reason: 'CONTINUATION_EXTRACTION_FORBIDDEN' }), 200);
     }
@@ -1695,10 +1704,13 @@ Deno.serve(withSyncTimeline(async (req) => {
       : await admitDailyUpdate(supabase, work_item_id, 'acts', req, traceId);
     console.info('[sync.phase]', JSON.stringify({ phase: 'daily_admission_finish', trace_id: traceId,
       work_item_id, admitted: dailyAdmission.admitted, reason: dailyAdmission.reason ?? null }));
-    const isStoredSnapshotRead = !isContinuation && !dailyAdmission.admitted
-      && mayConsumeStoredCpnu(dailyAdmission, workItem.workflow_type);
-    const isStoredSamaiRead = !isContinuation && !dailyAdmission.admitted && !isStoredSnapshotRead
-      && mayConsumeStoredSamai(dailyAdmission, workItem.workflow_type);
+    const admittedStoredRead = storedActsRequested && dailyAdmission.admitted;
+    const isStoredSnapshotRead = !isContinuation && (admittedStoredRead
+      ? workItem.workflow_type !== 'CPACA'
+      : !dailyAdmission.admitted && mayConsumeStoredCpnu(dailyAdmission, workItem.workflow_type));
+    const isStoredSamaiRead = !isContinuation && (admittedStoredRead
+      ? workItem.workflow_type === 'CPACA'
+      : !dailyAdmission.admitted && mayConsumeStoredSamai(dailyAdmission, workItem.workflow_type));
     if (!dailyAdmission.admitted && !isStoredSnapshotRead && !isStoredSamaiRead) {
       console.log(`[sync-by-work-item] DAILY_LIMIT wi=${work_item_id} reason=${dailyAdmission.reason}`);
       return jsonResponse(dailyDuplicateBody(work_item_id, traceId, dailyAdmission), 200);
@@ -1763,6 +1775,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       trace_id: traceId,
       work_item_id,
       workflow_type: workItem.workflow_type,
+      ...(isStoredReadOnly ? { source_query_attempted: false } : {}),
       inserted_count: 0,
       skipped_count: 0,
       latest_event_date: null,
@@ -2792,6 +2805,19 @@ Deno.serve(withSyncTimeline(async (req) => {
       }).eq('id', work_item_id);
       if (error) throw error;
       return jsonResponse(result);
+    }
+
+    if (storedActsRequested && fetchResult?.ok) {
+      const now = Date.now();
+      const observed = Date.parse(fetchResult.sourceObservedAt ?? '');
+      const day = (ms: number) => new Date(ms - 5 * 3600_000).toISOString().slice(0, 10);
+      if (!Number.isFinite(observed) || observed > now || day(observed) !== day(now)) {
+        return jsonResponse({
+          ...result, provider_used: fetchResult.provider, source_complete: false,
+          source_observed_at: fetchResult.sourceObservedAt, code: 'PENDING_UPSTREAM',
+          errors: ['La lectura almacenada no acredita una observación de fuente del día de Bogotá.'],
+        });
+      }
     }
 
     // Handle fetch failure - with enhanced diagnostics and auto-scraping

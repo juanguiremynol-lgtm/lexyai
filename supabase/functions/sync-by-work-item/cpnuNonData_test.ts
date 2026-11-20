@@ -73,6 +73,36 @@ Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed prov
         assert.deepEqual(runPatches.map(run => [run.status, run.error_code]), [['PARTIAL','PROCESO_PRIVADO']]);
       }
     }
+    // Request a first application admission for CPNU's stored read. Even an
+    // enabled second provider or orchestrator must not extend this operation.
+    const activity: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const req = new Request(input, init);
+      const url = new URL(req.url);
+      activity.push(`${req.method} ${url.host}${url.pathname}`);
+      if (url.host === 'cpnu.unit.invalid') return Response.json({ found:false }, { status:404 });
+      assert.equal(url.host,'db.unit.invalid');
+      if (url.pathname.endsWith('/work_items') && req.method === 'GET')
+        return Response.json([{id:caseId,owner_id:orgId,organization_id:orgId,workflow_type:'TUTELA',
+          radicado:'00000000000000000000000',monitoring_enabled:true}]);
+      if (url.pathname.endsWith('/rpc/admit_daily_update')) return Response.json({admitted:true});
+      if (url.pathname.endsWith('/work_item_provider_enrollment'))
+        return Response.json([{provider_key:'CPNU',enabled:true},{provider_key:'SAMAI',enabled:true}]);
+      if (req.method === 'HEAD') return new Response(null,{headers:{'content-range':'*/0'}});
+      return Response.json([]);
+    };
+    const onlyStored = (extra: Record<string,unknown>) => handler(new Request('http://handler.unit.invalid', {
+      method:'POST',headers:{authorization:'Bearer test-system','content-type':'application/json'},
+      body:JSON.stringify({work_item_id:caseId,_scheduled:true,_stored_acts_only:true,allow_buscar:false,...extra}),
+    }));
+    const prohibited = await onlyStored({force_refresh:true});
+    assert.equal(prohibited.status,400);
+    assert.ok(!activity.some(x=>x.includes('admit_daily_update') || x.includes('cpnu.unit.invalid')));
+    const stored = await (await onlyStored({})).json();
+    assert.equal(stored.source_query_attempted,false);
+    assert.ok(activity.some(x=>x.includes('admit_daily_update')));
+    assert.deepEqual(activity.filter(x=>!x.includes('db.unit.invalid')),['GET cpnu.unit.invalid/snapshot']);
+    assert.ok(!activity.some(x=>x.includes('atenia_ai_config')));
   } finally {
     globalThis.fetch = originalFetch;
     Deno.serve = originalServe;
