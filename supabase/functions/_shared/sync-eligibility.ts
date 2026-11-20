@@ -56,53 +56,52 @@ export async function selectEligibleWorkItems(
   orgId: string,
   options?: SelectOptions,
 ): Promise<EligibleWorkItem[]> {
-  let query = supabase
-    .from("work_items")
-    .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
-    .eq("organization_id", orgId)
-    .eq("monitoring_enabled", true)
-    .is("deleted_at", null)
-    .eq("lifecycle_state", "ACTIVE")
-    .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
-    .or(`stage.is.null,stage.not.in.(${[...TERMINAL_STAGES].join(",")})`)
-    .not("radicado", "is", null)
-    .order("id", { ascending: true });
+  const items: EligibleWorkItem[] = [];
+  let cursor = options?.afterId;
+  const target = options?.limit || Infinity;
+  while (items.length < target) {
+    let query = supabase
+      .from("work_items")
+      .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
+      .eq("organization_id", orgId)
+      .eq("monitoring_enabled", true)
+      .is("deleted_at", null)
+      .eq("lifecycle_state", "ACTIVE")
+      .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
+      .or(`stage.is.null,stage.not.in.(${[...TERMINAL_STAGES].join(",")})`)
+      .not("radicado", "is", null)
+      .order("id", { ascending: true });
 
-  if (options?.afterId) {
-    query = query.gt("id", options.afterId);
-  }
+    if (cursor) {
+      query = query.gt("id", cursor);
+    }
 
-  if (options?.onlyRecentlyAccessed) {
-    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    query = query.gte("updated_at", cutoff);
-  }
+    if (options?.onlyRecentlyAccessed) {
+      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      query = query.gte("updated_at", cutoff);
+    }
 
-  // Item 1: Snapshot boundary — exclude items created after the run started
-  if (options?.cutoffTime) {
-    query = query.lte("created_at", options.cutoffTime);
-  }
+    // Item 1: Snapshot boundary — exclude items created after the run started
+    if (options?.cutoffTime) {
+      query = query.lte("created_at", options.cutoffTime);
+    }
 
-  // CRITICAL: excludeIds must be applied in SQL (before LIMIT), not in JS post-fetch.
-  // Otherwise a page can be entirely consumed by excluded rows, producing an empty
-  // result that breaks cursor-driven pagination loops.
-  if (options?.excludeIds && options.excludeIds.length > 0) {
-    const list = options.excludeIds.map((id) => `"${id}"`).join(",");
-    query = query.not("id", "in", `(${list})`);
-  }
+    // CRITICAL: excludeIds must be applied in SQL (before LIMIT), not in JS post-fetch.
+    // Otherwise a page can be entirely consumed by excluded rows, producing an empty
+    // result that breaks cursor-driven pagination loops.
+    if (options?.excludeIds && options.excludeIds.length > 0) {
+      const list = options.excludeIds.map((id) => `"${id}"`).join(",");
+      query = query.not("id", "in", `(${list})`);
+    }
 
-  if (options?.limit) {
-    query = query.limit(options.limit);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  const items = (data || []).filter(
-    (item: any) => item.radicado && item.radicado.replace(/\D/g, "").length === 23,
-  );
-
-  if (!items.length && data?.length && data[data.length - 1].id !== options?.afterId) {
-    return selectEligibleWorkItems(supabase, orgId, { ...options, afterId: data[data.length - 1].id });
+    const pageSize = Math.min(200, target - items.length);
+    const { data, error } = await query.limit(pageSize);
+    if (error) throw error;
+    if (!data?.length) break;
+    const lastId = data[data.length - 1].id;
+    if (cursor && lastId <= cursor) throw new Error("DAILY_ELIGIBILITY_CURSOR_STALLED");
+    cursor = lastId;
+    items.push(...data.filter((item: EligibleWorkItem) => item.radicado?.replace(/\D/g, "").length === 23));
   }
   return items;
 }

@@ -32,6 +32,7 @@ import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
 import { runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
+import { monitoredOrganizations, summarizeDryRun } from "./inventory.ts";
 import { dispatchContinuation } from '../_shared/continuationDispatch.ts';
 
 const corsHeaders = {
@@ -90,7 +91,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "scheduled-daily-sync", revision: "daily-inventory-20261120" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -107,86 +108,40 @@ Deno.serve(async (req) => {
       const sb = createClient(supabaseUrl, supabaseServiceKey);
       const dryRunStart = Date.now();
 
-      // 1. Enumerate eligible orgs
-      const { data: orgRows, error: orgErr } = await sb
-        .from("work_items")
-        .select("organization_id")
-        .eq("monitoring_enabled", true)
-        .not("radicado", "is", null)
-        .not("organization_id", "is", null);
-      const orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
-
-      // 2. Count eligible items per org with enqueue diagnostics
-      const orgSummaries: Array<{
-        org_id: string;
-        eligible_count: number;
-        would_enqueue_count: number;
-        sample_radicados: string[];
-        exclusion_reasons: Record<string, number>;
-      }> = [];
-      for (const orgId of orgIds.slice(0, 5)) {
-        const { data: allMonitored } = await sb
-          .from("work_items")
-          .select("id, radicado, workflow_type, stage, last_synced_at, consecutive_failures, monitoring_enabled, scrape_status")
-          .eq("organization_id", orgId)
-          .eq("monitoring_enabled", true)
-          .not("radicado", "is", null)
-          .limit(100);
-
-        const exclusions: Record<string, number> = {};
-        const eligible: any[] = [];
-        for (const item of allMonitored || []) {
-          const rad = item.radicado?.replace(/\D/g, '') ?? '';
-          if (rad.length !== 23) {
-            exclusions["invalid_radicado_format"] = (exclusions["invalid_radicado_format"] || 0) + 1;
-            continue;
-          }
-          if (item.consecutive_failures && item.consecutive_failures >= DEAD_LETTER_THRESHOLD) {
-            exclusions["dead_lettered"] = (exclusions["dead_lettered"] || 0) + 1;
-            continue;
-          }
-          if (item.scrape_status === "SCRAPING") {
-            exclusions["already_scraping"] = (exclusions["already_scraping"] || 0) + 1;
-            continue;
-          }
-          eligible.push(item);
-        }
-
-        orgSummaries.push({
-          org_id: orgId,
-          eligible_count: (allMonitored || []).length,
-          would_enqueue_count: eligible.length,
-          sample_radicados: eligible.slice(0, 3).map((i: any) => i.radicado),
-          exclusion_reasons: exclusions,
-        });
-      }
-
-      // 3. Pre-flight check
-      let preflightResult: any = null;
-      try {
-        const { data: pfData } = await sb.functions.invoke("atenia-preflight-check", {
-          body: { trigger: "DRY_RUN_VERIFICATION" },
-        });
-        preflightResult = pfData;
-      } catch (pfErr: any) {
-        preflightResult = { error: pfErr.message };
+      const orgSummaries = await summarizeDryRun(sb, new Date(dryRunStart).toISOString());
+      // A diagnostic reads today's receipt. Only an explicit preflight probes providers.
+      const todayStr = bogotaDay(new Date(dryRunStart));
+      let preflightResult: Record<string, unknown> = { overall: "DESCONOCIDO_SIN_PREFLIGHT", results: [], cached: true };
+      if (orgSummaries.length === 1) {
+        const { data: receipt, error } = await sb.from("atenia_preflight_checks")
+          .select("overall_status,decision,results,started_at")
+          .eq("organization_id", orgSummaries[0].org_id)
+          .gte("started_at", todayStr + "T00:00:00-05:00")
+          .lte("started_at", new Date(dryRunStart).toISOString())
+          .order("started_at", { ascending: false }).limit(1).maybeSingle();
+        if (error) throw error;
+        if (receipt) preflightResult = { overall: receipt.overall_status, decision: receipt.decision,
+          results: receipt.results, observed_at: receipt.started_at, cached: true };
+      } else if (orgSummaries.length > 1) {
+        preflightResult.overall = "CONSULTAR_POR_ORGANIZACION";
       }
 
       // 4. Check today's ledger
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const { data: ledgerRows } = await (sb.from("auto_sync_daily_ledger") as any)
+      const { data: ledgerRows, error: ledgerError } = await (sb.from("auto_sync_daily_ledger") as any)
         .select("id, organization_id, status, items_succeeded, items_failed, items_skipped, chain_id, failure_reason")
         .eq("run_date", todayStr)
         .order("created_at", { ascending: false })
         .limit(10);
 
       // 5. Check queue depth + retry queue
-      const { count: queueDepth } = await (sb.from("atenia_ai_remediation_queue") as any)
+      const { count: queueDepth, error: queueError } = await (sb.from("atenia_ai_remediation_queue") as any)
         .select("id", { count: "exact", head: true })
         .eq("status", "PENDING");
 
-      const { count: retryQueueDepth } = await (sb.from("sync_retry_queue") as any)
+      const { count: retryQueueDepth, error: retryError } = await (sb.from("sync_retry_queue") as any)
         .select("id", { count: "exact", head: true });
+
+      if (ledgerError || queueError || retryError) throw ledgerError || queueError || retryError;
 
       // 6. Enqueue diagnostics summary
       const totalEligible = orgSummaries.reduce((s, o) => s + o.eligible_count, 0);
@@ -210,7 +165,7 @@ Deno.serve(async (req) => {
         mode: "DRY_RUN",
         duration_ms: Date.now() - dryRunStart,
         cron_run_id: trace.cron_run_id,
-        orgs_found: orgIds.length,
+        orgs_found: orgSummaries.length,
         org_summaries: orgSummaries,
         preflight: preflightResult,
         today_ledger: ledgerRows ?? [],
@@ -234,7 +189,12 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-  } catch (_healthErr) { /* not JSON, proceed normally */ }
+  } catch (error) {
+    console.error("[daily-sync] diagnostic failed", error instanceof Error ? error.name : "read_error");
+    return new Response(JSON.stringify({ ok: false, error: "DAILY_DIAGNOSTIC_UNAVAILABLE" }), {
+      status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
@@ -447,14 +407,7 @@ Deno.serve(async (req) => {
     if (bodyParams.org_id) {
       orgIds = [bodyParams.org_id];
     } else {
-      const { data: orgRows, error: orgErr } = await supabase
-        .from("work_items")
-        .select("organization_id")
-        .eq("monitoring_enabled", true)
-        .not("radicado", "is", null)
-        .not("organization_id", "is", null);
-      if (orgErr) throw orgErr;
-      orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
+      orgIds = await monitoredOrganizations(supabase);
     }
     console.log(`[daily-sync] ${orgIds.length} org(s) with eligible items`);
 
@@ -640,9 +593,11 @@ Deno.serve(async (req) => {
     httpStatus = 500;
   } finally {
     // ── Heartbeat: ALWAYS finalize ──
+    const delayed = responsePayload.delayed === true;
     if (hb) {
-      const hbStatus: "OK" | "ERROR" = topLevelError ? "ERROR" : totalErrors > 0 ? "ERROR" : "OK";
+      const hbStatus: "OK" | "ERROR" = topLevelError || delayed || totalErrors > 0 ? "ERROR" : "OK";
       const errorCode = topLevelError ? "UNHANDLED_EXCEPTION"
+        : delayed ? "PREFLIGHT_DELAYED"
         : totalErrors > 0 ? "PARTIAL_FAILURES"
         : null;
       try {
@@ -682,7 +637,7 @@ Deno.serve(async (req) => {
         chain_id: chainId,
       });
       const traceStatus = topLevelError ? "ERROR" as const
-        : totalErrors > 0 ? "PARTIAL" as const
+        : delayed || totalErrors > 0 ? "PARTIAL" as const
         : "OK" as const;
       const traceDetails: TraceDetails = {
         work_items_scanned: totalSynced + totalErrors,
@@ -695,6 +650,7 @@ Deno.serve(async (req) => {
         total_dead_lettered: totalDeadLettered,
         total_timeouts: totalTimeouts,
       };
+      if (delayed) traceDetails.errors = [{ code: "PREFLIGHT_DELAYED", message: "Preflight deferred the daily sync", count: 1 }];
       if (topLevelError) {
         traceDetails.errors = [{ code: "FATAL", message: topLevelError.message, count: 1 }];
       }
@@ -861,11 +817,12 @@ async function syncOrganization(
 
   try {
     // Load dead-lettered item IDs for this org to exclude them
-    const { data: deadLetterRows } = await supabase
+    const { data: deadLetterRows, error: deadLetterError } = await supabase
       .from("sync_item_failure_tracker")
       .select("work_item_id")
       .eq("organization_id", orgId)
       .eq("dead_lettered", true);
+    if (deadLetterError) throw deadLetterError;
     const deadLetteredIds = (deadLetterRows || []).map((r: any) => r.work_item_id);
 
     // Count total eligible items

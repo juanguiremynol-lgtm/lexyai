@@ -994,7 +994,7 @@ export function CronGovernancePanel() {
                         <div className="text-muted-foreground">
                           {(dryRunResult.queue_depth ?? 0) === 0 && (dryRunResult.retry_queue_depth ?? 0) === 0 && (
                             dryRunResult.today_ledger?.length > 0
-                              ? <span>Queue empty — last run drained all items ✓</span>
+                              ? <span>Colas sin elementos pendientes. Consulte el resultado del ciclo en el registro de hoy.</span>
                               : <span className="text-amber-600">Queue empty — no runs today. Enqueue step may not have run yet.</span>
                           )}
                           {(dryRunResult.queue_depth ?? 0) > 0 && (
