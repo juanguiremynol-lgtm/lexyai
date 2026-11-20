@@ -29,17 +29,28 @@ export default defineTool({
       estado: "DESCONOCIDO_SIN_RESULTADOS", ejecutado_en: run.started_at,
       overall_status: run.overall_status, proveedores: [],
     });
-    const failing = results.filter((r) => String(r.status ?? "").toUpperCase() !== "OK");
+    const failed = [], warnings = [], unknown = [];
+    let passed = 0;
+    for (const result of results) {
+      switch (String(result?.overall ?? result?.status ?? "").toUpperCase()) {
+        case "PASS": case "OK": passed++; break;
+        case "WARN": warnings.push(result); break;
+        case "FAIL": case "FAILED": case "ERROR": failed.push(result); break;
+        default: unknown.push(result);
+      }
+    }
 
     return textResult(
-      `Último preflight registrado (${String(run.started_at)}): ${String(run.overall_status)}, ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo. Su vigencia y la cobertura de asuntos no se evaluaron.`,
+      `Último preflight registrado (${String(run.started_at)}). De ${results.length} resultados, ${passed} pasaron, ${warnings.length} tienen advertencias, ${failed.length} fallaron y ${unknown.length} carecen de veredicto reconocido. Su vigencia y la cobertura de asuntos no se evaluaron.`,
       {
         estado: "REGISTRADO_FRESCURA_NO_EVALUADA",
         ejecutado_en: run.started_at,
         overall_status: run.overall_status,
         decision: run.decision ?? null,
         proveedores: results,
-        proveedores_con_fallo: failing,
+        proveedores_con_fallo: failed,
+        proveedores_con_advertencia: warnings,
+        proveedores_sin_veredicto: unknown,
         fallos_consecutivos: run.consecutive_failures_by_provider ?? {},
       },
     );

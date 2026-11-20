@@ -37,6 +37,7 @@ export default defineTool({
     ]);
 
     if (events.error) return errorResult(events.error.message);
+    if (crons.error) return errorResult(crons.error.message);
     const evRows = events.data ?? [];
     const cronRows = crons.data ?? [];
 

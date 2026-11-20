@@ -2310,16 +2310,37 @@ var atenia_provider_status_default = defineTool25({
       overall_status: run.overall_status,
       proveedores: []
     });
-    const failing = results.filter((r) => String(r.status ?? "").toUpperCase() !== "OK");
+    const failed = [], warnings = [], unknown = [];
+    let passed = 0;
+    for (const result of results) {
+      switch (String(result?.overall ?? result?.status ?? "").toUpperCase()) {
+        case "PASS":
+        case "OK":
+          passed++;
+          break;
+        case "WARN":
+          warnings.push(result);
+          break;
+        case "FAIL":
+        case "FAILED":
+        case "ERROR":
+          failed.push(result);
+          break;
+        default:
+          unknown.push(result);
+      }
+    }
     return textResult(
-      `\xDAltimo preflight registrado (${String(run.started_at)}): ${String(run.overall_status)}, ${run.providers_passed}/${run.providers_tested} proveedores OK, ${failing.length} con fallo. Su vigencia y la cobertura de asuntos no se evaluaron.`,
+      `\xDAltimo preflight registrado (${String(run.started_at)}). De ${results.length} resultados, ${passed} pasaron, ${warnings.length} tienen advertencias, ${failed.length} fallaron y ${unknown.length} carecen de veredicto reconocido. Su vigencia y la cobertura de asuntos no se evaluaron.`,
       {
         estado: "REGISTRADO_FRESCURA_NO_EVALUADA",
         ejecutado_en: run.started_at,
         overall_status: run.overall_status,
         decision: run.decision ?? null,
         proveedores: results,
-        proveedores_con_fallo: failing,
+        proveedores_con_fallo: failed,
+        proveedores_con_advertencia: warnings,
+        proveedores_sin_veredicto: unknown,
         fallos_consecutivos: run.consecutive_failures_by_provider ?? {}
       }
     );
@@ -2348,6 +2369,7 @@ var atenia_recent_incidents_default = defineTool26({
       sb.from("atenia_cron_runs").select("id, job_name, status, started_at, finished_at, details").eq("status", "FAILED").gte("started_at", since).order("started_at", { ascending: false }).limit(limit ?? 100)
     ]);
     if (events.error) return errorResult(events.error.message);
+    if (crons.error) return errorResult(crons.error.message);
     const evRows = events.data ?? [];
     const cronRows = crons.data ?? [];
     return textResult(
@@ -4066,7 +4088,7 @@ var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.8.1",
+  version: "0.8.2",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -4095,7 +4117,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-1"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-2"
   }),
   tools: [
     get_user_context_default,

@@ -8,7 +8,7 @@ vi.mock("@lovable.dev/mcp-js", () => ({ defineTool: (value: unknown) => value })
 vi.mock("../shared", () => ({
   requirePlatformAdmin: async () => ({ error: mock.denied, sb: { from: (table: string) => {
     const q: Record<string, any> = {};
-    for (const method of ["select", "order", "limit"]) q[method] = () => q;
+    for (const method of ["select", "order", "limit", "in", "eq", "gte"]) q[method] = () => q;
     q.then = (resolve: (v: unknown) => unknown) => resolve(mock.results[table] ?? { data: [], error: null });
     return q;
   } } }),
@@ -17,6 +17,7 @@ vi.mock("../shared", () => ({
 }));
 import overview from "../tools/atenia-health-overview";
 import providers from "../tools/atenia-provider-status";
+import incidents from "../tools/atenia-recent-incidents";
 const ctx = {} as never;
 beforeEach(() => { mock.results = {}; mock.denied = null; });
 
@@ -47,6 +48,20 @@ describe("Atenia health evidence through the actual MCP handlers", () => {
     const result = await providers.handler({} as never, ctx) as any;
     expect(result.structuredContent.estado).toBe("REGISTRADO_FRESCURA_NO_EVALUADA");
     expect(result.structuredContent.proveedores).toHaveLength(1);
+  });
+  it("reads producer PASS, WARN and FAIL separately and leaves unfamiliar outcomes unknown", async () => {
+    const results = [{ provider: "cpnu", overall: "PASS" }, { provider: "pp", overall: "WARN" },
+      { provider: "samai", overall: "FAIL" }, { provider: "legacy", status: "OK" },
+      { provider: "other" }];
+    mock.results.atenia_preflight_checks = { data: [{ results }], error: null };
+    const result = await providers.handler({} as never, ctx) as any;
+    expect(result.structuredContent.proveedores_con_fallo).toEqual([results[2]]);
+    expect(result.structuredContent.proveedores_con_advertencia).toEqual([results[1]]);
+    expect(result.structuredContent.proveedores_sin_veredicto).toEqual([results[4]]);
+  });
+  it("does not report zero cron incidents if their query fails", async () => {
+    mock.results.atenia_cron_runs = { data: null, error: { message: "cron read failed" } };
+    expect((await incidents.handler({ days: 7, limit: 100 }, ctx) as any).isError).toBe(true);
   });
   it("does not disclose health to non-admins", async () => {
     mock.denied = "Not authorized";

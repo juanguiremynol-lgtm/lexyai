@@ -55,9 +55,10 @@ Deno.test("checkSnapshotFreshness: snapshot behind DB → stale", () => {
 });
 
 Deno.test("checkSnapshotFreshness: low record count → stale", () => {
+  const recent = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const result = checkSnapshotFreshness({
-    snapshotMaxActDate: "2026-02-24",
-    dbMaxActDate: "2026-02-20",
+    snapshotMaxActDate: recent,
+    dbMaxActDate: recent,
     snapshotRecordCount: 3,
     historicalRecordCount: 50,
   });

@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check" }), {
+      return new Response(JSON.stringify({ status: "OK", function: "atenia-preflight-check", revision: "20261120-evidence-v1" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -102,19 +102,17 @@ Deno.serve(async (req) => {
         method: "GET" as const,
         testEndpoint: (r: string) => `/snapshot?numero_radicacion=${r}`,
         testRadicado: Deno.env.get("CPNU_TEST_RADICADO") ?? "05001400301520240193000",
-        expectedFields: ["actuaciones", "radicado"],
         apiKey: keyFor("CPNU"),
       },
       {
         name: "SAMAI",
         category: "ACTUACIONES" as const,
         role: "SECONDARY" as const,
-        baseUrl: upstreamBaseUrl("samai_read"), // ITER48 — pinned, override deleted
+        baseUrl: Deno.env.get("SAMAI_FEED_BASE_URL") || upstreamBaseUrl("samai_read"),
         method: "GET" as const,
         testEndpoint: (r: string) => `/buscar?numero_radicacion=${r}`,
         testRadicado: Deno.env.get("SAMAI_TEST_RADICADO") ?? "05001233300020240115300",
-        expectedFields: ["actuaciones", "radicado"],
-        apiKey: keyFor("SAMAI"),
+        apiKey: Deno.env.get("SAMAI_FEED_API_KEY") || keyFor("SAMAI"),
       },
       {
         name: "PUBLICACIONES",
@@ -122,9 +120,9 @@ Deno.serve(async (req) => {
         role: "PRIMARY" as const,
         baseUrl: Deno.env.get("PUBLICACIONES_BASE_URL"),
         method: "GET" as const,
-        testEndpoint: (r: string) => `/snapshot/${r}`,
+        // Discovery metadata is sufficient for a preflight; /historico starts a scrape.
+        testEndpoint: (r: string) => `/info/${r}`,
         testRadicado: Deno.env.get("PUBLICACIONES_TEST_RADICADO") ?? "05001400301520240193000",
-        expectedFields: ["publicaciones", "radicado"],
         apiKey: keyFor("PUBLICACIONES"),
       },
       {
@@ -138,7 +136,6 @@ Deno.serve(async (req) => {
         testEndpoint: (_r: string) => `/snapshot`,
         testBody: (r: string) => JSON.stringify({ radicado: r }),
         testRadicado: Deno.env.get("SAMAI_ESTADOS_TEST_RADICADO") ?? "05001400301520240193000",
-        expectedFields: ["publicaciones"],
         apiKey: keyFor("SAMAI_ESTADOS"),
       },
     ];
@@ -150,10 +147,11 @@ Deno.serve(async (req) => {
     results.push(...builtInResults);
 
     // === EXTERNAL PROVIDER CONNECTORS ===
-    const { data: connectors } = await supabase
+    const { data: connectors, error: inventoryError } = await supabase
       .from("provider_connectors")
       .select("id, name, key")
       .eq("is_enabled", true);
+    if (inventoryError) throw new Error("PREFLIGHT_CONNECTOR_INVENTORY_UNAVAILABLE");
 
     for (const connector of connectors ?? []) {
       const { data: instances } = await supabase
@@ -228,7 +226,6 @@ Deno.serve(async (req) => {
 
       const secretOk = !!secret;
       const mappingOk = (mappingCount ?? 0) > 0;
-      const allOk = connOk && secretOk && mappingOk;
 
       results.push({
         provider: connector.name,
@@ -240,14 +237,14 @@ Deno.serve(async (req) => {
             error: !baseUrl ? "No base URL configured" : (!connOk ? `Connection failed (${probeClass})` : undefined),
           },
           authentication: {
-            ok: secretOk,
+            ok: false,
             latency_ms: 0,
-            error: !secretOk ? "No secret configured" : undefined,
+            error: secretOk ? "Credential configured; HEAD did not verify it" : "No secret configured",
           },
           data_shape: {
-            ok: mappingOk,
+            ok: false,
             latency_ms: 0,
-            error: !mappingOk ? "No mapping spec — data won't reach canonical tables" : undefined,
+            error: mappingOk ? "Mapping configured; HEAD returned no sample" : "No mapping spec",
           },
           response_time: {
             ok: connLatency < 10000,
@@ -255,10 +252,8 @@ Deno.serve(async (req) => {
             threshold_ms: 10000,
           },
         },
-        overall: allOk ? "PASS" : connOk ? "WARN" : "FAIL",
-        failure_reason: !allOk
-          ? `Failed: ${[!connOk && `connectivity(${probeClass})`, !secretOk && "authentication", !mappingOk && "data_shape"].filter(Boolean).join(", ")}`
-          : undefined,
+        overall: connOk ? "WARN" : "FAIL",
+        failure_reason: `HEAD: ${probeClass}. Authentication and response shape are unverified.`,
       });
     }
 
@@ -269,7 +264,7 @@ Deno.serve(async (req) => {
     let overallStatus: string;
     let decision: string;
 
-    if (failed.length === 0) {
+    if (results.length > 0 && results.every((r) => r.overall === "PASS")) {
       overallStatus = "ALL_PASS";
       decision = "PROCEED";
     } else if (builtInFailed.length >= 2) {
@@ -286,7 +281,7 @@ Deno.serve(async (req) => {
     const duration = Date.now() - startTime;
 
     // Store results
-    await supabase.from("atenia_preflight_checks").insert({
+    const { error: persistenceError } = await supabase.from("atenia_preflight_checks").insert({
       organization_id: orgId ?? null,
       trigger,
       started_at: new Date(startTime).toISOString(),
@@ -299,6 +294,7 @@ Deno.serve(async (req) => {
       providers_failed: failed.length,
       decision,
     });
+    if (persistenceError) throw new Error(`PREFLIGHT_PERSISTENCE_FAILED (${persistenceError.code ?? "unknown"})`);
 
     // Log action
     await logAction(supabase, {
@@ -345,7 +341,6 @@ async function checkBuiltInProvider(
     testEndpoint: (r: string) => string;
     testBody?: (r: string) => string;
     testRadicado: string;
-    expectedFields: string[];
   },
   apiKey: string
 ): Promise<PreflightResult> {
@@ -406,20 +401,18 @@ async function checkBuiltInProvider(
       return result;
     }
 
-    result.checks.authentication = { ok: true, latency_ms: latency };
+    result.checks.authentication = { ok: res.ok, latency_ms: latency };
 
     if (res.status === 200) {
       try {
         const body = await res.json();
-        const fields = Object.keys(body);
-        result.checks.data_shape = { ok: true, latency_ms: latency, sample_fields: fields.slice(0, 10) };
+        const shapeOk = matchesProbeShape(provider.name, provider.testRadicado, body);
+        result.checks.data_shape = { ok: shapeOk, latency_ms: latency,
+          sample_fields: body && typeof body === "object" ? Object.keys(body).slice(0, 10) : [],
+          error: shapeOk ? undefined : "Unrecognized or unsuccessful provider response" };
       } catch {
         result.checks.data_shape = { ok: false, latency_ms: latency, error: "Response is not valid JSON" };
       }
-    } else if (res.status === 404 || res.status === 400) {
-      // 404/400 on a synthetic test radicado = auth accepted, no data — treat as OK.
-      // Algunos proveedores devuelven 400 para radicados inexistentes; otros devuelven 404.
-      result.checks.data_shape = { ok: true, latency_ms: latency };
     } else {
       result.checks.data_shape = { ok: false, latency_ms: latency, error: `Unexpected status ${res.status}` };
     }
@@ -439,4 +432,22 @@ async function checkBuiltInProvider(
   }
 
   return result;
+}
+
+function matchesProbeShape(provider: string, radicado: string, value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const payload = (body.result ?? body.data ?? body.proceso ?? body) as Record<string, unknown> | null;
+  if (!payload || typeof payload !== "object") return false;
+  if ([body, payload].some(b => b.ok === false || b.success === false || Boolean(b.error))) return false;
+  switch (provider) {
+    case "CPNU": return Array.isArray(payload.actuaciones) || Array.isArray(body.actuaciones);
+    case "SAMAI": return Array.isArray(payload.feedCombinado) || Array.isArray(payload.actuaciones);
+    case "SAMAI_ESTADOS": return Array.isArray(payload.estados) || Array.isArray(payload.actuaciones);
+    case "PUBLICACIONES": {
+      const sample = payload.radicado ?? payload.numero_radicacion;
+      return typeof sample === "string" && sample.replace(/\D/g, "") === radicado.replace(/\D/g, "");
+    }
+    default: return false;
+  }
 }
