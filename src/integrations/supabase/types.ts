@@ -28546,6 +28546,17 @@ export type Database = {
         Returns: string
       }
       emit_appellate_blindspot_alerts: { Args: never; Returns: Json }
+      enqueue_daily_sync_continuation_20261120: {
+        Args: {
+          _chain_id: string
+          _continuation_count: number
+          _item_timeout_counts?: Json
+          _parent_id: string
+          _resume_after_id: string
+          _run_id: string
+        }
+        Returns: Json
+      }
       enqueue_guarded_missing_acts_20261108: {
         Args: { _dry_run?: boolean; _limit?: number }
         Returns: Json
