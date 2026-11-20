@@ -1415,7 +1415,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const cloned = req.clone();
     const maybeBody = await cloned.json().catch(() => null);
     if (maybeBody?.health_check) {
-      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item' }), {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item', revision: 'cpnu-restricted-20261120' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
