@@ -61,7 +61,7 @@ describe("Atenia health evidence through the actual MCP handlers", () => {
   });
   it("does not report zero cron incidents if their query fails", async () => {
     mock.results.atenia_cron_runs = { data: null, error: { message: "cron read failed" } };
-    expect((await incidents.handler({}, ctx) as any).isError).toBe(true);
+    expect((await incidents.handler({ days: 7, limit: 100 }, ctx) as any).isError).toBe(true);
   });
   it("does not disclose health to non-admins", async () => {
     mock.denied = "Not authorized";
