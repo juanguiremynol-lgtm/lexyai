@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 
-Deno.test('legacy CPNU sync records adapter evidence and reserves 502 for a failed provider', async () => {
+Deno.test('CPNU sync records adapter evidence and reserves 502 for a failed provider', async () => {
   const caseId = '00000000-0000-4000-8000-000000000001';
   const orgId = '00000000-0000-4000-8000-000000000002';
   const originalFetch = globalThis.fetch;
@@ -17,6 +17,7 @@ Deno.test('legacy CPNU sync records adapter evidence and reserves 502 for a fail
       proveedor_consultado:true,ultima_consulta_proveedor_en:'2026-11-13T11:00:00Z'};
     for (const [http,reply,expected,timelineStatus] of [
       [410,negative,'PROVIDER_NOT_FOUND','partial'],[200,{restringido:true},'PROCESO_PRIVADO','partial'],
+      [206,{restringido:true,actuaciones:[]},'PROCESO_PRIVADO','partial'],
       [404,{found:false},'PENDING_UPSTREAM','pending_upstream'],[200,{found:false},'RECORD_NOT_FOUND','partial'],
       [503,{error:'unavailable'},'CPNU_SYNC_FAILED','error'],
     ] as const) {
@@ -31,6 +32,8 @@ Deno.test('legacy CPNU sync records adapter evidence and reserves 502 for a fail
           return Response.json(reply,{status:http});
         }
         assert.equal(url.host,'db.unit.invalid');
+        if (url.pathname.endsWith('/atenia_ai_config'))
+          return Response.json([{use_orchestrator_sync:http === 206}]);
         if (url.pathname.endsWith('/work_items') && req.method === 'GET')
           return Response.json([{id:caseId,owner_id:orgId,organization_id:orgId,workflow_type:'CGP',
             radicado:'00000000000000000000000',monitoring_enabled:true}]);
@@ -57,6 +60,11 @@ Deno.test('legacy CPNU sync records adapter evidence and reserves 502 for a fail
       assert.equal(timeline[0].error_code,expected);
       assert.ok(!patches.some(p => p.last_successful_sync_at || p.last_synced_at));
       if (http!==503) assert.ok(patches.some(p => p.last_error_code===expected && p.scrape_status==='PARTIAL_SUCCESS'));
+      if (http === 206) {
+        assert.equal(body.ok, false);
+        assert.equal(body.source_complete, false);
+        assert.ok(!patches.some(p => p.scrape_status === 'SUCCESS' || p.scrape_status === 'FAILED'));
+      }
     }
   } finally {
     globalThis.fetch = originalFetch;
