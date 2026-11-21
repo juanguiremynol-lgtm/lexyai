@@ -85,3 +85,42 @@ Deno.test('fresh-looking cached data without a durable certificate is pending', 
     check(result.publicaciones.length > 0 && result.readIncomplete === true, 'uncertified historical result treated as completed');
   });
 });
+
+Deno.test('an enrolled native daily plan owns the extraction even when the reader shows an older run', async () => {
+  const radicado = '05001400300120250154400';
+  const now = Date.now() - 5 * 3600_000;
+  const day = new Date(now).toISOString().slice(0, 10);
+  const floor = new Date(now - 14 * 86400_000).toISOString().slice(0, 10);
+  const calls: string[] = [];
+  const current = {radicado, backend_run_id: id, tipo_cobertura: 'RECIENTE', estado: 'EN_CURSO', consulta_completa: false,
+    checkpoint: {desde: floor, hasta: day}};
+  await withMock(async (input, init) => {
+    calls.push(String(input));
+    check(init?.method !== 'POST', 'a native plan must not launch a second extraction');
+    if (String(input).endsWith(`/runs/${id}`)) return response(current);
+    return response({radicado, backend_run_id:'older', actuaciones:[], consulta_completa:false,
+      plan_diario:{dia_bogota:day, publica: current}});
+  }, async () => {
+    const result = await fetchPublicaciones(radicado, 'https://pp.invalid', 'test', {allow:true});
+    check(result.nativeDailyRunId === id && result.readIncomplete && !result.procesarAck, 'known plan was not followed');
+    check(calls.length === 2 && calls[1].endsWith(`/runs/${id}`), 'wrong receipt read');
+  });
+});
+
+Deno.test('a matching completed native empty window is consumed without an extra request', async () => {
+  const radicado = '05001400300120250154400';
+  const now = Date.now() - 5 * 3600_000;
+  const day = new Date(now).toISOString().slice(0, 10);
+  const floor = new Date(now - 14 * 86400_000).toISOString().slice(0, 10);
+  const current = {radicado, backend_run_id:id, tipo_cobertura:'RECIENTE', estado:'COMPLETA', consulta_completa:true,
+    checkpoint:{desde:floor,hasta:day}};
+  let calls = 0;
+  await withMock(async () => {
+    calls++;
+    return response({...current, run_status:'SUCCESS_EMPTY', persistencia_completa:true, actuaciones:[],
+      plan_diario:{dia_bogota:day, publica:current}});
+  }, async () => {
+    const result = await fetchPublicaciones(radicado, 'https://pp.invalid', 'test', {allow:true});
+    check(calls === 1 && result.durableCompleted === true && result.nativeDailyRunId === id, 'daily empty receipt was fetched twice');
+  });
+});

@@ -39,6 +39,22 @@ export function matchingCompletedHistory(runId: string, data: unknown, radicado?
     b.persistencia_completa !== false;
 }
 
+/** A native current-day plan already owns the recent extraction. Follow its
+ * run even if pending/partial or a different run is at the top of the feed. */
+export function dailyPublicRunFromHistory(history: unknown, radicado: string, now = Date.now()): string | null {
+  const body = history as { radicado?: unknown; plan_diario?: { dia_bogota?: unknown; publica?: Record<string, any> } } | null;
+  const plan = body?.plan_diario;
+  const run = plan?.publica;
+  const day = new Date(now - 5 * 3600_000).toISOString().slice(0, 10);
+  const floor = new Date(Date.parse(day + 'T00:00:00Z') - 14 * 86400_000).toISOString().slice(0, 10);
+  const from = run?.checkpoint?.desde;
+  if (body?.radicado !== radicado || plan?.dia_bogota !== day || run?.radicado !== radicado || run.tipo_cobertura !== 'RECIENTE' ||
+      run.checkpoint?.hasta !== day || typeof from !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(from) || from > floor ||
+      !['ADMITIDA', 'EN_CURSO', 'COMPLETA', 'PARCIAL', 'FALLIDA'].includes(run.estado) ||
+      typeof run.backend_run_id !== 'string' || !UUID.test(run.backend_run_id)) return null;
+  return run.backend_run_id;
+}
+
 /** An implicit historical caller may consume a separately certified daily
  * window. This never completes or erases the historical caller's own range. */
 export function completedDailyReference(data: unknown, radicado: string, now = Date.now()): Record<string, unknown> | null {

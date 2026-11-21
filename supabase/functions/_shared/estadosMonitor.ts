@@ -3,6 +3,7 @@ import { isCronCaller, CRON_HEADER } from "./cronAuth.ts";
 import { publicReadVerdict } from "./publicReadVerdict.ts";
 import { samaiAccountingComplete } from "./samaiPublicationAccounting.ts";
 import { PP_ESTADOS_WORKFLOWS, SAMAI_ESTADOS_WORKFLOWS } from "./providerRouting.ts";
+import { bogotaDay } from "./dailyCompletion.ts";
 
 // One case per hop: a hop must fit the ~150s edge wall clock, and one read
 // may take up to ITEM_TIMEOUT_MS. 60 hops cover the largest channel (44).
@@ -33,6 +34,7 @@ function response(body: unknown, status = 200): Response {
  * read: it becomes `no_aplica` and must never be shown as a failure.
  */
 function ppLabelFromResult(success: boolean, errorCode: string | null, result: Record<string, unknown>): string {
+  if (errorCode === "PP_DAILY_PLAN_UNVERIFIED" || errorCode === "PP_DAILY_WINDOW_UNVERIFIED") return "pending";
   if (result.source_complete === false || result.consulta_completa === false) return "pending";
   const signal = String(result.result_code ?? result.outcome ?? errorCode ?? "").toUpperCase();
   if (signal.startsWith("ROUTING_SKIP") || signal.startsWith("SKIP")) return "no_aplica";
@@ -49,6 +51,21 @@ function channelVerdict(channel: Channel, result: Record<string, unknown>, commo
   const exclusive = used === channel;
   const mixed = used === "publicaciones+samai_estados";
   const unverified = { success: false, code: "PROVIDER_UNRESOLVED", attributed: false, clockEligible: false };
+  if (channel === "publicaciones" && (exclusive || mixed) && common.success) {
+    const window = result.pp_window as Record<string, unknown> | undefined;
+    const trace = result.backend_trace as Record<string, unknown> | undefined;
+    const observed = result.source_observed_at;
+    const sourceTime = typeof observed === "string" && /(?:Z|[+-]\d\d:\d\d)$/.test(observed) ? Date.parse(observed) : NaN;
+    const now = new Date();
+    const day = bogotaDay(now);
+    const recentVerified = result.source_complete === true && trace?.consulta_completa === true &&
+      typeof trace.backend_run_id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(trace.backend_run_id) &&
+      Number.isFinite(sourceTime) && sourceTime <= now.getTime() && bogotaDay(new Date(sourceTime)) === day &&
+      window?.to === day && ["SUCCESS_EMPTY", "SUCCESS_WITH_DATA"].includes(String(window.outcome));
+    const planVerified = recentVerified && window?.daily_plan_complete === true && trace?.consulta_completa_plan_diario === true;
+    return { success: planVerified, code: planVerified ? null : recentVerified ? "PP_DAILY_PLAN_UNVERIFIED" : "PP_DAILY_WINDOW_UNVERIFIED",
+      attributed: true, clockEligible: exclusive, recentVerified, retryPlan: recentVerified && !planVerified };
+  }
   if (exclusive) return { success: common.success, code: common.code, attributed: true, clockEligible: true };
   if (!mixed) return unverified;
   if (channel === "samai_estados") {
@@ -66,8 +83,7 @@ function channelVerdict(channel: Channel, result: Record<string, unknown>, commo
     if (trace?.estado === "PARCIAL" && common.code?.startsWith("PP_")) {
       return { success: false, code: common.code, attributed: true, clockEligible: false };
     }
-    const window = result.pp_window as Record<string, unknown> | undefined;
-    if (window?.daily_plan_complete !== true || !["SUCCESS_EMPTY", "SUCCESS_WITH_DATA"].includes(String(window.outcome))) return unverified;
+    return unverified;
   }
   // Preserve aggregate persistence and failure barriers. The combined response
   // supplies no independent source-attempt clock.
@@ -76,7 +92,7 @@ function channelVerdict(channel: Channel, result: Record<string, unknown>, commo
 
 export async function runEstadosMonitor(req: Request, channel: Channel): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders,
-    "X-Andromeda-Monitor-Revision": "channel-evidence-20261120" } });
+    "X-Andromeda-Monitor-Revision": "pp-daily-proof-20261121" } });
   if (req.method !== "POST") return response({ error: "Método no permitido" }, 405);
   if (!isCronCaller(req)) return response({ error: "No autorizado" }, 401);
   const url = Deno.env.get("SUPABASE_URL");
@@ -88,7 +104,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   let runId = body.run_id;
   if (!runId) {
     const workflows = channel === "publicaciones" ? PP_ESTADOS_WORKFLOWS : SAMAI_ESTADOS_WORKFLOWS;
-    const runDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+    const runDate = bogotaDay();
     const { data: claim, error: claimError } = await db.rpc("start_public_monitor_run", {
       _channel: channel, _run_date: runDate, _workflows: [...workflows],
     });
@@ -161,8 +177,10 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       return response({ ok: false, pending: true, error: breakerCode, retry_at: retryAt, run_id: runId });
     }
     const scoped = channelVerdict(channel, result, {success, retryable, code: errorCode});
-    result = { ...result, monitor_evidence: { channel, attributed: scoped.attributed, common_error_code: errorCode } };
+    result = { ...result, monitor_evidence: { channel, attributed: scoped.attributed, common_error_code: errorCode,
+      ...(channel === "publicaciones" ? { recent_window_verified: scoped.recentVerified === true, daily_plan_verified: scoped.success } : {}) } };
     success = scoped.success;
+    if (scoped.retryPlan) retryable = true;
     errorCode = scoped.code;
     const { data: sealed, error: sealError } = await db.rpc("finish_public_monitor_item", {
       _run_id: runId, _work_item_id: item.work_item_id, _lease_token: item.lease_token,

@@ -25,7 +25,7 @@
 import { admitDailyUpdate, dailyDuplicateBody, rememberAdmission } from '../_shared/dailyUpdateGate.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { publicSnapshotIncomplete, publicSnapshotCompleted } from "../_shared/publicSnapshotFreshness.ts";
-import { durableVerdict, matchingCompletedHistory, completedDailyReference, mayReadPartialHistory, matchingPartialHistory, terminalDurableRun } from "../_shared/ppDurableContract.ts";
+import { durableVerdict, matchingCompletedHistory, completedDailyReference, dailyPublicRunFromHistory, mayReadPartialHistory, matchingPartialHistory, terminalDurableRun } from "../_shared/ppDurableContract.ts";
 import { PP_FOLLOWUP_MAX_MS } from "../_shared/retryOutcome.ts";
 /** Poll budget per admitted run (hourly drains over the 72h window). */
 const PP_MAX_POLLS_PER_RUN = 96;
@@ -225,6 +225,7 @@ export type ProcesarAck = {
 type FetchResultV3 = {
   readIncomplete?: boolean;
   durableCompleted?: boolean;
+  nativeDailyRunId?: string;
   persistedPartial?: { accepted: number; rejected: number[]; sourceObservedAt: string };
   /** JN4 — present whenever /procesar-radicado was reached, empty ack included. */
   procesarAck?: ProcesarAck;
@@ -393,6 +394,7 @@ type RescrapeDecision = {
     | 'not_evaluated'
     | 'routing_skip_non_pp_category'
     | 'follow_admitted_run'
+    | 'read_native_daily_plan'
     | 'consume_certified_stored_read' | 'consume_persisted_partial_read';
   httpStatus?: number;
   error?: string;
@@ -1346,7 +1348,7 @@ export async function fetchPublicaciones(
     if (!runId || !matchingCompletedHistory(runId, stored, radicado)) res.readIncomplete = true;
   }
   if (res.ok && !res.durableCompleted && (res.readIncomplete || publicSnapshotIncomplete(observedBody))) {
-    if (rescrapeGate?.allow && !res.procesarAck) {
+    if (rescrapeGate?.allow && !res.procesarAck && !res.nativeDailyRunId) {
       const refreshed = await tryProcesarFallback(baseUrl, radicado, { 'x-api-key': apiKey, 'Content-Type': 'application/json' });
       if (refreshed) res = { ...refreshed, publicaciones: refreshed.publicaciones.length ? refreshed.publicaciones : res.publicaciones };
       rescrapeGate.onDecision?.({ triggered: true, reason: refreshed?.ok ? 'trigger_accepted' : 'trigger_error', httpStatus: refreshed?.httpStatus, error: refreshed?.error, backendRunId: String(refreshed?.procesarAck?.body?.backend_run_id ?? '') || null, traceId: String(refreshed?.procesarAck?.body?.trazabilidad_id ?? '') || null });
@@ -1434,6 +1436,15 @@ async function fetchPublicacionesInner(
       const latencyMs = Date.now() - startTime;
       console.log(`[sync-pub] Success from ${url}: total_actuaciones=${data.total_actuaciones_encontradas}, totalResultados=${data.totalResultados}`);
       const extracted = extractPublicacionesFromResponse(data, latencyMs);
+      const dailyRunId = dailyPublicRunFromHistory(data, radicado);
+      if (dailyRunId) {
+        rescrapeGate?.onDecision?.({ triggered: false, reason: 'read_native_daily_plan', backendRunId: dailyRunId });
+        if (matchingCompletedHistory(dailyRunId, data, radicado) && data.persistencia_completa === true) {
+          return { ...extracted, durableCompleted: true, nativeDailyRunId: dailyRunId };
+        }
+        const fromPlan = await followAdmittedRun(radicado, cleanBaseUrl, apiKey, dailyRunId);
+        return { ...fromPlan, nativeDailyRunId: dailyRunId };
+      }
       if (extracted.publicaciones.length > 0 || extracted.resultCode === 'SUCCESS') {
         return extracted;
       }
@@ -1629,7 +1640,7 @@ function extractPublicacionesFromResponse(
 
 Deno.serve(withSyncTimeline(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-PP-Revision': 'certified-window-20261120' } });
+    return new Response(null, { headers: { ...corsHeaders, 'X-Andromeda-PP-Revision': 'native-daily-run-20261121' } });
   }
 
   // Health check short-circuit
@@ -1723,7 +1734,7 @@ Deno.serve(withSyncTimeline(async (req) => {
     const invokedByBoundary: 'CRON' | 'MANUAL' = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
     const { data: precondition } = await supabase
       .from('work_items')
-      .select('id, deleted_at, monitoring_enabled')
+      .select('id, deleted_at, monitoring_enabled, scraping_enabled')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -1737,6 +1748,10 @@ Deno.serve(withSyncTimeline(async (req) => {
       refusalCounters.MONITORING_DISABLED++;
       console.log(`[sync-pub] REFUSED MONITORING_DISABLED wi=${work_item_id} invoked_by=CRON count=${refusalCounters.MONITORING_DISABLED}`);
       return errorResponse('MONITORING_DISABLED', 'Monitoring is disabled for this work item; scheduled sync refused.', 409, { stage: 'precondition' });
+    }
+
+    if (precondition?.scraping_enabled === false && invokedByBoundary === 'CRON' && !historical && !storedOnly) {
+      return jsonResponse({ ok: false, status: 'SKIPPED', result_code: 'ROUTING_SKIP_SCRAPING_DISABLED', work_item_id }, 200);
     }
 
     let userId: string | null = null;
@@ -2194,6 +2209,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       }
     }
     result.provider_latency_ms = fetchResult.latencyMs;
+    if (fetchResult.nativeDailyRunId) {
+      result.source_query_attempted = false;
+    }
     if (!historical && shouldFetchPP && fetchResult.ok && !fetchResult.readIncomplete) {
       const bogotaDay = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
       const daily = certifiedStoredPPHistory(fetchResult, normalizedRadicado, bogotaDay);
@@ -2207,6 +2225,7 @@ Deno.serve(withSyncTimeline(async (req) => {
       } else {
         result.source_complete = true;
         result.source_observed_at = String(daily.intento_observado_en);
+        if (fetchResult.nativeDailyRunId) result.reused_completed_read = true;
         // certifiedStoredPPHistory verifies the radicado, run, time and window.
         // Its verdict describes that public window, independently of stored inventory.
         const window = daily.ventana_solicitada as { desde: string; hasta: string };
@@ -2251,6 +2270,7 @@ Deno.serve(withSyncTimeline(async (req) => {
         .map(pick).find((v) => typeof v === 'string') ?? null;
       (result as any).backend_trace = {
         trazabilidad_id: pick('trazabilidad_id'), backend_run_id: backendRunId,
+        ...(fetchResult.nativeDailyRunId ? { native_daily_run_id: fetchResult.nativeDailyRunId } : {}),
         ...(ppReceiptId ? { stored_receipt_id: ppReceiptId } : {}),
         persisted_partial_read: fetchResult.persistedPartial ?? null,
         followed_run_id: runRead?.run_id ?? null,

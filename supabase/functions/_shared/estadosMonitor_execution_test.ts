@@ -1,5 +1,13 @@
 import { runEstadosMonitor } from "./estadosMonitor.ts";
 import { emptySamaiBuckets } from "./samaiPublicationAccounting.ts";
+import { bogotaDay } from "./dailyCompletion.ts";
+
+function ppProof(complete = true) {
+  return { source_complete: true, source_observed_at: new Date().toISOString(),
+    pp_window: { to: bogotaDay(), outcome: "SUCCESS_EMPTY", daily_plan_complete: complete },
+    backend_trace: { backend_run_id: "21e9c43b-f2fd-4bb3-9247-01169937cad8", consulta_completa: true,
+      consulta_completa_plan_diario: complete } };
+}
 
 async function exercise(result: Record<string, unknown>, sealed: boolean | "rpc_error" = true,
   channel: "publicaciones" | "samai_estados" = "publicaciones") {
@@ -35,7 +43,7 @@ Deno.test("OPTIONS identifies the monitor revision without a database or provide
   globalThis.fetch = () => { throw new Error("unexpected call"); };
   try {
     const response=await runEstadosMonitor(new Request("https://example.invalid",{method:"OPTIONS"}),"samai_estados");
-    assert(response.headers.get("X-Andromeda-Monitor-Revision")==="channel-evidence-20261120");
+    assert(response.headers.get("X-Andromeda-Monitor-Revision")==="pp-daily-proof-20261121");
   } finally { globalThis.fetch=oldFetch; }
 });
 Deno.test("a mixed tutela response keeps the SAMAI adapter cause distinct from the PP run cause",async()=>{
@@ -67,7 +75,7 @@ Deno.test("exclusive reads retain their verdict and mixed success requires own e
   const common = {ok:true,result_code:"SUCCESS_EMPTY",provider_used:"publicaciones+samai_estados"};
   for (const [channel,payload,success,sourceClock] of [
     ["samai_estados",{...common,provider_used:"samai_estados"},true,true],
-    ["publicaciones",{...common,provider_used:"publicaciones"},true,true],
+    ["publicaciones",{...common,...ppProof(),provider_used:"publicaciones"},true,true],
     ["samai_estados",{...common,samai_estados_summary:samai},true,false],
     ["samai_estados",{...common,ok:false,source_complete:false,samai_estados_summary:samai},false,false],
     ["publicaciones",{...common,samai_estados_summary:samai},false,false],
@@ -89,11 +97,27 @@ Deno.test("monitor execution retains pending verdict and token, without a false 
   assert(!("pp_ultima_sync" in label.body));
 });
 Deno.test("a completed query can keep documentary pending causes",async()=>{
-  const result=await exercise({ok:true,provider_used:"publicaciones",result_code:"SUCCESS_WITH_DATA",documentos_pendientes:6});
+  const result=await exercise({ok:true,provider_used:"publicaciones",result_code:"SUCCESS_WITH_DATA",documentos_pendientes:6,...ppProof()});
   assert(result.body.ok===true);
   const seal=result.calls.find(x=>x.path.endsWith("finish_public_monitor_item"));
   if (!seal) throw new Error('Missing completion RPC');
   assert(seal.body._success===true && (seal.body._result as Record<string,unknown>).documentos_pendientes===6);
+});
+Deno.test("PP retains a confirmed recent window while deferring an incomplete daily plan",async()=>{
+  const { calls } = await exercise({ ok:true, provider_used:"publicaciones", result_code:"SUCCESS_EMPTY", ...ppProof(false) });
+  const seal = calls.find(x=>x.path.endsWith("finish_public_monitor_item"))!.body;
+  assert(seal._success===false && seal._retryable===true && seal._error_code==="PP_DAILY_PLAN_UNVERIFIED");
+  const evidence = (seal._result as Record<string, unknown>).monitor_evidence as Record<string, unknown>;
+  assert(evidence.recent_window_verified===true && evidence.daily_plan_verified===false);
+  const label = calls.find(x=>x.path.endsWith("work_items"))!.body;
+  assert(label.pp_estado === "pending" && !("pp_ultima_sync" in label));
+});
+
+Deno.test("a previous day's PP observation cannot finish today's monitor",async()=>{
+  const {calls}=await exercise({ok:true,provider_used:"publicaciones",result_code:"SUCCESS_EMPTY",...ppProof(),
+    source_observed_at: new Date(Date.now() - 86400_000).toISOString()});
+  const seal=calls.find(x=>x.path.endsWith("finish_public_monitor_item"))!.body;
+  assert(seal._success===false && seal._error_code==="PP_DAILY_WINDOW_UNVERIFIED");
 });
 Deno.test("incomplete source or unresolved provider never seal a successful monitor",async()=>{
   for (const result of [{ok:true,result_code:'SUCCESS_EMPTY',source_complete:false},
