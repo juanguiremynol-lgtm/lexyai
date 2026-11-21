@@ -222,7 +222,8 @@ export function samaiPublicationDocumentKey(raw: unknown): string | null {
   const keys = new Set<string>();
   for (let depth = 0; depth <= 3 && raw && typeof raw === 'object' && !Array.isArray(raw); depth++) {
     const record = raw as Record<string, unknown>;
-    const hash = typeof record.hash_documento === 'string' ? record.hash_documento.trim().toLowerCase() : '';
+    const hash = typeof record.hash_documento === 'string'
+      ? record.hash_documento.replace(/[\s|]/g, '').toLowerCase() : '';
     if (/^[a-f0-9]{64}$/.test(hash)) keys.add(hash);
     raw = record.raw_data;
   }

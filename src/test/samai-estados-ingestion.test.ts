@@ -102,7 +102,7 @@ describe('ingestión independiente de ESTADOS', () => {
     const first = rowsFor({ estados: notices });
     const replay = rowsFor({ actuaciones: notices.map((notice) => ({
       ...notice,
-      hash_documento: ` ${notice.hash_documento} `,
+      hash_documento: `${notice.hash_documento.match(/.{16}/g)!.join(' ')} |`,
       documentos: [...notice.documentos].reverse(),
     })) });
 
