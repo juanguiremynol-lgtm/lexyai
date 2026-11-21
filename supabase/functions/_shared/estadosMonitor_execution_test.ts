@@ -3,14 +3,15 @@ import { emptySamaiBuckets } from "./samaiPublicationAccounting.ts";
 import { bogotaDay } from "./dailyCompletion.ts";
 
 function ppProof(complete = true) {
-  return { source_complete: true, source_observed_at: new Date().toISOString(),
+  const observed = new Date().toISOString();
+  return { source_complete: true, source_observed_at: observed,
     pp_window: { to: bogotaDay(), outcome: "SUCCESS_EMPTY", daily_plan_complete: complete },
     backend_trace: { backend_run_id: "21e9c43b-f2fd-4bb3-9247-01169937cad8", consulta_completa: true,
-      consulta_completa_plan_diario: complete } };
+      consulta_completa_plan_diario: complete, intento_observado_en: observed } };
 }
 
 async function exercise(result: Record<string, unknown>, sealed: boolean | "rpc_error" = true,
-  channel: "publicaciones" | "samai_estados" = "publicaciones") {
+  channel: "publicaciones" | "samai_estados" = "publicaciones", syncStatus = 200) {
   const env = {SUPABASE_URL:"https://example.invalid",SUPABASE_SERVICE_ROLE_KEY:"isolated-test-key",CRON_SERVICE_KEY:"isolated-cron-key"};
   const previous = Object.fromEntries(Object.keys(env).map(k=>[k,Deno.env.get(k)]));
   const oldFetch=globalThis.fetch;
@@ -22,7 +23,7 @@ async function exercise(result: Record<string, unknown>, sealed: boolean | "rpc_
     if(path.endsWith("start_public_monitor_run"))return Response.json([{run_id:"00000000-0000-0000-0000-000000000001",acquired:true,selected_count:1}]);
     if(path.endsWith("claim_public_monitor_items"))return Response.json([{work_item_id:"00000000-0000-0000-0000-000000000002",ordinal:1,lease_token:"00000000-0000-0000-0000-000000000003"}]);
     if(path.endsWith("peek_samai_estados_breaker"))return Response.json([{paused:false}]);
-    if(path.endsWith("sync-publicaciones-by-work-item"))return Response.json(result);
+    if(path.endsWith("sync-publicaciones-by-work-item"))return Response.json(result,{status:syncStatus});
     if(path.endsWith("finish_public_monitor_item"))return sealed==="rpc_error" ? Response.json({message:"simulated interruption"},{status:503}) : Response.json(sealed);
     if(path.endsWith("work_items"))return Response.json(null);
     if(path.endsWith("finish_public_monitor_hop"))return Response.json([{status:result.result_code==="PENDING_UPSTREAM" ? "PARTIAL":"OK",remaining_count:result.result_code==="PENDING_UPSTREAM" ? 1:0,depth_remaining:0}]);
@@ -43,7 +44,7 @@ Deno.test("OPTIONS identifies the monitor revision without a database or provide
   globalThis.fetch = () => { throw new Error("unexpected call"); };
   try {
     const response=await runEstadosMonitor(new Request("https://example.invalid",{method:"OPTIONS"}),"samai_estados");
-    assert(response.headers.get("X-Andromeda-Monitor-Revision")==="pp-daily-proof-20261121");
+    assert(response.headers.get("X-Andromeda-Monitor-Revision")==="pp-scoped-native-proof-20261121");
   } finally { globalThis.fetch=oldFetch; }
 });
 Deno.test("a mixed tutela response keeps the SAMAI adapter cause distinct from the PP run cause",async()=>{
@@ -111,6 +112,36 @@ Deno.test("PP retains a confirmed recent window while deferring an incomplete da
   assert(evidence.recent_window_verified===true && evidence.daily_plan_verified===false);
   const label = calls.find(x=>x.path.endsWith("work_items"))!.body;
   assert(label.pp_estado === "pending" && !("pp_ultima_sync" in label));
+});
+
+Deno.test("an incomplete SAMAI inventory preserves the exact empty PP certificate and its source clock",async()=>{
+  const proof=ppProof(false);
+  const payload={...proof,ok:false,provider_used:"publicaciones+samai_estados",result_code:"PENDING_UPSTREAM",
+    error_code:"SAMAI_INVENTORY_INCOMPLETE",pending_upstream:true,inserted_count:0,errors:[],
+    source_complete:false,source_observed_at:"2000-01-01T00:00:00Z",
+    samai_estados_summary:{called:true,source_query_complete:false}};
+  const {calls}=await exercise(payload);
+  const seal=calls.find(x=>x.path.endsWith("finish_public_monitor_item"))!.body;
+  const evidence=(seal._result as Record<string,unknown>).monitor_evidence as Record<string,unknown>;
+  assert(evidence.recent_window_verified===true && evidence.daily_plan_verified===false);
+  assert(seal._success===false && seal._retryable===true && seal._error_code==="PP_DAILY_PLAN_UNVERIFIED");
+  assert(!calls.some(x=>x.path.endsWith("work_items") && "last_sync_attempt_at" in x.body));
+
+  const {calls:samaiCalls}=await exercise(payload,true,"samai_estados");
+  const samaiSeal=samaiCalls.find(x=>x.path.endsWith("finish_public_monitor_item"))!.body;
+  assert(samaiSeal._success===false && samaiSeal._error_code==="SAMAI_INVENTORY_INCOMPLETE");
+
+  for (const [invalid,status] of [
+    [{...payload,backend_trace:{...proof.backend_trace,intento_observado_en:"2000-01-01T00:00:00Z"}},200],
+    [{...payload,pp_window:{...proof.pp_window,outcome:"SUCCESS_WITH_DATA"}},200],
+    [{...payload,errors:["PERSIST_MISMATCH"]},200],
+    [payload,503],
+  ] as const) {
+    const {calls:invalidCalls}=await exercise(invalid,true,"publicaciones",status);
+    const invalidSeal=invalidCalls.find(x=>x.path.endsWith("finish_public_monitor_item"))!.body;
+    assert((invalidSeal._result as {monitor_evidence:{recent_window_verified:boolean}}).monitor_evidence.recent_window_verified===false);
+    assert(invalidSeal._success===false);
+  }
 });
 
 Deno.test("a previous day's PP observation cannot finish today's monitor",async()=>{

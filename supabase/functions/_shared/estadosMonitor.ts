@@ -44,21 +44,24 @@ function ppLabelFromResult(success: boolean, errorCode: string | null, result: R
   return success ? "ok" : "error";
 }
 
-// A tutela response may combine PP and SAMAI. Its common verdict still gates
-// completion, but each monitor can only report evidence for its own source.
-function channelVerdict(channel: Channel, result: Record<string, unknown>, common: ReturnType<typeof publicReadVerdict>) {
+// A tutela response may combine PP and SAMAI. Only an independently
+// certified empty PP window can survive an incomplete SAMAI inventory.
+function channelVerdict(channel: Channel, result: Record<string, unknown>, common: ReturnType<typeof publicReadVerdict>, transportOK: boolean) {
   const used = result.provider_used;
   const exclusive = used === channel;
   const mixed = used === "publicaciones+samai_estados";
   const unverified = { success: false, code: "PROVIDER_UNRESOLVED", attributed: false, clockEligible: false };
-  if (channel === "publicaciones" && (exclusive || mixed) && common.success) {
-    const window = result.pp_window as Record<string, unknown> | undefined;
+  const window = result.pp_window as Record<string, unknown> | undefined;
+  const samaiOnlyPending = transportOK && mixed && result.error_code === "SAMAI_INVENTORY_INCOMPLETE" &&
+    result.result_code === "PENDING_UPSTREAM" && result.pending_upstream === true && result.inserted_count === 0 &&
+    Array.isArray(result.errors) && result.errors.length === 0 && window?.outcome === "SUCCESS_EMPTY";
+  if (channel === "publicaciones" && (exclusive || mixed) && (common.success || samaiOnlyPending)) {
     const trace = result.backend_trace as Record<string, unknown> | undefined;
-    const observed = result.source_observed_at;
+    const observed = mixed ? trace?.intento_observado_en : result.source_observed_at;
     const sourceTime = typeof observed === "string" && /(?:Z|[+-]\d\d:\d\d)$/.test(observed) ? Date.parse(observed) : NaN;
     const now = new Date();
     const day = bogotaDay(now);
-    const recentVerified = result.source_complete === true && trace?.consulta_completa === true &&
+    const recentVerified = (result.source_complete === true || samaiOnlyPending) && trace?.consulta_completa === true &&
       typeof trace.backend_run_id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(trace.backend_run_id) &&
       Number.isFinite(sourceTime) && sourceTime <= now.getTime() && bogotaDay(new Date(sourceTime)) === day &&
       window?.to === day && ["SUCCESS_EMPTY", "SUCCESS_WITH_DATA"].includes(String(window.outcome));
@@ -92,7 +95,7 @@ function channelVerdict(channel: Channel, result: Record<string, unknown>, commo
 
 export async function runEstadosMonitor(req: Request, channel: Channel): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { ...corsHeaders,
-    "X-Andromeda-Monitor-Revision": "pp-daily-proof-20261121" } });
+    "X-Andromeda-Monitor-Revision": "pp-scoped-native-proof-20261121" } });
   if (req.method !== "POST") return response({ error: "Método no permitido" }, 405);
   if (!isCronCaller(req)) return response({ error: "No autorizado" }, 401);
   const url = Deno.env.get("SUPABASE_URL");
@@ -137,6 +140,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
   for (const item of (claimed ?? []) as ClaimedItem[]) {
     let success = false;
     let retryable = true;
+    let transportOK = false;
     let errorCode: string | null = null;
     let result: Record<string, unknown> = {};
     try {
@@ -146,8 +150,9 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
         body: JSON.stringify({ work_item_id: item.work_item_id, _scheduled: true }),
         signal: AbortSignal.timeout(ITEM_TIMEOUT_MS),
       });
+      transportOK = sync.ok;
       result = await sync.json().catch(() => ({ http_status: sync.status }));
-      const verdict = publicReadVerdict(sync.ok, result, sync.status);
+      const verdict = publicReadVerdict(transportOK, result, sync.status);
       success = verdict.success;
       retryable = verdict.retryable;
       errorCode = verdict.code;
@@ -176,7 +181,7 @@ export async function runEstadosMonitor(req: Request, channel: Channel): Promise
       if (deferError || deferred !== true) return response({ error: "BREAKER_DEFER_FAILED", run_id: runId }, 503);
       return response({ ok: false, pending: true, error: breakerCode, retry_at: retryAt, run_id: runId });
     }
-    const scoped = channelVerdict(channel, result, {success, retryable, code: errorCode});
+    const scoped = channelVerdict(channel, result, {success, retryable, code: errorCode}, transportOK);
     result = { ...result, monitor_evidence: { channel, attributed: scoped.attributed, common_error_code: errorCode,
       ...(channel === "publicaciones" ? { recent_window_verified: scoped.recentVerified === true, daily_plan_verified: scoped.success } : {}) } };
     success = scoped.success;
