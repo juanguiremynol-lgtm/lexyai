@@ -47,6 +47,13 @@ describe("JD1 — the estados cron selects on lifecycle only", () => {
   });
 });
 
+it("records CPNU exposure through the registry job", () => {
+  const matterSync = readFileSync("supabase/functions/sync-by-work-item/index.ts", "utf8");
+  const exposureSync = readFileSync("supabase/functions/sync-detalle-exposicion/index.ts", "utf8");
+  expect(matterSync).not.toMatch(/set_work_item_provider_privacy|apply_detalle_exposicion/);
+  expect(exposureSync).toContain('rpc("apply_detalle_exposicion"');
+});
+
 describe("JD2 — the per-matter explanation names the channel", () => {
   it("routes each workflow to its estados channel", () => {
     expect(estadosChannelName("CGP")).toBe("Publicaciones Procesales");

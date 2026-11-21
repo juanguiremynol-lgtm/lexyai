@@ -41,7 +41,7 @@ import {
 import { classifyCautelarEvent } from "../_shared/cautelarEvent.ts";
 import { extractRunProvenance } from "../_shared/runProvenance.ts";
 import { attemptIsAnsweredAbsence } from "../_shared/providerStrategy.ts";
-import { coerceClaseContract, isProcesoPrivado } from "../_shared/claseProcesoContract.ts";
+import { coerceClaseContract } from "../_shared/claseProcesoContract.ts";
 import { decideClaseProcesoWrite } from "../_shared/claseProcesoWriter.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 import {
@@ -4021,23 +4021,7 @@ Deno.serve(withSyncTimeline(async (req) => {
 
         console.log(`[sync-by-work-item][clase] case=${decision.readCase} ${decision.explanation}`);
 
-        // ITER43 — reserva sumarial is a state of the matter, not an incident.
-        // We only ever write it from an explicit provider statement, and the
-        // same call reverses it the moment the provider starts publishing.
-        const privado = isProcesoPrivado(contract, (rawContract ?? null) as Record<string, unknown> | null);
-        if (privado || contract.raw) {
-          const { error: privacyErr } = await supabase.rpc('set_work_item_provider_privacy', {
-            p_work_item_id: work_item_id,
-            p_privado: privado,
-            p_motivo: privado ? (contract.motivo_ausencia ?? 'PROCESO_PRIVADO') : null,
-          });
-          if (privacyErr) {
-            console.warn('[sync-by-work-item][reserva] no se pudo registrar el estado de reserva:', privacyErr.message);
-          } else if (privado) {
-            console.log('[sync-by-work-item][reserva] proceso con reserva sumarial — silencio legítimo del proveedor');
-          }
-        }
-
+        // Exposure is recorded by sync-detalle-exposicion from the guarded CPNU registry.
         // ITER42 — the attempt itself is always recorded, whatever the outcome.
         // GUARD A (iii) still forbids touching the class on INCONCLUSIVE; these
         // two columns describe the READ, not the class, so no doctrine is bent.
