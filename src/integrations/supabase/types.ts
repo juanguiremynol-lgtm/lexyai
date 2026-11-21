@@ -29394,6 +29394,10 @@ export type Database = {
         Args: { p_proof: Json; p_pub: string; p_url: string }
         Returns: boolean
       }
+      pp_transfer_attachment_pages_match: {
+        Args: { p_evidence: Json; p_publication: string; p_url: string }
+        Returns: boolean
+      }
       project_stage_decision_review: {
         Args: { _work_item_id: string }
         Returns: string
@@ -29677,6 +29681,10 @@ export type Database = {
       }
       run_mode_authority_report: { Args: { p_since?: string }; Returns: Json }
       safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
+      samai_publication_document_key: {
+        Args: { p_raw: Json; p_source: string }
+        Returns: string
+      }
       samai_publication_merge_evidence: {
         Args: { existing: Json; incoming: Json }
         Returns: Json
