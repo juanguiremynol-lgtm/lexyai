@@ -78,4 +78,18 @@ describe("daily digest coverage evidence", () => {
     expect(digestSubject({ critical: false, estados: 0, actuaciones: 0, coverageIncomplete: false }))
       .toBe("Andromeda · Resumen diario");
   });
+
+  it("sends a visible warning when no news is recorded and the agenda or terms could not be read", () => {
+    const complete = { ...source, usable_confirmed_count: 53, authoritative: true };
+    expect(digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: false, checksUnavailable: true }))
+      .toBe(true);
+    expect(digestSubject({ critical: false, estados: 0, actuaciones: 0, coverageIncomplete: false, checksUnavailable: true }))
+      .toBe("Andromeda · Resumen diario · verificación parcial");
+    const html = buildDigestHtml(payload({
+      sourceQuality: [complete], coverageIncomplete: false, unavailableChecks: ["los términos vigentes"],
+      fechasPorPerderUnavailable: true,
+    }));
+    expect(html).toContain("No se pudieron consultar los términos vigentes.");
+    expect(html).toContain("No se pudo comprobar qué fijaciones de SAMAI están en riesgo.");
+  });
 });

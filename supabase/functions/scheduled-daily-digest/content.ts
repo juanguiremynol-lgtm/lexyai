@@ -1,7 +1,12 @@
 /** Whether a digest day has anything the lawyer must see. Manual-review
  * terms are content: a day with only reviews must never be EMPTY_NO_EMAIL. */
-export function digestHasContent(p: { rowCount: number; manualReviewCount: number; coverageIncomplete: boolean }): boolean {
-  return p.rowCount + p.manualReviewCount > 0 || p.coverageIncomplete;
+export function digestHasContent(p: {
+  rowCount: number;
+  manualReviewCount: number;
+  coverageIncomplete: boolean;
+  checksUnavailable?: boolean;
+}): boolean {
+  return p.rowCount + p.manualReviewCount > 0 || p.coverageIncomplete || p.checksUnavailable === true;
 }
 
 /** Missing or unusable coverage evidence must never be presented as silence. */
@@ -25,10 +30,11 @@ export function digestSubject(p: {
   estados: number;
   actuaciones: number;
   coverageIncomplete: boolean;
+  checksUnavailable?: boolean;
 }): string {
   const novedades = p.estados + p.actuaciones;
   const parts = ["Andromeda", p.critical ? "Conexión de correo caída" : "",
     novedades ? `${novedades} novedad${novedades === 1 ? "" : "es"}` : "Resumen diario",
-    p.coverageIncomplete ? "cobertura por verificar" : ""];
+    p.coverageIncomplete ? "cobertura por verificar" : p.checksUnavailable ? "verificación parcial" : ""];
   return parts.filter(Boolean).join(" · ");
 }

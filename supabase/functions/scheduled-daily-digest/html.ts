@@ -11,7 +11,7 @@ import {
   type ProvidenciaCrossRef,
 } from "./types.ts";
 
-export const DIGEST_RENDERER_REVISION = "20261121-resumen-esencial";
+export const DIGEST_RENDERER_REVISION = "20261121-resumen-esencial-v2";
 
 const colors = { ink: "#162137", muted: "#4a5b70", line: "#dce4ed", blue: "#12478a", danger: "#8a271c" };
 const timeZone = "America/Bogota";
@@ -173,7 +173,8 @@ function manualReview(p: DigestPayload): string {
   const changed = Math.max(p.manualReviewChangedTotal ?? 0, rows.length);
   if (!total) return "";
   const rest = Math.max(0, changed - rows.length);
-  return section("Términos en revisión (" + total + ")", line("Pendientes de validar la clasificación o la fecha.") +
+  const title = p.manualReviewTotal === null ? "Términos en revisión" : `Términos en revisión (${total})`;
+  return section(title, line("Pendientes de validar la clasificación o la fecha.") +
     rows.map((r) => row(esc(clipped(r.label || r.deadline_type || "Término", 165)),
       line(workItem(p, r.work_item_id) + " · Sin fecha validada"))).join("") +
     line((rest ? `${rest} cambios más · ` : "") + link(p.appBaseUrl + "/app/hearings", "Ver todas las revisiones")));
@@ -188,7 +189,11 @@ function operationalAlerts(p: DigestPayload): string {
     line(esc(r.motivo === "DESPLEGABLE_SIN_LEER" ? "Listado de fijaciones pendiente de lectura" :
       `Fijación pendiente de lectura · ${civil(r.fecha)}` +
       (r.fechas_para_salir == null ? "" : ` · ${r.fechas_para_salir} publicaciones para salir del listado`))))).join("");
-  return connections + atRisk + (p.fechasPorPerderUnavailable ? line("No se pudo comprobar qué fijaciones de SAMAI están en riesgo.") : "");
+  const unavailable = p.unavailableChecks?.length
+    ? line(esc("No se pudieron consultar " + p.unavailableChecks.join(", ") + "."))
+    : "";
+  return connections + atRisk + unavailable +
+    (p.fechasPorPerderUnavailable ? line("No se pudo comprobar qué fijaciones de SAMAI están en riesgo.") : "");
 }
 
 function additionalItems(p: DigestPayload): string {

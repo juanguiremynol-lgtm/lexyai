@@ -175,8 +175,6 @@ export interface WorkItemInfo {
   title: string | null;
   radicado: string | null;
   authority_name: string | null;
-  demandantes: string | null;
-  demandados: string | null;
   workflow_type: string | null;
   /** LL1(a) — clase de proceso as reported by the provider / registry. */
   clase_proceso: string | null;
@@ -272,6 +270,8 @@ export interface DigestPayload {
   fechasPorPerder?: FechaPorPerderRow[];
   /** True when the alert route failed: say so, never render it as "nothing at risk". */
   fechasPorPerderUnavailable?: boolean;
+  /** Agenda, term and mailbox reads that did not complete for this recipient. */
+  unavailableChecks?: readonly string[];
   windowFrom: string;
   windowTo: string;
   /** Judicial matters under provider monitoring. */
@@ -288,7 +288,7 @@ export interface DigestPayload {
   /** LV2/LV4 — closed without verification, or never computed. Apart, uncounted. */
   unverifiedTerms: UnverifiedTermRow[];
   /** Incident 30/09 — held for manual review; rendered without any date. */
-  manualReviewTotal?: number;
+  manualReviewTotal?: number | null;
   /** Reviews created/modified inside this digest window (rows listed = manualReviewTerms). */
   manualReviewChangedTotal?: number;
   manualReviewTerms?: { id: string; work_item_id: string; label: string | null; deadline_type: string | null }[];

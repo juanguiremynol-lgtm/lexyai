@@ -217,18 +217,18 @@ Deno.serve(async (req) => {
 
   try {
     // ── STRUCTURAL SOURCE: the canonical monitored view. Nothing else. ──
-    const { data: monitored, error: monErr } = await supabase
+    const monitoredQuery = supabase
       .from("v_monitored_work_items")
       .select(
-        "id, owner_id, organization_id, title, radicado, authority_name, demandantes, demandados, workflow_type, clase_proceso, last_successful_sync_at, last_attempted_sync_at, last_error_code, created_at",
+        "id, owner_id, organization_id, title, radicado, authority_name, workflow_type, clase_proceso, last_successful_sync_at, last_attempted_sync_at, last_error_code, created_at",
       );
+    const { data: monitored, error: monErr } = await (onlyUser ? monitoredQuery.eq("owner_id", onlyUser) : monitoredQuery);
     if (monErr) throw monErr;
 
     const byOwner = new Map<string, WorkItemInfo[]>();
     const orgOf = new Map<string, string | null>();
     for (const wi of monitored ?? []) {
       if (!wi.owner_id) continue;
-      if (onlyUser && wi.owner_id !== onlyUser) continue;
       const list = byOwner.get(wi.owner_id) ?? [];
       list.push(wi as unknown as WorkItemInfo);
       byOwner.set(wi.owner_id, list);
@@ -647,7 +647,7 @@ Deno.serve(async (req) => {
         // AD1(d) — the firm's calendar lives in `work_item_hearings`. The old
         // `hearings` table is empty, which is why an auto-detected audiencia
         // never reached this mail. Both queries below read the live table.
-        const { data: rawHearings } = await supabase
+        const { data: rawHearings, error: hearingsError } = await supabase
           .from("work_item_hearings")
           .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
           .in("work_item_id", ids)
@@ -661,7 +661,7 @@ Deno.serve(async (req) => {
         // hasta finales de octubre. Se listan aparte, sin mezclarse con la
         // agenda inmediata y sin contarse como novedad.
         const farHorizon = new Date(Date.now() + 180 * 86_400_000).toISOString();
-        const { data: rawHearingsBeyond, count: hearingsBeyondTotal } = await supabase
+        const { data: rawHearingsBeyond, count: hearingsBeyondTotal, error: futureHearingsError } = await supabase
           .from("work_item_hearings")
           .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status", { count: "exact" })
           .in("work_item_id", ids)
@@ -689,7 +689,7 @@ Deno.serve(async (req) => {
         // shared view; his terms and the counterparty's are never mixed.
         const today = bogotaDate();
         const dueBy = new Date(Date.now() + DEADLINE_HORIZON_DAYS * 86_400_000).toISOString().slice(0, 10);
-        const { data: rawDeadlines } = await supabase
+        const { data: rawDeadlines, error: deadlinesError } = await supabase
           .from("v_deadline_attribution")
           .select("deadline_id, work_item_id, label, deadline_type, deadline_date, status, attribution, bound_party_role, calculation_meta")
           .in("work_item_id", ids)
@@ -705,12 +705,12 @@ Deno.serve(async (req) => {
         // Incident 30/09 — manual-review terms are shown, dateless.
         // Backlog is summarised as a count; only reviews created or modified in
         // this digest window are listed, so the same rows never repeat daily.
-        const { count: manualTotal } = await supabase
+        const { count: manualTotal, error: manualTotalError } = await supabase
           .from("work_item_deadlines")
           .select("id", { count: "exact", head: true })
           .in("work_item_id", ids)
           .eq("status", "REQUIERE_REVISION_MANUAL");
-        const { data: rawManual, count: manualChangedTotal } = await supabase
+        const { data: rawManual, count: manualChangedTotal, error: manualReviewsError } = await supabase
           .from("work_item_deadlines")
           .select("id, work_item_id, label, deadline_type", { count: "exact" })
           .in("work_item_id", ids)
@@ -732,7 +732,7 @@ Deno.serve(async (req) => {
           .limit(40);
 
         // ── JJ1(c): estado del canal de correo de la firma ──
-        const { data: rawConns } = await supabase
+        const { data: rawConns, error: connectionsError } = await supabase
           .from("user_email_connections")
           .select(
             "ms_account_email, status, token_expires_at, failure_code, last_sync_at, revoked_at, last_refresh_at, last_refresh_success_at, last_refresh_outcome, refresh_failure_count",
@@ -1142,12 +1142,20 @@ Deno.serve(async (req) => {
         const fpp: FechasPorPerderResult = ppDateRadicados.length
           ? scopeFechasPorPerder(await loadFechasPorPerder(), ppDateRadicados)
           : { status: "ok", rows: [] };
+        const unavailableChecks = [
+          hearingsError || futureHearingsError ? "las audiencias completas" : "",
+          deadlinesError ? "los términos vigentes" : "",
+          manualReviewsError || manualTotalError ? "todos los términos en revisión" : "",
+          connectionsError ? "el estado de la conexión de correo" : "",
+        ].filter(Boolean);
+        const checksUnavailable = unavailableChecks.length > 0 || fpp.status === "unavailable";
         const hasContent = digestHasContent({
           rowCount: actuaciones.length + estados.length + hearings.length + allDeadlines.length +
             connectionIssues.length + importedHistory.length + reconciliations.length +
             neverRead.length + autoPaused.length + fpp.rows.length,
           manualReviewCount: (rawManual ?? []).length,
           coverageIncomplete,
+          checksUnavailable,
         });
 
 
@@ -1194,6 +1202,7 @@ Deno.serve(async (req) => {
           calendarLinks,
           fechasPorPerder: fpp.rows,
           fechasPorPerderUnavailable: fpp.status === "unavailable",
+          unavailableChecks,
           windowFrom, windowTo,
           coverageWindowFrom: sourceWindowFrom, coverageWindowTo: nowIso,
           neverRead,
@@ -1206,7 +1215,7 @@ Deno.serve(async (req) => {
 
           nonJudicialDeadlines,
           unverifiedTerms,
-          manualReviewTotal: manualTotal ?? (rawManual ?? []).length,
+          manualReviewTotal: manualTotal,
           manualReviewChangedTotal: manualChangedTotal ?? (rawManual ?? []).length,
           manualReviewTerms: (rawManual ?? []).map((d: Record<string, unknown>) => ({
             id: String(d.id), work_item_id: String(d.work_item_id),
@@ -1225,7 +1234,7 @@ Deno.serve(async (req) => {
 
         const critical = connectionIssues.some((c) => c.severity === "CRITICAL");
         const subject = digestSubject({
-          critical, estados: estados.length, actuaciones: actuaciones.length, coverageIncomplete,
+          critical, estados: estados.length, actuaciones: actuaciones.length, coverageIncomplete, checksUnavailable,
         });
 
         if (dryRun) {
@@ -1338,6 +1347,10 @@ Deno.serve(async (req) => {
           error_summary: [
             ledger.ok ? null : `ledger: ${ledger.error}`,
             feedTruncated ? "feed truncado: el día superó el tope de movimientos leídos" : null,
+            checksUnavailable
+              ? ["Consultas pendientes", ...unavailableChecks, fpp.status === "unavailable" ? "fijaciones de SAMAI" : ""]
+                .filter(Boolean).join(" · ")
+              : null,
           ].filter(Boolean).join(" · ") || null,
           finished_at: new Date().toISOString(),
         }).eq("id", runId);
