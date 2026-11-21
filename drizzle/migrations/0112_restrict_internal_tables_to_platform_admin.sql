@@ -1,0 +1,18 @@
+DROP POLICY IF EXISTS "authenticated read blocklist" ON public.client_wa_source_blocklist;
+CREATE POLICY "platform admin read blocklist" ON public.client_wa_source_blocklist FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "Authenticated users can insert own call logs" ON public.gemini_call_log;
+CREATE POLICY "Users insert own call logs" ON public.gemini_call_log FOR INSERT TO authenticated WITH CHECK (caller_user_id = auth.uid());
+DROP POLICY IF EXISTS "Authenticated can read reported second instances" ON public.reported_second_instances;
+CREATE POLICY "Platform admin read reported second instances" ON public.reported_second_instances FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "blocklist_read" ON public.authority_domain_blocklist;
+CREATE POLICY "blocklist_read_admin" ON public.authority_domain_blocklist FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "Authenticated can read global policies" ON public.provider_category_policies_global;
+CREATE POLICY "Platform admin read global policies" ON public.provider_category_policies_global FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "sync_vocabulary readable by authenticated" ON public.sync_vocabulary;
+CREATE POLICY "sync_vocabulary readable by platform admin" ON public.sync_vocabulary FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "Authenticated read upstream source health" ON public.upstream_source_health;
+CREATE POLICY "Platform admin read upstream source health" ON public.upstream_source_health FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "Anyone can read classification rules" ON public.providencia_classification_rules;
+CREATE POLICY "Platform admin read classification rules" ON public.providencia_classification_rules FOR SELECT TO authenticated USING (public.is_platform_admin());
+DROP POLICY IF EXISTS "sync_vocabulary_violations readable by authenticated" ON public.sync_vocabulary_violations;
+CREATE POLICY "sync_vocabulary_violations readable by platform admin" ON public.sync_vocabulary_violations FOR SELECT TO authenticated USING (public.is_platform_admin());
