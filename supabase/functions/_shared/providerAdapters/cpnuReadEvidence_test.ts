@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { cpnuSourceObservation, cpnuNegativeEvidence, cpnuObservedSnapshotIsCurrent, cpnuNonDataOutcome } from './cpnuReadEvidence.ts';
 import { fetchFromCpnu } from './cpnuAdapter.ts';
-import { toOrchestratorResult } from './bridge.ts';
+import { toOrchestratorResult, toWizardResult } from './bridge.ts';
 
 Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagination', async () => {
   const savedFetch = globalThis.fetch;
@@ -53,6 +53,22 @@ Deno.test('CPNU public outcomes, source clock, no indirect buscar, partial pagin
     assert.equal(quiet.sourceReadComplete,true);
     assert.equal(quiet.cpnuIngestionMeta?.buscar_deferred,undefined);
     assert.equal(quiet.cpnuIngestionMeta?.source_mode,'SNAPSHOT');
+    const unidentified = toOrchestratorResult(quiet);
+    assert.equal(unidentified.actuaciones[0].indice_posicional,true);
+    assert.equal(unidentified.actuaciones[0].indice,undefined);
+    assert.equal(unidentified.sourceReadComplete,false);
+    assert.equal(toWizardResult(quiet).processData.actuaciones?.[0].indice,'1');
+    globalThis.fetch = async () => Response.json({found:true,fetchedAt:current.observedAt,
+      actuaciones:[
+        {actuacion:'Auto con identificador',fechaActuacion:'2026-04-17',idRegActuacion:920018501},
+        {actuacion:'Auto con consecutivo',fechaActuacion:'2026-04-17',consActuacion:' 172 '},
+        {actuacion:'Auto con identificador y consecutivo',fechaActuacion:'2026-04-17',idRegActuacion:920018502,consActuacion:173},
+        {actuacion:'Auto con identificador y consecutivo vacío',fechaActuacion:'2026-04-17',idRegActuacion:920018503,consActuacion:' '},
+      ]});
+    const identified = toOrchestratorResult(await fetchFromCpnu({radicado,mode:'monitoring',allowBuscar:false}));
+    assert.equal(identified.sourceReadComplete,true);
+    assert.deepEqual(identified.actuaciones.map(a=>a.indice),['920018501','172','173','920018503']);
+    assert.equal(identified.actuaciones.some(a=>a.indice_posicional),false);
     const negative = {success:false,motivo:'PROCESO_NO_ENCONTRADO_EN_PROVEEDOR',
       interpretacion:'PROVEEDOR_NO_TIENE_EL_PROCESO',proveedor_consultado:true,ultima_consulta_proveedor_en:observed};
     globalThis.fetch = async () => Response.json(negative,{status:410});

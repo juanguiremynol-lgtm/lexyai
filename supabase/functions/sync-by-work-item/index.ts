@@ -294,6 +294,7 @@ interface ActuacionRaw {
   anexos?: number;
   // Sequence/index (CPNU consActuacion / SAMAI indice)
   indice?: string;
+  indice_posicional?: true;
   // Court/despacho name per actuación (CPNU-specific)
   nombre_despacho?: string;
   // Document attachments (CPNU documentos array — gcs_url is authoritative)
@@ -609,9 +610,12 @@ function findCrossProviderDuplicate(
   newSource: string,
   existingRecords: ConsolidatedActuacion[]
 ): ConsolidatedActuacion | null {
+  // Keep unidentified CPNU rows visible to the persistence ledger.
+  if (newAct.indice_posicional) return null;
   const newDate = (newAct.fecha || '').slice(0, 10);
 
   for (const existing of existingRecords) {
+    if (existing.best.indice_posicional) continue;
     const existingDate = (existing.best.fecha || '').slice(0, 10);
 
     // Rule 1: Same date is REQUIRED
@@ -3241,6 +3245,14 @@ Deno.serve(withSyncTimeline(async (req) => {
 
     for (const act of fetchResult.actuaciones) {
       failurePhase = 'ACT_PERSISTENCE';
+      if (act.indice_posicional) {
+        const reason = 'CPNU_ACT_ID_MISSING';
+        persistLedger.parsed++;
+        persistLedger.errored++;
+        persistLedger.outcomes.push({ bucket: 'ERROR', reason });
+        if (!result.errors.includes(reason)) result.errors.push(reason);
+        continue;
+      }
       const actDate = parseColombianDate(act.fecha);
       
       // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
@@ -3874,7 +3886,9 @@ Deno.serve(withSyncTimeline(async (req) => {
       last_checked_at: nowIso,
       last_attempted_sync_at: nowIso, // ALWAYS update attempt timestamp
       // CRITICAL INVARIANT: last_synced_at only advances on actual success
-      total_actuaciones: fetchResult.actuaciones.length,
+      // The feed's count is not an inventory count when a CPNU row lacks identity.
+      ...(!fetchResult.actuaciones.some(act => act.indice_posicional)
+        ? { total_actuaciones: fetchResult.actuaciones.length } : {}),
       scrape_provider: fetchResult.provider,
       // Reset failure counters only on success
       ...(syncOk ? {

@@ -172,8 +172,13 @@ function normalizeActuaciones(
     const fechaRegistroRaw = act.fechaRegistro || act.fecha_registro;
     if (fechaRegistroRaw) normalized.fecha_registro = normalizeDate(String(fechaRegistroRaw));
 
-    const consActuacion = act.consActuacion || act.idRegActuacion;
-    normalized.indice = consActuacion ? String(consActuacion) : String(idx + 1);
+    // Preserve the existing precedence for rows already stored by explicit consActuacion.
+    const providerIndex = [act.consActuacion, act.idRegActuacion]
+      .filter(v => typeof v === 'string' || typeof v === 'number')
+      .map(v => String(v).trim())
+      .find(v => v && !/^(?:0+|null|undefined|nan)$/i.test(v));
+    normalized.indice = providerIndex ?? String(idx + 1);
+    if (!providerIndex) normalized.indice_posicional = true;
 
     if (act.conDocumentos) normalized.anexos_count = 1;
 

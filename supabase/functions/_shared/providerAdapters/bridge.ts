@@ -130,6 +130,7 @@ export interface OrchestratorActuacionRaw {
   estado?: string;
   anexos?: number;
   indice?: string;
+  indice_posicional?: true;
   nombre_despacho?: string;
   documentos?: Array<Record<string, unknown>>;
   documentos_observados_en?: string | null;
@@ -377,7 +378,8 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     fecha_registro: a.fecha_registro,
     estado: a.estado,
     anexos: a.anexos_count,
-    indice: a.indice,
+    indice: a.indice_posicional ? undefined : a.indice,
+    indice_posicional: a.indice_posicional,
     nombre_despacho: a.nombre_despacho,
     documentos: a.documentos,
     documentos_observados_en: a.documentos_observados_en ?? null,
@@ -421,7 +423,8 @@ export function toOrchestratorResult(result: ProviderAdapterResult): Orchestrato
     latencyMs: result.durationMs,
     httpStatus: result.httpStatus,
     sourceObservedAt: result.sourceObservedAt,
-    sourceReadComplete: result.sourceReadComplete,
+    sourceReadComplete: result.provider === 'cpnu' && actuaciones.some(a => a.indice_posicional)
+      ? false : result.sourceReadComplete,
     scrapingInitiated: result.scrapingJobId ? true : false,
     scrapingJobId: result.scrapingJobId,
     scrapingPollUrl: result.scrapingPollUrl,

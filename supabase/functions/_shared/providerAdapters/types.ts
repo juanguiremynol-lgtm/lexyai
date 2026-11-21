@@ -43,6 +43,8 @@ export interface NormalizedActuacion {
   anexos_count?: number;
   /** Sequence/index */
   indice?: string;
+  /** Display position allocated by the CPNU adapter, without provider identity. */
+  indice_posicional?: true;
   /** Court/despacho name per actuación (CPNU-specific) */
   nombre_despacho?: string;
   /** Judicial instance (e.g., '00', '01', '02') */
