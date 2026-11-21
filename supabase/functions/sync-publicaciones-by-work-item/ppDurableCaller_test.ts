@@ -1,7 +1,9 @@
 // Import the handler without opening a socket. All provider traffic is mocked.
+import { certifiedStoredPPHistory } from '../_shared/storedPublicationRead.ts';
+
 const originalServe = Deno.serve;
 (Deno as unknown as {serve: unknown}).serve = () => ({ finished: Promise.resolve() });
-const { tryProcesarFallback, fetchPublicaciones } = await import('./index.ts');
+const { tryProcesarFallback, fetchPublicaciones, readStoredDailyPublicaciones } = await import('./index.ts');
 (Deno as unknown as {serve: unknown}).serve = originalServe;
 
 const id = '21e9c43b-f2fd-4bb3-9247-01169937cad8';
@@ -122,5 +124,59 @@ Deno.test('a matching completed native empty window is consumed without an extra
   }, async () => {
     const result = await fetchPublicaciones(radicado, 'https://pp.invalid', 'test', {allow:true});
     check(calls === 1 && result.durableCompleted === true && result.nativeDailyRunId === id, 'daily empty receipt was fetched twice');
+  });
+});
+
+Deno.test('closed app tickets follow the native daily certificate before their old run', async () => {
+  const radicado = '05001400300120250154400';
+  const observed = new Date();
+  const bogota = observed.getTime() - 5 * 3600_000;
+  const day = new Date(bogota).toISOString().slice(0, 10);
+  const floor = new Date(bogota - 14 * 86400_000).toISOString().slice(0, 10);
+  const old = '2820bee0-d289-4743-ba20-91e9589b4ec9';
+  const current = {radicado, backend_run_id:id, tipo_cobertura:'RECIENTE', estado:'COMPLETA', consulta_completa:true,
+    checkpoint:{desde:floor,hasta:day}, persistencia_completa:true};
+  const base = 'https://pp.invalid';
+  const history = `${base}/historico/${radicado}`;
+  for (const run of [current, {...current, estado:'PARCIAL', consulta_completa:false, motivo_parcial:'PORTAL_HTTP_504'}]) {
+    const calls: string[] = [];
+    await withMock(async (input, init) => {
+      const url = String(input);
+      calls.push(url);
+      check(init?.method === 'GET', 'terminal reconciliation must be read-only');
+      if (url === history) return response({radicado, backend_run_id:old, consulta_completa:false, actuaciones:[],
+        plan_diario:{dia_bogota:day, publica:run}});
+      if (url === `${base}/runs/${id}`) return response(run);
+      if (url === `${history}?backend_run_id=${id}`) return response({...current, run_status:'SUCCESS_EMPTY', actuaciones:[],
+        ventana_solicitada:current.checkpoint, intento_observado_en:observed.toISOString()});
+      throw new Error(`unexpected provider request ${url}`);
+    }, async () => {
+      const stored = await readStoredDailyPublicaciones(radicado, base, 'test', day, old);
+      const certificate = certifiedStoredPPHistory(stored, radicado, day);
+      const expected = run.consulta_completa ? [history, `${base}/runs/${id}`, `${history}?backend_run_id=${id}`]
+        : [history, `${base}/runs/${id}`];
+      check(stored.nativeDailyRunId === id, 'the old run displaced the native daily run');
+      check(JSON.stringify(calls) === JSON.stringify(expected), `unexpected provider requests ${calls}`);
+      if (run.consulta_completa) check(certificate?.backend_run_id === id, 'exact persisted daily certificate missing');
+      else check(!certificate && stored.error === 'PP_RUN_PARCIAL: PORTAL_HTTP_504', 'partial daily run lost its verdict');
+    });
+  }
+});
+
+Deno.test('a closed legacy ticket remains readable when the provider has no native daily plan', async () => {
+  const radicado = '05001400300120250154400';
+  const day = new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
+  const calls: string[] = [];
+  await withMock(async (input, init) => {
+    const url = String(input);
+    calls.push(url);
+    check(init?.method === 'GET', 'legacy reconciliation must be read-only');
+    return url.endsWith(`/runs/${id}`)
+      ? response({radicado, backend_run_id:id, estado:'PARCIAL', consulta_completa:false, motivo_parcial:'PORTAL_HTTP_504'})
+      : response({radicado, actuaciones:[], consulta_completa:false});
+  }, async () => {
+    const stored = await readStoredDailyPublicaciones(radicado, 'https://pp.invalid', 'test', day, id);
+    check(calls.length === 2 && calls[1].endsWith(`/runs/${id}`), 'the old run could not be recovered');
+    check(!certifiedStoredPPHistory(stored, radicado, day), 'the old partial run certified coverage');
   });
 });

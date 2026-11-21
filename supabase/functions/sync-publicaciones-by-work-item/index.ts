@@ -1358,6 +1358,20 @@ export async function fetchPublicaciones(
   return res.historicoRead ? res : capture.read ? { ...res, historicoRead: capture.read } : res;
 }
 
+/** A closed app ticket may refer to an older window. Prefer the provider's
+ * native run for today, retaining the closed ticket as a legacy fallback. */
+export async function readStoredDailyPublicaciones(
+  radicado: string, baseUrl: string, apiKey: string, day: string | undefined, closedRunId?: string | null,
+): Promise<FetchResultV3> {
+  const stored = await fetchPublicaciones(radicado, baseUrl, apiKey, { allow: false });
+  if (stored.nativeDailyRunId || certifiedStoredPPHistory(stored, radicado, day)) return stored;
+
+  const history = stored.historicoRead?.body as { plan_diario?: { publica?: unknown } } | undefined;
+  const daily = completedDailyReference({ radicado, consulta_diaria: history?.plan_diario?.publica }, radicado);
+  const runId = daily ? String(daily.backend_run_id) : closedRunId;
+  return runId ? followAdmittedRun(radicado, baseUrl, apiKey, runId) : stored;
+}
+
 async function fetchPublicacionesInner(
   radicado: string,
   baseUrl: string,
@@ -2115,17 +2129,8 @@ Deno.serve(withSyncTimeline(async (req) => {
             }
             stored = { ok: true, found: false, publicaciones: [], latencyMs: 0, historicoRead: capture };
           } else {
-            stored = gateStatus.backendRunId
-              ? await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, gateStatus.backendRunId)
-              : await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey, { allow: false });
-          }
-          // A legacy ledger may have no UUID. Its stored feed can advertise a
-          // separate current daily certificate; follow that exact UUID only.
-          if (!ppReceiptId && !certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date)) {
-            const body = stored.historicoRead?.body as Record<string, any> | undefined;
-            const daily = completedDailyReference({ radicado: normalizedRadicado,
-              consulta_diaria: body?.plan_diario?.publica }, normalizedRadicado);
-            if (daily) stored = await followAdmittedRun(normalizedRadicado, baseUrl, apiKey, String(daily.backend_run_id));
+            stored = await readStoredDailyPublicaciones(normalizedRadicado, baseUrl, apiKey,
+              dailyAdmission.run_date, gateStatus.backendRunId);
           }
           const certificate = certifiedStoredPPHistory(stored, normalizedRadicado, dailyAdmission.run_date);
           if (!certificate && !stored.persistedPartial) {
