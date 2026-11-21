@@ -110,7 +110,6 @@ const LINK_EXPIRY_DAYS = 30;
 const HEARING_HORIZON_DAYS = 7;
 const DEADLINE_HORIZON_DAYS = 7;
 const DEFAULT_WINDOW_HOURS = 24;
-const SILENCE_HOURS = 72;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -192,19 +191,6 @@ Deno.serve(async (req) => {
   const windowTo = typeof body?.window_to === "string" ? body.window_to : new Date().toISOString();
   /** Default opening boundary: 00:00 COT of the previous calendar day. */
   const calendarFrom = bogotaDayStart(prevBogotaDate(digestDate));
-  /**
-   * ZZ2(b) — the same window said in words the reader can check: the judicial
-   * day the window opened on, up to the moment of sending.
-   */
-  const windowLabel = `${
-    new Date(`${prevBogotaDate(digestDate)}T12:00:00Z`).toLocaleDateString("es-CO", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      timeZone: "America/Bogota",
-    })
-  } hasta el envío de este correo`;
   /**
    * AH1(b) — a catch-up run for a day whose digest already went out. It claims
    * nothing (the day's slot is spent), continues from the sent digest's own
@@ -399,32 +385,6 @@ Deno.serve(async (req) => {
     for (const r of coveragePersistence) {
       if (r.gap_class === "NEVER_ANSWERED" && (r.days_since_enrolment ?? 0) < NEVER_ANSWERED_MIN_DAYS) {
         r.gap_class = "EN_VERIFICACION";
-      }
-    }
-    // AUD5(b) — where another channel carries the matter, say so on the row:
-    // a never-answered channel whose sibling channel has delivered rows is a
-    // court fact (the despacho does not feed that source), not a failure.
-    {
-      const neverIds = [...new Set(coveragePersistence
-        .filter((r) => r.gap_class === "NEVER_ANSWERED" && r.work_item_id)
-        .map((r) => r.work_item_id))];
-      if (neverIds.length) {
-        const [{ data: pubs }, { data: acts }] = await Promise.all([
-          supabase.from("work_item_publicaciones").select("work_item_id")
-            .in("work_item_id", neverIds).eq("is_archived", false).limit(5000),
-          supabase.from("work_item_acts").select("work_item_id")
-            .in("work_item_id", neverIds).eq("is_archived", false).limit(5000),
-        ]);
-        const withPubs = new Set((pubs ?? []).map((p: { work_item_id: string }) => p.work_item_id));
-        const withActs = new Set((acts ?? []).map((a: { work_item_id: string }) => a.work_item_id));
-        const ESTADO_SOURCES = new Set(["publicaciones", "samai_estados"]);
-        for (const r of coveragePersistence) {
-          if (r.gap_class !== "NEVER_ANSWERED") continue;
-          const isEstado = ESTADO_SOURCES.has(r.source);
-          if (isEstado ? withActs.has(r.work_item_id) : withPubs.has(r.work_item_id)) {
-            (r as unknown as Record<string, unknown>).other_channel_delivers = isEstado ? "actuaciones" : "estados";
-          }
-        }
       }
     }
     // AUD4 — never-delivered is a HISTORY fact (zero rows ever from the
@@ -701,15 +661,15 @@ Deno.serve(async (req) => {
         // hasta finales de octubre. Se listan aparte, sin mezclarse con la
         // agenda inmediata y sin contarse como novedad.
         const farHorizon = new Date(Date.now() + 180 * 86_400_000).toISOString();
-        const { data: rawHearingsBeyond } = await supabase
+        const { data: rawHearingsBeyond, count: hearingsBeyondTotal } = await supabase
           .from("work_item_hearings")
-          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status")
+          .select("id, work_item_id, custom_name, scheduled_at, location, modality, meeting_link, status", { count: "exact" })
           .in("work_item_id", ids)
           .gt("scheduled_at", horizon)
           .lte("scheduled_at", farHorizon)
           .not("status", "in", "(cancelled,CANCELLED)")
           .order("scheduled_at", { ascending: true })
-          .limit(50);
+          .limit(1);
 
         const toHearingRow = (h: Record<string, unknown>): HearingRow => ({
           id: h.id as string,
@@ -815,16 +775,23 @@ Deno.serve(async (req) => {
             .eq("owner_id", ownerId)
             .is("deleted_at", null)
             .eq("lifecycle_state", "PAUSED")
-            .in("lifecycle_actor", ["SYSTEM", "AI"]);
+            .in("lifecycle_actor", ["SYSTEM", "AI"])
+            .gte("lifecycle_changed_at", windowFrom)
+            .lte("lifecycle_changed_at", windowTo);
 
-          for (const w of pausedRows ?? []) {
+          const recentPauses = pausedRows ?? [];
+          const reactivated = new Map<string, number>();
+          if (recentPauses.length) {
             const { data: ledger } = await supabase
               .from("work_item_lifecycle_ledger")
-              .select("to_state, actor")
-              .eq("work_item_id", w.id)
+              .select("work_item_id")
+              .in("work_item_id", recentPauses.map((w) => w.id))
               .eq("to_state", "ACTIVE")
               .eq("actor", "USER");
-            const reactivations = (ledger ?? []).length;
+            for (const r of ledger ?? []) reactivated.set(r.work_item_id, (reactivated.get(r.work_item_id) ?? 0) + 1);
+          }
+          for (const w of recentPauses) {
+            const reactivations = reactivated.get(w.id) ?? 0;
             autoPaused.push({
               id: w.id,
               radicado: w.radicado,
@@ -1019,45 +986,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        // ── AD1(a) — CONTEXTO: LAS ACTUACIONES INMEDIATAMENTE ANTERIORES ────
-        // Cada novedad se acompaña de los 3 actos que la preceden en el mismo
-        // expediente. Es contexto de lectura, no novedad: no se cuenta, no
-        // entra al ledger, no lleva documento y no altera ninguna cifra.
-        const contextIds = [...new Set([
-          ...actuaciones.map((a) => a.work_item_id),
-          ...estados.map((e) => e.work_item_id),
-        ])];
-        if (contextIds.length) {
-          const novedadActIds = new Set(actuaciones.map((a) => a.id));
-          const { data: histRows } = await supabase
-            .from("work_item_acts")
-            .select("id, work_item_id, act_date, description, act_type, event_summary")
-            .in("work_item_id", contextIds)
-            .eq("is_archived", false)
-            .order("act_date", { ascending: false })
-            .limit(2000);
-          const byItem = new Map<string, Record<string, unknown>[]>();
-          for (const r of histRows ?? []) {
-            const list = byItem.get(r.work_item_id as string) ?? [];
-            list.push(r as Record<string, unknown>);
-            byItem.set(r.work_item_id as string, list);
-          }
-          const priorTo = (wid: string, cutoff: string | null, excludeId?: string) =>
-            (byItem.get(wid) ?? [])
-              .filter((r) => r.id !== excludeId && !novedadActIds.has(r.id as string))
-              .filter((r) => !cutoff || String(r.act_date ?? "") < String(cutoff).slice(0, 10))
-              .slice(0, 3)
-              .map((r) => ({
-                act_date: (r.act_date as string | null) ?? null,
-                description: (r.description as string | null) ?? (r.act_type as string | null) ?? null,
-                annotation: (r.event_summary as string | null) ?? null,
-              }));
-          for (const a of actuaciones) a.precedingActs = priorTo(a.work_item_id, a.act_date, a.id);
-          for (const e of estados) {
-            e.precedingActs = priorTo(e.work_item_id, e.fecha_actuacion ?? e.fecha_fijacion);
-          }
-        }
-
         // ── ZZ2(d) — SUSCRITOS Y NUNCA CONSULTADOS ───────────────────────────
         // No successful read has ever happened AND nothing was ever stored.
         // This is the signal GCP's mail carries today; it must survive here.
@@ -1210,10 +1138,14 @@ Deno.serve(async (req) => {
         // source that never delivered authoritative detail is NOT an empty day:
         // staying silent would let the lawyer read our silence as judicial
         // silence. That is precisely the misrepresentation of 2026-07-27.
+        const ppDateRadicados = judicialItems.filter((i: any) => i.workflow_type === "CPACA").map((i: any) => i.radicado);
+        const fpp: FechasPorPerderResult = ppDateRadicados.length
+          ? scopeFechasPorPerder(await loadFechasPorPerder(), ppDateRadicados)
+          : { status: "ok", rows: [] };
         const hasContent = digestHasContent({
           rowCount: actuaciones.length + estados.length + hearings.length + allDeadlines.length +
             connectionIssues.length + importedHistory.length + reconciliations.length +
-            neverRead.length,
+            neverRead.length + autoPaused.length + fpp.rows.length,
           manualReviewCount: (rawManual ?? []).length,
           coverageIncomplete,
         });
@@ -1235,65 +1167,12 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // ── LL1(b): per-provider act/estado tallies for the matters that show
-        // novedades. Computed from Supabase's own rows (live, non-archived);
-        // this is the authoritative figure for the recipient.
-        const novedadIds = [...new Set([
-          ...actuaciones.map((a) => a.work_item_id),
-          ...estados.map((e) => e.work_item_id),
-        ])];
-        const providerCounts = new Map<string, { acts: Record<string, number>; estados: Record<string, number> }>();
-        if (novedadIds.length) {
-          const [{ data: actSrc }, { data: pubSrc }] = await Promise.all([
-            supabase.from("work_item_acts").select("work_item_id, source")
-              .in("work_item_id", novedadIds).eq("is_archived", false).limit(5000),
-            supabase.from("work_item_publicaciones").select("work_item_id, source")
-              .in("work_item_id", novedadIds).eq("is_archived", false).limit(5000),
-          ]);
-          const bump = (id: string, kind: "acts" | "estados", src: string | null) => {
-            const entry = providerCounts.get(id) ?? { acts: {}, estados: {} };
-            const key = src ?? "sin fuente";
-            entry[kind][key] = (entry[kind][key] ?? 0) + 1;
-            providerCounts.set(id, entry);
-          };
-          for (const r of actSrc ?? []) bump(r.work_item_id, "acts", r.source);
-          for (const r of pubSrc ?? []) bump(r.work_item_id, "estados", r.source);
-        }
-        for (const [id, counts] of providerCounts) {
-          const wi = wiMap.get(id);
-          if (wi) wiMap.set(id, { ...wi, providerCounts: counts });
-        }
-
-        // ── YY2 — how this court behaves, in one sentence. Derived by the DB
-        // from observed reads only; NULL while the evidence is insufficient,
-        // and in that case nothing is said at all.
-        const behaviourByCode = new Map<string, string | null>();
-        for (const id of novedadIds) {
-          const wi = wiMap.get(id);
-          const code = (wi?.radicado ?? "").replace(/\D/g, "").slice(0, 12);
-          if (!code || code.length < 12) continue;
-          if (!behaviourByCode.has(code)) {
-            const { data: stmt } = await supabase.rpc("despacho_behavior_statement", {
-              p_radicado: wi?.radicado ?? "",
-            });
-            behaviourByCode.set(code, typeof stmt === "string" && stmt.length ? stmt : null);
-          }
-          const sentence = behaviourByCode.get(code) ?? null;
-          if (wi && sentence) wiMap.set(id, { ...wiMap.get(id)!, courtBehavior: sentence });
-        }
-
-        const silentCount = judicialItems.filter((i) =>
-          !i.last_successful_sync_at ||
-          Date.now() - new Date(i.last_successful_sync_at).getTime() > SILENCE_HOURS * 3600_000
-        ).length;
-
-        const fpp = scopeFechasPorPerder(await loadFechasPorPerder(),
-          judicialItems.filter((i: any) => i.workflow_type === "CPACA").map((i: any) => i.radicado));
         // Calendar export: one opaque link per dated PENDING term / dated live hearing.
         const calendarLinks = new Map<string, CalendarLinks>();
         const calTokens: Record<string, unknown>[] = [];
         const calExpires = new Date(Date.now() + LINK_EXPIRY_DAYS * 86_400_000).toISOString();
         for (const d of deadlines) {
+          if (d.attribution !== "PROPIO" || d.overdue) continue;
           const wi = wiMap.get(d.work_item_id);
           const ev = termEvent({ ...d, radicado: wi?.radicado ?? null, despacho: wi?.authority_name ?? null }, APP_BASE_URL);
           if (!ev) continue;
@@ -1314,25 +1193,14 @@ Deno.serve(async (req) => {
         const html = buildDigestHtml({
           calendarLinks,
           fechasPorPerder: fpp.rows,
-          fechasPorPerderUnavailable: fpp.status === "unavailable" &&
-            judicialItems.some((i: any) => i.workflow_type === "CPACA"),
-          recipientName: profile?.full_name ?? null,
+          fechasPorPerderUnavailable: fpp.status === "unavailable",
           windowFrom, windowTo,
-          windowLabel,
           coverageWindowFrom: sourceWindowFrom, coverageWindowTo: nowIso,
           neverRead,
           monitoredCount: judicialItems.length,
-          nonJudicialCount: nonJudicialItems.length,
-          silentCount,
           actuaciones, estados, hearings, deadlines,
           hearingsBeyond,
-          stats: {
-            procesosConNovedad: novedadIds.length,
-            publicaciones: estados.filter((e) => (e.source ?? "").toLowerCase().includes("publicaciones")).length,
-            cpnu: actuaciones.filter((a) => (a.source ?? "").toLowerCase().includes("cpnu")).length,
-            samai: [...actuaciones, ...estados].filter((r) => (r.source ?? "").toLowerCase().includes("samai")).length,
-            erroresFuente: sourceQuality.reduce((n, s) => n + s.error_count, 0),
-          },
+          hearingsBeyondTotal: hearingsBeyondTotal ?? hearingsBeyond.length,
           importedHistory,
           reconciliations,
 

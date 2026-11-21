@@ -184,8 +184,8 @@ describe("TT6.1 — the digest cannot print an unqualified zero", () => {
     // An absent persistence record cannot prove the coverage is unchanged.
     expect(html).toMatch(/Cobertura por verificar/);
     expect(html).not.toMatch(/La cobertura no cambió/);
-    const q = html.indexOf("${sourceQualityBlock(");
-    const n = html.indexOf("${novedadesBlock(");
+    const q = html.indexOf("${coverage(p)}");
+    const n = html.indexOf('section("Novedades por expediente", caseUpdates(p))');
     expect(q).toBeGreaterThan(-1);
     expect(q).toBeLessThan(n);
   });
@@ -203,25 +203,26 @@ describe("LW — chain denominator and named gaps", () => {
   const index = read("supabase/functions/scheduled-daily-digest/index.ts");
   const html = read("supabase/functions/scheduled-daily-digest/html.ts");
 
-  it("measures coverage with answered_count over the chain denominator", () => {
-    expect(html).toMatch(/const den = r\.expected_count \|\| 0;/);
-    expect(html).toMatch(/r\.answered_count \?\? r\.usable_confirmed_count/);
+  it("reports confirmed reads and unanswered cases against the source chain", () => {
+    expect(html).toMatch(/sourceGaps\(s\)/);
+    expect(html).toMatch(/gaps\.usable.*gaps\.expected.*lecturas confirmadas/);
+    expect(html).toMatch(/gaps\.sinRespuesta/);
   });
 
   it("never lets a routing skip appear as a missing read", () => {
-    // The skip is disclosed as out-of-chain, never counted as pending.
-    expect(html).toMatch(/fuera de su cadena: no se le consultan y no cuentan/);
-    expect(html).not.toMatch(/routing_skipped_count.*sin confirmar/);
+    expect(html).not.toMatch(/routing_skipped_count/);
   });
 
-  it("names the failed and restricted matters instead of counting them", () => {
-    expect(html).toMatch(/matterList\(r\.source, "RESTRICTED"/);
-    expect(html).toMatch(/matterList\(r\.source, "READ_FAILED"/);
+  it("names a bounded selection of recent gaps with links to the matters", () => {
+    expect(html).toMatch(/detailed\.slice\(0, 3\)/);
+    expect(html).toMatch(/RESTRICTED: "Acceso restringido"/);
+    expect(html).toMatch(/READ_FAILED: "Error de lectura"/);
+    expect(html).toMatch(/workItem\(p,r\.work_item_id\)/);
     expect(index).toMatch(/source_coverage_exceptions/);
   });
 
-  it("says complete when the whole chain answered", () => {
-    expect(html).toMatch(/Todos los asuntos tienen una respuesta registrada en la ventana/);
+  it("uses confirmed source evidence to suppress the warning", () => {
+    expect(html).toMatch(/!p\.coverageIncomplete && !digestCoverageIncomplete\(p\.sourceQuality\)/);
   });
 });
 
@@ -241,10 +242,10 @@ describe("LX — consecutive-day persistence of a source gap", () => {
 
   });
 
-  it("gives the standing population its own dated section", () => {
-    expect(html).toMatch(/Fuentes que llevan días sin entregar/);
-    expect(html).toMatch(/Días consecutivos/);
-    expect(html).toMatch(/\$\{persistenceBlock\(p\)\}/);
+  it("retains age and movement in the compact follow-up section", () => {
+    expect(html).toMatch(/Incidencias por expediente y fuente/);
+    expect(html).toMatch(/días con la incidencia/);
+    expect(html).toMatch(/return section\("Seguimiento"/);
   });
 
   it("distinguishes what joined, what recovered and what is chronic", () => {
@@ -270,14 +271,13 @@ describe("LY — never answered vs stopped answering", () => {
   });
 
   it("names both classes in Spanish and shows the last row for the second", () => {
-    expect(html).toMatch(/NUNCA HA RESPONDIDO/);
-    expect(html).toMatch(/DEJÓ DE RESPONDER/);
-    expect(html).toMatch(/Última publicación recibida/);
+    expect(html).toMatch(/Sin respuesta desde la inscripción/);
+    expect(html).toMatch(/Último registro/);
   });
 
   it("states the second-instance shape without asserting a cause", () => {
     expect(html).toMatch(/Segunda instancia/);
-    expect(html).toMatch(/no afirmamos por qué la fuente no entrega/);
+    expect(html).toMatch(/gap\?\.instancia === "SEGUNDA" \? "Segunda instancia" : ""/);
   });
 });
 

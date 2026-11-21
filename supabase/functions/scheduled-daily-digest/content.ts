@@ -27,14 +27,8 @@ export function digestSubject(p: {
   coverageIncomplete: boolean;
 }): string {
   const novedades = p.estados + p.actuaciones;
-  const warning = p.coverageIncomplete ? " · cobertura por verificar" : "";
-  if (p.critical) {
-    return `Andromeda — ⚠ Conexión de correo caída · ${novedades} novedad${novedades === 1 ? "" : "es"}${warning}`;
-  }
-  if (novedades > 0) {
-    return `Andromeda — ${novedades} novedad${novedades === 1 ? "" : "es"} (${p.estados} estados · ${p.actuaciones} actuaciones)${warning}`;
-  }
-  return p.coverageIncomplete
-    ? "Andromeda — Resumen diario · cobertura por verificar"
-    : "Andromeda — Resumen diario: audiencias y términos";
+  const parts = ["Andromeda", p.critical ? "Conexión de correo caída" : "",
+    novedades ? `${novedades} novedad${novedades === 1 ? "" : "es"}` : "Resumen diario",
+    p.coverageIncomplete ? "cobertura por verificar" : ""];
+  return parts.filter(Boolean).join(" · ");
 }

@@ -34,7 +34,7 @@ describe("daily digest coverage evidence", () => {
   it("warns when a source is partial and there are no persistence rows", () => {
     const html = buildDigestHtml(payload());
     expect(html).toContain("Cobertura por verificar");
-    expect(html).toContain("no descartan otras pendientes");
+    expect(html).toContain("Aún pueden existir novedades pendientes");
     expect(html).not.toMatch(/La cobertura no cambió|siguen los mismos 0 asunto/);
     expect(digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: true })).toBe(true);
     expect(digestSubject({ critical: false, estados: 0, actuaciones: 0, coverageIncomplete: true }))
@@ -47,7 +47,7 @@ describe("daily digest coverage evidence", () => {
     expect(digestCoverageIncomplete([failed])).toBe(true);
     const html = buildDigestHtml(payload({ sourceQuality: [failed], coverageIncomplete: false }));
     expect(html).toContain("Cobertura por verificar");
-    expect(html).not.toContain("Las comprobaciones de cobertura no reportan brechas");
+    expect(html).toContain("Verificación no disponible");
   });
 
   it("treats absent quality data as unknown even if the incoming flag is false", () => {
@@ -61,24 +61,21 @@ describe("daily digest coverage evidence", () => {
     expect(digestCoverageIncomplete([{ ...restricted, usable_confirmed_count: Number.NaN }])).toBe(true);
   });
 
-  it("permits the qualified healthy message when evidence is complete", () => {
+  it("omits the coverage warning only when evidence is complete", () => {
     const complete = { ...source, answered_count: 53, usable_confirmed_count: 53, authoritative: true,
       pending_upstream_count: 0, state: "SOURCE_HEALTHY_COMPLETE" };
     expect(digestCoverageIncomplete([complete])).toBe(false);
     const html = buildDigestHtml(payload({ sourceQuality: [complete], coverageIncomplete: false }));
-    expect(html).toContain("Las comprobaciones de cobertura no reportan brechas en esta ventana");
-    expect(html).toContain("Todos los asuntos tienen una respuesta registrada en la ventana");
-    expect(html).toContain("el mejor resultado registrado");
-    expect(html).toContain("La cronología del expediente muestra el último intento");
+    expect(html).toContain("0 novedades registradas");
     expect(html).not.toContain("Cobertura por verificar");
   });
 
   it("retains the warning in the subject when news or a critical connection issue exists", () => {
     expect(digestSubject({ critical: false, estados: 1, actuaciones: 0, coverageIncomplete: true }))
-      .toContain("1 novedad (1 estados · 0 actuaciones) · cobertura por verificar");
+      .toContain("1 novedad · cobertura por verificar");
     expect(digestSubject({ critical: true, estados: 0, actuaciones: 0, coverageIncomplete: true }))
-      .toContain("Conexión de correo caída · 0 novedades · cobertura por verificar");
+      .toContain("Conexión de correo caída · Resumen diario · cobertura por verificar");
     expect(digestSubject({ critical: false, estados: 0, actuaciones: 0, coverageIncomplete: false }))
-      .toBe("Andromeda — Resumen diario: audiencias y términos");
+      .toBe("Andromeda · Resumen diario");
   });
 });

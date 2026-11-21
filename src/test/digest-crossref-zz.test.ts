@@ -21,28 +21,28 @@ describe("ZZ1 — cross-reference, never a merge", () => {
     expect(index).toMatch(/from\("v_providencia_cross_ref"\)/);
   });
 
-  it("keeps actuaciones and estados in separate tables (HH2 intact)", () => {
-    expect(html).toMatch(/function actuacionesTable\(/);
-    expect(html).toMatch(/function estadosTable\(/);
+  it("keeps actuaciones and estados as separate rows within each case", () => {
+    expect(html).toMatch(/group\.actuaciones\.map\(/);
+    expect(html).toMatch(/group\.estados\.map\(/);
     expect(index).not.toMatch(/const merged\s*=/);
   });
 
   it("annotates both sides with the counterpart and its confidence", () => {
     expect(types).toMatch(/interface ProvidenciaCrossRef/);
-    expect(html).toMatch(/crossRefNote\(r\.crossRef, "ACT"\)/);
-    expect(html).toMatch(/crossRefNote\(r\.crossRef, "EST"\)/);
-    expect(html).toMatch(/Misma providencia, publicada en estado el/);
-    expect(html).toMatch(/Misma providencia, registrada como actuación el/);
+    expect(html).toMatch(/crossReference\(act\.crossRef, "estado"\)/);
+    expect(html).toMatch(/crossReference\(state\.crossRef, "actuación"\)/);
+    expect(html).toMatch(/Providencia vinculada a/);
   });
 
   it("shows both dates and never substitutes one for the other", () => {
-    expect(html).toMatch(/fmtDate\(ref\.fecha_fijacion\)/);
-    expect(html).toMatch(/fmtDate\(ref\.act_date\)/);
+    expect(html).toMatch(/kind === "estado" \? ref\.fecha_fijacion : ref\.act_date/);
+    expect(html).toMatch(/civil\(state\.fecha_fijacion\)/);
+    expect(html).toMatch(/civil\(act\.act_date\)/);
   });
 
   it("borrows the estado's PDF only when the act carries none, and says so", () => {
     expect(index).toMatch(/act\.documents\.length === 0/);
-    expect(html).toMatch(/El PDF que se enlaza aquí es el del estado/);
+    expect(html).toMatch(/documents_borrowed \? "la publicación en estado"/);
   });
 
   it("does not rewrite the act's own document availability", () => {
@@ -51,7 +51,7 @@ describe("ZZ1 — cross-reference, never a merge", () => {
 });
 
 describe("ZZ2 — the window is a calendar day in Bogotá", () => {
-  it("closes the window at 00:00 COT of the digest date", () => {
+  it("opens on the Bogotá calendar fallback and closes at composition", () => {
     expect(index).toMatch(/bogotaDayStart = \(d: string\) => `\$\{d\}T05:00:00\.000Z`/);
     expect(index).toMatch(/const windowTo =/);
     expect(index).toMatch(/\.lte\("detected_at", windowTo\)/);
@@ -62,8 +62,7 @@ describe("ZZ2 — the window is a calendar day in Bogotá", () => {
   });
 
   it("states the window in words the reader can check", () => {
-    expect(index).toMatch(/windowLabel/);
-    expect(html).toMatch(/del día \$\{esc\(p\.windowLabel\)\}/);
+    expect(html).toMatch(/moment\(p\.windowFrom\).*moment\(p\.windowTo\).*Hora de Bogotá/);
   });
 
   it("classifies unread-looking matters by known evidence", () => {
@@ -71,10 +70,9 @@ describe("ZZ2 — the window is a calendar day in Bogotá", () => {
     expect(index).toMatch(/const neverRead: NeverReadRow\[\] = \[\]/);
     expect(index).toMatch(/manual_court_findings/);
     expect(index).toMatch(/PROVIDER_EMPTY_RESULT/);
-    expect(html).toMatch(/Verificación manual/);
-    expect(html).toMatch(/Lectura correcta, sin actuaciones/);
-    expect(html).toMatch(/Problema de lectura de Andromeda/);
-    expect(html).toMatch(/es un problema nuestro, no del juzgado/);
+    expect(html).toMatch(/classification === "MANUAL_PRIVATE"/);
+    expect(html).toMatch(/classification === "READ_FAILURE"/);
+    expect(html).toMatch(/acceso restringido verificado manualmente/);
   });
 
   it("treats a never-read matter as content on a day with no novedades", () => {
@@ -86,7 +84,7 @@ describe("ZZ2 — the window is a calendar day in Bogotá", () => {
 
 describe("ZZ3 — the two numbers must be reconcilable", () => {
   it("discloses that coverage and novedades use different windows", () => {
-    expect(html).toMatch(/Son ventanas distintas/);
+    expect(html).toMatch(/Control de fuentes/);
     expect(html).toMatch(/coverageWindowFrom/);
   });
 
@@ -101,10 +99,8 @@ describe("ZZ3 — the two numbers must be reconcilable", () => {
  */
 describe("AB1 — rendered confidence", () => {
   it("renders MEDIA with an explicit caveat, never as a confirmed match", () => {
-    expect(html).toMatch(/Vínculo no confirmado/);
-    expect(html).toMatch(/verifíquelo antes de confiar/);
-    expect(html).toMatch(/Posible correspondencia/);
-    expect(html).toMatch(/WARN_ACCENT/);
+    expect(html).toMatch(/ref\.confidence !== "ALTA"/);
+    expect(html).toMatch(/Vínculo con .* por confirmar/);
   });
 
   it("borrows the estado's PDF only on ALTA links", () => {
@@ -112,13 +108,13 @@ describe("AB1 — rendered confidence", () => {
     expect(index).toMatch(/if \(x\.confidence === "ALTA" && act\.documents\.length === 0\)/);
   });
 
-  it("states on a MEDIA link that no document is borrowed", () => {
-    expect(html).toMatch(/No se enlaza aquí el documento de la otra fuente/);
+  it("identifies a borrowed document only when it has actually been linked", () => {
+    expect(html).toMatch(/documents_borrowed \? "la publicación en estado" : null/);
   });
 });
 
 describe("AB3 — the never-read list is per matter, not per channel", () => {
   it("says so instead of dropping the distinction", () => {
-    expect(html).toMatch(/nunca leído por CPNU; sí por estados/);
+    expect(html).toMatch(/expedientes con estados y sin lectura confirmada de CPNU/);
   });
 });

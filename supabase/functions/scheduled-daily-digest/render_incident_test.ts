@@ -41,15 +41,14 @@ Deno.test("CPNU 44/43/40 → 1 sin respuesta, 4 sin lectura confirmada", () => {
   assertStringIncludes(s, "4 sin lectura confirmada");
 });
 
-Deno.test("final HTML: four reviews visible, dateless, no forbidden phrases", async () => {
+Deno.test("final HTML: four reviews visible, dateless, no forbidden phrases", () => {
   const html = buildDigestHtml(payload);
-  await Deno.writeTextFile("/tmp/digest_incident_fixture.html", html);
-  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (4)");
+  assertStringIncludes(html, "Términos en revisión (4)");
   for (const [, , rad, label] of holds) {
     assertStringIncludes(html, rad);
     assertStringIncludes(html, label.replace(/;/g, ";"));
   }
-  assertStringIncludes(html, "1 asunto(s) sin respuesta");
+  assertStringIncludes(html, "1 sin respuesta");
   assertStringIncludes(html, "4 sin lectura confirmada");
   const lower = html.toLowerCase();
   for (const bad of ["despacho no alimenta", "sentencia programada", "13/10", "29/09/2026 vence", "05/10"]) {
@@ -64,12 +63,12 @@ Deno.test("solo 4 revisiones + sin novedades + fuentes sanas → contenido y HTM
   assert(digestHasContent({ rowCount: 0, manualReviewCount: p.manualReviewTerms.length, coverageIncomplete: false }));
   assert(!digestHasContent({ rowCount: 0, manualReviewCount: 0, coverageIncomplete: false }));
   const html = buildDigestHtml(p);
-  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (4)");
+  assertStringIncludes(html, "Términos en revisión (4)");
   for (const [, , rad] of holds) assertStringIncludes(html, rad);
 });
 
 Deno.test("revisiones truncadas declaran total y exceso", () => {
   const html = buildDigestHtml({ ...payload, manualReviewTotal: 57, manualReviewChangedTotal: 9 });
-  assertStringIncludes(html, "TÉRMINOS EN REVISIÓN MANUAL (57)");
-  assertStringIncludes(html, "Nuevas o modificadas en este periodo: 9 (se muestran 4; 5 más");
+  assertStringIncludes(html, "Términos en revisión (57)");
+  assertStringIncludes(html, "5 cambios más");
 });

@@ -1,8 +1,5 @@
 /**
- * Iteration LL — enrichment of the novedad rows and schedule invariants.
- *
- * LL1 the digest must carry despacho, partes, clase de proceso and per-provider
- *     tallies, without collapsing actuación and estado into one taxonomy.
+ * A compact digest keeps the process link and preserves both evidence classes.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -23,27 +20,28 @@ describe("LL1(a) — per-matter context on every novedad row", () => {
     expect(types).toMatch(/clase_proceso: string \| null/);
   });
 
-  it("renders despacho, partes and clase de proceso in the matter header", () => {
-    expect(html).toMatch(/authority_name \|\| "Despacho no registrado"/);
-    expect(html).toMatch(/\$\{partes\(wi\)\}/);
-    expect(html).toMatch(/Clase de proceso:/);
+  it("links directly to the process with a case label and radicado", () => {
+    expect(html).toContain('workItem(p, id, true)');
+    expect(html).toContain('item.radicado');
+    expect(html).toContain('/app/work-items/');
   });
 });
 
-describe("LL1(b) — per-provider tallies computed from Supabase rows", () => {
-  it("counts acts and publicaciones separately, excluding archived rows", () => {
-    expect(index).toMatch(/providerCounts/);
-    expect(index).toMatch(/from\("work_item_acts"\)[\s\S]{0,200}is_archived", false/);
-    expect(index).toMatch(/from\("work_item_publicaciones"\)[\s\S]{0,200}is_archived", false/);
+describe("LL1(b) — source evidence without full historical scans", () => {
+  it("selects new acts and publicaciones separately, excluding archived rows", () => {
+    expect(index).not.toMatch(/providerCounts/);
+    expect(index).toMatch(/from\("work_item_acts"\)[\s\S]{0,500}is_archived", false/);
+    expect(index).toMatch(/from\("work_item_publicaciones"\)[\s\S]{0,500}is_archived", false/);
   });
 
   it("labels each bucket with its own provider vocabulary (HH2 intact)", () => {
-    expect(html).toMatch(/actuacionSourceLabel\(s\)/);
-    expect(html).toMatch(/estadoSourceLabel\(s\)/);
+    expect(html).toMatch(/actuacionSourceLabel\(act\.source\)/);
+    expect(html).toMatch(/estadoSourceLabel\(state\.source\)/);
   });
 
-  it("states the tallies are historical totals, not the window", () => {
-    expect(html).toMatch(/Totales históricos registrados en Andromeda/);
+  it("summarizes newly imported history separately from novedades", () => {
+    expect(html).toMatch(/Historial incorporado/);
+    expect(html).not.toMatch(/Totales históricos registrados en Andromeda/);
   });
 });
 

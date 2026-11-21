@@ -98,7 +98,7 @@ describe("JC2 — a refusal is an answer", () => {
   });
 
   it("never renders a failed read as 'sin movimiento'", () => {
-    expect(digest).toMatch(/\$\{r\.success_empty_count\} leídos sin movimiento/);
-    expect(digest).toMatch(/sin lectura \(falla, no significa "sin novedades"\)/);
+    expect(digest).toMatch(/\$\{s\.success_empty_count\} sin novedades en lecturas confirmadas/);
+    expect(digest).toMatch(/La vigilancia quedó incompleta/);
   });
 });

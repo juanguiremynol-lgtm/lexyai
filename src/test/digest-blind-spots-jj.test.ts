@@ -27,8 +27,8 @@ describe("JJ1 — mailbox connection is a headline condition", () => {
 
 
   it("renders the connection block before novedades", () => {
-    const conn = digestHtml.indexOf("${connectionBlock(");
-    const nov = digestHtml.indexOf("${novedadesBlock(");
+    const conn = digestHtml.indexOf('section("Alertas", operationalAlerts(p))');
+    const nov = digestHtml.indexOf('section("Novedades por expediente", caseUpdates(p))');
     expect(conn).toBeGreaterThan(-1);
     expect(conn).toBeLessThan(nov);
   });
@@ -36,7 +36,7 @@ describe("JJ1 — mailbox connection is a headline condition", () => {
   it("marks a broken connection in the subject line", () => {
     expect(digestIndex).toMatch(/critical = connectionIssues\.some\(\(c\) => c\.severity === "CRITICAL"\)/);
     expect(digestSubject({ critical: true, estados: 0, actuaciones: 0, coverageIncomplete: true }))
-      .toMatch(/Conexión de correo caída.*0 novedades.*cobertura por verificar/);
+      .toMatch(/Conexión de correo caída.*cobertura por verificar/);
   });
 });
 
@@ -68,9 +68,9 @@ describe("JJ3 — non-judicial workflows", () => {
     expect(digestIndex).toMatch(/from\("work_item_publicaciones"\)[\s\S]{0,400}judicialIds/);
   });
 
-  it("gives them their own section and their own count", () => {
-    expect(digestHtml).toMatch(/Peticiones y actuaciones administrativas/);
-    expect(digestHtml).toMatch(/Las dos cifras no se suman/);
+  it("keeps administrative terms apart from judicial novedades", () => {
+    expect(digestHtml).toMatch(/section\("Asuntos administrativos"/);
+    expect(digestHtml).toMatch(/p\.nonJudicialDeadlines\.map/);
   });
 
   it("keeps the provider routing table ineligible for both", () => {

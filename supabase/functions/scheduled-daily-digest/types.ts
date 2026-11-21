@@ -260,19 +260,6 @@ export interface ImportedHistoryRow {
   to_year: number | null;
 }
 
-/**
- * AD1(b) — the five-number strip. Speed, not truth: it sits ABOVE the source
- * table and never replaces it. Every figure here is a count of what we
- * ingested; the table below states what those counts are worth.
- */
-export interface StatStrip {
-  procesosConNovedad: number;
-  publicaciones: number;
-  cpnu: number;
-  samai: number;
-  erroresFuente: number;
-}
-
 export interface FechaPorPerderRow {
   despacho: string;
   fecha: string | null;
@@ -285,21 +272,16 @@ export interface DigestPayload {
   fechasPorPerder?: FechaPorPerderRow[];
   /** True when the alert route failed: say so, never render it as "nothing at risk". */
   fechasPorPerderUnavailable?: boolean;
-  recipientName: string | null;
   windowFrom: string;
   windowTo: string;
   /** Judicial matters under provider monitoring. */
   monitoredCount: number;
-  /** JJ3(d) — counted separately, NEVER merged with the judicial figure. */
-  nonJudicialCount: number;
-  silentCount: number;
   actuaciones: ActuacionRow[];
   estados: EstadoRow[];
   hearings: HearingRow[];
-  /** AD1(d) — hearings beyond the 7-day horizon, listed compactly. */
+  /** Nearest hearing outside this week's agenda. */
   hearingsBeyond: HearingRow[];
-  /** AD1(b) — five-number strip rendered above the source table. */
-  stats: StatStrip;
+  hearingsBeyondTotal?: number;
   deadlines: DeadlineRow[];
   /** JJ3(b) — deadlines of non-judicial matters, in their own section. */
   nonJudicialDeadlines: DeadlineRow[];
@@ -326,8 +308,7 @@ export interface DigestPayload {
   coverageIncomplete: boolean;
   /** LW3/LW4 — the named matters behind each source's gap. */
   coverageExceptions: CoverageExceptionRow[];
-  /** LX — the same matters with their consecutive-day age and today's movement. */
-  coveragePersistence: CoveragePersistenceRow[];
+  coveragePersistence?: CoveragePersistenceRow[];
   /**
    * ZZ3 — the window the SOURCE table was computed over. It is not always the
    * novedades window (the latter continues from the previous digest), and the
@@ -335,8 +316,6 @@ export interface DigestPayload {
    */
   coverageWindowFrom: string;
   coverageWindowTo: string;
-  /** ZZ2(b) — the window in judicial-day language, e.g. "jueves 28 de agosto". */
-  windowLabel: string;
   /** ZZ2(d) — subscribed matters the provider has never answered for. */
   neverRead: NeverReadRow[];
   workItems: Map<string, WorkItemInfo>;

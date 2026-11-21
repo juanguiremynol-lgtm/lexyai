@@ -25,23 +25,15 @@ describe("YY1 — profiles wired into grading", () => {
   });
 
   it("prints the exclusion in the mail instead of shrinking the portfolio silently", () => {
-    expect(digestHtml).toMatch(/function profileNote/);
-    expect(digestHtml).toMatch(/excluidos del denominador/);
-    expect(digestHtml).toMatch(/\$\{profileNote\(rows\)\}/);
+    expect(digestHtml).toMatch(/s\.excluded_by_profile/);
+    expect(digestHtml).toMatch(/fuera del alcance de esta fuente/);
   });
 });
 
-describe("YY2 — the observed-behaviour sentence", () => {
-  it("is carried on the work item and rendered as an observation", () => {
-    expect(digestTypes).toMatch(/courtBehavior\?: string \| null/);
-    expect(digestIndex).toMatch(/despacho_behavior_statement/);
-    expect(digestHtml).toMatch(/Comportamiento observado del despacho/);
-  });
-
-  it("renders nothing when the database returns no statement", () => {
-    // The sentence is opt-in on a non-null value; there is no fallback text.
-    expect(digestHtml).toMatch(/wi\?\.courtBehavior\s*\n?\s*\?/);
-    expect(digestHtml).toMatch(/:\s*"";/);
+describe("YY2 — the compact report links out to case details", () => {
+  it("does not require a sequential behaviour query before delivery", () => {
+    expect(digestIndex).not.toMatch(/despacho_behavior_statement/);
+    expect(digestHtml).toMatch(/\/app\/work-items\//);
   });
 });
 
