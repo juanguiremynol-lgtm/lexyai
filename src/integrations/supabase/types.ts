@@ -6101,6 +6101,30 @@ export type Database = {
           },
         ]
       }
+      daily_digest_interrupted_runs: {
+        Row: {
+          archived_at: string
+          digest_date: string
+          original_id: string
+          original_run: Json
+          recipient_user_id: string
+        }
+        Insert: {
+          archived_at?: string
+          digest_date: string
+          original_id: string
+          original_run: Json
+          recipient_user_id: string
+        }
+        Update: {
+          archived_at?: string
+          digest_date?: string
+          original_id?: string
+          original_run?: Json
+          recipient_user_id?: string
+        }
+        Relationships: []
+      }
       daily_digest_runs: {
         Row: {
           actuaciones_count: number
@@ -28323,9 +28347,17 @@ export type Database = {
           schedule: string
         }[]
       }
+      daily_digest_has_outbox_20261121: {
+        Args: { _day: string; _recipient: string }
+        Returns: boolean
+      }
       daily_sync_chain_evidence_20261108: {
         Args: { _chain_id: string; _organization: string }
         Returns: Json
+      }
+      daily_sync_continuation_lost_on_restart: {
+        Args: { _queued_at: string; _receipt: Json }
+        Returns: boolean
       }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
@@ -28500,6 +28532,10 @@ export type Database = {
       }
       dismiss_orphaned_evidence_deadlines: { Args: never; Returns: Json }
       dismiss_superseded_stage_suggestions: { Args: never; Returns: number }
+      dispatch_daily_digest_recovery_20261121: {
+        Args: { _dry_run: boolean; _recipient?: string }
+        Returns: Json
+      }
       dispatch_missing_daily_digests_20261107: {
         Args: { _dry_run?: boolean; _owner?: string }
         Returns: Json
@@ -28559,6 +28595,10 @@ export type Database = {
       }
       enqueue_guarded_missing_acts_20261108: {
         Args: { _dry_run?: boolean; _limit?: number }
+        Returns: Json
+      }
+      enqueue_stale_started_acts_20261121: {
+        Args: { _dry_run?: boolean }
         Returns: Json
       }
       estados_coverage_reconciliation: { Args: never; Returns: Json }
@@ -29443,6 +29483,10 @@ export type Database = {
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
+      }
+      recover_daily_sync_after_restart_20261121: {
+        Args: { _dry_run?: boolean }
+        Returns: Json
       }
       refresh_cron_health_snapshot: { Args: never; Returns: number }
       refresh_despacho_profiles: { Args: never; Returns: number }
