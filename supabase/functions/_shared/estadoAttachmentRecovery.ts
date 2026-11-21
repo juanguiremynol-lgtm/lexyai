@@ -56,6 +56,24 @@ export function publicPpDocumentCorrespondence(pub: EstadoPublication, url: stri
   for (let depth = 0; depth < 4 && layer && typeof layer === 'object'; depth++, layer = layer.raw_data) {
     const article = String(layer.estado?.article_id || layer.article_id || '');
     if (!/^\d+$/.test(article) || !Array.isArray(layer.documentos_pdf)) continue;
+    const attribution = layer.documento_atribucion;
+    if (layer.fuente === 'traslado' && attribution?.radicado === pub.source_radicado
+        && attribution.traslado?.article_id === article && Array.isArray(attribution.originales)) {
+      const descriptor = layer.documentos_pdf.find((d: any) =>
+        d?.pdf_url === url && ['traslado', 'escrito'].includes(d?.tipo) && /^[a-f0-9]{64}$/.test(d?.hash_documento));
+      const original = descriptor && attribution.originales.find((d: any) =>
+        d?.url_original === sourceGcs && d?.tipo === descriptor.tipo && d?.lectura_comprobada === true
+        && d?.sha256_original === descriptor.hash_documento);
+      if (original && path === `${pub.source_radicado}/raw/traslados/${article}/${descriptor.hash_documento}.pdf`
+          && Array.isArray(original.paginas_caso) && original.paginas_caso.length > 0
+          && original.paginas_caso.every((page: unknown) => Number.isSafeInteger(page) && Number(page) > 0 && Number(page) <= 1000)) {
+        return { method:'public_source_document_path', case_radicado:pub.source_radicado!, article_id:article,
+          document_kind:descriptor.tipo, source_gcs_url:sourceGcs, source_path:path, document_url:url,
+          transfer_pages:[...new Set<number>(original.paginas_caso)].slice(0,4).join(','),
+          author_verified:String(attribution.traslado.despacho_autor_verificado === true),
+          expected_sha256:descriptor.hash_documento };
+      }
+    }
     for (const [kind, field, prefix] of [
       ['auto', 'gcs_url_pdf_actuacion', `${pub.source_radicado}/raw/actuaciones/`],
       ['estado', 'gcs_url_pdf_estado', `${pub.source_radicado}/raw/estados/`],
@@ -129,8 +147,10 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
     const official = officialPortalRecoveryHash(pub, row.remote_url);
     const expectedHash = declaredEstadoDocumentHash(pub, row.remote_url) ?? (official?.expected_sha256 as string | undefined) ?? null;
     const sourceIdentity = publicPpDocumentCorrespondence(pub, row.remote_url);
+    const transferPages = sourceIdentity?.transfer_pages?.split(',').map(Number);
     const declaredPages: number[] | undefined = (official as any)?.paquete?.paginas_caso
-      ?.flatMap(([a, b]: [number, number]) => Array.from({ length: Math.max(0, Math.min(b, a + 20) - a + 1) }, (_, i) => a + i));
+      ?.flatMap(([a, b]: [number, number]) => Array.from({ length: Math.max(0, Math.min(b, a + 20) - a + 1) }, (_, i) => a + i))
+      ?? transferPages;
     const inspectFirst = (b: Uint8Array) => ports.inspect(b, declaredPages);
     let bytes: Uint8Array | null = null;
     let reading: EstadoPdfReading | null = null;
@@ -195,6 +215,14 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       const ok = verifyDeclaredCasePages(located, pk.paginas_caso);
       packageEvidence = { radicado: pk.radicado, publicador: pk.publicador ?? null, despacho_autor: pk.despacho_autor ?? null, paginas_declaradas: pk.paginas_caso, paginas_localizadas: located, verificado: ok };
       if (!ok) verified = false;
+    } else if (verified && sourceIdentity && transferPages?.length) {
+      const declared = transferPages.map((page): [number, number] => [page,page]);
+      const located = locateCaseInPackagePages(reading.pageTexts ?? [], sourceIdentity.case_radicado, '',
+        sourceIdentity.author_verified === 'true');
+      const ok = reading.sha256 === sourceIdentity.expected_sha256 && verifyDeclaredCasePages(located,declared);
+      packageEvidence = {radicado:sourceIdentity.case_radicado, paginas_declaradas:declared,
+        paginas_localizadas:located, verificado:ok};
+      if (!ok) verified = false;
     }
     const { pageTexts: _omit, ...readingEvidence } = reading;
     evidence = {
@@ -207,7 +235,8 @@ export async function recoverEstadoAttachment(row: EstadoQueueRow, ports: Estado
       publicacion_id: row.publicacion_id,
       download_source: source,
       correspondence: official && expectedHash === official.expected_sha256 ? official
-        : expectedHash ? { method: 'source_declared_sha256', expected_sha256: expectedHash }
+        : expectedHash ? { ...(sourceIdentity?.transfer_pages ? sourceIdentity : {}),
+          method: 'source_declared_sha256', expected_sha256: expectedHash }
         : sourceIdentity || { method: null, reason: 'specific_document_identity_not_verified' },
       checked_at: now().toISOString(),
       // Neither SHA equality nor full-page parsing asserts complete integrity,

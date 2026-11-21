@@ -114,16 +114,17 @@ Deno.test('computeSamaiFingerprint: different inputs produce different hashes', 
   if (a === b) throw new Error('Expected different fingerprints');
 });
 
-Deno.test('computeSamaiFingerprint: cross-provider dedup omits provider prefix', () => {
+Deno.test('computeSamaiFingerprint: legacy cross-provider flag preserves canonical identity', () => {
   const normal = computeSamaiFingerprint('2024-01-01', 'Test', null);
   const cross = computeSamaiFingerprint('2024-01-01', 'Test', null, { crossProviderDedup: true });
-  assertEquals(normal.startsWith('samai:'), true);
-  assertEquals(cross.startsWith('samai:'), false);
+  assertEquals(cross, normal);
 });
 
 Deno.test('computeSamaiFingerprint: workItemId scoping', () => {
-  const fp = computeSamaiFingerprint('2024-01-01', 'Test', null, { workItemId: 'wi-123' });
-  assertEquals(fp.includes('wi:wi-123:'), true);
+  const first = computeSamaiFingerprint('2024-01-01', 'Test', null, { workItemId: '11111111-1111-4111-8111-111111111111' });
+  const second = computeSamaiFingerprint('2024-01-01', 'Test', null, { workItemId: '22222222-2222-4222-8222-222222222222' });
+  assertEquals(first.startsWith('wi_11111111_'), true);
+  assertEquals(second.startsWith('wi_22222222_'), true);
 });
 
 // ─────────────── extractSamaiParties ───────────────

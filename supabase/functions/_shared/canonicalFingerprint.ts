@@ -216,6 +216,19 @@ export function recursoDiscriminator(consecutivo: string | null | undefined): st
   return `|r:${c}`;
 }
 
+/** SAMAI identifies the providencia in its own document field. Envelope IDs,
+ * display titles and attachment order can change between reads. */
+export function samaiPublicationDocumentKey(raw: unknown): string | null {
+  const keys = new Set<string>();
+  for (let depth = 0; depth <= 3 && raw && typeof raw === 'object' && !Array.isArray(raw); depth++) {
+    const record = raw as Record<string, unknown>;
+    const hash = typeof record.hash_documento === 'string' ? record.hash_documento.trim().toLowerCase() : '';
+    if (/^[a-f0-9]{64}$/.test(hash)) keys.add(hash);
+    raw = record.raw_data;
+  }
+  return keys.size === 1 ? keys.values().next().value! : null;
+}
+
 /** Canonical, source-agnostic fingerprint for a work_item_publicaciones row.
  *
  *  ITERATION 24: `tipo_publicacion` NO LONGER participates in identity. The
@@ -236,6 +249,8 @@ export function canonicalPubFingerprint(input: {
   description?: string | null;
   /** ITER59 — see `canonicalActFingerprint`. */
   recurso_consecutivo?: string | null;
+  /** Primary document key declared by the SAMAI estados provider. */
+  samai_document_key?: string | null;
 }): string {
   const wi = normalizeWorkItemId(input.work_item_id);
   const date = normalizeDate(input.pub_date);
@@ -244,5 +259,6 @@ export function canonicalPubFingerprint(input: {
   const party = extractPartyDiscriminator(rawTitle, input.party_hint);
   const suffix = party ? `|p:${party}` : "";
   const recurso = recursoDiscriminator(input.recurso_consecutivo);
-  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${title}${suffix}${recurso}`)}`;
+  const document = input.samai_document_key ? `|d:${input.samai_document_key}` : '';
+  return `pub_${wi}_${simpleHash(`pub|${wi}|${date}|${title}${suffix}${recurso}${document}`)}`;
 }

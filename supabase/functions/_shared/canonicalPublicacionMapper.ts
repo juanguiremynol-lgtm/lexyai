@@ -37,7 +37,7 @@
  *   - provider-sync-external-provider (via providerNormalize.ts)
  */
 
-import { canonicalPubFingerprint, resolvePartyHint } from "./canonicalFingerprint.ts";
+import { canonicalPubFingerprint, resolvePartyHint, samaiPublicationDocumentKey } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 import { resolveProviderLinkage } from "./recursoStreams.ts";
 
@@ -194,6 +194,29 @@ function isOfficialPortalFile(u: unknown): boolean {
     && /[?&]uuid=[0-9a-f-]{36}/i.test(u);
 }
 
+function buildTransferUnit(raw: any): ProviderPubUnit | null {
+  const notice = raw.estado;
+  const article = String(notice?.article_id ?? '');
+  const publication = notice?.fecha_publicacion_portal;
+  const fixation = notice?.fecha_fijacion_impresa;
+  const title = firstNonEmptyString(notice?.titulo_original, raw.descripcion);
+  if (!/^\d+$/.test(article) || !isStrictIsoDate(publication) || !isStrictIsoDate(fixation) || !title) return null;
+  const document = findDocumentByType(raw, 'traslado');
+  return {
+    key: `traslado:${article}:${notice?.numero || ''}`,
+    article_id: article,
+    tipo: 'Traslado',
+    titulo: title,
+    url: firstNonEmptyString(notice?.url_detalle, raw.entry_url),
+    pdf_url: firstNonEmptyString(document?.pdf_url, notice?.pdf_url),
+    fecha_publicacion: publication,
+    fecha_estado_raw: fixation,
+    clasificacion: { categoria: 'Traslado', descripcion: raw.descripcion || title },
+    raw_data: raw,
+    _source_provider: 'publicaciones',
+  };
+}
+
 function buildEstadoUnit(raw: any): ProviderPubUnit | null {
   const estadoObj = raw?.estado && typeof raw.estado === "object" ? raw.estado : null;
   const estadoDoc = findDocumentByType(raw, "estado");
@@ -324,6 +347,10 @@ export function explodeProviderPublicaciones(data: any): ProviderPubUnit[] {
         : [];
 
   return rawRows.flatMap((p: any): ProviderPubUnit[] => {
+    if (p?.fuente === 'traslado' && p.estado?.tipo_publicacion === 'Traslado') {
+      const transfer = buildTransferUnit(p);
+      return transfer ? [transfer] : [];
+    }
     const estado = buildEstadoUnit(p);
     const individual = buildIndividualUnit(p);
     const combined: ProviderPubUnit[] = [];
@@ -535,6 +562,7 @@ export function toCanonicalPubRow(
     // ONE shared resolver — never a local field list (iteration 26).
     party_hint: unit.parte ?? resolvePartyHint(unit.raw_data) ?? null,
     recurso_consecutivo: linkage.consecutivo,
+    samai_document_key: isSamai ? samaiPublicationDocumentKey(unit) : null,
   });
 
   const dateSource = parsedFecha
@@ -615,6 +643,7 @@ export function canonicalPubIdentityFromRow(
       ?? resolvePartyHint(row.raw_data) ?? null,
     recurso_consecutivo:
       row.recurso_consecutivo ?? (row.raw_data as any)?.consecutivo_recurso ?? null,
+    samai_document_key: isSamaiRow(row) ? samaiPublicationDocumentKey(row.raw_data) : null,
   });
 }
 

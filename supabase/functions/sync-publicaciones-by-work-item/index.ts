@@ -69,7 +69,7 @@ import {
 } from "../_shared/providerAdapters/samaiEstadosAdapter.ts";
 import { publicationDownloadUrls, samaiEstadosToProviderUnits } from "../_shared/samaiEstadosIngestion.ts";
 import { withRetainedOfficialPublicationUrls } from "../_shared/publicationRecoveryUrls.ts";
-import { ppExplicitPublicationDates, hasExplicitPPDates, conflictingPPNativeRows, officialStateReplay, officialAttachmentMatches } from '../_shared/ppExplicitPublicationDates.ts';
+import { ppExplicitPublicationDates, hasExplicitPPDates, ppPublicationAttributionConflict, conflictingPPNativeRows, officialStateReplay, officialAttachmentMatches } from '../_shared/ppExplicitPublicationDates.ts';
 import {
   isOnlineSyncEligible,
   SYNC_COOLDOWN_MS,
@@ -2999,6 +2999,16 @@ Deno.serve(withSyncTimeline(async (req) => {
       });
       if (historical) canonicalRow.raw_data = { ...(canonicalRow.raw_data as Record<string, unknown>),
         run_type:'historical', historical_replay:true };
+      if (canonicalRow.source === 'publicaciones' &&
+          ppPublicationAttributionConflict(pub as unknown as ProviderPubUnit, workItem.radicado ?? null)) {
+        const reason = 'PP_SOURCE_INSTANCE_UNVERIFIED';
+        result.error_code = reason;
+        result.errors.push(reason);
+        pubLedger.parsed++;
+        pubLedger.errored++;
+        pubLedger.outcomes.push({ bucket:'ERROR', title:pub.titulo || null, reason });
+        continue;
+      }
       const fingerprint = canonicalRow.hash_fingerprint;
 
       // Only additive PP dates require this guard. A previous native article

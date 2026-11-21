@@ -32,7 +32,7 @@ import {
   redactPII,
   type ApiKeyInfo,
 } from '../radicadoUtils.ts';
-import { canonicalPubFingerprint, resolvePartyHint } from '../canonicalFingerprint.ts';
+import { canonicalPubFingerprint, resolvePartyHint, samaiPublicationDocumentKey } from '../canonicalFingerprint.ts';
 import { internalBreakerRpc, isSharedSessionBlock, withSamaiEstadosBreaker } from './samaiEstadosBreaker.ts';
 import { storedSamaiObservedAt, storedSamaiRows, validStoredSamaiRead } from '../storedSamaiRead.ts';
 
@@ -438,6 +438,7 @@ function normalizeOneEstado(
     options?.workItemId,
     options?.crossProviderDedup,
     resolvePartyHint(e as Record<string, unknown>),
+    samaiPublicationDocumentKey(e),
   );
 
   if (!fecha && !actuacion) return null;
@@ -474,15 +475,16 @@ export function computeSamaiEstadosFingerprint(
   workItemId?: string,
   _crossProvider?: boolean,
   partyHint?: string | null,
+  documentKey?: string | null,
 ): string {
-  // SOURCE-AGNOSTIC (2026-07-12 P0 fix): dedupes same estado reported by
-  // Publicaciones and SAMAI Estados on TUTELA union routing.
+  // Use the canonical identity shared by the persistence mapper.
   return canonicalPubFingerprint({
     work_item_id: workItemId ?? null,
     pub_date: fecha,
     tipo_publicacion: actuacion,
     title: actuacion,
     party_hint: partyHint ?? null,
+    samai_document_key: documentKey,
   });
 }
 

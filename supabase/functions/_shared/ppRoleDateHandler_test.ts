@@ -147,7 +147,7 @@ Deno.test({ name: 'actual PP handler prevents duplicates on legacy article confl
             assert.equal(result.source_complete,false); assert.equal(result.result_code,'PENDING_UPSTREAM');
             assert.deepEqual(result.errors,[]); assert.equal(result.inserted_count,0);
           }else{
-            assert.equal(result.error_code,'PP_NATIVE_DATE_CONFLICT',JSON.stringify(result));
+            assert.equal(result.error_code,scenario==='radicado' ? 'PP_SOURCE_INSTANCE_UNVERIFIED' : 'PP_NATIVE_DATE_CONFLICT',JSON.stringify(result));
             assert.equal(result.ok,false);
           }
           assert.equal(calls.some(c=>c.path==='/rest/v1/rpc/rpc_upsert_work_item_publicaciones'),false);

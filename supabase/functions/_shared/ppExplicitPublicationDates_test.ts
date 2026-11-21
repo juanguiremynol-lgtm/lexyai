@@ -40,3 +40,30 @@ Deno.test('legacy PP rows and fingerprints remain identical; SAMAI ignores PP ex
   } };
   assertEquals(ppExplicitPublicationDates(samai, ctx), toCanonicalPubRow(samai, ctx));
 });
+
+Deno.test('structured PP evidence leaves missing publication and decision dates empty', () => {
+  const raw = {...legacy, estado:{...legacy.estado, fecha_publicacion_portal:null, fecha_fijacion_impresa:'2026-10-22'}};
+  const [unit] = explodeProviderPublicaciones([raw]);
+  const row = ppExplicitPublicationDates(unit, ctx);
+  assertEquals(row.published_at,null);
+  assertEquals(row.fecha_fijacion?.slice(0,10),'2026-10-22');
+  assertEquals(row.fecha_providencia,null);
+});
+
+Deno.test('typed PP transfer stays one row and retains both originals', () => {
+  const raw = {fuente:'traslado', estado:{
+    tipo_publicacion:'Traslado',article_id:'123456',numero:'043',titulo_original:'Traslado 043',
+    fecha_publicacion_portal:'2026-10-13',fecha_fijacion_impresa:'2026-10-14',
+  }, documentos_pdf:[
+    {tipo:'traslado',pdf_url:'https://example.test/traslado.pdf'},
+    {tipo:'escrito',pdf_url:'https://example.test/escrito.pdf'},
+  ]};
+  const units = explodeProviderPublicaciones([raw]);
+  assertEquals(units.length,1);
+  assertEquals(publicationDownloadUrls(units[0]),raw.documentos_pdf.map(d=>d.pdf_url));
+  const row = ppExplicitPublicationDates(units[0],ctx);
+  assertEquals(row.tipo_publicacion,'Traslado');
+  assertEquals(row.published_at?.slice(0,10),'2026-10-13');
+  assertEquals(row.fecha_fijacion?.slice(0,10),'2026-10-14');
+  assertEquals(row.fecha_providencia,null);
+});

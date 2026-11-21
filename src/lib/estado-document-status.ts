@@ -27,6 +27,7 @@ function documentRole(value: unknown) {
   const name = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (['estado', 'estado electrónico', 'estado electronico'].includes(name)) return 'estado';
   if (['providencia', 'auto'].includes(name)) return 'auto';
+  if (name === 'traslado') return 'traslado';
   return null;
 }
 

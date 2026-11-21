@@ -90,6 +90,27 @@ describe('ingestión independiente de ESTADOS', () => {
     expect(row.fecha_providencia?.slice(0, 10)).toBe('2026-10-15');
     expect((row.raw_data as any).raw_data.documentos).toHaveLength(2);
   });
+
+  it('identifica las providencias del mismo día y título por su documento oficial', () => {
+    const notices = [1, 2, 3].map((id) => ({
+      ...estado(id, ''),
+      'Actuación': 'Auto admite llamamiento en garantía',
+      hash_documento: String(id).repeat(64),
+      fecha_estado_procedencia: undefined,
+      fecha_estado_iso: undefined,
+    }));
+    const first = rowsFor({ estados: notices });
+    const replay = rowsFor({ actuaciones: notices.map((notice) => ({
+      ...notice,
+      hash_documento: ` ${notice.hash_documento} `,
+      documentos: [...notice.documentos].reverse(),
+    })) });
+
+    expect(new Set(first.map((row) => row.hash_fingerprint)).size).toBe(3);
+    expect(replay.map((row) => row.hash_fingerprint)).toEqual(first.map((row) => row.hash_fingerprint));
+    expect(first.every((row) => row.fecha_fijacion === null)).toBe(true);
+    for (const row of first) expect(canonicalPubIdentityFromRow(row, WI)).toBe(row.hash_fingerprint);
+  });
 });
 
 // This opt-in uses ONLY the disposable database cloned by the local integration

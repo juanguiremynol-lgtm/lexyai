@@ -33,7 +33,7 @@ export function attributedPPRowAutoDate(raw: Record<string, any>, radicado: stri
   return sourceDate && sourceDate === resolvedDate && sourceDate === cellDate ? sourceDate : null;
 }
 
-/** Additive PP evidence only; legacy units and SAMAI keep their exact mapping. */
+/** A modern PP response carries the separate roles even when one is unknown. */
 export function ppExplicitPublicationDates(unit: ProviderPubUnit, ctx: CanonicalPubContext): CanonicalPubRow {
   const row = toCanonicalPubRow(unit, ctx);
   if (row.source !== 'publicaciones') return row;
@@ -44,13 +44,28 @@ export function ppExplicitPublicationDates(unit: ProviderPubUnit, ctx: Canonical
   const portal = civil(estado?.fecha_publicacion_portal);
   const fijacion = civil(estado?.fecha_fijacion_impresa);
   const providencia = civil(raw.fecha_providencia_impresa) ?? attributedPPRowAutoDate(raw, ctx.source_radicado);
-  if (!portal && !fijacion && !providencia) return row;
+  const explicitRoles = !!estado && Object.hasOwn(estado, 'fecha_publicacion_portal');
+  if (!explicitRoles && !portal && !fijacion && !providencia) return row;
   const noon = (date: string) => new Date(`${date}T12:00:00Z`).toISOString();
-  if (portal) row.published_at = noon(portal);
-  if (fijacion) row.fecha_fijacion = noon(fijacion);
-  if (providencia) row.fecha_providencia = noon(providencia);
+  if (portal || explicitRoles) row.published_at = portal ? noon(portal) : null;
+  if (fijacion || explicitRoles) row.fecha_fijacion = fijacion ? noon(fijacion) : null;
+  if (providencia || explicitRoles) row.fecha_providencia = providencia ? noon(providencia) : null;
+  if (explicitRoles && !portal) {
+    row.date_source = 'inferred_sync';
+    row.date_confidence = 'low';
+  }
   row.hash_fingerprint = canonicalPubIdentityFromRow(row, ctx.work_item_id);
   return row;
+}
+
+/** Binding to the first 21 digits alone cannot prove the source instance. */
+export function ppPublicationAttributionConflict(unit: ProviderPubUnit, requested: string | null): boolean {
+  const attribution = unit.raw_data?.documento_atribucion as Record<string, unknown> | undefined;
+  if (!attribution) return false;
+  if (attribution.asociacion_no_acreditada === true) return true;
+  const declared = attribution.radicado;
+  return typeof declared === 'string' && /^\d{23}$/.test(declared) &&
+    (!requested || declared !== requested);
 }
 
 /** A changed date is not evidence of a new native publication. Fail closed
@@ -70,7 +85,8 @@ export function conflictingPPNativeRows(row: CanonicalPubRow, candidates: Array<
 export function hasExplicitPPDates(unit: ProviderPubUnit): boolean {
   const raw = unit.raw_data ?? {};
   const estado = raw.estado as Record<string, unknown> | undefined;
-  return [raw.fecha_providencia_impresa, estado?.fecha_publicacion_portal, estado?.fecha_fijacion_impresa]
+  return (!!estado && Object.hasOwn(estado, 'fecha_publicacion_portal')) ||
+    [raw.fecha_providencia_impresa, estado?.fecha_fijacion_impresa]
     .some(value => typeof value === 'string' && plausibleCivilDate(parseDate(value)) !== null);
 }
 

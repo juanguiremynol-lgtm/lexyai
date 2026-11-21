@@ -11,7 +11,7 @@ import {
   DATE_SOURCE_TO_CONFIDENCE,
   type DateSource,
 } from "./sync-constraints.ts";
-import { canonicalActFingerprint, canonicalPubFingerprint } from "./canonicalFingerprint.ts";
+import { canonicalActFingerprint, canonicalPubFingerprint, samaiPublicationDocumentKey } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey } from "./canonicalSource.ts";
 
 // Re-export for convenience — edge functions can import from here
@@ -198,6 +198,7 @@ export async function normalizePublicaciones(
           (p.raw_data && (p.raw_data as any).parte) ||
           (p.raw_data && (p.raw_data as any).docum_a_notif) ||
           null,
+        samai_document_key: canonicalSource === 'samai_estados' ? samaiPublicationDocumentKey(p.raw_data) : null,
       });
 
     const dateSource = sanitizeDateSource(p.date_source || "api_explicit") as DateSource;
