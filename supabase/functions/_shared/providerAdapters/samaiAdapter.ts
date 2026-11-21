@@ -408,12 +408,14 @@ export function normalizeSamaiActuaciones(
   // Estados are ingested by samaiEstadosAdapter with their publication identity.
   // They must never become acts just because they share a ruling title/date.
   return rawActuaciones.filter(act => act.categoria !== 'ESTADO' && act.fuente !== 'estados').map((act) => {
-    const fecha = normalizeDate(
-      String(
-        act.fechaActuacion ?? act.fecha_actuacion ?? act.fecha ?? act.fechaRegistro ??
-        act['Fecha Providencia'] ?? act['Fecha Estado'] ?? '',
-      ),
-    );
+    // The stored expediente feed exposes its act date as Fecha Providencia.
+    const fecha = [
+      act.fechaActuacion,
+      act.fecha_actuacion,
+      act.fecha_providencia_iso,
+      act['Fecha Providencia'],
+      act.fecha,
+    ].map((value) => normalizeDate(String(value ?? ''))).find(Boolean) ?? '';
     const actuacion = String(
       act.actuacion ?? act.tipo_actuacion ?? act['Actuación'] ?? act['Actuacion'] ?? '',
     );

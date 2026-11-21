@@ -54,6 +54,48 @@ Deno.test('normalizeSamaiActuaciones: handles alternative field names', () => {
   assertEquals(result[0].anotacion, 'Se profiere sentencia');
 });
 
+Deno.test('normalizeSamaiActuaciones: preserves both formal dates from the stored SAMAI feed', () => {
+  const [structured, legacyLabel, legacyDate] = normalizeSamaiActuaciones([
+    {
+      fuente: 'expediente',
+      categoria: 'ACTUACION',
+      indice: '00076',
+      'Actuación': 'RECIBE MEMORIALES ONLINE',
+      fechaRegistro: '2026-10-27',
+      'Fecha Providencia': '26/10/2026',
+      fecha_providencia_iso: '2026-10-26',
+    },
+    {
+      'Actuación': 'Auto admisorio',
+      'Fecha Providencia': '25-10-2026',
+      'Fecha Registro': '27/10/2026',
+    },
+    {
+      actuacion: 'Auto admisorio',
+      fecha: '2026-10-24T00:00:00Z',
+      fecha_registro: '2026-10-27',
+    },
+  ]);
+
+  assertEquals(structured.fecha_actuacion, '2026-10-26');
+  assertEquals(structured.fecha_registro, '2026-10-27');
+  assertEquals(legacyLabel.fecha_actuacion, '2026-10-25');
+  assertEquals(legacyLabel.fecha_registro, '2026-10-27');
+  assertEquals(legacyDate.fecha_actuacion, '2026-10-24');
+  assertEquals(legacyDate.fecha_registro, '2026-10-27');
+});
+
+Deno.test('normalizeSamaiActuaciones: leaves the act date empty when only other date roles are available', () => {
+  const [act] = normalizeSamaiActuaciones([{
+    'Actuación': 'RECIBE MEMORIALES ONLINE',
+    fechaRegistro: '2026-10-27',
+    'Fecha Estado': '28/10/2026',
+  }]);
+
+  assertEquals(act.fecha_actuacion, '');
+  assertEquals(act.fecha_registro, '2026-10-27');
+});
+
 Deno.test('normalizeSamaiActuaciones: empty input returns empty array', () => {
   assertEquals(normalizeSamaiActuaciones([]).length, 0);
 });
