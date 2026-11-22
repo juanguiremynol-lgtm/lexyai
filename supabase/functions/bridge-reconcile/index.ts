@@ -33,6 +33,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { providerQueryBlockReason } from "../_shared/providerQueryEligibility.ts";
 import { corsHeaders } from "npm:@supabase/supabase-js@2.118.0/cors";
 import {
   fetchFromCpnu,
@@ -354,13 +355,15 @@ Deno.serve(async (req) => {
 
   let q = admin
     .from("work_items")
-    .select("id, organization_id, radicado, workflow_type, lifecycle_state, monitoring_enabled")
+    .select("id, organization_id, radicado, workflow_type, lifecycle_state, monitoring_enabled, scraping_enabled, deleted_at")
     .is("deleted_at", null)
     .not("radicado", "is", null);
 
   if (workItemIds?.length) q = q.in("id", workItemIds);
   else if (radicados?.length) q = q.in("radicado", radicados);
-  else q = q.eq("monitoring_enabled", true).in("workflow_type", QUERYABLE_WORKFLOWS).order("last_synced_at", { ascending: true, nullsFirst: true });
+  else q = q.eq("monitoring_enabled", true).eq("scraping_enabled", true)
+    .eq("lifecycle_state", "ACTIVE").in("workflow_type", QUERYABLE_WORKFLOWS)
+    .order("last_synced_at", { ascending: true, nullsFirst: true });
 
   const { data: items, error: itemsErr } = await q.range(offset, offset + limit - 1);
   if (itemsErr) {
@@ -370,6 +373,7 @@ Deno.serve(async (req) => {
   }
 
   const lines: LedgerLine[] = [];
+  const skippedItems: Array<{ work_item_id: string; reason: string }> = [];
   let healed = 0;
   let processed = 0;
   let budgetExhausted = false;
@@ -425,10 +429,15 @@ Deno.serve(async (req) => {
 
   for (const wi of items ?? []) {
     if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
+    processed++;
+    const blocked = providerQueryBlockReason(wi);
+    if (blocked) {
+      skippedItems.push({ work_item_id: wi.id, reason: blocked });
+      continue;
+    }
     let chain = CHAIN[String(wi.workflow_type ?? "").toUpperCase()] ?? [];
     if (providerFilter?.length) chain = chain.filter((p) => providerFilter.includes(p));
     const radicado = String(wi.radicado);
-    processed++;
 
     for (const provider of chain) {
       if (Date.now() - startedAt > budgetMs) { budgetExhausted = true; break; }
@@ -685,6 +694,7 @@ Deno.serve(async (req) => {
     ok: true,
     checked_items: items?.length ?? 0,
     processed_items: processed,
+    skipped_items: skippedItems,
     next_offset: budgetExhausted || (items?.length ?? 0) === limit ? offset + processed : null,
     budget_exhausted: budgetExhausted,
     lines,

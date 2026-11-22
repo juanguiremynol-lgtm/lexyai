@@ -15,6 +15,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { providerQueryBlockReason } from "../_shared/providerQueryEligibility.ts";
 import {
   safeFetchProvider,
   buildAuthHeaders,
@@ -137,6 +138,29 @@ Deno.serve(async (req) => {
     }
 
     // Load instance + connector
+    // Explicit source IDs do not bypass the work item's current suspension.
+    // This endpoint only ingests snapshots; registration/configuration remains
+    // able to propagate disabled flags through its own path.
+    const { data: workItem, error: workItemError } = await db
+      .from("work_items")
+      .select("id, owner_id, organization_id, radicado, deleted_at, lifecycle_state, monitoring_enabled, scraping_enabled")
+      .eq("id", source.work_item_id)
+      .single();
+    if (workItemError || !workItem) {
+      return new Response(JSON.stringify({ error: "Work item unavailable", source_query_attempted: false }), {
+        status: workItemError ? 503 : 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const blocked = providerQueryBlockReason(workItem)
+      ?? (source.status !== "ACTIVE" ? "SOURCE_DISABLED" : null);
+    if (blocked) {
+      return new Response(JSON.stringify({
+        ok: true, status: "SKIPPED", skip_reason: blocked,
+        source_query_attempted: false, source_complete: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // First try direct instance from source
     let instance: any;
     const { data: directInstance } = await db
@@ -172,18 +196,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Load work item
-    const { data: workItem } = await db
-      .from("work_items")
-      .select("id, owner_id, organization_id, radicado")
-      .eq("id", source.work_item_id)
-      .single();
-
-    if (!workItem) {
-      return new Response(JSON.stringify({ error: "Work item not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (instance.is_enabled !== true) {
+      return new Response(JSON.stringify({
+        ok: true, status: "SKIPPED", skip_reason: "PROVIDER_DISABLED",
+        source_query_attempted: false, source_complete: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const connector = instance.provider_connectors;
