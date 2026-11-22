@@ -33,11 +33,20 @@ Tests (synthetic data, no judicial portal queries):
 - The base `npm ci` failed because the manifest's two existing Lovable Vite
   plugins were absent from `package-lock.json`. Regeneration adds only those
   entries (32 lines); clean `npm ci --ignore-scripts` then passes (618 packages).
-- General `npm run typecheck` reports 29 errors across 22 unchanged application
-  files. They involve strict Supabase write argument typing in UI, ingestion,
-  calendar and billing code, not the generated MCP artifact. No blanket
-  suppression or unrelated edits were applied. Full frontend publication is
-  not verified by this patch.
+- General `npm run typecheck` passes at this repair's baseline with a clean
+  `npm ci` using the committed lockfile (Supabase JS/PostgREST 2.89.0).
+  An earlier temporary installation without the lockfile resolved 2.119.2
+  and produced 29 write-argument type errors. Those errors were caused by the
+  test dependency set; they do not establish a defect in the locked application
+  or production. Uncommitted type-only experiments were discarded after the
+  locked baseline passed. No suppression, generated-bundle edit, schema change
+  or judicial-rule change remains in this repair.
+- Targeted MCP freshness/publication-association tests: 30/30 pass. A local
+  build or typecheck does not establish a deployed frontend revision.
+- `npm exec vite build -- --outDir /tmp/lexyai-cierre-final-build-20261122`:
+  passes on the final source with the locked dependencies. Existing CSS import
+  ordering and bundle-size warnings remain warnings; this command publishes
+  nothing and does not validate a signed-in browser session.
 
 Deployment pending: publish only `bridge-reconcile` and
 `provider-sync-external-provider` with the shared `providerQueryEligibility.ts`
