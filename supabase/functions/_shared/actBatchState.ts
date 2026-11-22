@@ -10,7 +10,7 @@
  *   stale snapshot (prevents degrading 2 descriptors to 1).
  */
 
-import { compareProviderOrigins, extractActOrigin, hasStableOrigin, originFromRow, planEnrichment, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
+import { compareProviderOrigins, extractActOrigin, hasStableOrigin, originFromRow, planEnrichment, sameStoredEvidence, type IncomingAct, type HistoricalRepairScope } from './actOriginIdentity.ts';
 import { documentosEnrichmentPatch, normalizeActDocumentos, mergeActDocumentos } from './actDocumentos.ts';
 import { observationCanonicalizer, sameDocumentObservation } from './actDocumentObservation.ts';
 
@@ -158,12 +158,16 @@ export async function enrichPersistedAct(
     if (readError || !row) throw new ActLoadError(`enrichment fresh read failed: ${readError?.message ?? 'row missing'}`, false, readError?.code);
     const storedOrigin = originFromRow(row);
     const incomingOrigin = extractActOrigin({ indice: incoming.indice, anotacion: incoming.anotacion });
-    const relation = compareProviderOrigins(storedOrigin, incomingOrigin, opts.provider || row.source);
+    const provider = opts.provider || row.source;
+    const relation = compareProviderOrigins(storedOrigin, incomingOrigin, provider);
     const stableStored = hasStableOrigin(storedOrigin), stableIncoming = hasStableOrigin(incomingOrigin);
     if (relation === 'conflict' || relation !== 'equivalent' && (stableStored || stableIncoming)) {
       throw new ActLoadError('enrichment rejected: insufficient or conflicting origin evidence');
     }
-    if (relation !== 'equivalent' && row.description !== `${incoming.actuacion}${incoming.anotacion ? ' - ' + incoming.anotacion : ''}`) {
+    const incomingDescription = `${incoming.actuacion}${incoming.anotacion ? ' - ' + incoming.anotacion : ''}`;
+    const confirmedText = row.description === incomingDescription
+      || (provider?.toLowerCase() === 'samai' && sameStoredEvidence(row, incomingDescription));
+    if (relation !== 'equivalent' && !confirmedText) {
       throw new ActLoadError('enrichment rejected: unconfirmed source text changed');
     }
     // One canonicalizer per fresh read: the merges below share immutable stored

@@ -104,7 +104,10 @@ function norm(v: unknown): string {
 /** A legacy display ellipsis is not a new judicial event. Require the entire
  * retained annotation to equal the source, corroborated by the protected
  * description prefix. Never match on the prefix or date/title alone. */
-function sameStoredEvidence(row: CandidateRow, evidence: string | null | undefined): boolean {
+export function sameStoredEvidence(
+  row: Pick<CandidateRow, 'description' | 'raw_data'>,
+  evidence: string | null | undefined,
+): boolean {
   const source = clean(evidence), description = clean(row.description);
   if (!source || !description) return false;
   if (description === source) return true;
