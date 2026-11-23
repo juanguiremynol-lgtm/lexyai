@@ -11,6 +11,51 @@ export class DailySourceIncomplete extends Error {
   }
 }
 
+/** Supabase function errors retain the HTTP Response in `context`. Preserve
+ * its status and an explicitly reported, bounded error code without storing a
+ * provider response body or confusing an HTTP response with a network error. */
+export async function classifyDailyInvocationError(error: unknown): Promise<unknown> {
+  const context = error && typeof error === 'object' ? (error as { context?: unknown }).context : undefined;
+  if (!(context instanceof Response) || context.status < 400 || context.status > 599) return error;
+  let code = `EDGE_HTTP_${context.status}`;
+  try {
+    const clone = context.clone();
+    const reader = clone.body?.getReader();
+    if (reader) {
+      try {
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        const deadline = Date.now() + 1000;
+        while (size <= 4096) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) throw new Error('error body read timed out');
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const next = await Promise.race([
+            reader.read(),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('error body read timed out')), remaining); }),
+          ]).finally(() => { if (timer !== undefined) clearTimeout(timer); });
+          if (next.done) break;
+          size += next.value.length;
+          if (size > 4096) break;
+          chunks.push(next.value);
+        }
+        if (size <= 4096) {
+          const bytes = new Uint8Array(size);
+          let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+          const payload = JSON.parse(new TextDecoder().decode(bytes));
+          if (typeof payload?.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(payload.code)) code = payload.code;
+        }
+      } finally {
+        // Do not await cancellation of a cloned response's tee: the original
+        // response may not be consumed by the SDK after it raises the error.
+        void reader.cancel().catch(() => {});
+      }
+    }
+  } catch { /* A malformed/unreadable body remains an HTTP-status diagnosis. */ }
+  return new DailySourceIncomplete(code, `Edge Function HTTP ${context.status}: ${code}`);
+}
+
 export function dailyIngestionVerdict(response: any, failed = false) {
   const base = publicReadVerdict(!failed, response ?? { ok: false, error: 'NETWORK_ERROR' }, failed ? 500 : 200);
   const errors = Array.isArray(response?.errors) && response.errors.length > 0;

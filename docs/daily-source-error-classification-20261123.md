@@ -28,3 +28,15 @@ Esta corrección mejora el código de causa de **futuros** intentos. No repara p
 - No se invocaron portales ni trabajos reales, no se gastaron créditos de IA y no se ejecutaron migraciones o escrituras de producción.
 
 El cambio **no está desplegado**. Debe publicarse únicamente `scheduled-daily-sync` con el módulo compartido de la misma revisión, por el canal autorizado del backend administrado, después de comprobar la versión activa y preservar el trabajo concurrente. Un commit o un push no acreditan publicación. La prueba productiva debe comprobar que un resultado incompleto conserva su código sin adelantar el último éxito, que el reintento cercado continúa cuando corresponde y que una respuesta tardía no finaliza una concesión reemplazada. No realizar otra extracción para verificar una lectura almacenada.
+
+## Seguimiento de las 16:50 Bogotá
+
+Las mismas 23 filas seguían pendientes y vencidas. Trece tenían al menos una tarea `ACT_SCRAPE_RETRY` asociada; diez no la tenían. Esta comparación no prueba por sí sola que esas diez deban crear una tarea ni que su causa admita un reintento: incluye, entre otros resultados, restricciones y efectos pendientes de interpretación. Tampoco se modificó la cola.
+
+La tarea de Cornare seguía con un intento contabilizado y siguiente ejecución prevista a las 10:27:11 Bogotá. La revisión de `net._http_response` acredita que la ejecución ordinaria del drenaje a las 11:30 procesó tres tareas distintas y no esa tarea. El SQL programado terminó sin error; eso no equivale a que Cornare haya sido elegido. La base reinició a las 10:58:22 Bogotá; ese hecho no acredita la causa de todos los pendientes. Los relojes y las inscripciones permanecen sin cambios.
+
+Una única petición de salud interna, sin radicado ni consulta a proveedores, devolvió `sync-by-work-item` con marcador `samai-stored-batches-20261120-compact`. Ese marcador acredita la respuesta del endpoint de salud, no el contenido íntegro de la función desplegada. Las 15 páginas de la recuperación de Cornare del 20/11 son una ejecución anterior con su observación original, no una prueba de incorporación del 23/11. No se inició otra recuperación mientras falta acreditar el cierre de extremo a extremo de la vía por lotes para el día actual.
+
+El ajuste preparado también distingue respuestas HTTP de errores sin respuesta. Para una `FunctionsHttpError` con `Response` real conserva un código estructurado válido, por ejemplo `WORKER_RESOURCE_LIMIT`, o usa `EDGE_HTTP_<status>`. Lee como máximo 4096 bytes y durante un segundo; no persiste el cuerpo. Una respuesta malformada o demasiado grande conserva el status, mientras que un verdadero error sin respuesta sigue siendo `NETWORK_ERROR`. Se mantienen el presupuesto y la condición de fallo. Esto no identifica retrospectivamente la causa del error inespecífico de EDU.
+
+La batería final tuvo 16 pruebas Deno aprobadas, incluidas respuestas truncadas, cuerpo bloqueado, código de recursos, cercado y ausencia de éxito falso; el typecheck del programador pasó. Los intentos y la aplicación no se reescribieron y las pruebas no consultaron el portal judicial.

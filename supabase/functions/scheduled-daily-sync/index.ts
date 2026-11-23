@@ -31,7 +31,7 @@ import {
 import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
-import { DailySourceIncomplete, runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
+import { classifyDailyInvocationError, DailySourceIncomplete, runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
 import { monitoredOrganizations, summarizeDryRun } from "./inventory.ts";
 
 const corsHeaders = {
@@ -1293,7 +1293,7 @@ async function invokeSingleItem(
   // Check abort between calls
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   
-  if (syncError) throw syncError;
+  if (syncError) throw await classifyDailyInvocationError(syncError);
 
   const syncOk = shouldCountAsSuccess(syncResult);
 
