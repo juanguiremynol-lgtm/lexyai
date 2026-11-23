@@ -11773,34 +11773,119 @@ export type Database = {
       }
       judicial_reparto_imports: {
         Row: {
-          id: string
-          owner_id: string
-          work_item_id: string | null
-          organization_id: string | null
+          authority_name: string | null
+          confirmed_at: string | null
+          created_at: string
           detected_process_id: string | null
-          source: string
-          source_key: string
+          event_on: string | null
+          external_reference: string | null
+          id: string
+          kind: string | null
           message_id: string | null
-          message_subject: string | null
-          message_sender: string | null
           message_received_at: string | null
+          message_sender: string | null
+          message_subject: string | null
           message_url: string | null
+          organization_id: string | null
+          owner_id: string
           pdf_name: string | null
           pdf_path: string | null
           pdf_sha256: string | null
           pdf_stored_at: string | null
-          suggestions: Json
-          kind: string | null
-          external_reference: string | null
           radicado: string | null
-          authority_name: string | null
-          event_on: string | null
-          created_at: string
-          confirmed_at: string | null
+          source: string
+          source_key: string
+          suggestions: Json
+          work_item_id: string | null
         }
-        Insert: never
-        Update: never
+        Insert: {
+          authority_name?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          detected_process_id?: string | null
+          event_on?: string | null
+          external_reference?: string | null
+          id?: string
+          kind?: string | null
+          message_id?: string | null
+          message_received_at?: string | null
+          message_sender?: string | null
+          message_subject?: string | null
+          message_url?: string | null
+          organization_id?: string | null
+          owner_id: string
+          pdf_name?: string | null
+          pdf_path?: string | null
+          pdf_sha256?: string | null
+          pdf_stored_at?: string | null
+          radicado?: string | null
+          source: string
+          source_key: string
+          suggestions?: Json
+          work_item_id?: string | null
+        }
+        Update: {
+          authority_name?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          detected_process_id?: string | null
+          event_on?: string | null
+          external_reference?: string | null
+          id?: string
+          kind?: string | null
+          message_id?: string | null
+          message_received_at?: string | null
+          message_sender?: string | null
+          message_subject?: string | null
+          message_url?: string | null
+          organization_id?: string | null
+          owner_id?: string
+          pdf_name?: string | null
+          pdf_path?: string | null
+          pdf_sha256?: string | null
+          pdf_stored_at?: string | null
+          radicado?: string | null
+          source?: string
+          source_key?: string
+          suggestions?: Json
+          work_item_id?: string | null
+        }
         Relationships: [
+          {
+            foreignKeyName: "judicial_reparto_imports_detected_process_id_fkey"
+            columns: ["detected_process_id"]
+            isOneToOne: false
+            referencedRelation: "detected_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "cpnu_freshness_overview"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "monitoring_coverage_v"
+            referencedColumns: ["work_item_id"]
+          },
+          {
+            foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_live_work_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_monitored_work_items"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
             columns: ["work_item_id"]
@@ -11809,6 +11894,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      judicial_reparto_pdf_purges: {
+        Row: {
+          organization_id: string | null
+          owner_id: string
+          pdf_path: string
+          queued_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          organization_id?: string | null
+          owner_id: string
+          pdf_path: string
+          queued_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          organization_id?: string | null
+          owner_id?: string
+          pdf_path?: string
+          queued_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
       }
       judicial_term_suspensions: {
         Row: {
@@ -28351,6 +28460,24 @@ export type Database = {
           rule_id: string
         }[]
       }
+      confirm_judicial_reparto: {
+        Args: {
+          p_authority: string
+          p_client_id: string
+          p_confirmed: boolean
+          p_demandados: string
+          p_demandantes: string
+          p_event_on: string
+          p_import_id: string
+          p_kind: string
+          p_radicado: string
+          p_reference: string
+          p_title: string
+          p_work_item_id: string
+          p_workflow_type: string
+        }
+        Returns: Json
+      }
       contribute_court_email: {
         Args: {
           p_court_city?: string
@@ -28681,14 +28808,14 @@ export type Database = {
         Returns: string
       }
       find_judicial_reparto_matches: {
-        Args: { p_radicado: string | null; p_reference: string | null }
+        Args: { p_radicado: string; p_reference: string }
         Returns: {
           id: string
-          title: string | null
-          radicado: string | null
-          workflow_type: string
           lifecycle_state: string
           matched_by: string
+          radicado: string
+          title: string
+          workflow_type: string
         }[]
       }
       find_subsanacion_email_evidence_any_status: {
@@ -29092,24 +29219,6 @@ export type Database = {
       }
       match_deadline_discharges: {
         Args: { p_work_item_id?: string }
-        Returns: Json
-      }
-      confirm_judicial_reparto: {
-        Args: {
-          p_import_id: string
-          p_work_item_id: string | null
-          p_confirmed: boolean
-          p_kind: string
-          p_reference: string | null
-          p_radicado: string | null
-          p_authority: string | null
-          p_event_on: string | null
-          p_workflow_type: string | null
-          p_title: string | null
-          p_client_id: string | null
-          p_demandantes: string | null
-          p_demandados: string | null
-        }
         Returns: Json
       }
       mcp_access_level: { Args: never; Returns: string }
