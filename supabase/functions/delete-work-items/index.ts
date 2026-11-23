@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { enqueueGcpLifecycleForHardDelete } from "../_shared/lifecycle.ts";
+import { pendingRepartoPdfs, purgeRepartoPdfs } from "../_shared/judicialRepartoPurge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,7 @@ interface DeleteResult {
   deleted_ids: string[];
   errors: Array<{ id: string; error: string }>;
   storage_files_deleted: number;
+  reparto_pdfs_verified_absent: number;
 }
 
 // ─── Authorization helper ───────────────────────────────────
@@ -284,6 +286,7 @@ Deno.serve(async (req) => {
       deleted_ids: [],
       errors: [],
       storage_files_deleted: 0,
+      reparto_pdfs_verified_absent: 0,
     };
 
     // 5. Process each work item
@@ -297,7 +300,17 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (!workItem) {
-          result.errors.push({ id: workItemId, error: "Item not found" });
+          const queued = await pendingRepartoPdfs(serviceClient, { workItemId });
+          if (!queued.length || !queued.every((file) => canDeleteWorkItem(auth, file))) {
+            result.errors.push({ id: workItemId, error: "Item not found" });
+            continue;
+          }
+          const pdfs = await purgeRepartoPdfs(serviceClient, queued.map((file) => file.pdf_path));
+          result.reparto_pdfs_verified_absent += pdfs.verifiedAbsent;
+          result.storage_files_deleted += pdfs.verifiedAbsent;
+          if (pdfs.pending || (await pendingRepartoPdfs(serviceClient, { workItemId })).length) {
+            result.errors.push({ id: workItemId, error: "La eliminación de los PDF de reparto sigue en reintento." });
+          }
           continue;
         }
 
@@ -346,6 +359,17 @@ Deno.serve(async (req) => {
           result.deleted_ids.push(workItemId);
           console.log(`[delete-work-items] Successfully deleted ${workItemId}`);
 
+          const queued = await pendingRepartoPdfs(serviceClient, { workItemId });
+          const pdfs = await purgeRepartoPdfs(serviceClient, queued.map((file) => file.pdf_path));
+          result.reparto_pdfs_verified_absent += pdfs.verifiedAbsent;
+          result.storage_files_deleted += pdfs.verifiedAbsent;
+          if (pdfs.pending || (queued.length && (await pendingRepartoPdfs(serviceClient, { workItemId })).length)) {
+            result.errors.push({
+              id: workItemId,
+              error: "El expediente se eliminó. El borrado de algunos PDF de reparto queda en reintento.",
+            });
+          }
+
           // Audit log
           if (auth.organizationId) {
             await serviceClient.from("audit_logs").insert({
@@ -357,7 +381,8 @@ Deno.serve(async (req) => {
               entity_id: workItemId,
               metadata: {
                 deleted_at: new Date().toISOString(),
-                storage_files_deleted: storageFilesDeleted,
+                storage_files_deleted: storageFilesDeleted + pdfs.verifiedAbsent,
+                reparto_pdfs_verified_absent: pdfs.verifiedAbsent,
                 authorization: {
                   is_owner: workItem.owner_id === user.id,
                   is_org_admin: auth.membershipRole === "OWNER" || auth.membershipRole === "ADMIN",

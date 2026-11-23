@@ -4,6 +4,7 @@ CREATE TABLE public.judicial_reparto_imports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   work_item_id uuid REFERENCES public.work_items(id) ON DELETE CASCADE,
+  organization_id uuid,
   detected_process_id uuid REFERENCES public.detected_processes(id) ON DELETE SET NULL,
   source text NOT NULL CHECK (source IN ('OUTLOOK', 'PDF')),
   source_key text NOT NULL CHECK (source_key ~ '^(pdf|mail):[0-9a-f]{64}$'),
@@ -15,6 +16,7 @@ CREATE TABLE public.judicial_reparto_imports (
   pdf_name text,
   pdf_path text,
   pdf_sha256 text CHECK (pdf_sha256 ~ '^[0-9a-f]{64}$'),
+  pdf_stored_at timestamptz,
   suggestions jsonb NOT NULL DEFAULT '{}',
   kind text CHECK (kind IN ('RECEPCION', 'REPARTO')),
   external_reference text CHECK (length(external_reference) <= 120),
@@ -29,8 +31,9 @@ CREATE TABLE public.judicial_reparto_imports (
     (pdf_sha256 IS NOT NULL AND source_key = 'pdf:' || pdf_sha256)
     OR (pdf_sha256 IS NULL AND source = 'OUTLOOK' AND source_key LIKE 'mail:%')
   ),
-  CHECK (pdf_path IS NULL OR pdf_path = owner_id::text || '/' || pdf_sha256 || '.pdf'),
+  CHECK (pdf_path IS NULL OR pdf_path = owner_id::text || '/' || id::text || '/' || pdf_sha256 || '.pdf'),
   CHECK ((pdf_path IS NULL) = (pdf_sha256 IS NULL)),
+  CHECK (pdf_stored_at IS NULL OR pdf_path IS NOT NULL),
   CHECK ((confirmed_at IS NULL AND work_item_id IS NULL AND kind IS NULL)
       OR (confirmed_at IS NOT NULL AND work_item_id IS NOT NULL AND kind IS NOT NULL))
 );
@@ -53,6 +56,38 @@ CREATE POLICY judicial_reparto_owner_read ON public.judicial_reparto_imports
   FOR SELECT TO authenticated
   USING (owner_id = (SELECT auth.uid()) AND (SELECT public.mcp_access_level()) = 'first_party');
 
+-- The delete and its storage receipt are separate systems. Keep the object path
+-- after the case transaction commits so a failed Storage request stays retryable.
+CREATE TABLE public.judicial_reparto_pdf_purges (
+  pdf_path text PRIMARY KEY,
+  work_item_id uuid,
+  owner_id uuid NOT NULL,
+  organization_id uuid,
+  queued_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX judicial_reparto_pdf_purges_by_item ON public.judicial_reparto_pdf_purges (work_item_id);
+CREATE INDEX judicial_reparto_pdf_purges_by_owner ON public.judicial_reparto_pdf_purges (owner_id);
+CREATE INDEX judicial_reparto_pdf_purges_by_age ON public.judicial_reparto_pdf_purges (queued_at, pdf_path);
+ALTER TABLE public.judicial_reparto_pdf_purges ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.judicial_reparto_pdf_purges FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.judicial_reparto_pdf_purges TO service_role;
+
+CREATE FUNCTION public.queue_judicial_reparto_pdf_purge()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $function$
+BEGIN
+  INSERT INTO public.judicial_reparto_pdf_purges (pdf_path, work_item_id, owner_id, organization_id)
+  VALUES (OLD.pdf_path, OLD.work_item_id, OLD.owner_id, OLD.organization_id)
+  ON CONFLICT (pdf_path) DO NOTHING;
+  RETURN OLD;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.queue_judicial_reparto_pdf_purge() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER queue_judicial_reparto_pdf_purge
+  AFTER DELETE ON public.judicial_reparto_imports
+  FOR EACH ROW WHEN (OLD.pdf_path IS NOT NULL)
+  EXECUTE FUNCTION public.queue_judicial_reparto_pdf_purge();
+
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('judicial-reparto', 'judicial-reparto', false, 10485760, ARRAY['application/pdf']);
 
@@ -65,6 +100,7 @@ CREATE POLICY judicial_reparto_pdf_owner_read ON storage.objects
       WHERE proof.owner_id = (SELECT auth.uid())
         AND proof.source_key = 'pdf:' || left(storage.filename(objects.name), 64)
         AND proof.pdf_path = objects.name
+        AND proof.pdf_stored_at IS NOT NULL
     )
   );
 
@@ -131,6 +167,9 @@ BEGIN
     WHERE id = p_import_id AND owner_id = v_owner FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Importación no encontrada' USING ERRCODE = '42501';
+  END IF;
+  IF v_proof.pdf_path IS NOT NULL AND v_proof.pdf_stored_at IS NULL THEN
+    RAISE EXCEPTION 'Vuelve a importar el PDF para completar su almacenamiento' USING ERRCODE = '22023';
   END IF;
   IF v_proof.work_item_id IS NOT NULL THEN
     IF p_work_item_id IS NOT NULL AND p_work_item_id <> v_proof.work_item_id THEN
@@ -214,7 +253,8 @@ BEGIN
   END IF;
 
   UPDATE public.judicial_reparto_imports
-    SET work_item_id = v_item.id, kind = p_kind, external_reference = v_reference,
+    SET work_item_id = v_item.id, organization_id = v_item.organization_id,
+        kind = p_kind, external_reference = v_reference,
         radicado = v_digits, authority_name = v_authority, event_on = p_event_on, confirmed_at = now()
     WHERE id = v_proof.id;
 

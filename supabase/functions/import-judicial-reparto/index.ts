@@ -1,10 +1,11 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, ensureAccessToken, GRAPH_BASE } from "../_shared/outlookGraph.ts";
+import { isCronCaller } from "../_shared/cronAuth.ts";
+import { pendingRepartoPdfs, purgeRepartoPdfs, REPARTO_BUCKET } from "../_shared/judicialRepartoPurge.ts";
 import { extractRepartoSuggestions, hasPdfEnvelope, PDF_LIMIT, type RepartoSuggestions } from "./suggestions.ts";
 
-const BUCKET = "judicial-reparto";
 const IMPORTS = "judicial_reparto_imports";
-const FIELDS = "id,work_item_id,source,message_subject,message_sender,message_received_at,message_url,pdf_name,pdf_path,pdf_sha256,suggestions,created_at";
+const FIELDS = "id,work_item_id,source,message_id,message_subject,message_sender,message_received_at,message_url,pdf_name,pdf_path,pdf_sha256,pdf_stored_at,suggestions,created_at";
 const MAIL_FIELDS = "id,subject,from,receivedDateTime,webLink,hasAttachments";
 const GRAPH_ID = /^[\w+=/-]{10,680}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,7 +134,6 @@ async function prepareImport(admin: SupabaseClient, input: IntakeInput) {
   const sourceKey = source === "OUTLOOK" && !digest
     ? "mail:" + await sha256(new TextEncoder().encode(mailboxId + ":" + mail.id))
     : "pdf:" + digest;
-  const pdfPath = digest ? ownerId + "/" + digest + ".pdf" : null;
   const selectedMail = mail ? mailMetadata(mail) : null;
   const mailColumns = {
     message_id: selectedMail?.id ?? null,
@@ -144,53 +144,76 @@ async function prepareImport(admin: SupabaseClient, input: IntakeInput) {
     detected_process_id: detectedId ?? null,
   };
   const lookup = () => admin.from(IMPORTS).select(FIELDS).eq("owner_id", ownerId).eq("source_key", sourceKey).maybeSingle();
-  const { data: prior, error: lookupError } = await lookup();
+  let { data: draft, error: lookupError } = await lookup();
   if (lookupError) throw new IntakeError("No se pudo comprobar si el comprobante ya está guardado.", 503);
-  if (prior) {
-    if (selectedMail && prior.source === "PDF" && !prior.message_sender) {
-      const { error } = await admin.from(IMPORTS).update(mailColumns).eq("id", prior.id)
-        .eq("owner_id", ownerId).is("message_id", null);
-      if (error) throw new IntakeError("No se pudo conservar el correo de origen.", 503);
-      const refreshed = await lookup();
-      if (refreshed.error || !refreshed.data) throw new IntakeError("No se pudo leer el comprobante guardado.", 503);
-      return refreshed.data;
+  if (!draft) {
+    const pdfText = file ? await extractPdfText(file.bytes) : "";
+    const mailText = mail?.body?.contentType?.toLowerCase() === "text" ? mail.body.content?.slice(0, 42_000) ?? "" : "";
+    const suggestions: RepartoSuggestions = extractRepartoSuggestions(pdfText, mailText, selectedMail?.subject ?? "");
+    const newId = crypto.randomUUID();
+    const { data, error } = await admin.from(IMPORTS).insert({
+      id: newId,
+      owner_id: ownerId,
+      source,
+      source_key: sourceKey,
+      ...mailColumns,
+      pdf_name: file?.name.slice(0, 220) ?? null,
+      pdf_path: digest ? ownerId + "/" + newId + "/" + digest + ".pdf" : null,
+      pdf_sha256: digest,
+      suggestions,
+    }).select(FIELDS).single();
+    if (error?.code === "23505") {
+      const concurrent = await lookup();
+      if (!concurrent.error) draft = concurrent.data;
+    } else if (!error) {
+      draft = data;
     }
-    return prior;
   }
-
-  const pdfText = file ? await extractPdfText(file.bytes) : "";
-  const mailText = mail?.body?.contentType?.toLowerCase() === "text" ? mail.body.content?.slice(0, 42_000) ?? "" : "";
-  const suggestions: RepartoSuggestions = extractRepartoSuggestions(pdfText, mailText, selectedMail?.subject ?? "");
-  if (file && pdfPath) {
-    const { error } = await admin.storage.from(BUCKET).upload(pdfPath, file.bytes, { contentType: "application/pdf", upsert: false });
+  if (!draft) throw new IntakeError("No se pudo preparar la importación. Puedes volver a intentarlo.", 503);
+  if (draft.pdf_path && !draft.pdf_stored_at && file) {
+    const { error } = await admin.storage.from(REPARTO_BUCKET).upload(draft.pdf_path, file.bytes, {
+      contentType: "application/pdf", upsert: false,
+    });
     if (error && !/already exists|duplicate/i.test(error.message)) {
       throw new IntakeError("No se pudo guardar el PDF original. Puedes volver a intentarlo.", 503);
     }
+    const { error: storedError } = await admin.from(IMPORTS).update({ pdf_stored_at: new Date().toISOString() })
+      .eq("id", draft.id).eq("owner_id", ownerId).is("pdf_stored_at", null);
+    if (storedError) throw new IntakeError("No se pudo confirmar el almacenamiento del PDF.", 503);
+    const refreshed = await lookup();
+    if (refreshed.error || !refreshed.data?.pdf_stored_at) {
+      throw new IntakeError("No se pudo releer el comprobante guardado.", 503);
+    }
+    draft = refreshed.data;
   }
-  const { data, error } = await admin.from(IMPORTS).insert({
-    owner_id: ownerId,
-    source,
-    source_key: sourceKey,
-    ...mailColumns,
-    pdf_name: file?.name.slice(0, 220) ?? null,
-    pdf_path: pdfPath,
-    pdf_sha256: digest,
-    suggestions,
-  }).select(FIELDS).single();
-  if (!error && data) return data;
-  if (error?.code === "23505") {
-    const concurrent = await lookup();
-    if (!concurrent.error && concurrent.data) return concurrent.data;
+  if (selectedMail && !draft.message_id) {
+    const { error } = await admin.from(IMPORTS).update(mailColumns).eq("id", draft.id)
+      .eq("owner_id", ownerId).is("message_id", null);
+    if (error) throw new IntakeError("No se pudo conservar el correo de origen.", 503);
+    const refreshed = await lookup();
+    if (refreshed.error || !refreshed.data) throw new IntakeError("No se pudo leer el comprobante guardado.", 503);
+    draft = refreshed.data;
   }
-  throw new IntakeError("No se pudo guardar la importación. Puedes volver a intentarlo.", 503);
+  return draft;
 }
 
 if (import.meta.main) Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método no permitido." }, 405);
+  const url = Deno.env.get("SUPABASE_URL")!;
+  if (new URL(req.url).searchParams.get("maintenance") === "purge-pdfs") {
+    if (!isCronCaller(req)) return json({ error: "Acceso restringido." }, 403);
+    const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+    try {
+      const paths = (await pendingRepartoPdfs(admin)).map((row) => row.pdf_path);
+      const result = await purgeRepartoPdfs(admin, paths);
+      return json({ ...result, attempted: paths.length }, result.pending ? 503 : 200);
+    } catch {
+      return json({ error: "La purga de PDFs queda pendiente de reintento." }, 503);
+    }
+  }
   const authorization = req.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return json({ error: "Inicia sesión en Andrómeda." }, 401);
-  const url = Deno.env.get("SUPABASE_URL")!;
   const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false },

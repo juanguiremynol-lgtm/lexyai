@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { enqueueGcpLifecycleForHardDelete } from "../_shared/lifecycle.ts";
+import { pendingRepartoPdfs, purgeRepartoPdfs } from "../_shared/judicialRepartoPurge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -292,6 +293,16 @@ Deno.serve(async (req) => {
         result.errors.push(`work_items: ${error.message}`);
       } else {
         result.deleted_counts.work_items = workItemIds.length;
+      }
+    }
+
+    if (!result.errors.length && body.purge_type !== "LEGACY_ONLY") {
+      const scope = { ownerId: user.id };
+      const queued = await pendingRepartoPdfs(serviceClient, scope);
+      const pdfs = await purgeRepartoPdfs(serviceClient, queued.map((file) => file.pdf_path));
+      result.deleted_counts.storage_files += pdfs.verifiedAbsent;
+      if (pdfs.pending || (queued.length && (await pendingRepartoPdfs(serviceClient, scope)).length)) {
+        result.errors.push("El borrado de algunos PDF de reparto queda en reintento.");
       }
     }
 

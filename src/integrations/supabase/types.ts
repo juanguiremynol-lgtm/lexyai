@@ -11776,6 +11776,7 @@ export type Database = {
           id: string
           owner_id: string
           work_item_id: string | null
+          organization_id: string | null
           detected_process_id: string | null
           source: string
           source_key: string
@@ -11787,6 +11788,7 @@ export type Database = {
           pdf_name: string | null
           pdf_path: string | null
           pdf_sha256: string | null
+          pdf_stored_at: string | null
           suggestions: Json
           kind: string | null
           external_reference: string | null

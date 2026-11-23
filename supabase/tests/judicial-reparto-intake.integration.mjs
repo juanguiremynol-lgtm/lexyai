@@ -10,7 +10,6 @@ const session = "00000000-0000-0000-0000-000000000201";
 const otherSession = "00000000-0000-0000-0000-000000000202";
 const assigned = "05001311000220260047100";
 const otherInstance = "05001311000220260047101";
-const storagePath = owner + "/" + "b".repeat(64) + ".pdf";
 const scalar = async (sql, args = []) => Object.values((await db.query(sql, args)).rows[0])[0];
 const file = (path) => Deno.readTextFile(path);
 const actor = async (uid, sid, role = "authenticated") => {
@@ -18,10 +17,11 @@ const actor = async (uid, sid, role = "authenticated") => {
   await db.query("SELECT set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: uid, session_id: sid, role })]);
   await db.exec("SET ROLE " + role);
 };
-const stage = async (key, { detected = null, pdf = null } = {}) => {
+const stage = async (key, { detected = null, pdf = null, stored = true } = {}) => {
   await db.exec("RESET ROLE");
-  return scalar("INSERT INTO judicial_reparto_imports(owner_id,source,source_key,detected_process_id,message_id,pdf_sha256,pdf_path) VALUES($1,'OUTLOOK',$2,$3,'fixture-message',$4,$5) RETURNING id",
-    [owner, key, detected, pdf, pdf ? owner + "/" + pdf + ".pdf" : null]);
+  const id = crypto.randomUUID();
+  return scalar("INSERT INTO judicial_reparto_imports(id,owner_id,source,source_key,detected_process_id,message_id,pdf_sha256,pdf_path,pdf_stored_at) VALUES($1,$2,'OUTLOOK',$3,$4,'fixture-message',$5,$6,$7) RETURNING id",
+    [id, owner, key, detected, pdf, pdf ? owner + "/" + id + "/" + pdf + ".pdf" : null, pdf && stored ? new Date().toISOString() : null]);
 };
 const confirm = (proof, target, kind, reference, radicado = null, authority = null, confirmed = true) => scalar(
   "SELECT confirm_judicial_reparto($1,$2,$3,$4,$5,$6,$7,((now() AT TIME ZONE 'America/Bogota')::date - 1),'CGP','Expediente sintético',NULL,NULL,NULL)",
@@ -41,19 +41,25 @@ try {
     "GRANT USAGE ON SCHEMA storage TO authenticated",
     "GRANT SELECT ON storage.objects TO authenticated",
     "CREATE FUNCTION storage.foldername(n text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[split_part(n,'/',1)] $$",
-    "CREATE FUNCTION storage.filename(n text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT split_part(n,'/',2) $$",
+    "CREATE FUNCTION storage.filename(n text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT split_part(n,'/',3) $$",
   ].join(";"));
   await db.exec(await file("supabase/migrations/20261123223000_judicial_reparto_intake.sql"));
   await db.query("INSERT INTO auth.users (id) VALUES ($1),($2)", [owner, stranger]);
   await db.query("INSERT INTO auth.sessions (id,user_id) VALUES ($1,$2),($3,$4)", [session, owner, otherSession, stranger]);
   const detection = await scalar("INSERT INTO detected_processes VALUES (gen_random_uuid(),$1,$2,'PENDING',NULL) RETURNING id", [owner, assigned]);
   const receipt = await stage("mail:" + "a".repeat(64));
-  const repartition = await stage("pdf:" + "b".repeat(64), { detected: detection, pdf: "b".repeat(64) });
+  const repartition = await stage("pdf:" + "b".repeat(64), { detected: detection, pdf: "b".repeat(64), stored: false });
+  const storagePath = owner + "/" + repartition + "/" + "b".repeat(64) + ".pdf";
   await assert.rejects(stage("pdf:" + "b".repeat(64), { pdf: "b".repeat(64) }), { code: "23505" });
   await db.query("INSERT INTO storage.objects VALUES ('judicial-reparto',$1)", [storagePath]);
 
   await actor(owner, session);
   assert.equal(await scalar("SELECT public.mcp_access_level()"), "first_party");
+  assert.equal(await scalar("SELECT count(*)::int FROM storage.objects"), 0);
+  await assert.rejects(confirm(repartition, null, "REPARTO", "VJE-444", assigned), { code: "22023" });
+  await db.exec("RESET ROLE");
+  await db.query("UPDATE judicial_reparto_imports SET pdf_stored_at=now() WHERE id=$1", [repartition]);
+  await actor(owner, session);
   assert.equal(await scalar("SELECT count(*)::int FROM storage.objects"), 1);
   await assert.rejects(db.query("UPDATE judicial_reparto_imports SET kind='REPARTO'"), { code: "42501" });
   await assert.rejects(confirm(receipt, null, "RECEPCION", "VJE-444", null, null, false), { code: "22023" });
@@ -96,7 +102,15 @@ try {
   await assert.rejects(confirm(ownProof, null, "RECEPCION", "VJE-555"), /fixture forced failure/);
   assert.equal(await scalar("SELECT count(*)::int FROM work_items"), 1);
   assert.equal(await scalar("SELECT work_item_id FROM judicial_reparto_imports WHERE id=$1", [ownProof]), null);
-  console.log("Reparto SQL checks passed: private drafts and PDF, explicit confirmation, receipt without radicado, correct assignment, retries, duplicate PDF, different instance, user isolation, and transactional rollback.");
+  await assert.rejects(db.query("SELECT * FROM judicial_reparto_pdf_purges"), { code: "42501" });
+  await db.exec("RESET ROLE");
+  await db.exec("DROP TRIGGER fixture_fail_evidence ON judicial_reparto_imports");
+  await db.query("DELETE FROM work_items WHERE id=$1", [first.work_item_id]);
+  assert.equal(await scalar("SELECT count(*)::int FROM judicial_reparto_imports WHERE work_item_id=$1", [first.work_item_id]), 0);
+  assert.equal(await scalar("SELECT pdf_path FROM judicial_reparto_pdf_purges WHERE work_item_id=$1", [first.work_item_id]), storagePath);
+  assert.notEqual(await stage("pdf:" + "b".repeat(64), { pdf: "b".repeat(64) }), repartition);
+  assert.equal(await scalar("SELECT count(*)::int FROM judicial_reparto_imports WHERE pdf_path=$1", [storagePath]), 0);
+  console.log("Reparto SQL checks passed: ownership, pending upload, deduplication, radicado, atomic rollback, purge receipt, and unique paths across reimport.");
 } finally {
   await db.close();
 }

@@ -91,6 +91,7 @@ function ImportPanel({ existingWorkItemId, detectionId, onClose, onBusy, onImpor
     queryFn: async () => {
       const { data, error } = await supabase.from("judicial_reparto_imports")
         .select(REPARTO_DRAFT_FIELDS).eq("owner_id", actor.data!).is("work_item_id", null)
+        .or("pdf_path.is.null,pdf_stored_at.not.is.null")
         .order("created_at", { ascending: false }).limit(30);
       if (error) throw error;
       return data;
