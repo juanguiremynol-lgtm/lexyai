@@ -36,6 +36,7 @@ import {
 import { deriveFromRadicado } from "@/lib/radicado-derivation";
 import { formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { CreateWorkItemWizard } from "@/components/workflow";
+import { JudicialRepartoButton } from "@/components/work-items/JudicialRepartoImport";
 
 export function DetectedProcessesQueue({ compact = false }: { compact?: boolean }) {
   const { data: items, isLoading } = useDetectedProcesses("PENDING");
@@ -192,6 +193,9 @@ export function DetectedProcessesQueue({ compact = false }: { compact?: boolean 
                       </a>
                     </Button>
                   )}
+                  {row.web_link && /reparto|constancia|recepci[oó]n/i.test(row.subject ?? "") && (
+                    <JudicialRepartoButton detectionId={row.id} size="sm" />
+                  )}
                   <Button size="sm" onClick={() => setActive(row)}>
                     <Plus className="mr-1 h-3.5 w-3.5" aria-hidden />
                     Crear expediente
@@ -244,8 +248,10 @@ export function DetectedProcessesQueue({ compact = false }: { compact?: boolean 
         onOpenChange={(open) => !open && setActive(null)}
         defaultRadicado={active?.radicado}
         defaultWorkflowType={derived?.workflow ?? undefined}
-        onSuccess={() => {
-          if (active) markCreated.mutate({ id: active.id });
+        onSuccess={(workItemId, radicado) => {
+          if (active && radicado?.replace(/\D/g, "") === active.radicado.replace(/\D/g, "")) {
+            markCreated.mutate({ id: active.id, workItemId });
+          }
           setActive(null);
         }}
       />

@@ -19,6 +19,7 @@ import { LexyDailyCard } from "@/components/lexy/LexyDailyCard";
 import { HearingTeamsNotice } from "@/components/dashboard/HearingTeamsNotice";
 import { StatsCarousel } from "@/components/dashboard/StatsCarousel";
 import { TodayAlertsPanel } from "@/components/dashboard/TodayAlertsPanel";
+import { JudicialRepartoButton } from "@/components/work-items/JudicialRepartoImport";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -145,9 +146,12 @@ export default function Dashboard() {
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
-        <Button onClick={() => setCreateDialogOpen(true)} size="icon" className="h-10 w-10 flex-shrink-0">
-          <Plus className="h-5 w-5" />
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <JudicialRepartoButton onImported={handleCreationSuccess} />
+          <Button onClick={() => setCreateDialogOpen(true)} size="icon" className="h-10 w-10 flex-shrink-0" aria-label="Crear expediente">
+            <Plus className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       {/* Stats Carousel + Atenia AI Commentary */}

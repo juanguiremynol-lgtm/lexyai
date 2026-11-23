@@ -88,7 +88,7 @@ function toHex(bytes: Uint8Array): string {
   return "\\x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function fromPg(value: string | null): Uint8Array | null {
+function fromPg(value: string | null): Uint8Array<ArrayBuffer> | null {
   if (!value) return null;
   const hex = value.startsWith("\\x") ? value.slice(2) : value;
   const out = new Uint8Array(hex.length / 2);
@@ -136,7 +136,7 @@ function b64url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function unb64url(s: string): Uint8Array {
+function unb64url(s: string): Uint8Array<ArrayBuffer> {
   const pad = s.replace(/-/g, "+").replace(/_/g, "/");
   const bin = atob(pad + "=".repeat((4 - (pad.length % 4)) % 4));
   const out = new Uint8Array(bin.length);

@@ -101,15 +101,17 @@ export function useBulkDismissDetectedProcesses() {
 export function useMarkDetectedProcessCreated() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, workItemId }: { id: string; workItemId?: string | null }) => {
+    mutationFn: async ({ id, workItemId }: { id: string; workItemId: string }) => {
       const { error } = await supabase
         .from("detected_processes")
-        .update({ status: "CREATED", created_work_item_id: workItemId ?? null })
-        .eq("id", id);
+        .update({ status: "CREATED", created_work_item_id: workItemId })
+        .eq("id", id)
+        .eq("status", "PENDING");
       if (error) throw error;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["detected-processes"] });
     },
+    onError: () => toast.error("Se creó el expediente, pero no se pudo cerrar la detección."),
   });
 }

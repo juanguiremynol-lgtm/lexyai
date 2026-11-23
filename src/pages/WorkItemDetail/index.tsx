@@ -1,5 +1,6 @@
 import { LastOccurredEventField } from "@/components/work-items/LastOccurredEventField";
 import { ProviderRunSummary } from "@/components/work-items/ProviderRunSummary";
+import { JudicialRepartoEvidence } from "@/components/work-items/JudicialRepartoEvidence";
 /**
  * WorkItemDetail - Unified detail page for all work items
  * 
@@ -510,7 +511,10 @@ export default function WorkItemDetail() {
             </TabsContent>
 
             <TabsContent value="documentos" className="mt-4">
-              <p className="mb-4 text-sm text-muted-foreground">Esta pestaña contiene documentos generados en Andrómeda. Los archivos públicos recuperados se encuentran en Actuaciones y Estados o Publicaciones.</p>
+              {!["PETICION", "GOV_PROCEDURE"].includes(extendedWorkItem.workflow_type) && (
+                <JudicialRepartoEvidence workItemId={extendedWorkItem.id} ownerId={extendedWorkItem.owner_id} canImport={lifecycleView === "ACTIVE"} />
+              )}
+              <p className="mb-4 text-sm text-muted-foreground">Consulta los archivos públicos recuperados en Actuaciones, Estados o Publicaciones.</p>
               <WorkItemDocumentsTab workItem={extendedWorkItem} onMemorialClick={() => setMemorialOpen(true)} />
             </TabsContent>
 

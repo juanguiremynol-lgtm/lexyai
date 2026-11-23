@@ -11771,6 +11771,43 @@ export type Database = {
           },
         ]
       }
+      judicial_reparto_imports: {
+        Row: {
+          id: string
+          owner_id: string
+          work_item_id: string | null
+          detected_process_id: string | null
+          source: string
+          source_key: string
+          message_id: string | null
+          message_subject: string | null
+          message_sender: string | null
+          message_received_at: string | null
+          message_url: string | null
+          pdf_name: string | null
+          pdf_path: string | null
+          pdf_sha256: string | null
+          suggestions: Json
+          kind: string | null
+          external_reference: string | null
+          radicado: string | null
+          authority_name: string | null
+          event_on: string | null
+          created_at: string
+          confirmed_at: string | null
+        }
+        Insert: never
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: "judicial_reparto_imports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       judicial_term_suspensions: {
         Row: {
           active: boolean
@@ -28641,6 +28678,17 @@ export type Database = {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
       }
+      find_judicial_reparto_matches: {
+        Args: { p_radicado: string | null; p_reference: string | null }
+        Returns: {
+          id: string
+          title: string | null
+          radicado: string | null
+          workflow_type: string
+          lifecycle_state: string
+          matched_by: string
+        }[]
+      }
       find_subsanacion_email_evidence_any_status: {
         Args: { p_from: string; p_to: string; p_work_item_id: string }
         Returns: string
@@ -29042,6 +29090,24 @@ export type Database = {
       }
       match_deadline_discharges: {
         Args: { p_work_item_id?: string }
+        Returns: Json
+      }
+      confirm_judicial_reparto: {
+        Args: {
+          p_import_id: string
+          p_work_item_id: string | null
+          p_confirmed: boolean
+          p_kind: string
+          p_reference: string | null
+          p_radicado: string | null
+          p_authority: string | null
+          p_event_on: string | null
+          p_workflow_type: string | null
+          p_title: string | null
+          p_client_id: string | null
+          p_demandantes: string | null
+          p_demandados: string | null
+        }
         Returns: Json
       }
       mcp_access_level: { Args: never; Returns: string }

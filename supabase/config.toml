@@ -1,5 +1,9 @@
 project_id = "qvuukbqcvlnvmcvcruji"
 
+# Auth-server verification and first-party session checks run in the handler.
+[functions.import-judicial-reparto]
+verify_jwt = false
+
 [functions.scheduled-daily-sync]
 verify_jwt = false
 

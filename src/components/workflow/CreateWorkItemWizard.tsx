@@ -79,7 +79,7 @@ import { toast } from "sonner";
 interface CreateWorkItemWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: () => void;
+  onSuccess?: (workItemId: string, radicado: string | null) => void;
   defaultClientId?: string;
   defaultWorkflowType?: WorkflowType;
   /** Prefills the radicado step (used by the "detected in your email" queue). */
@@ -597,7 +597,7 @@ export function CreateWorkItemWizard({
         }
 
         onOpenChange(false);
-        onSuccess?.();
+        onSuccess?.(workItem.id, workItem.radicado);
         
         // Show post-creation document prompt instead of navigating directly
         if (workItem?.id) {

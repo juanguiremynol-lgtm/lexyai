@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Mail, PenSquare, RefreshCw, ShieldCheck, Settings2, Loader2, History } from "lucide-react";
 import { DetectedProcessesQueue } from "@/components/email/DetectedProcessesQueue";
+import { JudicialRepartoButton } from "@/components/work-items/JudicialRepartoImport";
 import { SuggestedEmailLinksQueue } from "@/components/email/SuggestedEmailLinksQueue";
 import { OutlookComposeDialog } from "@/components/email/OutlookComposeDialog";
 import { AiVerifyHealthBadge } from "@/components/email/AiVerifyHealthBadge";
@@ -130,7 +131,10 @@ export default function EmailPage() {
       </Card>
 
       <SuggestedEmailLinksQueue />
-      <DetectedProcessesQueue />
+      <div className="space-y-3">
+        <JudicialRepartoButton />
+        <DetectedProcessesQueue />
+      </div>
 
       <OutlookComposeDialog open={composeOpen} onOpenChange={setComposeOpen} />
     </div>
