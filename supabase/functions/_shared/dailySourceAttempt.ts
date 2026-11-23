@@ -1,5 +1,16 @@
 import { publicReadVerdict } from './publicReadVerdict.ts';
 
+/** An HTTP response was received but its judicial-source result is incomplete.
+ * Keep its stable code distinct from a transport failure in the durable ledger. */
+export class DailySourceIncomplete extends Error {
+  readonly sourceCode: string;
+  constructor(code: unknown, message: string) {
+    super(message);
+    const normalized = typeof code === 'string' ? code.toUpperCase() : '';
+    this.sourceCode = /^[A-Z0-9_]{1,80}$/.test(normalized) ? normalized : 'SOURCE_READ_INCOMPLETE';
+  }
+}
+
 export function dailyIngestionVerdict(response: any, failed = false) {
   const base = publicReadVerdict(!failed, response ?? { ok: false, error: 'NETWORK_ERROR' }, failed ? 500 : 200);
   const errors = Array.isArray(response?.errors) && response.errors.length > 0;
@@ -27,7 +38,11 @@ export async function runDailySourceAttempt(db: any, item: { id: string; workflo
   let response: any;
   let failure: unknown;
   try { response = await invoke(); } catch (err) { failure = err; }
-  const verdict = dailyIngestionVerdict(response, !!failure);
+  const verdict = failure instanceof DailySourceIncomplete
+    // Preserve the existing retry policy; classification alone must not end or
+    // accelerate the source's fenced retry budget.
+    ? { success: false, retryable: true, code: failure.sourceCode }
+    : dailyIngestionVerdict(response, !!failure);
   const { data: finished, error: finishError } = await db.rpc('finish_daily_source_attempt', {
     _date: claim.run_date, _work_item_id: item.id, _source: source, _token: claim.lease_token,
     _success: verdict.success, _retryable: verdict.retryable,

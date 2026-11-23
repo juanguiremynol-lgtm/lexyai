@@ -31,7 +31,7 @@ import {
 import { bulkSetLifecycle } from "../_shared/lifecycle.ts";
 import { requirePrivilegedCaller } from "../_shared/privilegedCaller.ts";
 import { bogotaDay, dailyWindowDue, dailyCompletion } from "../_shared/dailyCompletion.ts";
-import { runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
+import { DailySourceIncomplete, runDailySourceAttempt } from "../_shared/dailySourceAttempt.ts";
 import { monitoredOrganizations, summarizeDryRun } from "./inventory.ts";
 
 const corsHeaders = {
@@ -1314,12 +1314,14 @@ async function invokeSingleItem(
   // actuaciones can be empty while estados are still the actionable feed.
   if (!syncOk && !isScrapingPending(syncResult) && !hasSamaiEstados) {
     if (syncResult?.ok === false) {
-      throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
+      throw new DailySourceIncomplete(syncResult?.code ?? syncResult?.error_code,
+        syncResult?.message || syncResult?.code || "sync returned ok=false");
     }
   }
 
   if (!syncOk) {
-    throw new Error(`PUBLIC_READ_INCOMPLETE: ${syncResult?.code ?? "pending or stale source read"}`);
+    throw new DailySourceIncomplete(syncResult?.code ?? syncResult?.error_code,
+      `PUBLIC_READ_INCOMPLETE: ${syncResult?.code ?? "pending or stale source read"}`);
   }
 
   // Return CPNU buscar metadata for caller to track budget
