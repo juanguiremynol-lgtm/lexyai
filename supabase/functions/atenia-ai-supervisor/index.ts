@@ -197,48 +197,24 @@ async function enqueueJob(
     max_attempts?: number;
     payload?: Record<string, unknown>;
   },
-) {
-  const base = {
-    work_item_id: input.work_item_id,
-    organization_id: input.organization_id ?? null,
-    action_type: input.action_type,
-    reason_code: input.reason_code ?? null,
-    provider: input.provider ?? null,
-    priority: input.priority ?? 0,
-    run_after: (input.run_after ?? new Date()).toISOString(),
-    max_attempts: input.max_attempts ?? 3,
-    payload: input.payload ?? {},
-    status: "PENDING",
-  };
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("atenia_ai_enqueue_remediation_job", {
+    p_work_item_id: input.work_item_id,
+    p_organization_id: input.organization_id ?? null,
+    p_action_type: input.action_type,
+    p_reason_code: input.reason_code ?? null,
+    p_provider: input.provider ?? null,
+    p_priority: input.priority ?? 0,
+    p_run_after: (input.run_after ?? new Date()).toISOString(),
+    p_max_attempts: input.max_attempts ?? 3,
+    p_payload: input.payload ?? {},
+  });
 
-  const { error: insErr } = await supabase
-    .from("atenia_ai_remediation_queue")
-    .insert(base);
-
-  if (!insErr) return;
-
-  // Conflict on dedupe index — update existing active job
-  const { data: existing } = await supabase
-    .from("atenia_ai_remediation_queue")
-    .select("id")
-    .eq("work_item_id", input.work_item_id)
-    .eq("action_type", input.action_type)
-    .in("status", ["PENDING", "RUNNING"])
-    .limit(1);
-
-  if (existing && existing[0]?.id) {
-    await supabase
-      .from("atenia_ai_remediation_queue")
-      .update({
-        updated_at: new Date().toISOString(),
-        run_after: base.run_after,
-        priority: base.priority,
-        payload: base.payload,
-        reason_code: base.reason_code,
-        provider: base.provider,
-      })
-      .eq("id", existing[0].id);
+  if (error || data !== true) {
+    console.warn("[atenia-ai] Remediation enqueue did not complete:", error?.code ?? "NO_CONFIRMATION");
+    return false;
   }
+  return true;
 }
 
 // ─── Work Item State Tracking ────────────────────────────────────────
@@ -1106,7 +1082,7 @@ async function remediate(
         const healthOk = await quickHealthCheck(provider);
         if (healthOk && d.work_item_id) {
           // V2: Enqueue instead of direct invoke
-          await enqueueJob(supabase, {
+          const enqueued = await enqueueJob(supabase, {
             work_item_id: d.work_item_id,
             organization_id: orgId,
             action_type: "RETRY_ACTS",
@@ -1114,13 +1090,15 @@ async function remediate(
             provider,
             priority: 60,
           });
-          actions.push({
-            action: "ENQUEUE_RETRY",
-            work_item_id: d.work_item_id,
-            reason: "Proveedor recuperado — reintento encolado",
-            result: "QUEUED",
-          });
-          d.auto_remediated = true;
+          if (enqueued) {
+            actions.push({
+              action: "ENQUEUE_RETRY",
+              work_item_id: d.work_item_id,
+              reason: "Proveedor recuperado. Se encoló el reintento.",
+              result: "QUEUED",
+            });
+            d.auto_remediated = true;
+          }
         }
       }
     }
@@ -1159,30 +1137,29 @@ async function remediate(
 
     // V2: OMITIDO items → enqueue both acts + pubs
     if (d.category === "OMITIDO" && d.work_item_id) {
-      await enqueueJob(supabase, {
+      const actsQueued = await enqueueJob(supabase, {
         work_item_id: d.work_item_id,
         organization_id: orgId,
         action_type: "RETRY_ACTS",
         reason_code: "OMITIDO",
         priority: 50,
       });
-      if (!d.skip_pubs_retry) {
-        await enqueueJob(supabase, {
+      const pubsQueued = !d.skip_pubs_retry && await enqueueJob(supabase, {
+        work_item_id: d.work_item_id,
+        organization_id: orgId,
+        action_type: "RETRY_PUBS",
+        reason_code: "OMITIDO",
+        priority: 40,
+      });
+      if (actsQueued || pubsQueued) {
+        const channels = [actsQueued && "actuaciones", pubsQueued && "publicaciones"].filter(Boolean);
+        actions.push({
+          action: "ENQUEUE_RETRY",
           work_item_id: d.work_item_id,
-          organization_id: orgId,
-          action_type: "RETRY_PUBS",
-          reason_code: "OMITIDO",
-          priority: 40,
+          reason: `Se encoló el reintento de ${channels.join(" y ")} del asunto omitido.`,
+          result: "QUEUED",
         });
       }
-      actions.push({
-        action: "ENQUEUE_RETRY",
-        work_item_id: d.work_item_id,
-        reason: d.skip_pubs_retry
-          ? "Item omitido — publicaciones NO_DATA; solo reintento de actuaciones encolado"
-          : "Item omitido — reintento encolado",
-        result: "QUEUED",
-      });
     }
   }
 
@@ -1662,7 +1639,7 @@ async function runPostDailyAuditV2(
         wi?.workflow_type === "PENAL_906" &&
         (wi?.total_actuaciones ?? 0) > 100
       ) {
-        await enqueueJob(supabase, {
+        const enqueued = await enqueueJob(supabase, {
           work_item_id: d.work_item_id,
           organization_id: orgId,
           action_type: "RETRY_PUBS_HEAVY",
@@ -1670,7 +1647,7 @@ async function runPostDailyAuditV2(
           priority: 80,
           run_after: new Date(Date.now() + 2 * 60 * 1000),
         });
-        queued++;
+        if (enqueued) queued++;
       }
     }
   }
