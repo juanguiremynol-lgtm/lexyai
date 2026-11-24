@@ -24,7 +24,7 @@ import {
 import type { ProcessData, LookupResult } from "@/hooks/use-radicado-lookup";
 import { formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { getProviderChainLabel } from "@/lib/provider-chain-labels";
-import { usePpEstados } from "@/hooks/use-pp-estados";
+import type { IntakePreview } from "@/hooks/use-radicado-lookup";
 
 interface WizardProcessPreviewProps {
   lookupResult: LookupResult;
@@ -47,15 +47,11 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
   const plaintiffLabel = isTutela ? 'Accionante' : 'Demandante';
   const defendantLabel = isTutela ? 'Accionado' : 'Demandado';
 
-  const pp = lookupResult.pp_lookup;
-  const { data: storedEstados } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
-  const storedCount = storedEstados?.length ?? 0;
-  const ppPending = storedCount === 0 && (!pp || pp.never_checked !== false || pp.estados_count == null);
-  const ppEstados = pp?.estados || [];
-  const estadosLabel = ppPending ? 'pendiente de lectura' : String(storedCount || pp?.estados_count || 0);
-  const ppChecked = !!pp && pp.status !== 'unknown';
+  const preview = lookupResult.intake_preview;
+  const estadosLabel = preview?.estados.length ?? 0;
   const sourcesTotal = (lookupResult.sources_checked?.length || 0) + 1;
-  const sourcesOk = sourcesFound.length + (!ppPending ? 1 : 0);
+  const sourcesOk = (lookupResult.attempts?.filter(attempt => attempt.success).length ?? sourcesFound.length)
+    + (preview?.states_complete ? 1 : 0);
 
   const displayedActuaciones = showAllActuaciones ? actuaciones : actuaciones.slice(0, 5);
 
@@ -66,7 +62,7 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-primary" />
           <span className="font-display font-semibold text-sm">
-            {lookupResult.found_status === 'FOUND_PARTIAL' ? 'Proceso Encontrado (parcial)' : 'Proceso Encontrado'}
+            {lookupResult.found_in_source ? 'Vista previa del expediente' : 'Consulta sin cobertura confirmada'}
           </span>
           {lookupResult.found_status === 'FOUND_PARTIAL' && (
             <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
@@ -195,6 +191,12 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
         )}
       </div>
 
+      <p className="px-4 text-xs text-muted-foreground">
+        {preview?.receipt
+          ? "Si creas el expediente, se guardarán las actuaciones y los estados mostrados aquí."
+          : "La consulta es temporal. Se guardan resultados al confirmar el alta."}
+      </p>
+
       {/* Tabs: Actuaciones + Providers */}
       <Tabs defaultValue="actuaciones" className="px-4 pb-4">
         <TabsList className="w-full grid grid-cols-3 h-8">
@@ -217,13 +219,13 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
           {actuaciones.length === 0 ? (
             <div className="text-center py-4 text-muted-foreground text-xs">
               <AlertCircle className="h-4 w-4 mx-auto mb-1 opacity-50" />
-              No se encontraron actuaciones registradas aún.
+              {preview?.acts_complete ? 'La fuente consultada no devolvió actuaciones.' : 'No hay actuaciones verificadas para mostrar.'}
               {lookupResult.classification_reason && (
                 <p className="mt-1 text-[10px]">{lookupResult.classification_reason}</p>
               )}
             </div>
           ) : (
-            <ScrollArea className={actuaciones.length > 5 ? "max-h-[200px]" : ""}>
+            <ScrollArea className={actuaciones.length > 5 ? "h-[200px]" : ""}>
               <div className="space-y-1.5">
                 {displayedActuaciones.map((act, idx) => (
                   <div key={idx} className="flex gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
@@ -231,9 +233,10 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
                       {act.fecha || '—'}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{act.actuacion}</p>
+                      <p className="font-medium break-words">{act.actuacion}</p>
+                      {(act.indice || act.fuente || act.fecha_registro) && <p className="text-muted-foreground">{[act.indice && `Índice ${act.indice}`, act.fuente?.toUpperCase(), act.fecha_registro && `Registro ${act.fecha_registro}`].filter(Boolean).join(" · ")}</p>}
                       {act.anotacion && (
-                        <p className="text-muted-foreground truncate mt-0.5">{act.anotacion}</p>
+                        <p className="text-muted-foreground break-words mt-0.5">{act.anotacion}</p>
                       )}
                     </div>
                   </div>
@@ -241,6 +244,7 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
               </div>
               {actuaciones.length > 5 && !showAllActuaciones && (
                 <button
+                  type="button"
                   onClick={() => setShowAllActuaciones(true)}
                   className="w-full text-xs text-primary hover:underline mt-2 flex items-center justify-center gap-1"
                 >
@@ -250,6 +254,7 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
               )}
               {showAllActuaciones && actuaciones.length > 5 && (
                 <button
+                  type="button"
                   onClick={() => setShowAllActuaciones(false)}
                   className="w-full text-xs text-primary hover:underline mt-2 flex items-center justify-center gap-1"
                 >
@@ -263,17 +268,17 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 
         {/* Estados Tab (Publicaciones Procesales) */}
         <TabsContent value="estados" className="mt-2">
-          <PpEstadosPanel pp={pp} radicado={radicado} />
+          <IntakePreviewStates preview={preview} />
         </TabsContent>
 
         {/* Provider Status Tab */}
         <TabsContent value="providers" className="mt-2">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
-              <ProviderStatusIcon success={!ppPending} />
-              <span className="font-medium flex-1">Publicaciones Procesales</span>
+              <ProviderStatusIcon success={Boolean(preview?.states_complete)} />
+              <span className="font-medium flex-1">{preview?.states_source ?? "Estados"}</span>
               <span className="text-muted-foreground text-[10px]">
-                {!ppPending ? `${estadosLabel} estados` : !ppChecked ? 'No se pudo consultar' : 'Pendiente de lectura'}
+                {preview?.states_complete ? `${estadosLabel} estados` : 'Cobertura sin confirmar'}
               </span>
             </div>
             {/* From attempts (always available) */}
@@ -334,74 +339,36 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
 
 // --- Helper components ---
 
-type PpLookup = LookupResult['pp_lookup'];
-
-export function PpEstadosPanel({ pp, radicado }: { pp: PpLookup; radicado?: string }) {
-  const { data: stored, isLoading } = usePpEstados(radicado?.replace(/\D/g, '') || null, !!radicado);
-  if (isLoading) {
-    return <div className="text-center py-4 text-muted-foreground text-xs">Leyendo estados en Publicaciones Procesales…</div>;
-  }
-  if (stored && stored.length > 0) {
-    return (
-      <div className="space-y-1.5">
-        <p className="text-[10px] text-muted-foreground">
-          {stored.length} estados leídos. Si agregas el asunto, se guardarán en su pestaña Estados.
-        </p>
-        <ScrollArea className={stored.length > 5 ? "max-h-[220px]" : ""}>
+function IntakePreviewStates({ preview }: { preview?: IntakePreview }) {
+  const rows = preview?.estados ?? [];
+  return (
+    <div className="space-y-2">
+      {!preview?.states_complete && (
+        <p className="text-xs text-muted-foreground">La cobertura de estados no está confirmada. Puede haber otras publicaciones.</p>
+      )}
+      {rows.length === 0 && preview?.states_complete && (
+        <p className="text-xs text-muted-foreground">La fuente consultada no devolvió estados.</p>
+      )}
+      {rows.length > 0 && (
+        <ScrollArea className={rows.length > 5 ? "h-[220px]" : ""}>
           <div className="space-y-1.5">
-            {[...stored].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((e) => (
-              <div key={`${e.fuente}-${e.id}`} className="flex gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
-                <div className="text-muted-foreground shrink-0 w-[78px] font-mono">{e.fecha || '—'}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{e.titulo_original?.trim() || e.descripcion?.trim() || 'Estado'}</p>
-                  {e.estado_numero && <p className="text-muted-foreground text-[10px]">Estado N° {e.estado_numero}</p>}
-                </div>
+            {rows.map((row, i) => (
+              <div key={i} className="rounded border border-border/30 bg-background/60 p-2 text-xs">
+                <p className="font-medium break-words">{row.titulo}</p>
+                <p className="text-muted-foreground">
+                  {[
+                    row.numero && `Estado N.º ${row.numero}`,
+                    row.fecha && `${row.fuente === "samai_estados" ? "Estado" : "Publicación"} ${row.fecha}`,
+                    row.fecha_fijacion && row.fecha_fijacion !== row.fecha && `Fijación ${row.fecha_fijacion}`,
+                    row.fecha_providencia && `Providencia ${row.fecha_providencia}`,
+                  ].filter(Boolean).join(" · ") || "Fecha sin confirmar"}
+                </p>
               </div>
             ))}
           </div>
         </ScrollArea>
-      </div>
-    );
-  }
-  const pending = !pp || pp.never_checked !== false || pp.estados_count == null;
-  if (!pp || pp.status === 'unknown') {
-    return (
-      <div className="text-center py-4 text-muted-foreground text-xs">
-        <AlertCircle className="h-4 w-4 mx-auto mb-1 opacity-50" />
-        No se pudo consultar Publicaciones Procesales en este momento. Los estados se leerán después de crear el asunto.
-      </div>
-    );
-  }
-  if (pending) {
-    return (
-      <div className="text-center py-4 text-muted-foreground text-xs">
-        <AlertCircle className="h-4 w-4 mx-auto mb-1 opacity-50" />
-        Pendiente de lectura: Publicaciones Procesales todavía no ha revisado este radicado
-        {pp.status === 'processing' ? ' (la lectura del portal está en curso)' : ''}.
-        Esto no significa que no haya estados; se completarán después de crear el asunto.
-      </div>
-    );
-  }
-  const estados = pp.estados || [];
-  if (estados.length === 0) {
-    return (
-      <div className="text-center py-4 text-muted-foreground text-xs">
-        {pp.estados_count} estados en Publicaciones Procesales
-        {pp.last_checked_at ? ` (última revisión: ${new Date(pp.last_checked_at).toLocaleDateString('es-CO')})` : ''}.
-      </div>
-    );
-  }
-  return (
-    <ScrollArea className={estados.length > 5 ? "max-h-[200px]" : ""}>
-      <div className="space-y-1.5">
-        {estados.map((e, idx) => (
-          <div key={idx} className="flex gap-2 text-xs p-2 rounded bg-background/60 border border-border/30">
-            <div className="text-muted-foreground shrink-0 w-[70px] font-mono">{e.fecha || '—'}</div>
-            <p className="flex-1 min-w-0 truncate">{e.titulo || 'Estado'}</p>
-          </div>
-        ))}
-      </div>
-    </ScrollArea>
+      )}
+    </div>
   );
 }
 

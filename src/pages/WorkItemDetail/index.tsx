@@ -55,6 +55,7 @@ import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButt
 import agreeColBadge from "@/assets/agree-colombia-badge.png";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { WorkItemMonitoringControls } from "@/components/work-items/WorkItemMonitoringControls";
+import { WorkItemActionsMenu } from "@/components/work-items/WorkItemActionsMenu";
 
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
@@ -86,6 +87,11 @@ export default function WorkItemDetail() {
     actuaciones,
     refetch,
   } = useWorkItemDetail(radicadoParam ? { radicado: radicadoParam } : id);
+
+  const { data: actor } = useQuery({
+    queryKey: ["current-user"],
+    queryFn: async () => (await supabase.auth.getUser()).data.user,
+  });
 
   const [statesCount, setStatesCount] = useState<{ id: string; count: number } | null>(null);
   const visibleEstadosCount = statesCount?.id === workItem?.id ? statesCount?.count : null;
@@ -164,10 +170,11 @@ export default function WorkItemDetail() {
   const purgeAfter = (workItem as any).purge_after as string | null | undefined;
   const lifecycleView = deriveLifecycleView({
     id: workItem.id,
-    lifecycle_state: (workItem as any).lifecycle_state ?? null,
+    lifecycle_state: workItem.lifecycle_state ?? null,
     monitoring_enabled: workItem.monitoring_enabled ?? null,
     deleted_at: deletedAt ?? null,
     stage: workItem.stage ?? null,
+    status: workItem.status,
   });
 
   if (lifecycleView === "DELETED") {
@@ -223,7 +230,7 @@ export default function WorkItemDetail() {
             <h1 className="min-w-0 max-w-full break-words text-2xl font-semibold">
               {workItem.title || workItem.radicado || "Sin radicado"}
             </h1>
-            {getStatusBadge(workItem.status)}
+            {lifecycleView === "CLOSED" ? <Badge variant="secondary">Proceso terminado</Badge> : getStatusBadge(workItem.status)}
             {workItem.is_flagged && (
               <Badge variant="destructive" className="gap-1">
                 <Flag className="h-3 w-3" />
@@ -293,6 +300,9 @@ export default function WorkItemDetail() {
           </div>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
+          {workItem._source === "work_items" && actor?.id === workItem.owner_id && (
+            <WorkItemActionsMenu workItem={workItem} variant="termination" onAfter={refetch} />
+          )}
           {/* Export Pack */}
           <WorkItemExportPack workItem={extendedWorkItem} />
 
@@ -671,6 +681,7 @@ export default function WorkItemDetail() {
               radicado: workItem.radicado || undefined,
               workflow_type: workItem.workflow_type,
               stage: workItem.stage,
+              lifecycle_state: workItem.lifecycle_state,
               monitoring_enabled: workItem.monitoring_enabled,
               consecutive_failures: (workItem as any).consecutive_failures || 0,
               consecutive_not_found: (workItem as any).consecutive_not_found || 0,

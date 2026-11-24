@@ -21,6 +21,7 @@ interface WorkItemDetail {
   workflow_type: string;
   stage: string;
   status: string;
+  lifecycle_state?: string | null;
   cgp_phase: string | null;
   cgp_phase_source: string | null;
   source: string;

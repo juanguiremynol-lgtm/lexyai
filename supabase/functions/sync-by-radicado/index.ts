@@ -1,3 +1,4 @@
+import { INTAKE_JUDICIAL_TYPES, readIntakePreview } from "../_shared/workItemIntakePreview.ts";
 import { canonicalizeAttemptsForPersist } from "../_shared/syncVocabulary.ts";
 /**
  * sync-by-radicado Edge Function
@@ -55,54 +56,6 @@ interface SyncResponse {
   error?: string;
   code?: string;
   attempts?: AttemptLog[];
-  pp_lookup?: PpLookupResult;
-}
-
-/**
- * Result of the lightweight PP GET /lookup/{radicado} preflight.
- * Runs in LOOKUP mode alongside the usual provider fan-out.
- *
- *   found         → PP has data cached for this radicado.
- *   processing    → radicado is valid, scrape auto-triggered by the API.
- *   not_in_portal → confirmed absent after a real scan (NOT a 504).
- *   unknown       → the endpoint was unreachable or unconfigured (non-terminal).
- */
-interface PpLookupResult {
-  status: 'found' | 'processing' | 'not_in_portal' | 'unknown';
-  http_status?: number;
-  latency_ms: number;
-  error?: string;
-  /** Number of estados PP reports for this radicado; null when not read yet. */
-  estados_count?: number | null;
-  /** When PP last read the portal for this radicado; null when never read. */
-  last_checked_at?: string | null;
-  /** True when PP has never actually read this radicado (a 0 here means "not read"). */
-  never_checked?: boolean;
-  detail?: string;
-  estados?: Array<{ fecha: string | null; titulo: string | null }>;
-}
-
-function pickArray(body: any): any[] | null {
-  for (const k of ['estados', 'publicaciones', 'results', 'items', 'data']) {
-    if (Array.isArray(body?.[k])) return body[k];
-  }
-  return null;
-}
-
-function pickNumber(body: any, keys: string[]): number | null {
-  for (const k of keys) {
-    const v = body?.[k];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-  }
-  return null;
-}
-
-function pickString(body: any, keys: string[]): string | null {
-  for (const k of keys) {
-    const v = body?.[k];
-    if (typeof v === 'string' && v.trim()) return v;
-  }
-  return null;
 }
 
 interface ProcessData {
@@ -127,7 +80,7 @@ interface ProcessData {
     estado?: string;
     anexos?: number;
     indice?: string;
-    documentos?: Array<{ nombre: string; url: string }>;
+    documentos?: Array<Record<string, unknown>>;
   }>;
   total_actuaciones?: number;
   // TUTELA-specific fields
@@ -158,7 +111,7 @@ interface ProviderResult {
   eventsFound?: number;
 }
 
-type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
+type WorkflowType = 'CGP' | 'EJECUTIVO' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
 
 // ============= PROVIDER CONFIGURATION =============
 // Uses centralized strategy from _shared/providerStrategy.ts
@@ -357,7 +310,7 @@ function enrichFromRadicado(radicado: string, processData: ProcessData): Process
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 }
 
@@ -567,81 +520,6 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
 
 
 /**
- * Lightweight PP preflight — GET /lookup/{radicado} on the pp-scraper API.
- * Never throws; a network/config failure yields status='unknown' which the
- * wizard treats as non-terminal.
- */
-async function fetchPpLookup(radicado: string): Promise<PpLookupResult> {
-  const startTime = Date.now();
-  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY')
-    || Deno.env.get('EXTERNAL_X_API_KEY');
-
-  if (!baseUrl || !apiKey) {
-    return { status: 'unknown', latency_ms: 0, error: 'PP not configured' };
-  }
-
-  const cleanBase = baseUrl.replace(/\/+$/, '');
-  const url = `${cleanBase}/lookup/${encodeURIComponent(radicado)}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8_000);
-
-  try {
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    const latency = Date.now() - startTime;
-
-    if (!resp.ok) {
-      return { status: 'unknown', http_status: resp.status, latency_ms: latency, error: `HTTP ${resp.status}` };
-    }
-    const body = await resp.json().catch(() => null);
-    const raw = String(body?.status || '').toLowerCase();
-    const status: PpLookupResult['status'] =
-      raw === 'found' ? 'found' :
-      raw === 'processing' ? 'processing' :
-      raw === 'not_in_portal' ? 'not_in_portal' :
-      'unknown';
-
-    const arr = pickArray(body);
-    const reportedCount = pickNumber(body, ['total_estados', 'estados_count', 'total', 'count']);
-    const analyzed = pickNumber(body, ['estados_analizados', 'analyzed', 'scanned_count']);
-    const lastChecked = pickString(body, ['last_scraped_at', 'ultima_revision', 'last_checked_at', 'updated_at', 'scraped_at']);
-    const count = arr ? arr.length : reportedCount;
-    // A zero with no read timestamp (or zero analyzed) means PP never read the portal.
-    const neverChecked = status !== 'found'
-      || (!lastChecked && (count === null || count === 0))
-      || (analyzed === 0 && (count === null || count === 0));
-    const estados = (arr || []).slice(0, 30).map((e: any) => ({
-      fecha: pickString(e, ['fecha_estado', 'fecha', 'fecha_publicacion', 'date']),
-      titulo: pickString(e, ['titulo', 'descripcion', 'tipo_publicacion', 'actuacion', 'title']),
-    }));
-    return {
-      status,
-      http_status: resp.status,
-      latency_ms: latency,
-      estados_count: neverChecked ? null : count,
-      last_checked_at: lastChecked,
-      never_checked: neverChecked,
-      detail: pickString(body, ['detail', 'message']) ?? undefined,
-      estados,
-    };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    return {
-      status: 'unknown',
-      latency_ms: Date.now() - startTime,
-      error: err?.name === 'AbortError' ? 'timeout' : (err?.message || String(err)),
-    };
-  }
-}
-
-// ============= TUTELA STAGE INFERENCE =============
-
-/**
  * Infer the current tutela stage from merged metadata and actuaciones
  */
 function inferTutelaStage(
@@ -688,14 +566,14 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? "";
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
     if (!supabaseUrl || !supabaseServiceKey) {
       return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500);
     }
 
-    const authHeader = req.headers.get('Authorization');
+    const authHeader = req.headers.get('Authorization') ?? "";
     if (!authHeader) {
       return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401);
     }
@@ -719,9 +597,16 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
     }
 
+    if (!payload || typeof payload.radicado !== "string" ||
+        (payload.mode !== undefined && payload.mode !== "LOOKUP" && payload.mode !== "SYNC_AND_APPLY")) {
+      return errorResponse("INVALID_REQUEST", "Solicitud inválida", 400);
+    }
+    const isLookup = payload.mode === "LOOKUP";
+
     // Validate radicado with workflow-specific rules
     const validation = validateRadicado(payload.radicado, payload.workflow_type);
     if (!validation.valid) {
+      if (isLookup) return errorResponse(validation.errorCode || "RADICADO_INVALID", validation.error || "Radicado inválido", 400);
       console.log(`[sync-by-radicado] Validation failed: raw="${payload.radicado}", normalized="${validation.normalized}", error="${validation.error}"`);
       
       // Log RADICADO_INVALID trace for diagnostics
@@ -757,7 +642,64 @@ Deno.serve(async (req) => {
     const mode = payload.mode || 'SYNC_AND_APPLY';
     const createIfMissing = payload.create_if_missing !== false;
     const workflowType = (payload.workflow_type || 'CGP') as WorkflowType;
-    
+
+    if (isLookup) {
+      if (!INTAKE_JUDICIAL_TYPES.has(workflowType)) {
+        return errorResponse("INELIGIBLE_WORKFLOW", "Este tipo de asunto no usa fuentes judiciales automáticas", 400);
+      }
+      const caller = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") || "", {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: access, error: accessError } = await caller.rpc("mcp_access_level");
+      if (accessError || access !== "first_party") return errorResponse("UNAUTHORIZED", "Se requiere una sesión propia de Andrómeda", 403);
+      const preview = await readIntakePreview(radicado, workflowType);
+      const { acts, publications } = preview.rows;
+      const actuaciones = acts.map(act => ({
+        fecha: act.act_date || "", actuacion: String(act.raw_data.actuacion ?? ""),
+        anotacion: typeof act.raw_data.anotacion === "string" ? act.raw_data.anotacion : undefined,
+        fecha_registro: act.fecha_registro_source, indice: act.raw_data.indice, fuente: act.source,
+      }));
+      const estados = publications.map(pub => ({
+        fecha: (pub.source === "samai_estados" ? pub.fecha_fijacion : pub.published_at)?.slice(0, 10) ?? null,
+        fecha_providencia: pub.fecha_providencia?.slice(0, 10) ?? null,
+        fecha_fijacion: pub.fecha_fijacion?.slice(0, 10) ?? null,
+        titulo: pub.title, fuente: pub.source,
+        numero: (pub.raw_data as { estado_numero?: string })?.estado_numero ?? null,
+      }));
+      const classification = detectAutoAdmisorio(actuaciones);
+      const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
+      const snapshot = JSON.stringify({ version: 1, id: crypto.randomUUID(), owner: userId, radicado,
+        workflow: workflowType, expires_at: expiresAt, acts, publications });
+      let receipt: { payload: string; signature: string } | null = null;
+      if (acts.length || publications.length) {
+        const { data: signature, error } = await supabase.rpc("sign_work_item_intake_preview", { p_payload: snapshot });
+        if (error || typeof signature !== "string") {
+          return errorResponse("PREVIEW_UNAVAILABLE", "No se pudo preparar la vista previa. Vuelve a consultar.", 503);
+        }
+        receipt = { payload: snapshot, signature };
+      }
+      const found = Boolean(preview.primary || actuaciones.length || estados.length);
+      return jsonResponse({
+        ok: true, created: false, updated: false, radicado, workflow_type: workflowType,
+        found_in_source: found, found_status: found
+          ? preview.actsComplete && preview.publicationsComplete ? "FOUND_COMPLETE" : "FOUND_PARTIAL"
+          : "NOT_FOUND",
+        source_used: preview.primary?.source ?? null,
+        sources_checked: preview.attempts.map(attempt => attempt.source),
+        new_events_count: actuaciones.length, cgp_phase: classification.hasAutoAdmisorio ? "PROCESS" : "FILING",
+        classification_reason: classification.reason, attempts: preview.attempts,
+        process_data: {
+          ...preview.primary?.processData, actuaciones, total_actuaciones: actuaciones.length,
+          provider_summary: Object.fromEntries(preview.attempts.map(attempt => [attempt.source, {
+            ok: attempt.success, found: attempt.found, actuaciones_count: attempt.events_found, error: attempt.error,
+          }])),
+          sources_found: preview.attempts.filter(attempt => attempt.found).map(attempt => attempt.source),
+        },
+        intake_preview: { estados, acts_complete: preview.actsComplete, states_complete: preview.publicationsComplete,
+          states_source: workflowType === "CPACA" ? "SAMAI Estados" : "Publicaciones Procesales", receipt },
+      });
+    }
+
     console.log(`[sync-by-radicado] Mode: ${mode}, Radicado: ${radicado}, Workflow: ${workflowType}, User: ${userId}`);
 
     // Get user's organization
@@ -1177,70 +1119,6 @@ Deno.serve(async (req) => {
       processData.actuaciones || []
     );
     const cgpPhase = hasAutoAdmisorio ? 'PROCESS' : 'FILING';
-
-    // ============= LOOKUP MODE: Return preview only =============
-    
-    if (mode === 'LOOKUP') {
-      // Run PP GET /lookup preflight in parallel (best-effort).
-      // Populates found/processing/not_in_portal so the wizard can render an
-      // informative non-terminal state when providers found nothing.
-      const ppLookup = await fetchPpLookup(radicado);
-      console.log(`[sync-by-radicado] PP lookup for ${radicado}: status=${ppLookup.status} http=${ppLookup.http_status ?? 'n/a'} latency=${ppLookup.latency_ms}ms`);
-
-      const response: SyncResponse = {
-        ok: true,
-        work_item_id: existingWorkItem?.id,
-        created: false,
-        updated: false,
-        found_in_source: foundInSource,
-        found_status: foundStatus,
-        source_used: sourceUsed,
-        sources_checked: sourcesChecked,
-        new_events_count: processData.total_actuaciones || 0,
-        milestones_triggered: 0,
-        cgp_phase: cgpPhase,
-        classification_reason: classificationReason,
-        process_data: processData,
-        attempts,
-        pp_lookup: ppLookup,
-      };
-      
-      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
-
-      // Record sync run for LOOKUP (best-effort, non-blocking)
-      try {
-        await supabase.from('external_sync_runs').insert({
-          work_item_id: existingWorkItem?.id || null,
-          organization_id: organizationId,
-          invoked_by: 'WIZARD',
-          trigger_source: 'sync-by-radicado:LOOKUP',
-          started_at: new Date(startTime).toISOString(),
-          finished_at: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-          status: foundInSource ? 'SUCCESS' : 'FAILED',
-          // LOOKUP is a read-only preview — it never persists to work_item_acts.
-          // Providers may report events_found from the feed but they are NOT written here.
-          run_mode: 'LOOKUP',
-          provider_attempts: canonicalizeAttemptsForPersist(attempts.map(a => ({
-            provider: a.source,
-            data_kind: 'ACTUACIONES',
-            status: a.success ? 'success' : 'not_found',
-            latency_ms: a.latency_ms,
-            // BUG 1a fix: LOOKUP inherently persists 0. Feed count is exposed
-            // separately as feed_count so downstream consumers cannot misread it
-            // as "rows written to DB".
-            inserted_count: 0,
-            feed_count: a.events_found || 0,
-            note: 'lookup_only_no_persistence',
-          }))),
-          total_inserted_acts: 0,
-          total_inserted_pubs: 0,
-          error_code: foundInSource ? null : 'NOT_FOUND',
-        });
-      } catch (_) { /* best-effort */ }
-
-      return jsonResponse(response);
-    }
 
     // ============= CREATE NEW WORK_ITEM =============
     

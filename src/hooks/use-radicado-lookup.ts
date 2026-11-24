@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { normalizeRadicadoInput, validateCgpRadicado } from "@/lib/radicado-utils";
@@ -28,6 +28,7 @@ export interface ProcessData {
     estado?: string;
     anexos?: number;
     indice?: string;
+    fuente?: string;
     documentos?: Array<{ nombre: string; url: string }>;
   }>;
   total_actuaciones?: number;
@@ -43,9 +44,24 @@ export interface ProcessData {
 
 export type FoundStatus = "FOUND_COMPLETE" | "FOUND_PARTIAL" | "NOT_FOUND";
 
+export interface IntakePreviewReceipt {
+  payload: string;
+  signature: string;
+}
+export interface IntakePreview {
+  estados: Array<{ fecha: string | null; fecha_fijacion: string | null; fecha_providencia: string | null;
+    titulo: string; numero: string | null; fuente: string }>;
+  acts_complete: boolean;
+  states_complete: boolean;
+  states_source: string;
+  receipt: IntakePreviewReceipt | null;
+}
 export interface LookupResult {
   ok: boolean;
   found_in_source: boolean;
+  radicado?: string;
+  workflow_type?: WorkflowType;
+  intake_preview?: IntakePreview;
   found_status?: FoundStatus;
   source_used: string | null;
   sources_checked: string[];
@@ -61,17 +77,6 @@ export interface LookupResult {
     error?: string;
     events_found?: number;
   }>;
-  pp_lookup?: {
-    status: 'found' | 'processing' | 'not_in_portal' | 'unknown';
-    http_status?: number;
-    latency_ms: number;
-    error?: string;
-    estados_count?: number | null;
-    last_checked_at?: string | null;
-    never_checked?: boolean;
-    detail?: string;
-    estados?: Array<{ fecha: string | null; titulo: string | null }>;
-  };
   error?: string;
   code?: string;
 }
@@ -163,7 +168,9 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
   const [result, setResult] = useState<LookupResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const previewRequest = useRef(0);
   const reset = useCallback(() => {
+    ++previewRequest.current;
     setStatus('idle');
     setResult(null);
     setError(null);
@@ -184,6 +191,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
    * @param workflowType - Optional workflow type for validation (CGP requires ending 00/01)
    */
   const lookup = useCallback(async (radicado: string, workflowType?: WorkflowType): Promise<LookupResult | null> => {
+    const request = ++previewRequest.current;
     // Validate with workflow-specific rules
     const validation = validateRadicadoForWorkflow(radicado, workflowType);
     
@@ -217,6 +225,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         throw new Error(data.message || data.error || 'Error desconocido');
       }
 
+      if (request !== previewRequest.current) return null;
       const lookupResult: LookupResult = {
         ok: data.ok,
         found_in_source: data.found_in_source,
@@ -228,25 +237,18 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         classification_reason: data.classification_reason || '',
         process_data: data.process_data,
         attempts: data.attempts,
-        pp_lookup: data.pp_lookup,
+        radicado: data.radicado,
+        workflow_type: data.workflow_type,
+        intake_preview: data.intake_preview,
       };
 
       setResult(lookupResult);
       
-      // Treat PP "found" or "processing" as a valid preview even if the
-      // discovery providers (CPNU/SAMAI/TUTELAS) returned nothing — the
-      // publications sync will drain the record after creation.
-      const ppOk =
-        data.pp_lookup?.status === 'found' ||
-        data.pp_lookup?.status === 'processing';
-      if (data.found_in_source || ppOk) {
-        setStatus('success');
-      } else {
-        setStatus('not_found');
-      }
+      setStatus(data.found_in_source ? 'success' : 'not_found');
 
       return lookupResult;
     } catch (err) {
+      if (request !== previewRequest.current) return null;
       const errorMessage = err instanceof Error ? err.message : 'Error de conexión';
       setError(errorMessage);
       setStatus('error');

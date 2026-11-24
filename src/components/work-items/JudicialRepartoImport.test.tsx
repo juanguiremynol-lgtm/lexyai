@@ -103,9 +103,20 @@ describe("judicial reparto import from its normal button", () => {
     expect(backend.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates a reviewed judicial expediente when the confirmed radicado has no matches", async () => {
+  it("previews both records and sends the signed inventory only upon confirmation", async () => {
     const radicado = "05001310302120268888000";
-    backend.invoke.mockResolvedValue({
+    backend.invoke.mockImplementation(async (name) => name === "sync-by-radicado" ? {
+      data: {
+        ok: true, radicado, workflow_type: "CGP", found_in_source: true,
+        process_data: { actuaciones: [{ fecha: "2026-11-18", actuacion: "Auto admite demanda" }] },
+        intake_preview: {
+          estados: [{ fecha: "2026-11-19", titulo: "Estado 148", fuente: "publicaciones" }],
+          acts_complete: true, states_complete: true, states_source: "Publicaciones Procesales",
+          receipt: { payload: "signed inventory", signature: "seal" },
+        },
+      },
+      error: null,
+    } : ({
       data: { draft: {
         ...receipt,
         suggestions: { fields: {
@@ -114,7 +125,7 @@ describe("judicial reparto import from its normal button", () => {
         } },
       } },
       error: null,
-    });
+    }));
     backend.rpc.mockImplementation(async (name) => ({
       data: name === "find_judicial_reparto_matches" ? [] : { work_item_id: "new-expediente", created: true },
       error: null,
@@ -123,13 +134,22 @@ describe("judicial reparto import from its normal button", () => {
     await upload();
     fireEvent.change(await screen.findByLabelText("Nombre del expediente"), { target: { value: "Expediente de prueba" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /Revisé el comprobante/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
-    await waitFor(() => expect(backend.rpc).toHaveBeenCalledWith("confirm_judicial_reparto", expect.objectContaining({
+    const create = screen.getByRole<HTMLButtonElement>("button", { name: "Crear expediente" });
+    expect(create.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Consultar actuaciones y estados" }));
+    await screen.findByText("Auto admite demanda");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Estados (1)" }), { button: 0, ctrlKey: false });
+    await screen.findByText("Estado 148");
+    expect(backend.rpc.mock.calls.every(([name]) => name === "find_judicial_reparto_matches")).toBe(true);
+    fireEvent.click(create);
+    await waitFor(() => expect(backend.rpc).toHaveBeenCalledWith("confirm_judicial_reparto_with_intake_preview", expect.objectContaining({
       p_work_item_id: null,
       p_workflow_type: "CGP",
       p_kind: "REPARTO",
       p_radicado: radicado,
       p_title: "Expediente de prueba",
+      p_payload: "signed inventory",
+      p_signature: "seal",
     })));
   });
 

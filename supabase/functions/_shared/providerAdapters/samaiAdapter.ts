@@ -133,7 +133,7 @@ async function fetchFeedMode(
   const url = `${baseUrl}/buscar?numero_radicacion=${encodeURIComponent(radicado)}`;
   console.log(`${LOG_TAG} [feed] GET ${url} radicado=${radicado.slice(0, 4)}***`);
 
-  const response = await fetch(url, { method: 'GET', headers });
+  const response = await fetch(url, { method: 'GET', headers, signal: options.signal });
 
   if (response.status === 404) {
     return makeErrorResult('SAMAI_SOURCE_OBSERVATION_MISSING', startTime, 404);

@@ -6,21 +6,8 @@ import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
 import { isOnlineSyncEligible } from "@/lib/externalSyncDisplay";
 import { resolveMonitoringOffReason } from "@/lib/monitoring-reason";
-import { insertIgnoringDuplicates } from "@/lib/db/insert-ignoring-duplicates";
-
-// Interface for initial actuaciones from lookup
-interface InitialActuacion {
-  fecha: string;
-  actuacion: string;
-  anotacion?: string;
-  fecha_registro?: string;
-  fecha_inicia_termino?: string;
-  fecha_finaliza_termino?: string;
-  estado?: string;
-  anexos?: number;
-  indice?: string;
-  documentos?: Array<{ nombre: string; url: string }>;
-}
+import type { IntakePreviewReceipt } from "./use-radicado-lookup";
+import type { Database, Json } from "@/integrations/supabase/types";
 
 export interface CreateWorkItemData {
   // Core classification
@@ -69,9 +56,7 @@ export interface CreateWorkItemData {
   description?: string;
   source?: ItemSource;
   
-  // Initial actuaciones from lookup (to persist on creation)
-  initial_actuaciones?: InitialActuacion[];
-  lookup_source?: string; // e.g., 'CPNU', 'SAMAI'
+  intakePreview?: IntakePreviewReceipt;
   /** True when the user overrode the corp-guard suggestion. Persisted to
    *  work_items.raw_data for audit. */
   wizard_override_workflow?: boolean;
@@ -165,16 +150,21 @@ export function useCreateWorkItem() {
       };
 
 
-      const { data: workItem, error } = await supabase
-        .from("work_items")
-        .insert(workItemData as any) // Cast until types regenerate with new workflow types
-        .select()
-        .single();
-
+      const { data: created, error } = data.intakePreview
+        ? await supabase.rpc("create_work_item_with_intake_preview", {
+            p_item: workItemData as Json,
+            p_payload: data.intakePreview.payload,
+            p_signature: data.intakePreview.signature,
+          })
+        : await supabase.from("work_items").insert(workItemData as any).select().single();
       if (error) {
         console.error("Error creating work item:", error);
         throw new Error(error.message);
       }
+      if (!created || typeof created !== "object" || !("id" in created) || typeof created.id !== "string") {
+        throw new Error("No se pudo confirmar la creación del asunto");
+      }
+      const workItem = created as Database["public"]["Tables"]["work_items"]["Row"];
 
       // Audit trail for corp-guard override (user proceeded despite the
       // radicado's derived jurisdiction disagreeing with their choice).
@@ -217,65 +207,6 @@ export function useCreateWorkItem() {
           });
         } catch (err) {
           console.warn("[use-create-work-item] workflow_origin audit failed:", err);
-        }
-      }
-
-      // Save initial actuaciones to CANONICAL work_item_acts table (NOT legacy actuaciones)
-      if (data.initial_actuaciones && data.initial_actuaciones.length > 0 && workItem) {
-        console.log(`[use-create-work-item] Saving ${data.initial_actuaciones.length} initial acts to work_item_acts`);
-        
-        const actsToInsert = data.initial_actuaciones.map((act) => {
-          // Generate fingerprint for deduplication (same algo as sync-by-work-item)
-          const normalized = `${workItem.id}|${act.fecha || ''}|${(act.actuacion || '').toLowerCase().trim().slice(0, 200)}`;
-          let hash = 0;
-          for (let i = 0; i < normalized.length; i++) {
-            const char = normalized.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-          }
-          const fingerprint = `wi_${workItem.id.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
-          
-          return {
-            work_item_id: workItem.id,
-            owner_id: workItem.owner_id,
-            organization_id: workItem.organization_id || null,
-            workflow_type: data.workflow_type,
-            act_date: act.fecha || null,
-            act_date_raw: act.fecha || null,
-            description: act.actuacion || '',
-            event_summary: act.anotacion || act.actuacion || '',
-            // Emit canonical lowercase source label so it merges cleanly with
-            // sync-by-work-item / adapter output and avoids case-drift dedup.
-            source: (data.lookup_source || 'cpnu').toLowerCase(),
-            source_platform: (data.lookup_source || 'cpnu').toLowerCase(),
-            hash_fingerprint: fingerprint,
-            raw_data: act,
-          // Note: raw_data receives the full lookup act payload above so the
-          // sync pipeline (sync-by-work-item) can recover extended fields
-          // (fecha_registro, fecha_inicia_termino, documentos, …) even
-          // before the first external re-sync.
-          };
-        });
-
-        // NOTE: do NOT use `.upsert(..., { onConflict: 'work_item_id,hash_fingerprint' })`.
-        // The dedupe index on work_item_acts is PARTIAL (WHERE is_archived = false),
-        // so Postgres rejects the inferred ON CONFLICT with 42P10 and every act is
-        // dropped silently — that is how wizard-found actuaciones disappeared.
-        const actsResult = await insertIgnoringDuplicates(
-          supabase as any,
-          "work_item_acts",
-          actsToInsert as unknown as Record<string, unknown>[],
-        );
-
-        if (actsResult.error) {
-          console.error("[use-create-work-item] Failed to save initial acts:", actsResult.error);
-          toast.error("El asunto se creó, pero no se pudieron guardar las actuaciones encontradas", {
-            description: "Usa \"Actualizar ahora\" en el asunto para volver a intentarlo.",
-          });
-        } else {
-          console.log(
-            `[use-create-work-item] Saved ${actsResult.inserted} acts (${actsResult.duplicates} duplicadas) to work_item_acts`,
-          );
         }
       }
 

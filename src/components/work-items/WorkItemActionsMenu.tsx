@@ -51,7 +51,7 @@ import { toast } from "sonner";
 interface Props {
   workItem: WorkItemActionInput;
   clientName?: string | null;
-  variant?: "dropdown" | "inline";
+  variant?: "dropdown" | "inline" | "termination";
   onAfter?: () => void;
   /** Suppress client-orphan prompt (e.g. bulk flows). */
   skipClientPrompt?: boolean;
@@ -104,8 +104,8 @@ export function WorkItemActionsMenu({
 
   const items: Array<{ key: WorkItemActionKey; label: string; icon: any; destructive?: boolean; onClick: () => void }> = [];
   if (available.includes("pausar")) items.push({ key: "pausar", label: "Pausar monitoreo", icon: Pause, onClick: () => setConfirm("pausar") });
-  if (available.includes("reactivar")) items.push({ key: "reactivar", label: state === "CLOSED" ? "Reabrir radicado" : "Reactivar monitoreo", icon: state === "CLOSED" ? RotateCcw : Play, onClick: () => setConfirm("reactivar") });
-  if (available.includes("cerrar")) items.push({ key: "cerrar", label: "Cerrar radicado", icon: Lock, onClick: () => setConfirm("cerrar") });
+  if (available.includes("reactivar")) items.push({ key: "reactivar", label: state === "CLOSED" ? "Reabrir asunto" : "Reactivar monitoreo", icon: state === "CLOSED" ? RotateCcw : Play, onClick: () => setConfirm("reactivar") });
+  if (available.includes("cerrar")) items.push({ key: "cerrar", label: "Marcar como terminado", icon: Lock, onClick: () => setConfirm("cerrar") });
   if (available.includes("eliminar")) items.push({ key: "eliminar", label: "Eliminar", icon: Trash2, destructive: true, onClick: () => setDeleteOpen(true) });
   if (available.includes("restaurar")) items.push({ key: "restaurar", label: "Restaurar", icon: RotateCcw, onClick: () => actions.restaurar() });
   if (available.includes("eliminar_definitivo")) items.push({ key: "eliminar_definitivo", label: "Eliminar definitivamente", icon: AlertOctagon, destructive: true, onClick: () => setConfirm("eliminar_definitivo") });
@@ -117,16 +117,16 @@ export function WorkItemActionsMenu({
       label: "Pausar",
     },
     reactivar: {
-      title: state === "CLOSED" ? "Reabrir radicado" : "Reactivar monitoreo",
+      title: state === "CLOSED" ? "Reabrir asunto" : "Reactivar monitoreo",
       description: state === "CLOSED"
-        ? "El radicado volverá a estado activo y se retomará la sincronización."
+        ? "El asunto volverá a estado activo. Si tiene vigilancia habilitada, se retomará la sincronización."
         : "Se retomará la sincronización automática de este asunto.",
       label: state === "CLOSED" ? "Reabrir" : "Reactivar",
     },
     cerrar: {
-      title: "Cerrar radicado",
-      description: "Se marcará como cerrado (proceso terminado) y se detendrá la sincronización. Puede reabrirse después.",
-      label: "Cerrar radicado",
+      title: "Marcar como terminado",
+      description: "El asunto quedará cerrado y conservará su historial. Si tiene vigilancia activa, se detendrá. Podrás reabrirlo después.",
+      label: "Confirmar término",
     },
     eliminar_definitivo: {
       title: "Eliminar definitivamente",
@@ -173,7 +173,9 @@ export function WorkItemActionsMenu({
     </DropdownMenu>
   ) : (
     <div className="flex flex-wrap gap-2">
-      {items.map((it) => (
+      {(variant === "termination"
+        ? items.filter(it => it.key === "cerrar" || (state === "CLOSED" && it.key === "reactivar"))
+        : items).map((it) => (
         <Button
           key={it.key}
           variant={it.destructive ? "destructive" : "secondary"}

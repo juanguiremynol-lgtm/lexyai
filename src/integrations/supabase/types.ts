@@ -28478,6 +28478,17 @@ export type Database = {
         }
         Returns: Json
       }
+      confirm_judicial_reparto_with_intake_preview: {
+        Args: Database["public"]["Functions"]["confirm_judicial_reparto"]["Args"] & {
+          p_payload: string
+          p_signature: string
+        }
+        Returns: Json
+      }
+      create_work_item_with_intake_preview: {
+        Args: { p_item: Json; p_payload: string; p_signature: string }
+        Returns: Json
+      }
       contribute_court_email: {
         Args: {
           p_court_city?: string

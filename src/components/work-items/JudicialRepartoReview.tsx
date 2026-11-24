@@ -8,8 +8,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { deriveFromRadicado } from "@/lib/radicado-derivation";
-import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
+import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";
 import { toast } from "sonner";
+import { useRadicadoLookup, type IntakePreviewReceipt } from "@/hooks/use-radicado-lookup";
+import { WizardProcessPreview } from "@/components/workflow/WizardProcessPreview";
 import {
   downloadRepartoPdf, normalizeIntakeRadicado, repartoSuggestions, REPARTO_LABELS, REPARTO_WORKFLOWS,
   type RepartoConfirmArgs, type RepartoDraft, type RepartoField, type RepartoKind,
@@ -88,6 +90,12 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
     item.lifecycle_state === "ACTIVE" && !["PETICION", "GOV_PROCEDURE"].includes(item.workflow_type))?.id || null;
   const canCreate = !existingWorkItemId && !matchingItems.length && !checking && !matchesFailed;
 
+  const preview = useRadicadoLookup();
+  const currentPreview = preview.result?.radicado === digits && preview.result?.workflow_type === workflow
+    ? preview.result : null;
+  const shouldConsult = Boolean(canCreate && digits && workflow);
+  const previewReady = !shouldConsult || Boolean(currentPreview) || preview.status === "error";
+
   const { data: clients = [] } = useQuery({
     queryKey: ["judicial-reparto-clients", userId],
     enabled: canCreate,
@@ -99,8 +107,12 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
     },
   });
   const save = useMutation({
-    mutationFn: async (args: RepartoConfirmArgs) => {
-      const { data, error } = await supabase.rpc("confirm_judicial_reparto", args);
+    mutationFn: async ({ args, receipt }: { args: RepartoConfirmArgs; receipt?: IntakePreviewReceipt }) => {
+      const { data, error } = receipt
+        ? await supabase.rpc("confirm_judicial_reparto_with_intake_preview", {
+            ...args, p_payload: receipt.payload, p_signature: receipt.signature,
+          })
+        : await supabase.rpc("confirm_judicial_reparto", args);
       if (error) throw new Error(error.message);
       if (!data || typeof data !== "object" || !("work_item_id" in data) ||
         typeof data.work_item_id !== "string") throw new Error("No se pudo confirmar el vínculo con el expediente.");
@@ -114,12 +126,12 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
     },
   });
 
-  const ready = confirmed && Boolean(kind) && !invalidRadicado && !checking && !matchesFailed &&
+  const ready = confirmed && Boolean(kind) && !invalidRadicado && previewReady && !checking && !matchesFailed &&
     Boolean(targetId || (canCreate && workflow && title.trim()));
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready || save.isPending) return;
-    save.mutate({
+    save.mutate({ args: {
       p_import_id: draft.id,
       p_work_item_id: targetId,
       p_confirmed: confirmed,
@@ -133,7 +145,7 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
       p_client_id: targetId ? null : clientId || null,
       p_demandantes: demandantes.trim() || null,
       p_demandados: demandados.trim() || null,
-    });
+    }, receipt: targetId ? undefined : currentPreview?.intake_preview?.receipt ?? undefined });
   };
 
   function field(
@@ -188,7 +200,7 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
           </Select>
         </div>
         {field("external_reference", "Referencia de la solicitud", reference, setReference, 120)}
-        {field("radicado", "Radicado judicial (23 dígitos)", radicado, setRadicado, 40)}
+        {field("radicado", "Radicado judicial (23 dígitos)", radicado, (value) => { if (normalizeIntakeRadicado(value) !== digits) preview.reset(); setRadicado(value); }, 40)}
         {field("authority_name", "Despacho asignado", authority, setAuthority, 240)}
         {kind === "RECEPCION" && field("receipt_on", "Fecha de recepción", receiptDate, setReceiptDate, undefined, "date")}
         {kind === "REPARTO" && field("assigned_on", "Fecha de reparto", assignmentDate, setAssignmentDate, undefined, "date")}
@@ -235,7 +247,7 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
           </div>
           <div className="space-y-1">
             <Label htmlFor={prefix + "workflow"}>Tipo de proceso</Label>
-            <Select value={workflow} onValueChange={setWorkflow}>
+            <Select value={workflow} onValueChange={(value) => { preview.reset(); setWorkflow(value as typeof workflow); }}>
               <SelectTrigger id={prefix + "workflow"}><SelectValue placeholder="Seleccionar" /></SelectTrigger>
               <SelectContent>
                 {REPARTO_WORKFLOWS.map((type) => <SelectItem key={type} value={type}>{WORKFLOW_TYPES[type].label}</SelectItem>)}
@@ -256,6 +268,19 @@ export function JudicialRepartoReview({ draft, userId, existingWorkItemId, onBac
           )}
           {field("demandantes", "Demandantes o accionantes", demandantes, setDemandantes, 500)}
           {field("demandados", "Demandados o accionados", demandados, setDemandados, 500)}
+        </div>
+      )}
+
+      {shouldConsult && digits && (
+        <div className="space-y-3">
+          <Button type="button" variant="outline" disabled={preview.status === "loading" || save.isPending}
+            onClick={() => void preview.lookup(digits, workflow as WorkflowType)}>
+            {preview.status === "loading" ? "Consultando…" : currentPreview ? "Volver a consultar" : "Consultar actuaciones y estados"}
+          </Button>
+          {currentPreview && <WizardProcessPreview lookupResult={currentPreview} radicado={digits} workflowType={workflow} />}
+          {preview.status === "error" && (
+            <p role="alert" className="text-sm text-muted-foreground">La consulta no está disponible. Puedes reintentar o crear el expediente sin resultados.</p>
+          )}
         </div>
       )}
 

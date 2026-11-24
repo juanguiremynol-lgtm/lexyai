@@ -1,13 +1,7 @@
 /**
  * WorkItemMonitoringControls — Full management panel for work item monitoring
  *
- * Four actions:
- *  1. Pausar monitoreo (if active)
- *  2. Reactivar monitoreo (if paused)
- *  3. Cerrar radicado (always visible, with confirmation)
- *  4. Eliminar (always visible, with confirmation)
- *
- * All actions update Supabase first; CGP items also fire-and-forget to CPNU API.
+ * The shared detail header owns finishing and reopening the matter.
  */
 
 import { useState, useEffect } from "react";
@@ -33,7 +27,6 @@ import {
   Zap,
   Clock,
   AlertTriangle,
-  Lock,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -47,6 +40,7 @@ interface WorkItemMonitoringControlsProps {
     radicado?: string;
     workflow_type?: string;
     stage?: string;
+    lifecycle_state?: string | null;
     monitoring_enabled: boolean;
     consecutive_failures?: number;
     consecutive_not_found?: number;
@@ -57,7 +51,7 @@ interface WorkItemMonitoringControlsProps {
 }
 
 
-type ConfirmAction = "cerrar" | "eliminar" | null;
+type ConfirmAction = "eliminar" | null;
 
 export function WorkItemMonitoringControls({
   workItem,
@@ -74,7 +68,8 @@ export function WorkItemMonitoringControls({
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
-  const isClosed = workItem.stage === "CLOSED";
+  const isClosed = workItem.lifecycle_state === "CLOSED" || workItem.lifecycle_state === "ARCHIVED"
+    || (!workItem.lifecycle_state && workItem.stage === "CLOSED");
 
   // ── Reactivar ───────────────────────────────────────────
   const reactivarMutation = useMutation({
@@ -106,32 +101,6 @@ export function WorkItemMonitoringControls({
     onError: (err: any) => toast.error(`Error: ${err.message}`),
   });
 
-  // ── Cerrar radicado ─────────────────────────────────────
-  const cerrarMutation = useMutation({
-    mutationFn: async (razon: string) => {
-      const r = await setWorkItemLifecycle(supabase, {
-        workItemId: workItem.id,
-        newState: "CLOSED",
-        reason: razon || "USER_CLOSED",
-        actor: "USER",
-        actorUserId: userId,
-      });
-      if (!r.ok) throw new Error(r.error || "close failed");
-      // stage is workflow-domain metadata, not lifecycle — keep updating it.
-      await supabase
-        .from("work_items")
-        .update({ stage: "CLOSED", updated_at: new Date().toISOString() })
-        .eq("id", workItem.id);
-    },
-    onSuccess: () => {
-      toast.success("Radicado cerrado");
-      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      closeDialog();
-      onUpdate();
-    },
-    onError: (err: any) => toast.error(`Error: ${err.message}`),
-  });
-
   // ── Eliminar ────────────────────────────────────────────
   const eliminarMutation = useMutation({
     mutationFn: async (razon: string) => {
@@ -155,9 +124,6 @@ export function WorkItemMonitoringControls({
 
   function handleConfirm() {
     switch (confirmAction) {
-      case "cerrar":
-        cerrarMutation.mutate(reason);
-        break;
       case "eliminar":
         eliminarMutation.mutate(reason);
         break;
@@ -166,16 +132,9 @@ export function WorkItemMonitoringControls({
 
   const isPending =
     reactivarMutation.isPending ||
-    cerrarMutation.isPending ||
     eliminarMutation.isPending;
 
   const dialogConfig: Record<string, { title: string; description: string; confirmLabel: string; variant: "destructive" | "default" }> = {
-    cerrar: {
-      title: "Cerrar radicado",
-      description: "El radicado se marcará como cerrado (proceso terminado). El monitoreo se desactivará.",
-      confirmLabel: "Cerrar radicado",
-      variant: "destructive",
-    },
     eliminar: {
       title: "Eliminar asunto",
       description: "El asunto será eliminado y será recuperable durante 10 días. Esta acción desactiva el monitoreo.",
@@ -243,20 +202,6 @@ export function WorkItemMonitoringControls({
                 {reactivarMutation.isPending ? "Reactivando..." : "Reactivar monitoreo"}
               </Button>
             ) : null}
-
-            {/* Cerrar — always visible unless already closed */}
-            {!isClosed && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setConfirmAction("cerrar")}
-                disabled={isPending}
-                className="gap-1.5 border border-border"
-              >
-                <Lock className="h-3.5 w-3.5" />
-                Cerrar radicado
-              </Button>
-            )}
 
             {/* Eliminar — always visible */}
             <Button

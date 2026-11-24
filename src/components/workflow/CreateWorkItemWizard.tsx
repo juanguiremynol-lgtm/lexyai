@@ -71,7 +71,7 @@ import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
-import { WizardProcessPreview, PpEstadosPanel } from "./WizardProcessPreview";
+import { WizardProcessPreview } from "./WizardProcessPreview";
 import { deriveFromRadicado } from "@/lib/radicado-derivation";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -139,8 +139,10 @@ export function CreateWorkItemWizard({
   // radicado cannot decide LABORAL vs CGP vs CPACA, so the wizard forces
   // an explicit user confirmation before advancing.
   const [mixedJurisdictionAck, setMixedJurisdictionAck] = useState(false);
-  const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
+  const { status: lookupStatus, result: fetchedLookup, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
 
+  const lookupResult = fetchedLookup?.radicado === radicado && fetchedLookup?.workflow_type === workflowType
+    ? fetchedLookup : null;
   // Look up existing work_items with the same radicado in the current
   // owner/org scope. Any hit (active, paused, or archived) is enough to
   // trigger the duplicate banner — silent duplicates cause double monitoring
@@ -331,6 +333,7 @@ export function CreateWorkItemWizard({
   }, [lookupResult, lookupStatus, workflowType, title]);
   
   const handleWorkflowSelect = (wf: WorkflowType) => {
+    resetLookup();
     setWorkflowType(wf);
     resetLookup();
     setRadicadoRaw('');
@@ -362,15 +365,14 @@ export function CreateWorkItemWizard({
     setRadicadoRaw(value);
     // Normalize: strip ALL non-digit characters
     const digits = normalizeRadicadoInput(value);
+    if (digits !== radicado) resetLookup();
     setRadicado(digits);
     setRadicadoError(null);
     // Any radicado edit invalidates a previously-granted override.
     setWizardOverrideWorkflow(false);
     setWizardOverrideDuplicate(false);
     
-    if (digits.length !== 23) {
-      resetLookup();
-    } else if (digits.length > 23) {
+    if (digits.length > 23) {
       setRadicadoError(`El radicado tiene ${digits.length} dígitos, se requieren exactamente 23`);
     }
 
@@ -423,7 +425,7 @@ export function CreateWorkItemWizard({
   
   const handleProceedFromRadicado = () => {
     // If lookup was successful, use the detected phase and apply data
-    if (lookupResult?.found_in_source && lookupResult.cgp_phase && workflowType === 'CGP') {
+    if (useRadicadoInput === 'lookup' && lookupResult?.found_in_source && lookupResult.cgp_phase && workflowType === 'CGP') {
       setCgpPhase(lookupResult.cgp_phase);
       // Set appropriate stage based on classification
       if (lookupResult.cgp_phase === 'PROCESS') {
@@ -439,6 +441,10 @@ export function CreateWorkItemWizard({
     if (step === 'workflow') {
       // This shouldn't happen now as we go directly from workflow select
     } else if (step === 'radicado') {
+      if (radicado.length === 23 && !lookupResult && lookupStatus !== 'error') {
+        void handleRadicadoLookup();
+        return;
+      }
       handleProceedFromRadicado();
     } else if (step === 'details') {
       setStep('client');
@@ -566,11 +572,7 @@ export function CreateWorkItemWizard({
       data.filing_date = tutelaFilingDate || undefined;
     }
     
-    // Pass initial actuaciones from lookup if available (persist on creation)
-    if (lookupResult?.process_data?.actuaciones && lookupResult.process_data.actuaciones.length > 0) {
-      data.initial_actuaciones = lookupResult.process_data.actuaciones;
-      data.lookup_source = lookupResult.source_used || 'CPNU';
-    }
+    data.intakePreview = lookupResult?.intake_preview?.receipt ?? undefined;
     
     createWorkItem.mutate(data, {
       onSuccess: (workItem) => {
@@ -616,8 +618,9 @@ export function CreateWorkItemWizard({
     : [];
   
   const canProceedFromRadicado = () => {
-    if (useRadicadoInput === 'manual') return true;
-    if (radicado.length !== 23) return false;
+    if (lookupStatus === 'loading') return false;
+    if (useRadicadoInput === 'manual' && !radicado) return true;
+    if (radicado.length !== 23 || radicadoError) return false;
     // Duplicate-guard hard gate: same radicado already in portfolio →
     // require explicit re-registration override.
     if (hasDuplicate && !wizardOverrideDuplicate) return false;
@@ -633,8 +636,7 @@ export function CreateWorkItemWizard({
     ) {
       return false;
     }
-    // Allow proceeding even if not found (manual entry)
-    return lookupStatus === 'success' || lookupStatus === 'not_found' || lookupStatus === 'error';
+    return true;
   };
   
   const canProceedFromDetails = () => {
@@ -887,6 +889,7 @@ export function CreateWorkItemWizard({
                               variant="default"
                               size="sm"
                               onClick={() => {
+                                resetLookup();
                                 setWorkflowType(derived.workflow);
                                 setWizardOverrideWorkflow(false);
                                 resetLookup();
@@ -1004,86 +1007,6 @@ export function CreateWorkItemWizard({
                     </Alert>
                   )}
 
-                  {lookupStatus === 'success' && lookupResult?.found_in_source && (
-                    <WizardProcessPreview
-                      lookupResult={lookupResult}
-                      radicado={radicado}
-                      workflowType={workflowType || undefined}
-                    />
-                  )}
-                  
-                  {lookupStatus === 'not_found' && radicado && (
-                    <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-                      <p className="text-xs font-medium mb-2">Estados en Publicaciones Procesales</p>
-                      <PpEstadosPanel pp={lookupResult?.pp_lookup} radicado={radicado} />
-                    </div>
-                  )}
-
-                  {lookupStatus === 'not_found' && (
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>
-                        {lookupResult?.pp_lookup?.status === 'processing'
-                          ? 'Radicado válido — escaneo ya disparado en la fuente'
-                          : lookupResult?.pp_lookup?.status === 'not_in_portal'
-                            ? 'Radicado válido — no aparece en Publicaciones Procesales'
-                            : 'Radicado válido — aún no está en nuestras fuentes'}
-                      </AlertTitle>
-                      <AlertDescription>
-                        {lookupResult?.pp_lookup?.status === 'processing' && (
-                          <>El radicado es válido y el portal ya inició el escaneo. Podés continuar; los datos se completarán automáticamente en el próximo ciclo.</>
-                        )}
-                        {lookupResult?.pp_lookup?.status === 'not_in_portal' && (
-                          <>Publicaciones Procesales no indexa este radicado, pero otras fuentes (por ejemplo CPNU) pueden tenerlo. Podés continuar y completar los datos manualmente.</>
-                        )}
-                        {(lookupResult?.pp_lookup?.status === 'unknown' || !lookupResult?.pp_lookup) && (
-                          <>El radicado es estructuralmente válido pero las fuentes externas aún no lo indexan. Se programará el escaneo automáticamente al crearlo — podés continuar y completar los datos manualmente.</>
-                        )}
-                        {lookupResult?.pp_lookup && (
-                          <span className="block text-xs mt-1">
-                            Estados en Publicaciones Procesales:{' '}
-                            {lookupResult.pp_lookup.never_checked !== false || lookupResult.pp_lookup.estados_count == null
-                              ? 'pendiente de lectura'
-                              : lookupResult.pp_lookup.estados_count}
-                          </span>
-                        )}
-                        {lookupResult?.sources_checked && lookupResult.sources_checked.length > 0 && (
-                          <span className="block text-xs mt-1">
-                            (Consultados: {lookupResult.sources_checked.join(', ')})
-                          </span>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  {lookupStatus === 'error' && lookupError && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Error en consulta</AlertTitle>
-                      <AlertDescription>{lookupError}</AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  {/* Attempts detail */}
-                  {lookupResult?.attempts && lookupResult.attempts.length > 0 && (
-                    <div className="text-xs space-y-1 p-3 bg-muted/50 rounded-lg">
-                      <p className="font-medium text-muted-foreground">Fuentes consultadas:</p>
-                      {lookupResult.attempts.map((attempt, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          {attempt.success ? (
-                            <CheckCircle2 className="h-3 w-3 text-primary" />
-                          ) : (
-                            <AlertCircle className="h-3 w-3 text-muted-foreground" />
-                          )}
-                          <span>{attempt.source}</span>
-                          <span className="text-muted-foreground">({attempt.latency_ms}ms)</span>
-                          {attempt.events_found !== undefined && attempt.success && (
-                            <span className="text-primary">{attempt.events_found} actuaciones</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </TabsContent>
                 
                 <TabsContent value="manual" className="mt-4 space-y-4">
@@ -1148,6 +1071,14 @@ export function CreateWorkItemWizard({
                   )}
                 </TabsContent>
               </Tabs>
+              {lookupResult && <WizardProcessPreview lookupResult={lookupResult} radicado={radicado} workflowType={workflowType} />}
+              {lookupStatus === 'error' && lookupError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Consulta no disponible</AlertTitle>
+                  <AlertDescription>Reintenta la consulta o continúa con el alta sin resultados.</AlertDescription>
+                </Alert>
+              )}
             </div>
           )}
           
@@ -1522,6 +1453,14 @@ export function CreateWorkItemWizard({
           {/* Step 4: Client */}
           {step === 'client' && (
             <div className="space-y-4 py-2">
+              {lookupResult && workflowType && (
+                <details className="rounded-md border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Actuaciones ({lookupResult.new_events_count}) y estados ({lookupResult.intake_preview?.estados.length ?? 0}) para incorporar
+                  </summary>
+                  <div className="mt-3"><WizardProcessPreview lookupResult={lookupResult} radicado={radicado} workflowType={workflowType} /></div>
+                </details>
+              )}
               <div className="flex items-center gap-2 mb-4">
                 <User className="h-5 w-5 text-muted-foreground" />
                 <Label className="text-sm font-medium">Vincular Cliente (Requerido)</Label>
@@ -1604,7 +1543,7 @@ export function CreateWorkItemWizard({
             
             {step === 'radicado' && (
               <Button onClick={handleNext} disabled={!canProceedFromRadicado()}>
-                Siguiente
+                {radicado.length === 23 && !lookupResult && lookupStatus !== 'error' ? 'Consultar actuaciones y estados' : 'Siguiente'}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             )}

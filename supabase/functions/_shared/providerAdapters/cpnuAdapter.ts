@@ -299,7 +299,7 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
   const snapshotUrl = joinUrl(baseUrl, pathPrefix, `/snapshot?numero_radicacion=${radicado}`);
   
   try {
-    const snapshotResponse = await fetch(snapshotUrl, { method: 'GET', headers });
+    const snapshotResponse = await fetch(snapshotUrl, { method: 'GET', headers, signal: options.signal });
     const snapshotBody = await snapshotResponse.text();
 
     // HTML 404 (route mismatch)

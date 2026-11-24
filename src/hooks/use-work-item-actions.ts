@@ -38,6 +38,7 @@ export interface WorkItemActionInput {
   deleted_at?: string | null;
   purge_after?: string | null;
   stage?: string | null;
+  status?: string | null;
 }
 
 const INVALIDATE_KEYS = [
@@ -62,7 +63,7 @@ export function deriveLifecycleView(wi: WorkItemActionInput): LifecycleView {
     const s = wi.lifecycle_state.toUpperCase();
     if (s === "DELETED") return "DELETED";
     if (s === "PAUSED") return "PAUSED";
-    if (s === "CLOSED" || wi.stage === "CLOSED") return "CLOSED";
+    if (s === "CLOSED") return "CLOSED";
     // ITER30 — ARCHIVED is NOT the trash. Only DELETED is (papelera, with
     // deleted_at + purge_after). Rendering the trash screen for an archived
     // matter promised a recovery window that did not exist and trapped the row.
@@ -70,7 +71,7 @@ export function deriveLifecycleView(wi: WorkItemActionInput): LifecycleView {
     return "ACTIVE";
   }
   if (wi.deleted_at) return "DELETED";
-  if (wi.stage === "CLOSED") return "CLOSED";
+  if (wi.status === "CLOSED" || wi.stage === "CLOSED") return "CLOSED";
   if (wi.monitoring_enabled === false) return "PAUSED";
   return "ACTIVE";
 }
@@ -146,7 +147,7 @@ export function useWorkItemActions(
       if (!r.ok) throw new Error(r.error || "No se pudo reactivar");
     },
     onSuccess: () => {
-      toast.success("Monitoreo reactivado");
+      toast.success(state === "CLOSED" ? "Asunto reabierto" : "Monitoreo reactivado");
       invalidate();
       options.onSuccess?.("reactivar");
     },
@@ -165,13 +166,9 @@ export function useWorkItemActions(
         actorUserId: u.user?.id ?? null,
       });
       if (!r.ok) throw new Error(r.error || "No se pudo cerrar");
-      await supabase
-        .from("work_items")
-        .update({ stage: "CLOSED", updated_at: new Date().toISOString() })
-        .eq("id", wi.id);
     },
     onSuccess: () => {
-      toast.success("Radicado cerrado");
+      toast.success("Proceso terminado");
       invalidate();
       options.onSuccess?.("cerrar");
     },
