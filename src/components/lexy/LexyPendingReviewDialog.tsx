@@ -42,6 +42,7 @@ export function LexyPendingReviewDialog() {
     },
     onError: (error) => {
       setDismissed(false);
+      queryClient.invalidateQueries({ queryKey: ["pending-review-summary"] });
       toast.error("No se pudo guardar tu respuesta. Inténtalo de nuevo.");
       console.error("[LexyPendingReviewDialog] review state failed:", error);
     },

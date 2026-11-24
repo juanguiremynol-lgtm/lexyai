@@ -29270,6 +29270,10 @@ export type Database = {
         }[]
       }
       list_my_mcp_connections: { Args: never; Returns: Json }
+      list_pending_deadline_reviews: {
+        Args: { p_cursor?: string; p_limit?: number }
+        Returns: Json
+      }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]

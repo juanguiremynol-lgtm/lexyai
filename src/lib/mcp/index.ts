@@ -52,6 +52,8 @@ import listUpdates from "./tools/list-updates";
 import listEmailQuestions from "./tools/list-email-questions";
 import assignWorkItemRadicado from "./tools/assign-work-item-radicado";
 import listFreshnessIssues from "./tools/list-freshness-issues";
+import listDeadlineReviews from "./tools/list-deadline-reviews";
+import resolveDeadlineReviews from "./tools/resolve-deadline-reviews";
 
 // Build issuer from the project ref (Vite inlines this at build time, so it
 // stays import-safe). mcp-js requires the direct supabase.co host, never a
@@ -62,7 +64,7 @@ const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unse
 export default defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.8.2",
+  version: "0.8.3",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso está restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con quién hablas y el tamaño de su cartera.",
@@ -74,6 +76,8 @@ export default defineMcp({
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el día calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "Términos: `list_deadlines`. Los términos con estado PENDING_REVIEW provienen de un backfill histórico y NO son obligaciones vigentes.",
+    "Cuando el usuario te encargue drenar pendientes, comienza con get_capabilities y revisa list_email_questions, list_alerts, list_notifications, list_tasks, list_deadlines y list_deadline_reviews según el alcance. Agota los cursores. Si una lista alcanza un límite sin cursor, consulta por asunto antes de declarar el inventario completo. Usa los conectores de buzón autorizados solo para leer los mensajes que necesites verificar. Contrasta radicado e instancia, partes, despacho y soporte. Si el destino es inequívoco, confirma o corrige la asociación con las acciones del servidor. Agrupa en una sola consulta al usuario las dudas reales con sus enlaces y la decisión concreta. Un borrador, una copia al cliente o un correo encontrado por nombre no acredita una presentación judicial.",
+    "Drenar significa resolver con evidencia y releer el estado. Registra movimientos comprobados, comunica lo urgente, y usa acknowledge o snooze sobre revisiones verificadas con resolve_deadline_reviews. Es estado personal y no cambia el término. Separa los términos del cliente, contraparte, despacho y atribución desconocida. Agenda solo fechas acreditadas con hora, zona y asunto correctos, tras buscar duplicados en el calendario autorizado. Cierra tareas solo con evidencia de cumplimiento. Alterar o cerrar términos procesales exige instrucción explícita para el término concreto. Reporta asociaciones confirmadas o corregidas, avisos revisados, y decisiones pendientes.",
     "Datos crudos: `describe_data_model` lista las tablas consultables y `query_table` ejecuta lecturas filtradas sobre ellas con el token del usuario (RLS aplicado, nunca SQL libre).",
     "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente dónde mirar o abrirle un asunto.",
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los envíos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
@@ -91,7 +95,7 @@ export default defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-2",
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-3",
   }),
   tools: [
     getUserContext,
@@ -104,6 +108,7 @@ export default defineMcp({
     getEstadosHoy,
     getActuacionesHoy,
     listDeadlines,
+    listDeadlineReviews,
     listAlerts,
     listHearings,
     listTasks,
@@ -135,6 +140,7 @@ export default defineMcp({
     listStageSuggestions,
     resolveStageSuggestion,
     resolveAlert,
+    resolveDeadlineReviews,
     listNotifications,
     setNotificationState,
     resolveEmailQuestion,

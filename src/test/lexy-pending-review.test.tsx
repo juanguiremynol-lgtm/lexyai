@@ -100,7 +100,6 @@ describe("LexyPendingReviewDialog", () => {
           { key: "k1", work_item_id: "wi-1", radicado: "05001310302120250021100", title: null, label: "AUTO_REQUERIMIENTO", deadline_type: "RESPUESTA_REQUERIMIENTO", ids: ["a", "b"] },
         ],
         ids: ["a", "b"],
-        deadlines: [],
         total: 1,
         ...over,
       },

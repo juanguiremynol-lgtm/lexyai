@@ -3221,6 +3221,7 @@ var MANAGE_TOOLS = [
   "set_notification_state",
   "resolve_email_question",
   "add_email_association",
+  "resolve_deadline_reviews",
   "resolve_detected_process",
   "assign_work_item_radicado",
   "create_client",
@@ -4083,12 +4084,67 @@ var list_freshness_issues_default = defineTool53({
   }
 });
 
+// src/lib/mcp/tools/list-deadline-reviews.ts
+import { defineTool as defineTool54 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { z as z49 } from "npm:zod@^3.25.76";
+var list_deadline_reviews_default = defineTool54({
+  name: "list_deadline_reviews",
+  title: "Bandeja de revisi\xF3n manual de t\xE9rminos",
+  description: "Lists unacknowledged, unsnoozed manual reviews grouped by source event, including the case, attribution, trigger and allowed actions. These are proposals to verify. Consult list_deadlines for the distinct procedural obligations. Follow next_cursor until has_more is false.",
+  inputSchema: {
+    cursor: z49.string().regex(/^[a-f0-9]{64}$/).optional(),
+    limit: z49.number().int().min(1).max(50).optional()
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ cursor, limit }, ctx) => {
+    const denied = requireAuth(ctx);
+    if (denied) return errorResult(denied);
+    const { data, error } = await sbForUser(ctx).rpc("list_pending_deadline_reviews", {
+      p_cursor: cursor ?? null,
+      p_limit: limit ?? 20
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Revisiones manuales pendientes.", data);
+  }
+});
+
+// src/lib/mcp/tools/resolve-deadline-reviews.ts
+import { defineTool as defineTool55 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { z as z50 } from "npm:zod@^3.25.76";
+var resolve_deadline_reviews_default = defineTool55({
+  name: "resolve_deadline_reviews",
+  title: "Marcar revisadas o aplazar revisiones manuales",
+  description: "Updates the user's private review queue in batches of up to 25 events from list_deadline_reviews. Acknowledge only events already reviewed and communicated with evidence under the user's instruction. Snooze uses a specific future timestamp. A procedural deadline can only be changed separately using manage_deadline with explicit authorization.",
+  inputSchema: {
+    event_ids: z50.array(z50.string().regex(/^[a-f0-9]{64}$/)).min(1).max(25),
+    action: z50.enum(["acknowledge", "snooze"]),
+    snoozed_until: z50.string().datetime({ offset: true }).optional(),
+    idempotency_key: z50.string().min(8).max(200).describe(IDEMPOTENCY_KEY_DESCRIPTION)
+  },
+  annotations: { ...MANAGE_ANNOTATIONS },
+  handler: async (args, ctx) => {
+    const denied = await requireWriteScope(ctx);
+    if (denied) return errorResult(denied);
+    if (args.action === "snooze" !== Boolean(args.snoozed_until)) {
+      return errorResult("Indica una fecha expl\xEDcita solo si vas a aplazar la revisi\xF3n.");
+    }
+    const { data, error } = await sbForUser(ctx).rpc("mcp_resolve_deadline_reviews", {
+      p_event_ids: args.event_ids,
+      p_action: args.action,
+      p_until: args.snoozed_until ?? null,
+      p_idempotency_key: args.idempotency_key
+    });
+    if (error) return errorResult(rpcErrorText(error));
+    return textResult("Estado personal de revisi\xF3n guardado.", data);
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "qvuukbqcvlnvmcvcruji";
 var mcp_default = defineMcp({
   name: "andromeda-mcp",
   title: "Andromeda Legal",
-  version: "0.8.2",
+  version: "0.8.3",
   instructions: [
     "Herramientas de Andromeda para abogados litigantes en Colombia. Todo el acceso est\xE1 restringido por RLS al usuario autenticado.",
     "Empieza por `get_user_context` para saber con qui\xE9n hablas y el tama\xF1o de su cartera.",
@@ -4100,6 +4156,8 @@ var mcp_default = defineMcp({
     "Agenda diaria: `get_estados_hoy` y `get_actuaciones_hoy`; 'hoy' siempre es el d\xEDa calendario en America/Bogota.",
     "Agenda y pendientes: `list_hearings` (audiencias), `list_tasks` (tareas) y `list_alerts` (alertas sin resolver).",
     "T\xE9rminos: `list_deadlines`. Los t\xE9rminos con estado PENDING_REVIEW provienen de un backfill hist\xF3rico y NO son obligaciones vigentes.",
+    "Cuando el usuario te encargue drenar pendientes, comienza con get_capabilities y revisa list_email_questions, list_alerts, list_notifications, list_tasks, list_deadlines y list_deadline_reviews seg\xFAn el alcance. Agota los cursores. Si una lista alcanza un l\xEDmite sin cursor, consulta por asunto antes de declarar el inventario completo. Usa los conectores de buz\xF3n autorizados solo para leer los mensajes que necesites verificar. Contrasta radicado e instancia, partes, despacho y soporte. Si el destino es inequ\xEDvoco, confirma o corrige la asociaci\xF3n con las acciones del servidor. Agrupa en una sola consulta al usuario las dudas reales con sus enlaces y la decisi\xF3n concreta. Un borrador, una copia al cliente o un correo encontrado por nombre no acredita una presentaci\xF3n judicial.",
+    "Drenar significa resolver con evidencia y releer el estado. Registra movimientos comprobados, comunica lo urgente, y usa acknowledge o snooze sobre revisiones verificadas con resolve_deadline_reviews. Es estado personal y no cambia el t\xE9rmino. Separa los t\xE9rminos del cliente, contraparte, despacho y atribuci\xF3n desconocida. Agenda solo fechas acreditadas con hora, zona y asunto correctos, tras buscar duplicados en el calendario autorizado. Cierra tareas solo con evidencia de cumplimiento. Alterar o cerrar t\xE9rminos procesales exige instrucci\xF3n expl\xEDcita para el t\xE9rmino concreto. Reporta asociaciones confirmadas o corregidas, avisos revisados, y decisiones pendientes.",
     "Datos crudos: `describe_data_model` lista las tablas consultables y `query_table` ejecuta lecturas filtradas sobre ellas con el token del usuario (RLS aplicado, nunca SQL libre).",
     "Pantallas: `list_app_screens` devuelve el mapa de la interfaz con enlaces directos, para decirle al usuario exactamente d\xF3nde mirar o abrirle un asunto.",
     "Correo: `email_integration_status` reporta la casilla conectada para lectura y los env\xEDos salientes de Andromeda; nunca expone tokens ni cuerpos de terceros.",
@@ -4117,7 +4175,7 @@ var mcp_default = defineMcp({
     acceptedAudiences: "authenticated",
     // Public, non-secret revision marker served by the unauthenticated
     // protected-resource metadata, so a deploy can be confirmed from outside.
-    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-2"
+    resourceDocumentation: "https://andromeda.legal/connect-ai/mcp-rev-0-8-3"
   }),
   tools: [
     get_user_context_default,
@@ -4130,6 +4188,7 @@ var mcp_default = defineMcp({
     get_estados_hoy_default,
     get_actuaciones_hoy_default,
     list_deadlines_default,
+    list_deadline_reviews_default,
     list_alerts_default,
     list_hearings_default,
     list_tasks_default,
@@ -4161,6 +4220,7 @@ var mcp_default = defineMcp({
     list_stage_suggestions_default,
     resolve_stage_suggestion_default,
     resolve_alert_default,
+    resolve_deadline_reviews_default,
     list_notifications_default,
     set_notification_state_default,
     resolve_email_question_default,

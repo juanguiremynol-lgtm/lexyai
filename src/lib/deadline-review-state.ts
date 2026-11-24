@@ -10,15 +10,17 @@ export async function updateDeadlineReviewState(
   action: "acknowledge" | "snooze",
   until?: string,
 ): Promise<void> {
-  const { data, error } = await supabase.rpc("acknowledge_deadline_reviews", {
-    _ids: ids,
-    _action: action,
-    _until: until ?? null,
-  });
-  if (error) throw error;
-  // The RPC must confirm every requested row; a partial write is a failure.
-  if (!data || data.length !== ids.length) {
-    throw new Error("No se confirmaron todos los términos");
+  for (let offset = 0; offset < ids.length; offset += 500) {
+    const batch = ids.slice(offset, offset + 500);
+    const { data, error } = await supabase.rpc("acknowledge_deadline_reviews", {
+      _ids: batch,
+      _action: action,
+      _until: until ?? null,
+    });
+    if (error) throw error;
+    if (!data || data.length !== batch.length) {
+      throw new Error("No se confirmaron todas las revisiones");
+    }
   }
 }
 
