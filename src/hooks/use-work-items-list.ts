@@ -66,6 +66,7 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
             id_number
           )
         `)
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null)
         .order("updated_at", { ascending: false });
 

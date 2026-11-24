@@ -39,11 +39,12 @@ import {
   Pause,
   AlertTriangle,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useWorkItemsList } from "@/hooks/use-work-items-list";
 import { WorkflowTypeBadge } from "@/components/processes/WorkflowTypeBadge";
+import { TerminatedWorkItems } from "@/components/processes/TerminatedWorkItems";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { BulkDeleteWorkItemsDialog } from "@/components/shared/BulkDeleteWorkItemsDialog";
 import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";
@@ -51,6 +52,11 @@ import { getStageLabel } from "@/lib/workflow-constants";
 import { cn } from "@/lib/utils";
 
 export default function Processes() {
+  const [params] = useSearchParams();
+  return params.get("vista") === "terminados" ? <TerminatedWorkItems /> : <ActiveProcesses />;
+}
+
+function ActiveProcesses() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedWorkflowTypes, setSelectedWorkflowTypes] = useState<WorkflowType[]>([
@@ -154,6 +160,9 @@ export default function Processes() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/app/processes?vista=terminados">Terminados</Link>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar

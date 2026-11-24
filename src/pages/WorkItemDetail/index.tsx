@@ -301,7 +301,10 @@ export default function WorkItemDetail() {
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
           {workItem._source === "work_items" && actor?.id === workItem.owner_id && (
-            <WorkItemActionsMenu workItem={workItem} variant="termination" onAfter={refetch} />
+            <WorkItemActionsMenu workItem={workItem} variant="termination" onAfter={(action) => {
+              if (action === "cerrar") navigate("/app/processes?vista=terminados", { replace: true });
+              else void refetch();
+            }} />
           )}
           {/* Export Pack */}
           <WorkItemExportPack workItem={extendedWorkItem} />

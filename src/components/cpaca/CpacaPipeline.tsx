@@ -109,6 +109,7 @@ export function CpacaPipeline() {
         .eq("workflow_type", "CPACA")
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null); // Exclude soft-deleted items
 
       if (error) throw error;

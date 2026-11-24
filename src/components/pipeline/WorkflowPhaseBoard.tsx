@@ -60,6 +60,7 @@ export function WorkflowPhaseBoard({ workflowType }: WorkflowPhaseBoardProps) {
         .eq("workflow_type", workflowType as never)
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null);
       if (error) throw error;
       return (data ?? []).map((item: Record<string, unknown>) => ({

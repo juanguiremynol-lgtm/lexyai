@@ -52,7 +52,7 @@ interface Props {
   workItem: WorkItemActionInput;
   clientName?: string | null;
   variant?: "dropdown" | "inline" | "termination";
-  onAfter?: () => void;
+  onAfter?: (action: WorkItemActionKey) => void;
   /** Suppress client-orphan prompt (e.g. bulk flows). */
   skipClientPrompt?: boolean;
 }
@@ -72,7 +72,6 @@ export function WorkItemActionsMenu({
 
   const { state, available, isPending, actions } = useWorkItemActions(workItem, {
     onSoftDeleted: async (wi) => {
-      onAfter?.();
       if (skipClientPrompt || !wi.client_id) return;
       try {
         const orphaned = await checkClientOrphaned(wi.client_id, wi.id);
@@ -81,7 +80,7 @@ export function WorkItemActionsMenu({
         /* silent */
       }
     },
-    onSuccess: () => onAfter?.(),
+    onSuccess: (action) => onAfter?.(action),
   });
 
   const runConfirm = async () => {
@@ -125,8 +124,9 @@ export function WorkItemActionsMenu({
     },
     cerrar: {
       title: "Marcar como terminado",
-      description: "El asunto quedará cerrado y conservará su historial. Si tiene vigilancia activa, se detendrá. Podrás reabrirlo después.",
-      label: "Confirmar término",
+      description: "El expediente y su historial de trabajo se eliminarán de Andrómeda y se detendrá la vigilancia. Solo quedará una constancia mínima en Terminados. Esta acción es irreversible.",
+      label: "Terminar y eliminar",
+      destructive: true,
     },
     eliminar_definitivo: {
       title: "Eliminar definitivamente",
@@ -219,11 +219,18 @@ export function WorkItemActionsMenu({
             <AlertDialogHeader>
               <AlertDialogTitle>{currentConfirm.title}</AlertDialogTitle>
               <AlertDialogDescription>{currentConfirm.description}</AlertDialogDescription>
+              {confirm === "cerrar" && (workItem.title || workItem.radicado) && (
+                <p className="break-words text-sm font-medium">{workItem.title || workItem.radicado}</p>
+              )}
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={runConfirm}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void runConfirm().catch(() => {});
+                }}
                 disabled={isPending}
                 className={cn(currentConfirm.destructive && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
               >

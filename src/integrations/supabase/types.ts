@@ -24165,6 +24165,7 @@ export type Database = {
           deleted_at: string | null
           despacho: string | null
           id: string
+          owner_id: string | null
           partes: string | null
           purged_at: string
           radicado: string | null
@@ -24178,6 +24179,7 @@ export type Database = {
           deleted_at?: string | null
           despacho?: string | null
           id: string
+          owner_id?: string | null
           partes?: string | null
           purged_at?: string
           radicado?: string | null
@@ -24191,6 +24193,7 @@ export type Database = {
           deleted_at?: string | null
           despacho?: string | null
           id?: string
+          owner_id?: string | null
           partes?: string | null
           purged_at?: string
           radicado?: string | null
@@ -30095,6 +30098,10 @@ export type Database = {
           p_status: Database["public"]["Enums"]["daily_sync_status"]
         }
         Returns: undefined
+      }
+      terminate_work_item: {
+        Args: { p_work_item_id: string; p_confirmed: boolean }
+        Returns: Json
       }
       upsert_standing_stage_suggestion: {
         Args: {

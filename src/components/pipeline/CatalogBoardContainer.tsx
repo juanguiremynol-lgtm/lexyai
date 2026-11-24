@@ -48,6 +48,7 @@ export function CatalogBoardContainer({ workflowType }: Props) {
         .eq("workflow_type", workflowType as never)
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null);
       if (error) throw error;
       const items = (data ?? []) as Array<Record<string, unknown>>;

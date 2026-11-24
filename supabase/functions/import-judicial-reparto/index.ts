@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, ensureAccessToken, GRAPH_BASE } from "../_shared/outlookGraph.ts";
 import { isCronCaller } from "../_shared/cronAuth.ts";
 import { pendingRepartoPdfs, purgeRepartoPdfs, REPARTO_BUCKET } from "../_shared/judicialRepartoPurge.ts";
+import { purgeTerminatedWorkItemFiles } from "../_shared/terminationStoragePurge.ts";
 import { extractRepartoSuggestions, hasPdfEnvelope, PDF_LIMIT, type RepartoSuggestions } from "./suggestions.ts";
 
 const IMPORTS = "judicial_reparto_imports";
@@ -205,9 +206,17 @@ if (import.meta.main) Deno.serve(async (req) => {
     if (!isCronCaller(req)) return json({ error: "Acceso restringido." }, 403);
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     try {
-      const paths = (await pendingRepartoPdfs(admin)).map((row) => row.pdf_path);
-      const result = await purgeRepartoPdfs(admin, paths);
-      return json({ ...result, attempted: paths.length }, result.pending ? 503 : 200);
+      const results = await Promise.allSettled([
+        pendingRepartoPdfs(admin).then(async (rows) => {
+          const paths = rows.map((row) => row.pdf_path);
+          return { ...(await purgeRepartoPdfs(admin, paths)), attempted: paths.length };
+        }),
+        purgeTerminatedWorkItemFiles(admin),
+      ]);
+      const reparto = results[0].status === "fulfilled" ? results[0].value : null;
+      const terminatedFiles = results[1].status === "fulfilled" ? results[1].value : null;
+      const incomplete = !reparto || !terminatedFiles || reparto.pending > 0 || terminatedFiles.pending > 0;
+      return json({ ...reparto, terminated_files: terminatedFiles }, incomplete ? 503 : 200);
     } catch {
       return json({ error: "La purga de PDFs queda pendiente de reintento." }, 503);
     }

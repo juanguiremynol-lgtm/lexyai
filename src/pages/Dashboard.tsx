@@ -3,7 +3,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus } from "lucide-react";
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkItemPipeline, LaboralPipeline, PenalPipeline, UnclassifiedTray, WorkflowPhaseBoard, CatalogBoardContainer } from "@/components/pipeline";
@@ -22,18 +23,6 @@ import { TodayAlertsPanel } from "@/components/dashboard/TodayAlertsPanel";
 import { JudicialRepartoButton } from "@/components/work-items/JudicialRepartoImport";
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    actaPending: 0,
-    radicadoPending: 0,
-    overdueTasks: 0,
-    criticalAlerts: 0,
-    monitoredProcesses: 0,
-    pendingPeticiones: 0,
-    pendingTutelas: 0,
-    pendingCpaca: 0,
-    pendingPenal: 0,
-    pendingGovProcedure: 0,
-  });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -51,80 +40,91 @@ export default function Dashboard() {
     setSearchParams({ tab: value }, { replace: true });
   }, [setSearchParams]);
 
-  const fetchStats = useCallback(async () => {
-    // Query unified work_items table for stats
-    const { data: workItemsData } = await supabase
-      .from("work_items")
-      .select("workflow_type, stage, cgp_phase, status")
-      .eq("status", "ACTIVE");
+  const { data: stats = {
+    actaPending: 0,
+    radicadoPending: 0,
+    overdueTasks: 0,
+    criticalAlerts: 0,
+    monitoredProcesses: 0,
+    pendingPeticiones: 0,
+    pendingTutelas: 0,
+    pendingCpaca: 0,
+    pendingPenal: 0,
+    pendingGovProcedure: 0,
+  }, refetch: fetchStats } = useQuery({
+    queryKey: ["dashboard-stats"],
+    queryFn: async () => {
+      // Query unified work_items table for stats
+      const { data: workItemsData } = await supabase
+        .from("work_items")
+        .select("workflow_type, stage, cgp_phase, status")
+        .eq("lifecycle_state", "ACTIVE")
+        .is("deleted_at", null);
 
-    // CGP Filing stage stats
-    const cgpFilings = workItemsData?.filter(
-      (w) => w.workflow_type === "CGP" && w.cgp_phase === "FILING"
-    ) || [];
-    const actaPending = cgpFilings.filter((f) => f.stage === "ACTA_PENDING").length;
-    const radicadoPending = cgpFilings.filter((f) => f.stage === "RADICADO_PENDING").length;
+      // CGP Filing stage stats
+      const cgpFilings = workItemsData?.filter(
+        (w) => w.workflow_type === "CGP" && w.cgp_phase === "FILING"
+      ) || [];
+      const actaPending = cgpFilings.filter((f) => f.stage === "ACTA_PENDING").length;
+      const radicadoPending = cgpFilings.filter((f) => f.stage === "RADICADO_PENDING").length;
 
-    // CGP Process count (monitoring)
-    const monitoredProcesses = workItemsData?.filter(
-      (w) => w.workflow_type === "CGP" && w.cgp_phase === "PROCESS"
-    ).length || 0;
+      // CGP Process count (monitoring)
+      const monitoredProcesses = workItemsData?.filter(
+        (w) => w.workflow_type === "CGP" && w.cgp_phase === "PROCESS"
+      ).length || 0;
 
-    // Peticiones pending
-    const pendingPeticiones = workItemsData?.filter(
-      (w) => w.workflow_type === "PETICION" && w.stage !== "RESPUESTA"
-    ).length || 0;
+      // Peticiones pending
+      const pendingPeticiones = workItemsData?.filter(
+        (w) => w.workflow_type === "PETICION" && w.stage !== "RESPUESTA"
+      ).length || 0;
 
-    // Tutelas pending
-    const pendingTutelas = workItemsData?.filter(
-      (w) => w.workflow_type === "TUTELA" && w.stage !== "ARCHIVADO"
-    ).length || 0;
+      // Tutelas pending
+      const pendingTutelas = workItemsData?.filter(
+        (w) => w.workflow_type === "TUTELA" && w.stage !== "ARCHIVADO"
+      ).length || 0;
 
-    // CPACA pending
-    const pendingCpaca = workItemsData?.filter(
-      (w) => w.workflow_type === "CPACA" && w.stage !== "ARCHIVADO"
-    ).length || 0;
+      // CPACA pending
+      const pendingCpaca = workItemsData?.filter(
+        (w) => w.workflow_type === "CPACA" && w.stage !== "ARCHIVADO"
+      ).length || 0;
 
-    // PENAL_906 pending (non-terminal phases)
-    const pendingPenal = workItemsData?.filter(
-      (w) => w.workflow_type === "PENAL_906"
-    ).length || 0;
+      // PENAL_906 pending (non-terminal phases)
+      const pendingPenal = workItemsData?.filter(
+        (w) => w.workflow_type === "PENAL_906"
+      ).length || 0;
 
-    // GOV_PROCEDURE (administrative) pending
-    const pendingGovProcedure = workItemsData?.filter(
-      (w) => w.workflow_type === "GOV_PROCEDURE" && w.stage !== "ARCHIVADO"
-    ).length || 0;
+      // GOV_PROCEDURE (administrative) pending
+      const pendingGovProcedure = workItemsData?.filter(
+        (w) => w.workflow_type === "GOV_PROCEDURE" && w.stage !== "ARCHIVADO"
+      ).length || 0;
 
-    // Tasks and alerts still from their own tables
-    const { count: overdueTasks } = await supabase
-      .from("tasks")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "OPEN")
-      .lt("due_at", new Date().toISOString());
+      // Tasks and alerts still from their own tables
+      const { count: overdueTasks } = await supabase
+        .from("tasks")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "OPEN")
+        .lt("due_at", new Date().toISOString());
 
-    const { count: criticalAlerts } = await supabase
-      .from("alerts")
-      .select("*", { count: "exact", head: true })
-      .eq("severity", "CRITICAL")
-      .eq("is_read", false);
+      const { count: criticalAlerts } = await supabase
+        .from("alerts")
+        .select("*", { count: "exact", head: true })
+        .eq("severity", "CRITICAL")
+        .eq("is_read", false);
 
-    setStats({
-      actaPending,
-      radicadoPending,
-      overdueTasks: overdueTasks || 0,
-      criticalAlerts: criticalAlerts || 0,
-      monitoredProcesses,
-      pendingPeticiones,
-      pendingTutelas,
-      pendingCpaca,
-      pendingPenal,
-      pendingGovProcedure,
-    });
-  }, []);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+      return {
+        actaPending,
+        radicadoPending,
+        overdueTasks: overdueTasks || 0,
+        criticalAlerts: criticalAlerts || 0,
+        monitoredProcesses,
+        pendingPeticiones,
+        pendingTutelas,
+        pendingCpaca,
+        pendingPenal,
+        pendingGovProcedure,
+      };
+    },
+  });
 
   const handleCreationSuccess = () => {
     fetchStats();

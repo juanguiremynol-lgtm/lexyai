@@ -99,6 +99,7 @@ export function AdminPipeline() {
           client_id, clients(id, name)
         `)
         .eq("workflow_type", "GOV_PROCEDURE")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null)
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")

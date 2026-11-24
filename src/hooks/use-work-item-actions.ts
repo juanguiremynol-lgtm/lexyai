@@ -43,7 +43,9 @@ export interface WorkItemActionInput {
 
 const INVALIDATE_KEYS = [
   "work-items",
+  "work-items-list",
   "work-item-detail",
+  "work-item-id-by-radicado",
   "work-items-cgp-pipeline",
   "work-items-laboral-pipeline",
   "work-items-penal-pipeline",
@@ -56,6 +58,11 @@ const INVALIDATE_KEYS = [
   "cgp-items",
   "cpaca-work-items-pipeline",
   "tutelas-work-items",
+  "work-items-phase-board",
+  "catalog-board-items",
+  "unclassified-work-items",
+  "terminated-work-items",
+  "today-notifications",
 ];
 
 export function deriveLifecycleView(wi: WorkItemActionInput): LifecycleView {
@@ -155,17 +162,15 @@ export function useWorkItemActions(
   });
 
   const cerrarMut = useMutation({
-    mutationFn: async (reason?: string) => {
+    mutationFn: async () => {
       if (!wi) throw new Error("Sin asunto");
-      const { data: u } = await supabase.auth.getUser();
-      const r = await setWorkItemLifecycle(supabase, {
-        workItemId: wi.id,
-        newState: "CLOSED",
-        reason: reason ?? "USER_CLOSED",
-        actor: "USER",
-        actorUserId: u.user?.id ?? null,
+      const { data, error } = await supabase.rpc("terminate_work_item", {
+        p_work_item_id: wi.id, p_confirmed: true,
       });
-      if (!r.ok) throw new Error(r.error || "No se pudo cerrar");
+      if (error) throw new Error(error.message);
+      if (!data || typeof data !== "object" || !("ok" in data) || data.ok !== true) {
+        throw new Error("No se confirmó el término del asunto");
+      }
     },
     onSuccess: () => {
       toast.success("Proceso terminado");
@@ -232,7 +237,7 @@ export function useWorkItemActions(
     actions: {
       pausar: (reason?: string) => pausarMut.mutateAsync(reason),
       reactivar: () => reactivarMut.mutateAsync(),
-      cerrar: (reason?: string) => cerrarMut.mutateAsync(reason),
+      cerrar: () => cerrarMut.mutateAsync(),
       eliminar: (reason?: string) => eliminarMut.mutateAsync(reason),
       restaurar: () => (wi ? restore.restoreSingle(wi.id) : Promise.resolve()),
       eliminarDefinitivo: () => (wi ? hardPurge.purgeSingle(wi.id) : Promise.resolve()),

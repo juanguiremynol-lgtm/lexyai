@@ -107,6 +107,7 @@ export function WorkItemPipeline() {
         .eq("workflow_type", "CGP")
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null); // Exclude soft-deleted items
 
       if (error) throw error;

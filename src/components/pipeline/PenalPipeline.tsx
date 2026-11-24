@@ -93,6 +93,7 @@ export function PenalPipeline() {
         .eq("workflow_type", "PENAL_906" as any)
         .neq("status", "CLOSED")
         .neq("status", "ARCHIVED")
+        .in("lifecycle_state", ["ACTIVE", "PAUSED"])
         .is("deleted_at", null);
 
       if (error) throw error;
