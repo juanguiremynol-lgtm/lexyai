@@ -27687,6 +27687,22 @@ export type Database = {
         }
         Returns: undefined
       }
+      _save_work_item_intake_preview: {
+        Args: {
+          p_item: Database["public"]["Tables"]["work_items"]["Row"]
+          p_snapshot: Json
+        }
+        Returns: undefined
+      }
+      _validate_work_item_intake_preview: {
+        Args: {
+          p_payload: string
+          p_radicado: string
+          p_signature: string
+          p_workflow: string
+        }
+        Returns: Json
+      }
       accept_workflow_suggestion: {
         Args: {
           _suggestion_id: string
@@ -28479,14 +28495,23 @@ export type Database = {
         Returns: Json
       }
       confirm_judicial_reparto_with_intake_preview: {
-        Args: Database["public"]["Functions"]["confirm_judicial_reparto"]["Args"] & {
+        Args: {
+          p_authority: string
+          p_client_id: string
+          p_confirmed: boolean
+          p_demandados: string
+          p_demandantes: string
+          p_event_on: string
+          p_import_id: string
+          p_kind: string
           p_payload: string
+          p_radicado: string
+          p_reference: string
           p_signature: string
+          p_title: string
+          p_work_item_id: string
+          p_workflow_type: string
         }
-        Returns: Json
-      }
-      create_work_item_with_intake_preview: {
-        Args: { p_item: Json; p_payload: string; p_signature: string }
         Returns: Json
       }
       contribute_court_email: {
@@ -28508,6 +28533,10 @@ export type Database = {
             Returns: number
           }
         | { Args: { p_since: string }; Returns: number }
+      create_work_item_with_intake_preview: {
+        Args: { p_item: Json; p_payload: string; p_signature: string }
+        Returns: Json
+      }
       cron_job_health: {
         Args: never
         Returns: {
@@ -29923,6 +29952,10 @@ export type Database = {
           p_work_item_id: string
         }
         Returns: Json
+      }
+      sign_work_item_intake_preview: {
+        Args: { p_payload: string }
+        Returns: string
       }
       source_chain: { Args: { _source: string }; Returns: string[] }
       source_collection_quality: {
