@@ -24157,6 +24157,30 @@ export type Database = {
           },
         ]
       }
+      work_item_termination_files: {
+        Row: {
+          attempted_at: string | null
+          bucket_id: string
+          object_prefix: string
+          queued_at: string
+          work_item_id: string
+        }
+        Insert: {
+          attempted_at?: string | null
+          bucket_id: string
+          object_prefix: string
+          queued_at?: string
+          work_item_id: string
+        }
+        Update: {
+          attempted_at?: string | null
+          bucket_id?: string
+          object_prefix?: string
+          queued_at?: string
+          work_item_id?: string
+        }
+        Relationships: []
+      }
       work_item_tombstones: {
         Row: {
           counts: Json
@@ -30081,6 +30105,10 @@ export type Database = {
         Args: { p_work_item_id: string }
         Returns: number
       }
+      terminate_work_item: {
+        Args: { p_confirmed: boolean; p_work_item_id: string }
+        Returns: Json
+      }
       timeline_row_is_provider_attributable: {
         Args: { _provider: string; _providers: string[] }
         Returns: boolean
@@ -30098,10 +30126,6 @@ export type Database = {
           p_status: Database["public"]["Enums"]["daily_sync_status"]
         }
         Returns: undefined
-      }
-      terminate_work_item: {
-        Args: { p_work_item_id: string; p_confirmed: boolean }
-        Returns: Json
       }
       upsert_standing_stage_suggestion: {
         Args: {
