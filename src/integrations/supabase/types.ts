@@ -29452,6 +29452,15 @@ export type Database = {
         }
         Returns: Json
       }
+      mcp_resolve_deadline_reviews: {
+        Args: {
+          p_action: string
+          p_event_ids: string[]
+          p_idempotency_key: string
+          p_until: string
+        }
+        Returns: Json
+      }
       mcp_resolve_detected_process: {
         Args: {
           p_decision: string
@@ -29737,6 +29746,10 @@ export type Database = {
         Returns: boolean
       }
       recover_daily_sync_after_restart_20261121: {
+        Args: { _dry_run?: boolean }
+        Returns: Json
+      }
+      recover_interrupted_daily_sync_child_20261124: {
         Args: { _dry_run?: boolean }
         Returns: Json
       }
