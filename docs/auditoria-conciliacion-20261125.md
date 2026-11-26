@@ -105,3 +105,16 @@ Lógica movida a `scheduled-alert-evaluator/evaluate.ts`. Categorías separadas:
 - Ausencia de las 3 actuaciones: comprobada en BD a las 18:57 Bogotá del 25/11; sus fuentes nativas provienen del informe, sin verificación independiente nueva.
 - Intentos nativos propios (Olga 2 PDF + COVIN) devolvieron 403 el 25/11 19:15:42–47 Bogotá: no hay binarios nuevos ni hashes verificados; no se eludió el 403.
 - Despliegue ≠ ejecución real. Recibos del redeploy: ver sección siguiente.
+
+### Redeploy 26/11 (2026-11-26 00:27 UTC / 2026-11-26 00:27 Bogotá), commit probado 32d7d6b805bfa8607e0b4fe64ad7926166473cd6
+source_sha256 = hash de archivos y ajustes enviados por la herramienta (no prueba de ejecución ni verificación en vivo):
+- sync-publicaciones-by-work-item ed1556a1e34e9cce1d34d0076c028cbc248db459590b3643b847d7d5f86a2827
+- bridge-reconcile 19b8e3fe91856b8733e8c5e0d835c24cc1bd072a768ed526f983645b5c311c3f
+- sync-by-work-item 4b6af6e322596b2bc902c1419f6dac6c176701f86eb83643ad529281d0811ba6
+- sync-by-radicado cf36083248614b67673ca24f0168d0805e709fcef8d5b44d74aba55fd9053459
+- admin-diagnose-estados 834b4c7e3707b9d24e0c459df0b01444249949c408892fbde96acdbd2c7ab619
+- admin-test-providers 6c148fe62833d906587f4abaa3f90fce0e2c9ffc1cdcb4859e42b2f14fe1cebe
+- demo-radicado-lookup af0bc16c8c45093f1d6a6d615b50cead022dc488ee1abc42f11efbc7028a1d44
+- orchestrator-debug-run 5ecd713d53cc83353c0a2ef8e6730029b51a667b276d84b65581230699151db6
+- scheduled-alert-evaluator a888cacd87836c8db1f7e3080584be1e8e9ab12f51bf79b17e83ba0db0643431
+Sin invocaciones; Scheduler sin cambios. Incluye la compatibilidad de b848d726.
