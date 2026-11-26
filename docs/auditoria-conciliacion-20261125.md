@@ -24,13 +24,13 @@ Parte 1 (evaluador de alertas, `cannot delete from scalar`): ver `docs/auditoria
 | # | Radicado / caso | Hallazgo | Decisión |
 |---|---|---|---|
 | 1 | 05001311000220260047100 | Planilla estado 0167 (27/10) `f84edabf-27b3-4c03-a0d3-8a60a7b91760` y auto `8a17fa0d-60ad-4648-8385-6fb9e6a69bec` presentes desde 21/11 20:47:25 UTC. Dos soportes de **un** estado. | Diferencia histórica resuelta. Mantener revisión jurídica del amparo. |
-| 2 | 18 actuaciones candidatas | Una es réplica CPNU/SAMAI del memorial consecutivo 77 → 17 primarias: 14 presentes, 3 ausentes (extracción completa + list_actuaciones). | Ausentes: 05001333301020230019900 (SAMAI 77, 23/11, respuesta canon); 05001400301020260153500 (memorial 25/11, remisión); 05001400302020250187800 (respuesta Agencia de Tierras 24/11). Recuperar sólo por fuente nativa. |
-| 3 | Olga 05001310302120250021100 | 4 actuaciones 23–24/11 presentes. Falta estado 154 (24/11), article 284836437, planilla `b835cbda-a3e7-4e73-545b-f4a6a94cde6c`, auto `c8b25e22-2757-1c37-d41c-5b6eef43c5ed`. | Candidato de recuperación nativa (PP moderno). |
+| 2 | 18 actuaciones candidatas | Una es réplica CPNU/SAMAI del memorial consecutivo 77 → 17 primarias: 14 con **coincidencia por descripción/fecha** (no por ID nativo exacto; no equivalen a PRESENTE por UUID) y 3 **no localizadas** por fecha+texto ni por endpoint; se revisaron también todas las filas con fecha NULL sin coincidencia distintiva. No son omisiones nativas confirmadas. | No localizadas: 05001333301020230019900 (SAMAI 77, 23/11, respuesta canon); 05001400301020260153500 (memorial 25/11, remisión); 05001400302020250187800 (respuesta Agencia de Tierras 24/11). Recuperar sólo por fuente nativa. |
+| 3 | Olga 05001310302120250021100 | 4 actuaciones 23–24/11 presentes. Estado 154 (24/11), article 284836437: **INCORPORACIÓN INCOMPLETA**. Entrada `2b305480-0ce7-4c83-ad95-e98fe3ab2620` con fijación NULL y pdf NULL; providencia `3f1e3c97-7831-44a8-b1cf-a23a3b6692b1` con fijación NULL y proxy del article 284836437. Ambas detectadas el 25/11 07:26 Bogotá, antes de los parches de esta sesión. La consulta por fecha no encuentra filas con fijación NULL, así que no acreditaba ausencia. El body del run `c4bacb94` y `documento_atribucion` en originales contienen la URL nativa con UUID `c8b25…` y el hash **reportado** `1725f961…` (no se recalculó). Planilla de referencia `b835cbda-a3e7-4e73-545b-f4a6a94cde6c`. | Recuperar la planilla, completar la fecha y relacionar la constancia ya existente; no duplicar filas. No fusionar con el estado 137. El mismo PDF/hash puede sustentar válidamente una notificación correctiva distinta; compartir auto no fusiona notificaciones. |
 | 4 | «79 filas de estados» | 54 estados + 25 traslados; 23 pares radicado–documento / 22 UUID. **No son 79 eventos.** | No ingerir por conteo. |
 | 5 | COVIN 05376408900220250066300 | 0 pubs; 13 hits remiten al estado 082 (14/07) UUID `6fa1b7e9-714c-9086-6ab5-86e4f7aaf51a`. | Recuperar exige original. |
 | 6 | Civil Municipal 2, 05001400300220190003700 | 0 pubs; 12 hits = 2 estados (22/07, 27/10) con 4 documentos. | Recuperar exige originales. |
-| 7 | Amagá 05030318900120250000200 | 20 hits de 5 documentos bajo 2 artículos de octubre; 4 títulos presentes; estado 013 (05/06) no encontrado. Anomalías históricas (título 2011 guardado 2011/2015/2025). | No corregir masivamente fechas ni duplicados sin fuente. |
-| 8 | Luca 05376408900120250087200 | Estado 030 (12/03) con fila en catálogo `0571f30f-00c1-41a5-9706-ac7387c18d75` por título/fecha; 5 hits ≠ 5 estados. | **CORRESPONDENCIA PROVISIONAL**: pendiente correspondencia documental (sin prueba de identidad binaria/UUID nativo). |
+| 7 | Amagá 05030318900120250000200 | 20 hits de 5 documentos bajo 2 artículos de octubre; 4 títulos presentes; estado 013 (05/06) no encontrado. Estado 031: la fila ID `20892ebd-bcd3-4543-aa7c-5c3279321f56` contiene el hash reportado `b8fcae35dc8a45e8e2c1018aa438f5622ed616a9ab908bbd575ccc4b8b95b746` y fecha 18/09; existe otra fila equivalente por nombre con fecha 17/09. Correspondencia por metadatos, no auditoría binaria. Anomalías históricas (título 2011 guardado 2011/2015/2025). | No corregir masivamente fechas ni duplicados sin fuente. |
+| 8 | Luca 05376408900120250087200 | Estado 030 (12/03) con fila `0571f30f-00c1-41a5-9706-ac7387c18d75`, cuya ruta contiene el hash **reportado** `b268dad90aba32d365dba0a927102b0b55bc0056aab9458e57f917df94891535`; 5 hits ≠ 5 estados. | **CORRESPONDENCIA POR METADATOS** (hash reportado en ruta, no auditoría binaria). |
 | 9 | Familia 13 (11001311001320240075200) y Familia 20 (11001311002020260005100) | Traslados 043 y 042 (14/10) presentes por UUID exacto `86fe8ea0-…`, `a1f24a31-…`. | Comprobar anexos por separado. |
 | 10 | Penal 08001600125720253122600 | 7 hits son referencias en contestación de custodia del J20 Familia Bogotá (article 271935159, UUID `403f1ce2-8daf-d846-1900-ae140ec35496`). | **No ingerir**: no son eventos penales. |
 | 11 | YEAR_CONS conflictivos | 08001400301520260049900 vs doc 08001405301520260049900; 08001405300620260071100 vs doc 08001418900620260071100. | Exigir identidad/alias probado; nunca normalizar dígitos. |
@@ -38,9 +38,9 @@ Parte 1 (evaluador de alertas, `cannot delete from scalar`): ver `docs/auditoria
 
 ## Matriz y criterios de conciliación
 
-Cada referencia del informe se clasifica en exactamente uno de: **PRESENTE** (UUID/ID nativo exacto en Andrómeda), **CORRESPONDENCIA PROVISIONAL** (coincide por título/fecha en catálogo pero falta identidad binaria o UUID nativo), **RÉPLICA** (mismo acto nativo en otra fuente: se enlaza, no se duplica), **AUSENTE_CONFIRMADA** (extracción completa + listado sin coincidencia), **CANDIDATO** (requiere original/fuente nativa), **NO_EVENTO** (referencia dentro de otro documento, homónimo, alias no probado) o **CONFLICTO_IDENTIDAD**.
+Cada referencia del informe se clasifica en exactamente uno de: **PRESENTE** (UUID/ID nativo exacto en Andrómeda), **CORRESPONDENCIA PROVISIONAL** (coincide por título/fecha en catálogo pero falta identidad binaria o UUID nativo), **RÉPLICA** (mismo acto nativo en otra fuente: se enlaza, no se duplica), **COINCIDENCIA_DESCRIPTIVA** (descripción/fecha sin ID nativo exacto), **NO_LOCALIZADA** (sin coincidencia en BD por fecha, texto, endpoint ni filas con fecha NULL; no es verificación de ausencia nativa), **CANDIDATO** (requiere original/fuente nativa), **NO_EVENTO** (referencia dentro de otro documento, homónimo, alias no probado) o **CONFLICTO_IDENTIDAD**.
 
-Reglas: identidad por UUID/article_id/consecutivo nativo y radicado de 23 dígitos exacto (instancia `…00` ≠ `…01`); nombre, fecha, título o despacho nunca bastan; varios soportes de un estado son un evento; un hit no es un evento; una fecha de portal no es fecha jurídica; ausencia de bandera de atribución no es prueba positiva; no rekey histórico ni fusión masiva; toda recuperación es idempotente por huella canónica.
+Reglas: identidad por UUID/article_id/consecutivo nativo y radicado de 23 dígitos exacto (instancia `…00` ≠ `…01`); nombre, fecha, título o despacho nunca bastan; varios soportes de un estado son un evento; un hit no es un evento; una fecha de portal no es fecha jurídica; ausencia de bandera de atribución no es prueba positiva; no rekey histórico ni fusión masiva; toda recuperación es idempotente por huella canónica. La cohorte de 75 radicados es fija: no se retiran filas por archivos eventuales. Toda recuperación pendiente obliga a reportar cobertura PARCIAL; un rechazo técnico (403, guardia anti-rekey, límite de recursos) nunca cuenta como éxito de cobertura.
 
 ## Parche A — fecha/huella canónica PP (fuente preparada)
 
@@ -54,7 +54,7 @@ Corrección: nuevo módulo hoja `_shared/ppDateRoles.ts` (sin importaciones loca
 
 ## Pruebas
 
-- `deno test` (32 archivos de _shared relacionados): **90 aprobadas, 0 fallidas**, incluida `ppDateRolesConvergence_test.ts` (adaptador real + mapper completo + identidad bridge + escritor sobre el mismo payload; fijación desconocida NULL; portal móvil sin cambio de huella; legacy; SAMAI; banderas en ambas guardas; lote totalmente rechazado).
+- `deno test` (32 archivos de _shared relacionados): **90 aprobadas, 0 fallidas**, incluida `ppDateRolesConvergence_test.ts` (adaptador real + mapper completo + identidad sobre filas del escritor —no la ruta real del bridge, cuya prueba `bridge-reconcile/identity_test.ts` se agregó en `32d7d6b8`— + escritor sobre el mismo payload; fijación desconocida NULL; portal móvil sin cambio de huella; legacy; SAMAI; banderas en ambas guardas; lote totalmente rechazado).
 - `deno check` sync-publicaciones-by-work-item, bridge-reconcile, provider-sync-external-provider: OK.
 - `vitest` publication-association + alert-evaluator payloads: 24/24.
 - Sin RPC/ACL, cron, filas históricas, términos, estados de asuntos ni audiencias tocados. Sin correos ni notificaciones reales.
@@ -74,7 +74,7 @@ Ver `docs/codex-gcs-instrucciones-20261125.md`.
 ## Registro de despliegue
 
 - Fuente preparada: commit `1ccea3969aa987af94525c7ca9bee5c5ecc67b32` (sobre `0b28c1b5`, preservado).
-- Desplegadas 26/11/2026 ~00:12 UTC (respuesta de la herramienta: «Successfully deployed»), únicamente las 8 funciones que importan los módulos cambiados:
+- Desplegadas 26/11/2026 ~00:12 UTC = 25/11 ~19:12 Bogotá (respuesta de la herramienta: «Successfully deployed»), únicamente las 8 funciones que importan los módulos cambiados:
   - sync-publicaciones-by-work-item `d121edfe60368277521403b0b5801fd236751e444f7df37bf96668c49482befa`
   - bridge-reconcile `bbec9532b5f25a794050abe9228817a9d027c271eb2cb4f2bf64f950a972b568`
   - sync-by-work-item `645d13555a0537dcef6b21ea08a887c2ab2058d8a447cd157394ba2097ee2443`
@@ -85,7 +85,7 @@ Ver `docs/codex-gcs-instrucciones-20261125.md`.
   - orchestrator-debug-run `2639f91b73a301c20da71b03f1f786002f4972f6f2e346d4105aba1859711756`
 - Runtime validado: **no**. No se invocó ninguna función; la validación será la próxima corrida diaria programada.
 
-## Addendum 26/11/2026 (sobre `b848d726`)
+## Addendum 26/11/2026 UTC = 25/11/2026 Bogotá (sobre `b848d726`)
 
 ### Corrección 1 — identidad PUB en bridge-reconcile desde la fila del adaptador
 Defecto reproducido: `NormalizedPublicacion` devolvía `fecha_fijacion=''` (desconocida) y omitía `published_at`/`fecha_providencia`. `canonicalPubIdentityFromRow` usaba `fecha_fijacion ?? published_at`; `''` no es nulo, así que la fecha de identidad quedaba vacía y dos publicaciones del mismo título con fechas de portal distintas colapsaban en la agrupación del bridge.
@@ -96,13 +96,13 @@ Límite: `provider-sync-external-provider` usa `providerNormalize` propio y no p
 ### Corrección 2 — contadores del evaluador de alertas
 Lógica movida a `scheduled-alert-evaluator/evaluate.ts`. Categorías separadas: `read_errors` (consultas de audiencias/tareas fallidas, sin RPC) y `notification_rpc_errors`/`notification_requests_failed` (RPC `insert_notification` con error). `errors` se conserva combinado por compatibilidad. `*_alerts_created` y `notification_requests_accepted` cuentan **solicitudes aceptadas, no inserciones probadas** (la RPC devuelve void y puede omitir por preferencias/dedupe); la respuesta lo declara con `alerts_created_semantics`. Prueba con cliente simulado: `src/test/scheduled-alert-evaluator-counters.test.ts` (sin notificar a nadie).
 
-### Lectura operativa (solo lectura, 26/11 ~00:30 UTC)
-- **Olga** `6ec08071-…`: el estado 154 (article 284836437) **ya figura** desde el run `4f596f13` de 25/11 12:26 UTC (filas `2b305480-…` «Notificación por Estado No.154», sin fijación, published_at 24/11, y `3f1e3c97-…` providencia). Inserción anterior al despliegue del parche de fechas: no se atribuye a él. Clasificación: CORRESPONDENCIA PROVISIONAL (sin hash de binario verificado).
+### Lectura operativa (solo lectura, 26/11 ~00:30 UTC = 25/11 ~19:30 Bogotá)
+- **Olga** `6ec08071-…`: estado 154 (article 284836437) en **INCORPORACIÓN INCOMPLETA** desde el run `4f596f13` (25/11 07:26 Bogotá = 12:26 UTC): ver fila 3 de la tabla. Anterior a los parches; no se les atribuye.
 - Los 2 errores repetidos (`c4bacb94` 16:56 UTC y corridas 12:41–15:51) son `PP_NATIVE_DATE_CONFLICT` sobre «Planilla Estados 137.pdf» y la providencia «Cúmplase lo resuelto – Personería» del article **272173949** (octubre), ya guardadas con fijación 15/10 y huella legacy. El proveedor reenvía ese artículo con roles de fecha explícitos; la huella recalculada difiere y la guardia anti-rekey lo bloquea a propósito (`officialStateReplay` no aplica: falta adjunto oficial descargado). No es un bug pequeño de aplicación; el article id se infiere por título/clave (el mensaje detallado no se conserva en el ledger). Resolverlo exige que el scraper entregue la fijación impresa de 272173949 o un original verificado; no se forzó scrape ni se modificaron filas. Mientras tanto la corrida diaria seguirá en PARTIAL/PERSIST_MISMATCH.
 - **EDU** `e4e761ac-…` (y CORNARE `2a590db7-…`): `daily_source_attempts` SAMAI PENDING, 2 intentos, `Edge Function HTTP 546: WORKER_RESOURCE_LIMIT`; `external_sync_runs 160922c7` sigue RUNNING sin `finished_at` desde 12:04 UTC (worker terminado por recursos antes de cerrar el run). Es un límite de recursos del worker, **no** ausencia nativa. El SUCCESS matutino de CPNU no descarta eventos ingresados después.
 
 ### Límites vigentes
-- Ausencia de las 3 actuaciones: comprobada en BD a las 18:57 Bogotá del 25/11; sus fuentes nativas provienen del informe, sin verificación independiente nueva.
+- Las 3 actuaciones no se localizaron en BD a las 18:57 Bogotá del 25/11 (fecha+texto, endpoint y filas con fecha NULL); no es ausencia nativa confirmada; sus fuentes provienen del informe, sin verificación independiente nueva.
 - Intentos nativos propios (Olga 2 PDF + COVIN) devolvieron 403 el 25/11 19:15:42–47 Bogotá: no hay binarios nuevos ni hashes verificados; no se eludió el 403.
 - Despliegue ≠ ejecución real. Recibos del redeploy: ver sección siguiente.
 
@@ -118,3 +118,8 @@ source_sha256 = hash de archivos y ajustes enviados por la herramienta (no prueb
 - orchestrator-debug-run 5ecd713d53cc83353c0a2ef8e6730029b51a667b276d84b65581230699151db6
 - scheduled-alert-evaluator a888cacd87836c8db1f7e3080584be1e8e9ab12f51bf79b17e83ba0db0643431
 Sin invocaciones; Scheduler sin cambios. Incluye la compatibilidad de b848d726.
+
+### Cierre 26/11 (25/11 Bogotá): deuda previa y build
+- Los 21 fallos Deno (`providerCoverageMatrix.test.ts` ×17, `cpnuAdapter_dedup_test.ts` ×2, `cpnuAdapter_test.ts` ×1, `alertTypeConstants_test.ts` ×1) se reprodujeron con `deno test --allow-all --no-check` sobre una copia de `c7f552841e426f30cb1a276dfb76377a7432eb90` y sobre `32d7d6b8`: mismos nombres y mismas razones (48 aprobadas / 21 fallidas / 1 ignorada en ambos). **Deuda anterior a esta sesión**; no se corrigió.
+- `bun run build` (`tsc --noEmit -p tsconfig.app.json && vite build`) sobre `05f53a0b`: OK (solo aviso de tamaño de chunk). Build ≠ ejecución productiva.
+- Pendientes: Cloud SAMAI (WORKER_RESOURCE_LIMIT) y `PP_NATIVE_DATE_CONFLICT` del article 272173949.
