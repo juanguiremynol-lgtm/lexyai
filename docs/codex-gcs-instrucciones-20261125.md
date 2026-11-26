@@ -14,7 +14,7 @@ Los scrapers viven en Google Cloud Shell; no se reubican en Andrómeda. Andróme
 Un evento = un (article_id, tipo_publicacion). Planilla y auto son **soportes** del mismo estado. Un hit en un PDF ajeno (p. ej. referencias citadas) no es evento. Paquetes de centros de servicios: sólo las páginas del caso.
 
 ## 3. Backfill idempotente
-- Sólo casos explícitos (Olga estado 154 art. 284836437; COVIN estado 082; Civil Mpal 2 estados 22/07 y 27/10; 3 actuaciones ausentes listadas en `docs/auditoria-conciliacion-20261125.md`).
+- Sólo casos explícitos (Olga estado 154 art. 284836437; COVIN estado 082; Civil Mpal 2 estados 22/07 y 27/10; 3 actuaciones no localizadas (no omisiones nativas confirmadas) listadas en `docs/auditoria-conciliacion-20261125.md`).
 - Reenviar por el contrato normal; Andrómeda deduplica por huella canónica. No crear claves nuevas para reintentos; nunca re-POST de un run incierto (seguir GET /runs/{id}).
 - Respetar una actualización lógica por usuario+asunto por día Bogotá; nada de cron ni sondeo nuevo.
 
@@ -31,9 +31,9 @@ Los términos los calcula Andrómeda (`business_days_between_sql`, calendario ju
 4. Reejecución del backfill no crea filas nuevas.
 5. Evidencia: run_id, article_id, SHA-256 de originales, conteo aceptadas/rechazadas.
 
-## Addendum 26/11/2026
+## Addendum 26/11/2026 UTC (25/11/2026 Bogotá)
 - Olga article 272173949 (estado 137, 15/10): el payload moderno reenvía el artículo con roles de fecha que cambian la huella respecto a la fila guardada → `PP_NATIVE_DATE_CONFLICT` diario. Entregar `estado.fecha_fijacion_impresa` leída del original, o el PDF oficial con URL+SHA para `recuperacion_oficial`. No re-POST ni rekey.
-- Estado 154 (article 284836437) ya está en Andrómeda sin fijación impresa ni hash de binario verificado: CORRESPONDENCIA PROVISIONAL hasta aportar original.
+- Estado 154 (article 284836437): INCORPORACIÓN INCOMPLETA (filas `2b305480-…` y `3f1e3c97-…` con fijación NULL). Recuperar planilla, completar fecha y relacionar la constancia existente; no duplicar ni fusionar con el estado 137. Hash `1725f961…` es reportado, no recalculado.
 - Catálogo PRESENTE por título/fecha (Luca, Amagá) = CORRESPONDENCIA PROVISIONAL, no prueba UUID.
 - Los 403 nativos del 25/11 19:15 Bogotá (Olga 2 PDF, COVIN) no se eluden; sin binarios ni hashes nuevos.
 - SAMAI EDU/CORNARE: `WORKER_RESOURCE_LIMIT` (HTTP 546) es recurso del worker, no ausencia nativa.
