@@ -260,3 +260,8 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] 2026-11-25 Evaluador de alertas: p_metadata como objeto y contadores honestos (docs/auditoria-conciliacion-20261125-alertas.md); confirmar corrida 12:40 UTC
 - [x] 2026-11-25 Conciliación parte 2: parches PP fecha/huella y atribución; informe + addendum en docs/auditoria-conciliacion-20261125.md; guía CODEX en docs/codex-gcs-instrucciones-20261125.md
 - [ ] Recuperación nativa de casos candidatos (Olga estado 154, COVIN, Civil Mpal 2, 3 actuaciones) — depende de GCS/CODEX
+- [x] Bridge: identidad PUB desde fila del adaptador (fijación vacía = desconocida) — ver docs/auditoria-conciliacion-20261125.md addendum 26/11
+- [x] Evaluador: separar errores de lectura y de RPC; *_alerts_created = solicitudes aceptadas
+- [ ] Olga article 272173949 PP_NATIVE_DATE_CONFLICT diario — requiere fijación impresa u original (GCS/CODEX)
+- [ ] SAMAI EDU/CORNARE WORKER_RESOURCE_LIMIT y run 160922c7 huérfano RUNNING — pendiente diagnóstico de recursos
+- [ ] Luca/Amagá: correspondencia documental pendiente (provisional por título/fecha)

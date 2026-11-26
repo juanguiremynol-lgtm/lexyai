@@ -610,7 +610,8 @@ export function canonicalPubIdentityFromRow(
     // a now-populated fecha_fijacion must not shift the recomputed identity.
     pub_date: isSamaiRow(row)
       ? (row.published_at ?? null)
-      : (row.fecha_fijacion ?? row.published_at ?? null),
+      // An empty-string fijación (adapter output for "unknown") is not a date.
+      : ((row.fecha_fijacion && String(row.fecha_fijacion).trim()) ? row.fecha_fijacion : (row.published_at ?? null)),
     tipo_publicacion: row.tipo_publicacion ?? null,
     title: row.title ?? null,
     party_hint: (row.raw_data as any)?.parte ?? resolvePartyHint((row.raw_data as any)?.raw_data)

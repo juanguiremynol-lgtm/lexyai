@@ -86,6 +86,10 @@ export interface NormalizedPublicacion {
   fecha_providencia?: string;
   /** ISO date YYYY-MM-DD */
   fecha_desfijacion?: string;
+  /** Canonical portal/publication timestamp (identity anchor when fijación unknown). Not a legal fijación. */
+  published_at?: string;
+  /** Canonical source discriminator (e.g. publicaciones, samai_estados) */
+  source?: string;
   /** Pre-computed fingerprint for dedup */
   hash_fingerprint: string;
   /** Canonical provider key */

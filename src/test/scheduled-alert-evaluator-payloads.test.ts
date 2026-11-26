@@ -46,7 +46,7 @@ describe("scheduled-alert-evaluator insert_notification args", () => {
     expect(s.notification_requests_accepted).toBe(0);
   });
   it("evaluator source no longer stringifies metadata", () => {
-    const src = readFileSync("supabase/functions/scheduled-alert-evaluator/index.ts", "utf8");
+    const src = readFileSync("supabase/functions/scheduled-alert-evaluator/evaluate.ts", "utf8");
     expect(src).not.toMatch(/p_metadata:\s*JSON\.stringify/);
     expect((src.match(/rpc\(\s*"insert_notification"/g) || []).length).toBe(3);
   });

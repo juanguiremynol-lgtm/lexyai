@@ -387,6 +387,11 @@ function normalizeOnePublicacion(
     tipo_publicacion: tipo,
     fecha_fijacion: fijacionOut,
     fecha_desfijacion: normalizeDate(p.fecha_desfijacion ?? p.fechaDesfijacion) || undefined,
+    // Canonical metadata preserved so identity can be recomputed from this row
+    // exactly as from the stored row. Never used to fill fecha_fijacion.
+    published_at: canonicalRow.published_at ?? undefined,
+    fecha_providencia: canonicalRow.fecha_providencia ?? undefined,
+    source: canonicalRow.source ?? undefined,
     hash_fingerprint: fingerprint,
     source_platform: PROVIDER_KEY,
     sources: [PROVIDER_KEY],

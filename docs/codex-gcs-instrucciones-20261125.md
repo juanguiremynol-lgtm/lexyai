@@ -30,3 +30,11 @@ Los términos los calcula Andrómeda (`business_days_between_sql`, calendario ju
 3. Filas con advertencia aparecen como rechazadas con índice y run_id; un lote totalmente rechazado no acredita consulta completa.
 4. Reejecución del backfill no crea filas nuevas.
 5. Evidencia: run_id, article_id, SHA-256 de originales, conteo aceptadas/rechazadas.
+
+## Addendum 26/11/2026
+- Olga article 272173949 (estado 137, 15/10): el payload moderno reenvía el artículo con roles de fecha que cambian la huella respecto a la fila guardada → `PP_NATIVE_DATE_CONFLICT` diario. Entregar `estado.fecha_fijacion_impresa` leída del original, o el PDF oficial con URL+SHA para `recuperacion_oficial`. No re-POST ni rekey.
+- Estado 154 (article 284836437) ya está en Andrómeda sin fijación impresa ni hash de binario verificado: CORRESPONDENCIA PROVISIONAL hasta aportar original.
+- Catálogo PRESENTE por título/fecha (Luca, Amagá) = CORRESPONDENCIA PROVISIONAL, no prueba UUID.
+- Los 403 nativos del 25/11 19:15 Bogotá (Olga 2 PDF, COVIN) no se eluden; sin binarios ni hashes nuevos.
+- SAMAI EDU/CORNARE: `WORKER_RESOURCE_LIMIT` (HTTP 546) es recurso del worker, no ausencia nativa.
+- `provider-sync-external-provider` usa `providerNormalize` propio: no asumir la misma identidad PUB que el adaptador PP.

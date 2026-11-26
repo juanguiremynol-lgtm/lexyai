@@ -42,8 +42,6 @@ import {
   fetchFromSamaiEstados,
   type ProviderAdapterResult,
 } from "../_shared/providerAdapters/index.ts";
-import { canonicalPubIdentityFromRow, pubArticleIdFromRow } from "../_shared/canonicalPublicacionMapper.ts";
-import { canonicalActIdentityFromRow } from "../_shared/canonicalActMapper.ts";
 import {
   CHAIN,
   PROVIDER_LOCAL_SOURCES,
@@ -70,69 +68,8 @@ import {
  * `canonicalPubIdentityFromRow` / `canonicalActIdentityFromRow` from the shared
  * mappers, so the reconciler can never drift from the writers again.
  */
-function norm(v: unknown): string | null {
-  const s = String(v ?? "").trim();
-  return s && s !== "null" && s !== "undefined" ? s.toLowerCase() : null;
-}
-
-function providerIdentities(
-  kind: "ACT" | "PUB",
-  row: Record<string, any>,
-  workItemId: string,
-): string[] {
-  const raw = (row.raw_data ?? {}) as Record<string, any>;
-  const ids = [
-    norm(row.hash_fingerprint),
-    norm(row.asset_id ?? raw.asset_id ?? raw.id),
-    norm(row.key ?? raw.key),
-    norm(raw?.estado?.article_id),
-  ];
-  if (kind === "PUB") {
-    ids.push(norm(canonicalPubIdentityFromRow({
-      fecha_fijacion: row.fecha_fijacion ?? row.published_at ?? raw.fecha_publicacion ?? null,
-      published_at: null,
-      tipo_publicacion: row.tipo_publicacion ?? null,
-      title: row.title ?? raw.titulo ?? null,
-      raw_data: raw,
-    }, workItemId)));
-  } else {
-    ids.push(norm(canonicalActIdentityFromRow({
-      act_date: row.fecha_actuacion ?? row.act_date ?? null,
-      description: row.actuacion ?? row.description ?? null,
-      raw_data: raw,
-    }, workItemId)));
-  }
-  return ids.filter((x): x is string => Boolean(x));
-}
-
-function localIdentities(kind: "ACT" | "PUB", row: Record<string, any>, workItemId: string): string[] {
-  const raw = (row.raw_data ?? {}) as Record<string, any>;
-  const ids = [
-    norm(row.hash_fingerprint),
-    norm(raw.asset_id ?? raw.id),
-    norm(raw.key),
-  ];
-  // ITERATION 26 — the article id is read from an explicit field by the shared
-  // helper (legacy composite-key rows still resolve, but the convention is no
-  // longer inlined here).
-  if (kind === "PUB") ids.push(norm(pubArticleIdFromRow(row)));
-  if (kind === "PUB") {
-    ids.push(norm(canonicalPubIdentityFromRow(row as any, workItemId)));
-  } else {
-    ids.push(norm(canonicalActIdentityFromRow(row as any, workItemId)));
-  }
-  return ids.filter((x): x is string => Boolean(x));
-}
-
-/** Legal identity is the normalized juridical fact, not a transported hash. */
-export function legalIdentity(kind: "ACT" | "PUB", row: Record<string, any>, workItemId: string): string {
-  if (kind === "PUB") return canonicalPubIdentityFromRow(row as any, workItemId);
-  return canonicalActIdentityFromRow({
-    act_date: row.fecha_actuacion ?? row.act_date ?? null,
-    description: row.actuacion ?? row.description ?? null,
-    raw_data: row.raw_data ?? {},
-  }, workItemId);
-}
+import { groupProviderRows, legalIdentity, localIdentities, norm, providerIdentities } from "./identity.ts";
+export { legalIdentity };
 
 const PLATFORM_ORG = "a0000000-0000-0000-0000-000000000001";
 const GAP_ALERT_HOURS = 24;
@@ -495,13 +432,7 @@ Deno.serve(async (req) => {
 
         // Deduplicate provider rows on their strongest identity so a provider
         // that repeats a row across pages is not counted twice.
-        const providerRows = new Map<string, { ids: string[]; row: Record<string, any> }>();
-        for (const r of rows as unknown as Record<string, any>[]) {
-          const ids = providerIdentities(kind, r, wi.id);
-          if (ids.length === 0) continue;
-          const key = norm(legalIdentity(kind, r, wi.id)) ?? ids[0];
-          if (!providerRows.has(key)) providerRows.set(key, { ids, row: r });
-        }
+        const providerRows = groupProviderRows(kind, rows as unknown as Record<string, any>[], wi.id);
 
         const localState = async (): Promise<{ ids: Set<string>; legal: Set<string>; count: number }> => {
           const table = kind === "ACT" ? "work_item_acts" : "work_item_publicaciones";
