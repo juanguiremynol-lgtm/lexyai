@@ -257,3 +257,4 @@ Pendientes de plataforma (no trabajo jurídico):
 - [x] Subtipos GOV_PROCEDURE y superintendencia jurisdiccional (solo registros nuevos)
 - [ ] Panel de la app con el estado de la petición (las alertas ya salen en el centro de alertas)
 - [ ] Prueba real desde ChatGPT tras publicar
+- [x] 2026-11-25 Evaluador de alertas: p_metadata como objeto y contadores honestos (docs/auditoria-conciliacion-20261125-alertas.md); confirmar corrida 12:40 UTC

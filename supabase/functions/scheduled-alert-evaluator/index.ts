@@ -16,6 +16,12 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
+import {
+  buildEmailStats,
+  hearingNotificationArgs,
+  taskNotificationArgs,
+  taskOwnerNotificationArgs,
+} from "./payloads.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,10 +29,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-/** Matches build_dedupe_key(kind, entity_id, bucket) SQL contract */
-function buildDedupeKey(kind: string, entityId: string, bucket?: string): string {
-  return bucket ? `${kind}:${entityId}:${bucket}` : `${kind}:${entityId}`;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -47,6 +49,8 @@ Deno.serve(async (req) => {
 
   const results = {
     hearings_evaluated: 0,
+    // *_alerts_created keep their legacy names for consumers but count
+    // insert_notification requests ACCEPTED (void RPC; may skip by prefs/dedupe).
     hearing_alerts_created: 0,
     tasks_evaluated: 0,
     task_alerts_created: 0,
@@ -136,26 +140,10 @@ Deno.serve(async (req) => {
           const hourBucket = `${now.toISOString().slice(0, 10)}-${String(now.getUTCHours()).padStart(2, "0")}`;
 
           for (const userId of recipientIds) {
-            const { error: rpcErr } = await supabase.rpc("insert_notification", {
-              p_audience_scope: "USER",
-              p_user_id: userId,
-              p_category: "WORK_ITEM_ALERTS",
-              p_type: "AUDIENCIA_PROXIMA",
-              p_title: `Audiencia próxima: ${h.title}`,
-              p_body: `En ${hoursUntil}h — ${h.location || (h.is_virtual ? "Virtual" : "Sin ubicación")}`,
-              p_severity: bracket === "1h" ? "critical" : bracket === "24h" ? "warning" : "info",
-              p_metadata: JSON.stringify({
-                hearing_id: h.id,
-                scheduled_at: h.scheduled_at,
-                hours_until: hoursUntil,
-                bracket,
-              }),
-              p_dedupe_key: buildDedupeKey("hearing_reminder", h.id, `${bracket}:${hourBucket}`),
-              p_deep_link: h.work_item_id
-                ? `/app/work-items/${h.work_item_id}`
-                : "/app/hearings",
-              p_work_item_id: h.work_item_id,
-            });
+            const { error: rpcErr } = await supabase.rpc(
+              "insert_notification",
+              hearingNotificationArgs(h, userId, bracket, hoursUntil, hourBucket),
+            );
 
             if (rpcErr) {
               results.errors.push(`Hearing ${h.id} bracket ${bracket} user ${userId}: ${rpcErr.message}`);
@@ -180,30 +168,15 @@ Deno.serve(async (req) => {
       results.tasks_evaluated = overdueTasks.length;
 
       for (const t of overdueTasks) {
-        const targetUser = t.assigned_to || t.owner_id;
-        const daysPast = Math.floor(
+                const daysPast = Math.floor(
           (Date.now() - new Date(t.due_date).getTime()) / (1000 * 60 * 60 * 24)
         );
         const today = new Date().toISOString().split("T")[0];
 
-        const { error: rpcErr } = await supabase.rpc("insert_notification", {
-          p_audience_scope: "USER",
-          p_user_id: targetUser,
-          p_category: "WORK_ITEM_ALERTS",
-          p_type: "TAREA_VENCIDA",
-          p_title: `Tarea vencida: ${t.title}`,
-          p_body: `Vencida hace ${daysPast} día(s) — Prioridad: ${t.priority || "MEDIA"}`,
-          p_severity: daysPast >= 3 ? "critical" : "warning",
-          p_metadata: JSON.stringify({
-            task_id: t.id,
-            due_date: t.due_date,
-            days_past: daysPast,
-            priority: t.priority,
-          }),
-          p_dedupe_key: buildDedupeKey("task_overdue", t.id, today),
-          p_deep_link: `/app/work-items/${t.work_item_id}`,
-          p_work_item_id: t.work_item_id,
-        });
+        const { error: rpcErr } = await supabase.rpc(
+          "insert_notification",
+          taskNotificationArgs(t, daysPast, today),
+        );
 
         if (rpcErr) {
           results.errors.push(`Task ${t.id}: ${rpcErr.message}`);
@@ -213,24 +186,15 @@ Deno.serve(async (req) => {
 
         // Also notify owner if assigned to someone else
         if (t.assigned_to && t.assigned_to !== t.owner_id) {
-          await supabase.rpc("insert_notification", {
-            p_audience_scope: "USER",
-            p_user_id: t.owner_id,
-            p_category: "WORK_ITEM_ALERTS",
-            p_type: "TAREA_VENCIDA",
-            p_title: `Tarea vencida: ${t.title}`,
-            p_body: `Vencida hace ${daysPast} día(s) — Asignada a otro usuario`,
-            p_severity: daysPast >= 3 ? "critical" : "warning",
-            p_metadata: JSON.stringify({
-              task_id: t.id,
-              due_date: t.due_date,
-              days_past: daysPast,
-              assigned_to: t.assigned_to,
-            }),
-            p_dedupe_key: buildDedupeKey("task_overdue", t.id, today),
-            p_deep_link: `/app/work-items/${t.work_item_id}`,
-            p_work_item_id: t.work_item_id,
-          });
+          const { error: ownerErr } = await supabase.rpc(
+            "insert_notification",
+            taskOwnerNotificationArgs(t, daysPast, today),
+          );
+          if (ownerErr) {
+            results.errors.push(`Task ${t.id} owner: ${ownerErr.message}`);
+          } else {
+            results.task_alerts_created++;
+          }
         }
       }
     }
@@ -238,11 +202,11 @@ Deno.serve(async (req) => {
     const traceStatus = results.errors.length > 0 ? "PARTIAL" : "OK";
     await writeTraceRecord(supabase, trace, traceStatus, {
       work_items_scanned: results.hearings_evaluated + results.tasks_evaluated,
-      email_stats: {
-        pending_alerts: results.hearings_evaluated + results.tasks_evaluated,
-        emails_sent: results.hearing_alerts_created + results.task_alerts_created,
-        emails_failed: results.errors.length,
-      },
+      email_stats: buildEmailStats({
+        evaluated: results.hearings_evaluated + results.tasks_evaluated,
+        accepted: results.hearing_alerts_created + results.task_alerts_created,
+        failed: results.errors.length,
+      }),
       errors: results.errors.length > 0
         ? [{ code: "ALERT_EVAL_ERR", message: results.errors.slice(0, 5).join("; "), count: results.errors.length }]
         : undefined,
