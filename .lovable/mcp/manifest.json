@@ -5,7 +5,7 @@
   "auth": {
     "type": "oauth",
     "issuer": "https://qvuukbqcvlnvmcvcruji.supabase.co/auth/v1",
-    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-8-2",
+    "resource_documentation": "https://andromeda.legal/connect-ai/mcp-rev-0-8-3",
     "accepted_audiences": [
       "authenticated"
     ]
@@ -13,7 +13,7 @@
   "mcp": {
     "server": {
       "name": "andromeda-mcp",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "title": "Andromeda Legal"
     },
     "tools": [
@@ -386,6 +386,34 @@
               "minimum": 1,
               "maximum": 200,
               "description": "Máximo de filas (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_deadline_reviews",
+        "title": "Bandeja de revisión manual de términos",
+        "description": "Lists unacknowledged, unsnoozed manual reviews grouped by source event, including the case, attribution, trigger and allowed actions. These are proposals to verify. Consult list_deadlines for the distinct procedural obligations. Follow next_cursor until has_more is false.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
             }
           },
           "additionalProperties": false,
@@ -1975,6 +2003,56 @@
           },
           "required": [
             "alert_id",
+            "action",
+            "idempotency_key"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "resolve_deadline_reviews",
+        "title": "Marcar revisadas o aplazar revisiones manuales",
+        "description": "Updates the user's private review queue in batches of up to 25 events from list_deadline_reviews. Acknowledge only events already reviewed and communicated with evidence under the user's instruction. Snooze uses a specific future timestamp. A procedural deadline can only be changed separately using manage_deadline with explicit authorization.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "event_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "minItems": 1,
+              "maxItems": 25
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "acknowledge",
+                "snooze"
+              ]
+            },
+            "snoozed_until": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "description": "Clave única (8-200 caracteres) para esta acción concreta. Si la respuesta se pierde, repite la llamada con la MISMA clave y los mismos datos: se devuelve el resultado ya confirmado sin repetir el cambio. Reusar la clave con otros datos es un error."
+            }
+          },
+          "required": [
+            "event_ids",
             "action",
             "idempotency_key"
           ],
