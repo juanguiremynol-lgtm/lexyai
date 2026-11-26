@@ -100,7 +100,7 @@ export function resolvePPDateRoles(raw: unknown, radicado: string | null | undef
   const portal = civil(estado?.fecha_publicacion_portal);
   const fijacion = civil(estado?.fecha_fijacion_impresa);
   const providencia = civil(r.fecha_providencia_impresa) ?? attributedPPRowAutoDate(r, radicado);
-  const explicit = !!estado && Object.hasOwn(estado, 'fecha_publicacion_portal');
+  const explicit = !!estado && Object.prototype.hasOwnProperty.call(estado, 'fecha_publicacion_portal');
   if (!explicit && !portal && !fijacion && !providencia) return null;
   return { portal, fijacion, providencia, explicit };
 }
