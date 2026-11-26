@@ -70,3 +70,17 @@ Ese documento dice «no desplegado». Estado actual: el código (`DailySourceInc
 ## Instrucciones para CODEX (Google Cloud Shell)
 
 Ver `docs/codex-gcs-instrucciones-20261125.md`.
+
+## Registro de despliegue
+
+- Fuente preparada: commit `1ccea3969aa987af94525c7ca9bee5c5ecc67b32` (sobre `0b28c1b5`, preservado).
+- Desplegadas 26/11/2026 ~00:12 UTC (respuesta de la herramienta: «Successfully deployed»), únicamente las 8 funciones que importan los módulos cambiados:
+  - sync-publicaciones-by-work-item `d121edfe60368277521403b0b5801fd236751e444f7df37bf96668c49482befa`
+  - bridge-reconcile `bbec9532b5f25a794050abe9228817a9d027c271eb2cb4f2bf64f950a972b568`
+  - sync-by-work-item `645d13555a0537dcef6b21ea08a887c2ab2058d8a447cd157394ba2097ee2443`
+  - sync-by-radicado `25b7f2740dc4c17cfb5702dbcc89010e66343261c585ea288ff2b870e6170fae`
+  - admin-diagnose-estados `83bb1b09fb8865acbcc304387941afe86d67501ba4fa5ad975579ae8a2581e5d`
+  - admin-test-providers `5bead93c472f6e7a453a5b3c5d55319f68bdf1fd882732f188e20c5bfa810216`
+  - demo-radicado-lookup `3ffec770a4c9767e91f6a6e62a3ccfc8484c9db7f83e6e2d608a12d719477cb0`
+  - orchestrator-debug-run `2639f91b73a301c20da71b03f1f786002f4972f6f2e346d4105aba1859711756`
+- Runtime validado: **no**. No se invocó ninguna función; la validación será la próxima corrida diaria programada.
