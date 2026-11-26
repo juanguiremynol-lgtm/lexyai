@@ -106,7 +106,7 @@ Lógica movida a `scheduled-alert-evaluator/evaluate.ts`. Categorías separadas:
 - Intentos nativos propios (Olga 2 PDF + COVIN) devolvieron 403 el 25/11 19:15:42–47 Bogotá: no hay binarios nuevos ni hashes verificados; no se eludió el 403.
 - Despliegue ≠ ejecución real. Recibos del redeploy: ver sección siguiente.
 
-### Redeploy 26/11 (2026-11-26 00:27 UTC / 2026-11-26 00:27 Bogotá), commit probado 32d7d6b805bfa8607e0b4fe64ad7926166473cd6
+### Redeploy 26/11 (2026-11-26 00:27 UTC / 2026-11-25 19:27 Bogotá), commit probado 32d7d6b805bfa8607e0b4fe64ad7926166473cd6
 source_sha256 = hash de archivos y ajustes enviados por la herramienta (no prueba de ejecución ni verificación en vivo):
 - sync-publicaciones-by-work-item ed1556a1e34e9cce1d34d0076c028cbc248db459590b3643b847d7d5f86a2827
 - bridge-reconcile 19b8e3fe91856b8733e8c5e0d835c24cc1bd072a768ed526f983645b5c311c3f
