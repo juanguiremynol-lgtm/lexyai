@@ -40,36 +40,11 @@
 import { canonicalPubFingerprint, resolvePartyHint, samaiPublicationDocumentKey } from "./canonicalFingerprint.ts";
 import { normalizeSourceKey, normalizeSourceList } from "./canonicalSource.ts";
 import { resolveProviderLinkage } from "./recursoStreams.ts";
+import { SPANISH_MONTHS, parseDate, plausibleCivilDate, resolvePPDateRoles } from "./ppDateRoles.ts";
 
 // ───────────────────────── date / string helpers ─────────────────────────
 
-export const SPANISH_MONTHS: Record<string, string> = {
-  ENERO: "01", FEBRERO: "02", MARZO: "03", ABRIL: "04",
-  MAYO: "05", JUNIO: "06", JULIO: "07", AGOSTO: "08",
-  SEPTIEMBRE: "09", OCTUBRE: "10", NOVIEMBRE: "11", DICIEMBRE: "12",
-};
-
-export function parseDate(dateStr: string | undefined | null): string | null {
-  if (!dateStr) return null;
-  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.slice(0, 10);
-
-  for (const pattern of [/^(\d{2})\/(\d{2})\/(\d{4})$/, /^(\d{2})-(\d{2})-(\d{4})$/]) {
-    const m = dateStr.match(pattern);
-    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  }
-
-  const spanishLong = dateStr.match(
-    /^(\d{1,2})[\s-]+(?:de\s+)?([A-Za-zñÑáéíóúÁÉÍÓÚ]+)[\s-]+(?:de\s+)?(\d{4})$/,
-  );
-  if (spanishLong) {
-    const day = spanishLong[1].padStart(2, "0");
-    const month = SPANISH_MONTHS[
-      spanishLong[2].toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    ];
-    if (month) return `${spanishLong[3]}-${month}-${day}`;
-  }
-  return null;
-}
+export { SPANISH_MONTHS, parseDate, plausibleCivilDate } from "./ppDateRoles.ts";
 
 export function extractDateFromTitle(title: string): string | undefined {
   if (!title) return undefined;
@@ -440,21 +415,6 @@ export interface CanonicalPubRow {
   instancia_grado: string | null;
 }
 
-/** A civil date is persisted only when it is a real calendar day in a
- * plausible judicial range. Anything else (e.g. digits sliced from a 23-digit
- * radicado such as 0131-10-01, or "sin-fecha") becomes NULL: an unknown date
- * is shown as "Fecha no informada", never replaced by today. The original
- * provider text stays in raw_data for traceability. */
-export function plausibleCivilDate(d: string | null | undefined): string | null {
-  const m = typeof d === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(d) : null;
-  if (!m) return null;
-  const [y, mo, day] = [+m[1], +m[2], +m[3]];
-  if (y < 2000 || y > new Date().getUTCFullYear() + 1) return null;
-  const t = new Date(Date.UTC(y, mo - 1, day));
-  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== day) return null;
-  return `${m[1]}-${m[2]}-${m[3]}`;
-}
-
 function isoAtNoon(d: string | null): string | null {
   const civil = plausibleCivilDate(d);
   return civil ? new Date(`${civil}T12:00:00Z`).toISOString() : null;
@@ -569,7 +529,7 @@ export function toCanonicalPubRow(
     ? "api_explicit"
     : (fechaFromTitle ? "parsed_title" : "inferred_sync");
 
-  return {
+  const row: CanonicalPubRow = {
     work_item_id: ctx.work_item_id,
     organization_id: ctx.organization_id,
     source: sourceProvider,
@@ -604,6 +564,20 @@ export function toCanonicalPubRow(
     recurso_consecutivo: linkage.consecutivo,
     instancia_grado: linkage.instancia,
   };
+  // Modern PP date roles (portal / printed fixation / printed providencia) are
+  // resolved here, once, so adapter, bridge and writer share the same dates
+  // and fingerprint. SAMAI and legacy payloads return null and stay unchanged.
+  const roles = isSamai || sourceProvider !== "publicaciones"
+    ? null : resolvePPDateRoles(unit.raw_data, ctx.source_radicado);
+  if (roles) {
+    const noon = (d: string) => new Date(`${d}T12:00:00Z`).toISOString();
+    if (roles.portal || roles.explicit) row.published_at = roles.portal ? noon(roles.portal) : null;
+    if (roles.fijacion || roles.explicit) row.fecha_fijacion = roles.fijacion ? noon(roles.fijacion) : null;
+    if (roles.providencia || roles.explicit) row.fecha_providencia = roles.providencia ? noon(roles.providencia) : null;
+    if (roles.explicit && !roles.portal) { row.date_source = "inferred_sync"; row.date_confidence = "low"; }
+    row.hash_fingerprint = canonicalPubIdentityFromRow(row, ctx.work_item_id);
+  }
+  return row;
 }
 
 /** Full route: provider payload → canonical rows. Used by every ingestion path. */

@@ -1,3 +1,5 @@
+import { hasUnaccreditedAssociationFlag } from './ppDateRoles.ts';
+
 /** Semantics of the PP durable admission/status contract. Never infer success
  * from HTTP 202 or from a returned identifier alone. */
 export type DurableVerdict =
@@ -99,7 +101,8 @@ export function matchingPartialHistory(data: unknown, radicado: string, runId: s
     const validPages = (v: unknown): boolean => Array.isArray(v) && v.length > 0 &&
       v.every((x) => typeof x === 'number' ? Number.isInteger(x) && x > 0 :
         Array.isArray(x) && x.length === 2 && x.every((n) => Number.isInteger(n) && n > 0) && x[1] >= x[0]);
-    const exactRad = a?.radicado === radicado && (!a?.paquete?.radicado || a.paquete.radicado === radicado);
+    // An attribution warning is never accepted for normal persistence.
+    const exactRad = !hasUnaccreditedAssociationFlag(a?.asociacion_no_acreditada) && a?.radicado === radicado && (!a?.paquete?.radicado || a.paquete.radicado === radicado);
     const nativeArticle = /^\d+$/.test(String(row?.estado?.article_id ?? ''));
     const ok = exactRad && nativeArticle && validPages(pages);
     if (!ok) rejected.push(i);

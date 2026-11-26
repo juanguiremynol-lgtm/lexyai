@@ -1,68 +1,24 @@
 import {
-  toCanonicalPubRow, canonicalPubIdentityFromRow, parseDate, plausibleCivilDate, SPANISH_MONTHS,
-  pubArticleIdFromRow,
+  toCanonicalPubRow, parseDate, plausibleCivilDate, pubArticleIdFromRow,
   type ProviderPubUnit, type CanonicalPubContext, type CanonicalPubRow,
 } from './canonicalPublicacionMapper.ts';
 import { officialPortalRecoveryHash, publicPpDocumentCorrespondence } from './estadoAttachmentRecovery.ts';
 import { verifyDeclaredCasePages } from './publisherResolution.ts';
+import { hasUnaccreditedAssociationFlag } from './ppDateRoles.ts';
 
-/** The PP seven-column extractor explicitly labels FECHA AUTO and verifies the
- * court, case, article and row. fecha_iso alone is a fallback cascade and is
- * never enough to establish a decision date. */
-export function attributedPPRowAutoDate(raw: Record<string, any>, radicado: string | null | undefined): string | null {
-  const a = raw.documento_atribucion;
-  const row = a?.fila_estado;
-  const article = String(raw.estado?.article_id ?? '');
-  if (!radicado || !/^\d{23}$/.test(radicado) || !radicado.endsWith('00') ||
-      a?.radicado !== radicado || a?.asociacion_no_acreditada ||
-      row?.metodo !== 'pdfplumber_celdas_despacho_acreditado' ||
-      row?.prueba_despacho !== 'PRINTED_COURT_AND_VERIFIED_DEPARTMENT' ||
-      row?.despacho_acreditado !== radicado.slice(0, 12) || !/^\d+$/.test(article) ||
-      String(row?.article_id ?? '') !== article) return null;
-  const match = String(row.identidad_celda ?? '').match(/^(\d{4})\s*[-–—/]\s*(\d{5})$/);
-  if (!match || match[1] !== radicado.slice(12, 16) || match[2] !== radicado.slice(16, 21)) return null;
-  const { pagina, tabla, fila } = row;
-  if (![pagina, tabla, fila].every(n => Number.isInteger(n) && n > 0) ||
-      row.id_origen !== `${article}:p${pagina}:t${tabla}:r${fila}`) return null;
-  const sourceDate = typeof raw.fecha === 'string' ? plausibleCivilDate(parseDate(raw.fecha)) : null;
-  const resolvedDate = typeof raw.fecha_iso === 'string' ? plausibleCivilDate(parseDate(raw.fecha_iso)) : null;
-  const cell = String(row.fecha_celda ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-  const m = cell.match(/^([A-Z]+)\s+(\d{1,2})\s*\/\s*(\d{4})$/);
-  const month = m && SPANISH_MONTHS[m[1]];
-  const cellDate = month && m ? plausibleCivilDate(`${m[3]}-${month}-${m[2].padStart(2,'0')}`) : null;
-  return sourceDate && sourceDate === resolvedDate && sourceDate === cellDate ? sourceDate : null;
-}
+export { attributedPPRowAutoDate } from './ppDateRoles.ts';
 
-/** A modern PP response carries the separate roles even when one is unknown. */
+/** Kept for callers: role resolution now lives in toCanonicalPubRow, so this
+ * is the same row the adapter, bridge and mapper produce for the payload. */
 export function ppExplicitPublicationDates(unit: ProviderPubUnit, ctx: CanonicalPubContext): CanonicalPubRow {
-  const row = toCanonicalPubRow(unit, ctx);
-  if (row.source !== 'publicaciones') return row;
-  const raw = unit.raw_data ?? {};
-  const estado = raw.estado as Record<string, unknown> | undefined;
-  const civil = (value: unknown) => typeof value === 'string'
-    ? plausibleCivilDate(parseDate(value)) : null;
-  const portal = civil(estado?.fecha_publicacion_portal);
-  const fijacion = civil(estado?.fecha_fijacion_impresa);
-  const providencia = civil(raw.fecha_providencia_impresa) ?? attributedPPRowAutoDate(raw, ctx.source_radicado);
-  const explicitRoles = !!estado && Object.hasOwn(estado, 'fecha_publicacion_portal');
-  if (!explicitRoles && !portal && !fijacion && !providencia) return row;
-  const noon = (date: string) => new Date(`${date}T12:00:00Z`).toISOString();
-  if (portal || explicitRoles) row.published_at = portal ? noon(portal) : null;
-  if (fijacion || explicitRoles) row.fecha_fijacion = fijacion ? noon(fijacion) : null;
-  if (providencia || explicitRoles) row.fecha_providencia = providencia ? noon(providencia) : null;
-  if (explicitRoles && !portal) {
-    row.date_source = 'inferred_sync';
-    row.date_confidence = 'low';
-  }
-  row.hash_fingerprint = canonicalPubIdentityFromRow(row, ctx.work_item_id);
-  return row;
+  return toCanonicalPubRow(unit, ctx);
 }
 
 /** Binding to the first 21 digits alone cannot prove the source instance. */
 export function ppPublicationAttributionConflict(unit: ProviderPubUnit, requested: string | null): boolean {
   const attribution = unit.raw_data?.documento_atribucion as Record<string, unknown> | undefined;
   if (!attribution) return false;
-  if (attribution.asociacion_no_acreditada === true) return true;
+  if (hasUnaccreditedAssociationFlag(attribution.asociacion_no_acreditada)) return true;
   const declared = attribution.radicado;
   return typeof declared === 'string' && /^\d{23}$/.test(declared) &&
     (!requested || declared !== requested);
@@ -123,7 +79,7 @@ export function officialStateReplay(row: CanonicalPubRow, candidates: OfficialSt
       (row.fecha_providencia != null && old.fecha_providencia?.slice(0,10) !== row.fecha_providencia.slice(0,10)) ||
       !unit.estado_numero || stored.estado_numero !== unit.estado_numero ||
       String(rec.article_id) !== article || attribution?.radicado !== radicado ||
-      attribution.asociacion_no_acreditada || !Array.isArray(attribution.originales)) return null;
+      hasUnaccreditedAssociationFlag(attribution.asociacion_no_acreditada) || !Array.isArray(attribution.originales)) return null;
 
   const url = rec.url, sha = rec.sha256, archive = raw.gcs_url_pdf_estado;
   const source = typeof url === 'string' ? URL.parse(url) : null;

@@ -13,6 +13,7 @@
  * This adapter does NOT persist data — it returns normalized results only.
  */
 
+import { resolvePPDateRoles } from '../ppDateRoles.ts';
 import { publicSnapshotIncomplete } from '../publicSnapshotFreshness.ts';
 import type {
   NormalizedPublicacion,
@@ -373,13 +374,18 @@ function normalizeOnePublicacion(
     },
   );
   const fingerprint = canonicalRow.hash_fingerprint;
+  // Modern PP payloads: the legal fixation is the canonical printed role
+  // (NULL → '' when unknown), never the portal/article date of the cascade.
+  const modernRoles = canonicalRow.source === 'publicaciones' &&
+    resolvePPDateRoles(unit.raw_data, (options as any)?.radicado ?? null) !== null;
+  const fijacionOut = modernRoles ? (canonicalRow.fecha_fijacion?.slice(0, 10) ?? '') : (fecha || '');
 
   if (!fecha && !title) return null;
 
   return {
     title: title || tipo,
     tipo_publicacion: tipo,
-    fecha_fijacion: fecha || '',
+    fecha_fijacion: fijacionOut,
     fecha_desfijacion: normalizeDate(p.fecha_desfijacion ?? p.fechaDesfijacion) || undefined,
     hash_fingerprint: fingerprint,
     source_platform: PROVIDER_KEY,

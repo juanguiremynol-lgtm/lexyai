@@ -1,4 +1,5 @@
 import { parseDate, plausibleCivilDate } from './canonicalPublicacionMapper.ts';
+import { hasUnaccreditedAssociationFlag } from './ppDateRoles.ts';
 import { durableVerdict, matchingCompletedHistory } from './ppDurableContract.ts';
 
 export type HistoricalWindow = { backend_run_id:string; desde:string; hasta:string };
@@ -20,7 +21,7 @@ export function parseHistoricalWindow(value: unknown, now = Date.now()): Histori
 
 function attributed(row: any, radicado: string): boolean {
   const a = row?.documento_atribucion;
-  if (!a || a.radicado !== radicado || a.asociacion_no_acreditada) return false;
+  if (!a || a.radicado !== radicado || hasUnaccreditedAssociationFlag(a.asociacion_no_acreditada)) return false;
   const article = String(row?.estado?.article_id ?? '');
   if (!/^\d+$/.test(article)) return false;
   const f = a.fila_estado;

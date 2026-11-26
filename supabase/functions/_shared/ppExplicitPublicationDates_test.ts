@@ -23,7 +23,9 @@ Deno.test('PP preserves portal 21, printed fixation 22 and printed order 20 sepa
   assertEquals(row.fecha_providencia?.slice(0, 10), '2026-10-20');
   assertEquals((row.raw_data as typeof unit).raw_data, raw);
   assertEquals(publicationDownloadUrls(unit), ['https://example.test/package.pdf']);
-  const old = toCanonicalPubRow(unit, ctx);
+  // A row stored under the pre-role legacy semantics for the same article.
+  const old = toCanonicalPubRow(explodeProviderPublicaciones({ actuaciones: [legacy] })[0], ctx);
+  assertEquals(toCanonicalPubRow(unit, ctx), row);
   assertEquals(conflictingPPNativeRows(row, [{ id: 'old-reference', raw_data: old.raw_data,
     tipo_publicacion: old.tipo_publicacion, hash_fingerprint: old.hash_fingerprint }]), ['old-reference']);
   assertEquals(conflictingPPNativeRows(row, [{ id: 'same', raw_data: row.raw_data,

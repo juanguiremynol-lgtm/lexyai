@@ -258,3 +258,5 @@ Pendientes de plataforma (no trabajo jurídico):
 - [ ] Panel de la app con el estado de la petición (las alertas ya salen en el centro de alertas)
 - [ ] Prueba real desde ChatGPT tras publicar
 - [x] 2026-11-25 Evaluador de alertas: p_metadata como objeto y contadores honestos (docs/auditoria-conciliacion-20261125-alertas.md); confirmar corrida 12:40 UTC
+- [x] 2026-11-25 Conciliación parte 2: parches PP fecha/huella y atribución; informe + addendum en docs/auditoria-conciliacion-20261125.md; guía CODEX en docs/codex-gcs-instrucciones-20261125.md
+- [ ] Recuperación nativa de casos candidatos (Olga estado 154, COVIN, Civil Mpal 2, 3 actuaciones) — depende de GCS/CODEX
